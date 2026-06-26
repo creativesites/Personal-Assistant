@@ -2,10 +2,11 @@
   "name": "zuri",
   "private": true,
   "version": "0.0.1",
-  "packageManager": "pnpm@9.15.4",
-  "engines": {
-    "node": "20.x"
-  },
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
