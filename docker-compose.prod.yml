@@ -39,6 +39,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PORT: 3000
       WHATSAPP_SERVICE_URL: http://whatsapp:3001
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -94,11 +96,9 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "5500:5500"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
     restart: unless-stopped

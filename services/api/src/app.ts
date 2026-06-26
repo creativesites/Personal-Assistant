@@ -16,8 +16,15 @@ export async function buildApp() {
     logger: config.NODE_ENV !== 'test',
   });
 
+  const corsOrigin: string | string[] | boolean =
+    config.NODE_ENV === 'development'
+      ? true
+      : config.CORS_ORIGIN
+        ? config.CORS_ORIGIN.split(',').map((o) => o.trim())
+        : true;
+
   await fastify.register(cors, {
-    origin: config.NODE_ENV === 'development',
+    origin: corsOrigin,
     credentials: true,
   });
 
