@@ -2,6 +2,7 @@
   "name": "zuri",
   "private": true,
   "version": "0.0.1",
+  "packageManager": "npm@10.9.7",
   "workspaces": [
     "apps/web",
     "services/*",
