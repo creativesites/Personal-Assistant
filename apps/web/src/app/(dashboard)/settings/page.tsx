@@ -1,9 +1,9 @@
 'use client'
 
-import { useSession } from 'next-auth/react'
+import { useZuriSession } from '@/hooks/use-zuri-session'
 
 export default function SettingsPage() {
-  const { data: session } = useSession()
+  const { data: session } = useZuriSession()
 
   return (
     <div className="flex flex-col h-full">

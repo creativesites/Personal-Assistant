@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useSession } from 'next-auth/react'
+import { useZuriSession } from '@/hooks/use-zuri-session'
+import { useClerk } from '@clerk/nextjs'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { signOut } from 'next-auth/react'
 
 const NAV_ITEMS = [
   { href: '/inbox', label: 'Inbox' },
@@ -14,7 +14,8 @@ const NAV_ITEMS = [
 ] as const
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession()
+  const { data: session, status } = useZuriSession()
+  const { signOut } = useClerk()
   const pathname = usePathname()
   const router = useRouter()
 
@@ -68,7 +69,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             Connect WhatsApp
           </Link>
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={() => signOut(() => router.push('/login'))}
             className="w-full flex items-center px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors text-left"
           >
             Sign out
