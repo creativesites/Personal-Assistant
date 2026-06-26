@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 
 interface ContactRelationship {
@@ -22,8 +22,7 @@ interface Contact {
 }
 
 function HealthBar({ score }: { score: number }) {
-  const color =
-    score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-amber-400' : 'bg-red-400'
+  const color = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-amber-400' : 'bg-red-400'
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 bg-gray-100 rounded-full h-1.5">
@@ -36,8 +35,7 @@ function HealthBar({ score }: { score: number }) {
 
 function formatLastSeen(ts: string | null) {
   if (!ts) return 'Never'
-  const d = new Date(ts)
-  const diffDays = Math.floor((Date.now() - d.getTime()) / 86400000)
+  const diffDays = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
   if (diffDays === 0) return 'Today'
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 30) return `${diffDays}d ago`
@@ -47,29 +45,25 @@ function formatLastSeen(ts: string | null) {
 const TIER_LABELS = ['', 'Critical', 'High', 'Medium', 'Low', 'Minimal'] as const
 
 export default function RelationshipsPage() {
-  const { data: session } = useSession()
+  const session = useZuriSession()
+  const token = session.data?.accessToken
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Contact | null>(null)
   const [filter, setFilter] = useState<string>('all')
 
   useEffect(() => {
-    if (!session?.accessToken) return
-    apiClient<{ contacts: Contact[] }>('/api/contacts', { token: session.accessToken }).then(
-      (data) => {
-        setContacts(data.contacts)
-        setLoading(false)
-      },
-    )
-  }, [session?.accessToken])
+    if (!token) return
+    apiClient<{ contacts: Contact[] }>('/api/contacts', { token }).then((data) => {
+      setContacts(data.contacts)
+      setLoading(false)
+    })
+  }, [token])
 
-  const filtered = filter === 'all' ? contacts : contacts.filter(
-    (c) => c.relationship.type === filter,
-  )
-
+  const filtered = filter === 'all' ? contacts : contacts.filter((c) => c.relationship.type === filter)
   const uniqueTypes = [...new Set(contacts.map((c) => c.relationship.type))]
 
-  if (loading) {
+  if (session.status === 'loading' || loading) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-gray-400">Loading relationships...</p>
@@ -89,9 +83,7 @@ export default function RelationshipsPage() {
           >
             <option value="all">All types</option>
             {uniqueTypes.map((t) => (
-              <option key={t} value={t}>
-                {t.replace(/_/g, ' ')}
-              </option>
+              <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
             ))}
           </select>
         </div>
@@ -118,24 +110,17 @@ export default function RelationshipsPage() {
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900 text-sm truncate">{contact.name}</p>
                       <p className="text-xs text-gray-500 capitalize">
-                        {contact.relationship.type.replace(/_/g, ' ')} ·{' '}
-                        {TIER_LABELS[contact.relationship.importanceTier]}
+                        {contact.relationship.type.replace(/_/g, ' ')} · {TIER_LABELS[contact.relationship.importanceTier]}
                       </p>
                     </div>
                   </div>
-
                   <HealthBar score={contact.relationship.healthScore} />
-
                   <div className="flex items-center justify-between mt-2">
-                    <span
-                      className={`text-xs ${
-                        contact.relationship.healthTrend === 'improving'
-                          ? 'text-green-600'
-                          : contact.relationship.healthTrend === 'declining'
-                          ? 'text-red-500'
-                          : 'text-gray-400'
-                      }`}
-                    >
+                    <span className={`text-xs ${
+                      contact.relationship.healthTrend === 'improving' ? 'text-green-600'
+                      : contact.relationship.healthTrend === 'declining' ? 'text-red-500'
+                      : 'text-gray-400'
+                    }`}>
                       {contact.relationship.healthTrend}
                     </span>
                     <span className="text-xs text-gray-400">

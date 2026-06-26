@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useSession } from 'next-auth/react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { signOut } from 'next-auth/react'
+import { useClerk } from '@clerk/nextjs'
+import { useZuriSession } from '@/hooks/use-zuri-session'
 
 const NAV_ITEMS = [
   { href: '/inbox', label: 'Inbox' },
@@ -14,17 +13,11 @@ const NAV_ITEMS = [
 ] as const
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession()
+  const session = useZuriSession()
   const pathname = usePathname()
-  const router = useRouter()
+  const { signOut } = useClerk()
 
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.replace('/login')
-    }
-  }, [status, router])
-
-  if (status === 'loading') {
+  if (session.status === 'loading') {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="text-sm text-gray-400">Loading...</div>
@@ -32,7 +25,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )
   }
 
-  if (!session) return null
+  if (session.status === 'unauthenticated') return null
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -68,12 +61,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             Connect WhatsApp
           </Link>
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
+            onClick={() => signOut({ redirectUrl: '/login' })}
             className="w-full flex items-center px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors text-left"
           >
             Sign out
           </button>
-          <p className="px-3 py-1 text-xs text-gray-600 truncate">{session.user?.email}</p>
+          <p className="px-3 py-1 text-xs text-gray-600 truncate">{session.data?.user.email}</p>
         </div>
       </aside>
 
