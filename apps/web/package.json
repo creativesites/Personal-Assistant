@@ -13,9 +13,11 @@
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next-auth": "^5.0.0",
+    "@clerk/nextjs": "^6.0.0",
+    "@supabase/supabase-js": "^2.49.0",
+    "@supabase/ssr": "^0.6.0",
     "socket.io-client": "^4.8.0",
-    "@zuri/types": "workspace:*"
+    "@zuri/types": "file:../../packages/shared-types"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

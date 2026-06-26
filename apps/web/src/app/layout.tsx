@@ -2,6 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { Providers } from '@/providers'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Zuri — Relationship Intelligence',
   description: 'Your AI-powered WhatsApp relationship co-pilot',
