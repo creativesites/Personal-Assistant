@@ -145,6 +145,44 @@ npm run lint
 
 ---
 
+## Production Infrastructure
+
+| Resource | Value |
+|----------|-------|
+| ECS server (Alibaba Cloud) | `47.84.205.81` |
+| API public port | `5500` (nginx proxies → api:3000) |
+| Web app | https://zuri-personal-assistant-delta.vercel.app |
+| Database | Supabase PostgreSQL (NOT local — see `.env` on server) |
+| Redis | Local Docker container on ECS |
+| Docker Compose file | `docker-compose.prod.yml` (no postgres container — uses Supabase) |
+
+**Production `.env` location:** `/opt/zuri/.env`
+
+Required keys in production `.env`:
+```
+DATABASE_URL=      # Supabase connection string
+REDIS_PASSWORD=    # for the local Redis container
+JWT_SECRET=        # min 64 chars
+INTERNAL_API_SECRET=   # shared with Vercel — 98c2ba10361bc6678f860c7b53d953ff
+CORS_ORIGIN=https://zuri-personal-assistant-delta.vercel.app
+GOOGLE_AI_API_KEY=     # Gemini API key
+DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
+```
+
+**CRITICAL — LiteLLM model naming:** All Gemini model names **must** use the `gemini/` prefix.
+- ✅ `gemini/gemini-3.5-flash` ← use this
+- ❌ `gemini-3.5-flash` ← LiteLLM will not find it
+- ❌ `gemini-2.0-flash` ← wrong model AND wrong format
+
+**Vercel environment variables** (set in Vercel dashboard):
+```
+NEXT_PUBLIC_API_URL=http://47.84.205.81:5500
+API_URL=http://47.84.205.81:5500
+INTERNAL_API_SECRET=98c2ba10361bc6678f860c7b53d953ff
+```
+
+---
+
 ## Environment Variables
 
 Each service has its own `.env`. Never commit `.env` files. Copy from `.env.example` in each service directory.
@@ -152,7 +190,7 @@ Each service has its own `.env`. Never commit `.env` files. Copy from `.env.exam
 **Core variables:**
 
 ```bash
-# Database
+# Database (Supabase in prod, local postgres in dev)
 DATABASE_URL=postgresql://zuri:password@localhost:5432/zuri_dev
 
 # Redis
@@ -169,14 +207,17 @@ NEXT_PUBLIC_CLERK_SIGN_UP_URL=/register
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/inbox
 NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/inbox
 
-# Internal service security
+# Internal service security — MUST match on both Vercel and ECS
 INTERNAL_API_SECRET=          # shared between apps/web and services/api
-API_URL=http://localhost:3000  # used by apps/web server-side
+API_URL=http://localhost:3000  # used by apps/web server-side (Next.js API routes)
+NEXT_PUBLIC_API_URL=http://localhost:3000  # used by browser
 
-# AI Providers (intelligence service — set at least one)
+# AI Providers (intelligence service — Gemini is primary)
+# ALWAYS use gemini/ prefix with LiteLLM: gemini/gemini-3.5-flash
+GOOGLE_AI_API_KEY=
+DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
-GOOGLE_AI_API_KEY=
 
 # Web search (intelligence service — World Knowledge Engine)
 SERP_API_KEY=
@@ -257,19 +298,33 @@ Key design notes:
 
 ---
 
+## Auth Architecture
+
+Web app uses **Clerk** for SSO (no passwords). The flow:
+
+1. Browser signs in via Clerk → gets a Clerk session
+2. `useZuriSession` hook calls Next.js `/api/auth/clerk-sync` (server route)
+3. Next.js route calls backend `POST /api/auth/clerk-sync` with `X-Internal-Secret` header
+4. Backend finds-or-creates a `users` row by `clerk_user_id`, returns a Zuri JWT
+5. All subsequent API calls use that Zuri JWT as `Authorization: Bearer <token>`
+
+The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. It must match on both ends.
+
+---
+
 ## Current Status
 
-**Active phase:** Phase 3 — AI Intelligence Core
+**Active phases:** Phase 3 (AI Intelligence) + Phase 4 (Web Dashboard)
 
 | Phase | Status |
 |-------|--------|
 | 1 — Foundation | ✅ Complete |
 | 2 — WhatsApp Integration | ✅ Complete |
-| 3 — AI Intelligence Core | 🔄 Next to build |
-| 4 — Web Dashboard (full UI) | 🔄 Scaffold deployed; UI shells exist, no live data |
+| 3 — AI Intelligence Core | 🔄 Core pipeline done; voice model + context snapshots remaining |
+| 4 — Web Dashboard (full UI) | 🔄 All pages wired to live API; contact detail + inbox sidebar remaining |
 | 5 — Temporal Intelligence Engine | ⏳ Planned |
 | 6 — World Knowledge Engine | ⏳ Planned |
-| 7 — Production Deployment (ECS) | ⏳ Planned |
+| 7 — Production Deployment (ECS) | 🔄 Running on 47.84.205.81:5500 |
 | 8 — Autonomous Agent Engine | ⏳ Planned |
 | 9 — Business Intelligence Engine | ⏳ Planned |
 | 10 — Enterprise Features | ⏳ Planned |
@@ -277,14 +332,15 @@ Key design notes:
 | 12 — React Native Mobile | 🔄 Scaffold done |
 
 **What's been built:**
-- [x] Full monorepo scaffold (Turborepo + npm workspaces)
-- [x] Docker Compose local dev environment
-- [x] Database migrations (all 28 tables, 10 SQL files)
-- [x] API service (Fastify 5, JWT auth, all auth endpoints, companion relay endpoint)
-- [x] WhatsApp service (open-wa session manager, QR + link code, session persistence, watchdog, message ingestion)
-- [x] Intelligence service skeleton (FastAPI, health endpoint — engines not yet implemented)
-- [x] Next.js web app deployed to Vercel (Clerk auth, route protection, dashboard shell)
-- [x] Kotlin companion app (NotificationListenerService, API relay, secure token storage)
+- [x] Full monorepo scaffold (Turborepo + pnpm workspaces)
+- [x] Database: Supabase PostgreSQL, all migrations (0001–0011), pgvector
+- [x] API service: Fastify 5, JWT auth, Clerk-sync endpoint, all CRUD routes, Socket.io
+- [x] WhatsApp service: open-wa session manager, QR + link code, session persistence, message ingestion
+- [x] Intelligence service: message analyser, reply generator, contact profiler, health calculator, proactive engine, all BullMQ workers
+- [x] Redis pub/sub pipeline: intelligence → `suggestion:ready:{userId}` → API Socket.io → browser
+- [x] Next.js web app on Vercel: Clerk auth, inbox (live), relationships (live), proactive (live), onboarding
+- [x] Kotlin companion app (NotificationListenerService, API relay)
 - [x] React Native mobile scaffold (Expo, navigation, auth, typed API client)
+- [x] Production Docker Compose on ECS: api + whatsapp + intelligence + redis + nginx
 
 **What's next:** See `docs/NEXT_PHASE.md`.

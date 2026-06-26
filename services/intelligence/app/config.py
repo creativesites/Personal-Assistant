@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ''
     openai_api_key: str = ''
     google_ai_api_key: str = ''
-    default_ai_model: str = 'gemini/gemini-2.0-flash'
+    default_ai_model: str = 'gemini/gemini-3.5-flash'
     embedding_model: str = 'text-embedding-3-small'
 
 
