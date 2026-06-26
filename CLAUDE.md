@@ -4,7 +4,7 @@
 
 **Zuri** — an AI Relationship Operating System built on top of WhatsApp. It is not a chatbot or auto-responder. It is a continuous, always-on intelligence layer that reads every conversation, builds living psychological profiles of contacts, reasons about relationship dynamics, surfaces proactive maintenance opportunities, and generates voice-matched reply drafts. The user stays in control; the AI advises, plans, and — in higher automation tiers — executes.
 
-Ten intelligence engines power the platform. See `docs/PRODUCT_VISION.md` for the full product specification.
+Twelve intelligence engines power the platform in three layers (Perception → Cognition → Execution). See `docs/PRODUCT_VISION.md` for the full product specification.
 
 **Target users:** Individuals managing personal networks · Freelancers and solopreneurs · SMBs doing customer engagement · Enterprise sales and support teams.
 
@@ -33,7 +33,7 @@ Working title: **Zuri** (placeholder — rename before launch).
 │   ├── ARCHITECTURE.md     System design, service communication, deployment
 │   ├── ROADMAP.md          Phased build plan and current status
 │   ├── SCHEMA.md           Database schema reference (28 tables, 8 domains)
-│   ├── PRODUCT_VISION.md   Full product spec — 10 engines, pricing, feature matrix
+│   ├── PRODUCT_VISION.md   Full product spec — 12 engines, pricing, feature matrix
 │   └── NEXT_PHASE.md       Concrete implementation plan for the current sprint
 ├── CLAUDE.md           ← you are here
 ├── README.md
@@ -86,7 +86,7 @@ One open-wa browser session per connected user.
 - On approved reply: consume `messages.send` → call open-wa
 
 ### `services/intelligence` — Python AI Service
-All AI inference lives here. Houses all 10 intelligence engines.
+All AI inference lives here. Houses all 12 intelligence engines in three layers.
 
 - Port: `8000` (dev, internal only)
 - LiteLLM for provider-agnostic model calls (Anthropic, OpenAI, Google, etc.)
@@ -210,7 +210,7 @@ Browser / Mobile App
     │         │  WhatsApp    │    │  Intelligence       │
     │         │  Service     │    │  Service            │
     │         │  (Node.js)   │    │  (Python)           │
-    │         │  open-wa     │    │  10 engines         │
+    │         │  open-wa     │    │  12 engines         │
     │         └──────────────┘    │  Web search tools   │
     │                             └─────────────────────┘
     │                                        │

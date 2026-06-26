@@ -8,7 +8,7 @@
 
 Zuri is not a chatbot. It is not a CRM. It is an **AI operating system for relationships** built on top of WhatsApp.
 
-Ten intelligence engines work continuously in the background:
+Twelve intelligence engines work continuously in the background:
 
 | Engine | What It Does |
 |--------|-------------|
@@ -22,6 +22,8 @@ Ten intelligence engines work continuously in the background:
 | **Business Intelligence** | Funnel analytics, agent performance, revenue attribution, proactive impact reporting |
 | **Automation Engine** | Visual workflow builder for complex multi-step conversation automations |
 | **Multi-Channel** | (Roadmap) Unified relationship view across WhatsApp, Instagram, Telegram, Email, and more |
+| **Governance & Privacy** | AI Memory Explorer, per-contact privacy levels, explainability, data control center |
+| **Learning & Optimization** | Learns from accepted/rejected suggestions to improve timing, tone, and model routing |
 
 **Core experience:**
 - Voice-matched reply suggestions that sound like you, not a bot

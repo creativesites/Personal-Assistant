@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { updateSession } from '@/utils/supabase/middleware'
 
 const isPublicRoute = createRouteMatcher([
   '/login(.*)',
@@ -7,6 +8,9 @@ const isPublicRoute = createRouteMatcher([
 ])
 
 export default clerkMiddleware(async (auth, request) => {
+  // Refresh Supabase session cookies on every request
+  updateSession(request)
+
   if (!isPublicRoute(request)) {
     await auth.protect()
   }
