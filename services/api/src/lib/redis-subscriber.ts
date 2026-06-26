@@ -10,17 +10,8 @@ export const redisSub = new Redis(config.REDIS_URL, {
   lazyConnect: true,
 });
 
-const WA_EVENTS = [
-  'whatsapp:qr',
-  'whatsapp:link_code',
-  'whatsapp:connected',
-  'whatsapp:disconnected',
-  'whatsapp:error',
-  'message:new',
-] as const;
-
 export function startRedisSubscriber(io: Server): void {
-  redisSub.psubscribe('whatsapp:*', 'message:new:*', (err) => {
+  redisSub.psubscribe('whatsapp:*', 'message:new:*', 'suggestion:ready:*', (err) => {
     if (err) console.error('Redis psubscribe error:', err);
   });
 
@@ -31,7 +22,7 @@ export function startRedisSubscriber(io: Server): void {
 
     const userId = parts[parts.length - 1];
     // event = everything except the last segment
-    const eventType = parts.slice(0, parts.length - 1).join(':') as typeof WA_EVENTS[number];
+    const eventType = parts.slice(0, parts.length - 1).join(':');
 
     io.to(`user:${userId}`).emit(eventType, payload);
   });

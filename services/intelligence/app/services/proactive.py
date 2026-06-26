@@ -105,6 +105,7 @@ class ProactiveService:
 
             prompt = GENERATE_PROACTIVE_SUGGESTION.format(
                 user_name=user_name,
+                contact_name=c['contact_name'],
                 relationship_type=c['relationship_type'],
                 importance_tier=str(c['importance_tier']),
                 health_score=c['health_score'],

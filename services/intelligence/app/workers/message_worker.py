@@ -1,5 +1,5 @@
 import structlog
-from bullmq import Worker
+from bullmq import Worker, Queue
 from ..database import get_pool
 from ..queue import redis_conn_opts
 from ..services.analyser import MessageAnalyser
@@ -13,7 +13,9 @@ _analyser = MessageAnalyser()
 _reply_gen = ReplyGenerator()
 _extractor = EventExtractor()
 _health_svc = RelationshipHealthService()
-_msg_counter: dict[str, int] = {}  # tracks messages per contact for debounced health recalc
+_msg_counter: dict[str, int] = {}
+
+_profile_queue = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
 
 
 async def _process(job, token: str):
@@ -50,11 +52,17 @@ async def _process(job, token: str):
                 analysis=analysis,
             )
 
-    # Recalculate health every 5 messages per contact (debounced)
     key = f'{user_id}:{contact_id}'
-    _msg_counter[key] = _msg_counter.get(key, 0) + 1
-    if _msg_counter[key] % 5 == 0:
+    count = _msg_counter.get(key, 0) + 1
+    _msg_counter[key] = count
+
+    # Recalculate health every 5 messages per contact
+    if count % 5 == 0:
         await _health_svc.recalculate(contact_id, user_id)
+
+    # Trigger contact profile rebuild: first message and every 10 thereafter
+    if count == 1 or count % 10 == 0:
+        await _profile_queue.add('profile', {'contactId': contact_id, 'userId': user_id})
 
     log.info('message_processed', message_id=message_id, requires_response=analysis.requires_response)
     return {'ok': True}

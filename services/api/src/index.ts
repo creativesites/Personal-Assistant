@@ -19,7 +19,7 @@ async function main() {
   // listen() must come before Socket.io setup — fastify.server is only bound after listen
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
 
-  const io = setupSocket(app.server);
+  const io = setupSocket(app.server, (token) => app.jwt.verify<{ userId: string }>(token));
   app.log.info('Socket.io initialised');
 
   await redisSub.connect();

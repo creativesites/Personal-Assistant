@@ -4,6 +4,7 @@ from fastapi import FastAPI
 import structlog
 
 from .database import get_pool, close_pool
+from .queue import close_redis_publisher
 from .routes.health import router as health_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
     await proactive_worker.close()
     logger.info('workers_stopped')
 
+    await close_redis_publisher()
     await close_pool()
     logger.info('database_closed')
 

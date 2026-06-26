@@ -1,8 +1,10 @@
+import json
 import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_REPLIES
 from ..database import get_pool
 from ..models import MessageAnalysis, ReplySuggestions
+from ..queue import publish_event
 
 log = structlog.get_logger()
 
@@ -108,4 +110,10 @@ class ReplyGenerator:
                 )
 
         log.info('replies_generated', message_id=message_id, count=len(suggestions_model.suggestions))
+
+        await publish_event(
+            f'suggestion:ready:{user_id}',
+            json.dumps({'messageId': message_id, 'count': len(suggestions_model.suggestions)}),
+        )
+
         return [s.model_dump() for s in suggestions_model.suggestions]
