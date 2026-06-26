@@ -67,7 +67,7 @@ export default function RelationshipsPage() {
     (c) => c.relationship.type === filter,
   )
 
-  const uniqueTypes = [...new Set(contacts.map((c) => c.relationship.type))]
+  const uniqueTypes = Array.from(new Set(contacts.map((c) => c.relationship.type)))
 
   if (loading) {
     return (
