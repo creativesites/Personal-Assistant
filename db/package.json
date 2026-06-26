@@ -1,0 +1,13 @@
+{
+  "name": "@zuri/db",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "migrate": "node migrate.js",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "pg": "^8.13.0"
+  }
+}

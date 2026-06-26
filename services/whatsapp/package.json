@@ -1,0 +1,29 @@
+{
+  "name": "whatsapp",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format cjs --out-dir dist",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
+    "@zuri/types": "workspace:*",
+    "bullmq": "^5.38.0",
+    "dotenv": "^16.4.0",
+    "fastify": "^5.2.0",
+    "ioredis": "^5.4.0",
+    "pg": "^8.13.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
