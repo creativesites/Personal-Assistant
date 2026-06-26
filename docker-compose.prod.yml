@@ -85,7 +85,7 @@ services:
   nginx:
     image: nginx:1.27-alpine
     ports:
-      - "80:80"
+      - "5500:5500"
     volumes:
       - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:
