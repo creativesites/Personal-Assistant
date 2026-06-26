@@ -1,0 +1,98 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
+# Allow examples
+!.env.example
+
+# Database
+*.sql.bak
+db/data/
+
+# open-wa session data (contains auth tokens)
+services/whatsapp/sessions/
+*.json.bak
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# Editor
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Docker volumes (local)
+.docker/
+
+# Test coverage
+coverage/
+.nyc_output/
+htmlcov/
+
+# TypeScript
+*.tsbuildinfo
+
+# Expo / React Native
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+android/
+ios/
+web-build/
+
+# Kotlin / Android build
+apps/companion/build/
+apps/companion/.gradle/
+apps/companion/local.properties
+*.apk
+*.aab
+
+# Certificates
+*.pem
+*.crt
