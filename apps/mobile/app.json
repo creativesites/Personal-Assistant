@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Zuri",
+    "slug": "zuri",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6200EE"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.zuri.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6200EE"
+      },
+      "package": "com.zuri.app"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}
