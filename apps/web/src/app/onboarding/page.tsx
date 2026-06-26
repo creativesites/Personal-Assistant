@@ -48,7 +48,7 @@ export default function OnboardingPage() {
       // Mark onboarding complete
       await apiClient('/api/auth/onboarding-complete', {
         method: 'POST',
-        token: session.accessToken,
+        token: session.accessToken ?? undefined,
       }).catch(() => {})
       setTimeout(() => router.push('/inbox'), 1500)
     })
@@ -81,7 +81,7 @@ export default function OnboardingPage() {
     try {
       await apiClient('/api/whatsapp/connect', {
         method: 'POST',
-        token: session.accessToken,
+        token: session.accessToken ?? undefined,
       })
     } catch (err: any) {
       setError(err.message || 'Failed to start connection')

@@ -36,49 +36,56 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!session) return null
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <aside className="w-52 bg-gray-900 flex flex-col shrink-0">
-        <div className="h-14 flex items-center px-5 border-b border-gray-800">
-          <span className="text-white font-semibold tracking-tight">Zuri</span>
+    <div className="flex h-screen overflow-hidden flex-col">
+      {session.syncFailed && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700 text-center">
+          Backend API not reachable — live data unavailable. UI is in preview mode.
         </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
+        <aside className="w-52 bg-gray-900 flex flex-col shrink-0">
+          <div className="h-14 flex items-center px-5 border-b border-gray-800">
+            <span className="text-white font-semibold tracking-tight">Zuri</span>
+          </div>
 
-        <nav className="flex-1 p-3 space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            const active = pathname.startsWith(item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors ${
-                  active
-                    ? 'bg-indigo-600 text-white font-medium'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                }`}
-              >
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+          <nav className="flex-1 p-3 space-y-0.5">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname.startsWith(item.href)
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center px-3 py-2 rounded-lg text-sm transition-colors ${
+                    active
+                      ? 'bg-indigo-600 text-white font-medium'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
 
-        <div className="p-3 border-t border-gray-800 space-y-1">
-          <Link
-            href="/onboarding"
-            className="flex items-center px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-          >
-            Connect WhatsApp
-          </Link>
-          <button
-            onClick={() => signOut(() => router.push('/login'))}
-            className="w-full flex items-center px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors text-left"
-          >
-            Sign out
-          </button>
-          <p className="px-3 py-1 text-xs text-gray-600 truncate">{session.user?.email}</p>
-        </div>
-      </aside>
+          <div className="p-3 border-t border-gray-800 space-y-1">
+            <Link
+              href="/onboarding"
+              className="flex items-center px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            >
+              Connect WhatsApp
+            </Link>
+            <button
+              onClick={() => signOut(() => router.push('/login'))}
+              className="w-full flex items-center px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors text-left"
+            >
+              Sign out
+            </button>
+            <p className="px-3 py-1 text-xs text-gray-600 truncate">{session.user?.email}</p>
+          </div>
+        </aside>
 
-      <main className="flex-1 overflow-auto bg-gray-50">{children}</main>
+        <main className="flex-1 overflow-auto bg-gray-50">{children}</main>
+      </div>
     </div>
   )
 }
