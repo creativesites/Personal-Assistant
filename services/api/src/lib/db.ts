@@ -1,7 +1,10 @@
 import { Pool } from 'pg';
 import { config } from '../config';
 
-export const db = new Pool({ connectionString: config.DATABASE_URL });
+export const db = new Pool({
+  connectionString: config.DATABASE_URL,
+  ssl: config.DATABASE_URL.includes('supabase.com') ? { rejectUnauthorized: false } : false,
+});
 
 export async function connectDb(): Promise<void> {
   const client = await db.connect();
