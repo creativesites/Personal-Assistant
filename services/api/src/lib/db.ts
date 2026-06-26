@@ -1,5 +1,9 @@
+import dns from 'dns';
 import { Pool } from 'pg';
 import { config } from '../config';
+
+// Supabase resolves to IPv6 on some hosts; force IPv4 to avoid ENETUNREACH
+dns.setDefaultResultOrder('ipv4first');
 
 export const db = new Pool({ connectionString: config.DATABASE_URL });
 
