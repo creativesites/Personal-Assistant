@@ -4,7 +4,17 @@ import { config } from '../config';
 export const db = new Pool({ connectionString: config.DATABASE_URL });
 
 export async function connectDb(): Promise<void> {
-  const client = await db.connect();
-  await client.query('SELECT 1');
-  client.release();
+  const maxAttempts = 10;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const client = await db.connect();
+      await client.query('SELECT 1');
+      client.release();
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts) throw err;
+      const delay = Math.min(1000 * attempt, 10000);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
 }
