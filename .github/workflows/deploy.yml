@@ -1,0 +1,78 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-backend:
+    name: Deploy backend to ECS
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_KEY }}
+          port: ${{ secrets.ECS_PORT || 22 }}
+          script: |
+            set -e
+            cd /opt/zuri
+
+            # Pull latest code
+            git pull origin main
+
+            # Write .env from GitHub secret
+            echo "${{ secrets.PROD_ENV }}" > .env.prod
+
+            # Run database migrations
+            docker compose -f docker-compose.prod.yml run --rm api \
+              node -e "require('./services/api/dist/lib/migrate').migrate()"
+
+            # Build and restart services (rolling restart)
+            docker compose -f docker-compose.prod.yml build --no-cache api intelligence
+
+            docker compose -f docker-compose.prod.yml up -d \
+              --no-deps --force-recreate api intelligence whatsapp
+
+            # Clean up old images
+            docker image prune -f
+
+            echo "Deployment complete"
+
+  deploy-web:
+    name: Deploy web to Vercel
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Deploy to Vercel
+        run: |
+          pnpm --filter web exec npx vercel \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --prod \
+            --yes
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

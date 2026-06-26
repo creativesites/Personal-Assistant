@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  node-checks:
+    name: Node.js lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build shared types
+        run: pnpm --filter @zuri/types build
+
+      - name: TypeScript typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+  python-checks:
+    name: Python lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint intelligence service
+        run: ruff check services/intelligence/
+
+  docker-build:
+    name: Docker build check
+    runs-on: ubuntu-latest
+    # Only run on push to main to save CI minutes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          push: false
+          tags: zuri/api:ci
+
+      - name: Build intelligence image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/intelligence/Dockerfile
+          push: false
+          tags: zuri/intelligence:ci
