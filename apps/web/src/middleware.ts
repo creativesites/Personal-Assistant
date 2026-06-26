@@ -12,7 +12,7 @@ export default clerkMiddleware(async (auth, request) => {
   updateSession(request)
 
   if (!isPublicRoute(request)) {
-    await auth.protect()
+    await auth.protect({ unauthenticatedUrl: new URL('/login', request.url).toString() })
   }
 })
 
