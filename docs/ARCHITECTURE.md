@@ -48,7 +48,7 @@ Zuri is a multi-service system. Each service has a single responsibility. They c
 ### API Server (`services/api`)
 The only service reachable from the internet (via nginx on ECS). All client traffic goes here.
 
-- **Auth**: JWT issuance and verification, NextAuth integration for web
+- **Auth**: Clerk JWT verification (web), JWT issuance/verification for API-only clients
 - **User management**: account, subscription, settings
 - **Conversation proxy**: clients read message/conversation data through here (from DB)
 - **Command routing**: client-approved replies → WhatsApp service; AI advisor queries → Intelligence service
@@ -69,16 +69,53 @@ Manages one open-wa browser session per connected user.
 Memory budget: ~350MB per active session. The session manager hibernates sessions idle for >2 hours to reclaim memory.
 
 ### Intelligence Service (`services/intelligence`)
-All AI inference and relationship analysis lives here.
+All AI inference and relationship analysis lives here. Structured around twelve engines in three layers.
 
-- **Message analysis**: consumes `messages.incoming` → runs sentiment, intent, entity extraction, importance scoring → writes `message_analyses`
-- **Suggestion generation**: generates reply candidates using persona + contact profile + context snapshot → writes `suggested_replies`
-- **Profile updates**: periodically updates `contact_profiles`, `contact_insights`, `user_communication_profiles`
-- **Context management**: trims raw message history into `context_snapshots` (with embeddings) when token count exceeds threshold
-- **Proactive engine**: daily cron — scans relationships for dormancy, upcoming events, unanswered promises → populates `proactive_queue`
-- **AI Advisor**: handles direct user ↔ AI conversations with full relationship context
+- **Message analysis**: consume `messages.incoming` → run full analysis pipeline → write `message_analyses`
+- **Suggestion generation**: build context from profiles + snapshots → generate 3 reply variants → write `suggested_replies`
+- **Profile management**: maintain `contact_profiles`, `contact_insights`, `user_communication_profiles`
+- **Context management**: compress message history into `context_snapshots` with embeddings
+- **Temporal engine**: per-relationship clocks, cadence deviation detection, proactive nudges
+- **World knowledge**: web search integration, news monitoring, interest-to-story matching
+- **Opportunity detection**: scan conversations for business and personal opportunities
+- **Autonomous agents**: sales/support/community manager agents with permission boundaries
+- **Governance**: AI Memory Explorer, privacy levels, explainability, audit log, data control center
+- **Learning**: optimise from outcomes — accepted/rejected suggestions, timing feedback, model routing
 
-Uses LiteLLM for all model calls — swap providers by changing a config value, not code.
+Uses LiteLLM for all model calls — swap providers by changing config, not code.
+
+---
+
+## The Twelve Intelligence Engines
+
+Each engine is a Python module under `services/intelligence/engines/`. They are self-contained: read from DB, write to DB, enqueue jobs. They do not call each other directly.
+
+### Layer 1 — Perception (Observe & Understand)
+
+| Engine | Responsibility | Key Outputs |
+|--------|---------------|-------------|
+| 1. Relationship Intelligence | Deep psychological profiling, living memory | `contact_profiles`, `contact_insights` |
+| 2. Temporal Intelligence | Per-relationship clocks, cadence deviation | `proactive_queue` (timing-triggered) |
+| 3. Opportunity Detection | Scan for personal + business opportunities | `proactive_queue` (opportunity-triggered) |
+| 4. World Knowledge | Web search, news, trends connected to contacts | `proactive_queue` (world-event-triggered) |
+
+### Layer 2 — Cognition (Reason & Plan)
+
+| Engine | Responsibility | Key Outputs |
+|--------|---------------|-------------|
+| 5. Conversation Strategy | Multi-step conversation planning, goal-oriented | `suggested_replies` with plan |
+| 7. Knowledge Engine | Business KB indexing, semantic Q&A | Agent context for responses |
+| 12. Learning & Optimization | Optimise from outcomes, model routing, A/B testing | Improved prompts, routing config |
+
+### Layer 3 — Execution (Act & Govern)
+
+| Engine | Responsibility | Key Outputs |
+|--------|---------------|-------------|
+| 6. Autonomous Agents | Sales/support/community agents with permissions | Outbound messages, escalations |
+| 8. Business Intelligence | Analytics, funnel tracking, revenue attribution | Metrics tables |
+| 9. Automation Engine | Visual workflow execution | Workflow step results |
+| 10. Multi-Channel | Future: normalise messages across channels | Unified message stream |
+| 11. Governance & Privacy | Memory control, audit log, explainability, data rights | Audit records, privacy settings |
 
 ---
 
@@ -95,22 +132,37 @@ The critical path from a raw WhatsApp message to a suggestion appearing on the u
         ↓
 3. Intelligence service picks up job
    a. Transcribe audio if message_type = audio  (Whisper API)
-   b. Run message_analyses (sentiment, intent, entities, importance)
-   c. Check if response is needed
-   d. If yes: pull contact_profile + latest context_snapshot
-   e. Generate suggested_reply (3 variants)
-   f. Write suggested_replies to DB
-   g. Push messages.suggestion_ready job
+   b. Run message_analyses (sentiment, intent, entities, importance, promises)
+   c. Generate and store message embedding (pgvector)
+   d. Check if response is needed
+   e. If yes: resolve persona, pull contact_profile + context_snapshot
+   f. Generate 3 suggested_reply variants (voice-matched)
+   g. Write suggested_replies to DB
+   h. Push messages.suggestion_ready job (HIGH priority)
         ↓
 4. API server picks up messages.suggestion_ready
    → emits suggestion:ready WebSocket event to user's room
         ↓
 5. Client receives event
-   → updates inbox in real time
-   → user sees message + suggested reply
+   → inbox updates in real time
+   → user sees message + 3 suggested replies with tone/reasoning
 ```
 
 Background jobs (profile updates, proactive queue generation, context trimming) run on LOW priority queues and are preempted by HIGH priority message jobs.
+
+---
+
+## Trust Engine (Cross-Cutting)
+
+Every relationship has a configurable autonomy level. This is not a separate service — it's a configuration layer checked by the Autonomous Agent Engine before taking any action.
+
+| Level | Name | Behavior |
+|-------|------|---------|
+| 0 | Observe | Analyse conversations. No actions. |
+| 1 | Suggest | Draft replies and proactive items. User always approves. (Default) |
+| 2 | Assisted | Auto-send routine low-stakes messages (acknowledgements). Confirm on anything substantive. |
+| 3 | Delegated | Handle FAQs, schedule meetings, follow up on invoices. Escalate exceptions. |
+| 4 | Autonomous | Full agent mode within defined permission boundaries. |
 
 ---
 
@@ -125,7 +177,10 @@ All queues run in Redis via BullMQ.
 | `messages.suggestion_ready` | HIGH | Intelligence service | API server |
 | `analysis.update_contact_profile` | LOW | Intelligence service | Intelligence service |
 | `analysis.trim_context` | LOW | Intelligence service (cron) | Intelligence service |
-| `proactive.generate_daily` | LOW | Cron (08:00 user TZ) | Intelligence service |
+| `temporal.clock_check` | LOW | Scheduler (every 15 min) | Intelligence service |
+| `temporal.nudge_generated` | MEDIUM | Intelligence service | API server |
+| `world.news_match` | LOW | Intelligence service (hourly) | Intelligence service |
+| `opportunity.detected` | MEDIUM | Intelligence service | API server |
 | `notifications.deliver` | MEDIUM | API server | API server |
 
 ---
@@ -202,6 +257,9 @@ No architectural changes needed for any of these steps — they're infrastructur
 - open-wa `session_data` encrypted at rest in the database
 - Internal services not exposed outside Docker network
 - API server validates JWT on every request
+- Clerk verifies session tokens for web app routes
+- `X-Internal-Secret` header secures Next.js → API server internal calls
 - Rate limiting on auth endpoints and AI advisor (cost protection)
 - Stripe webhook signature verification
 - Input validation on all API endpoints (Zod on Node.js, Pydantic on Python)
+- Audit log for all autonomous agent actions (required for enterprise tier)

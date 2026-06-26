@@ -2,9 +2,11 @@
 
 ## What This Project Is
 
-A WhatsApp AI Relationship Intelligence Platform. It is **not** a chatbot or auto-responder — it is a proactive relationship co-pilot that monitors WhatsApp conversations, builds deep psychological profiles of contacts, surfaces maintenance suggestions, and generates contextually accurate reply drafts that mirror the user's own voice. The user stays in control; the AI advises.
+**Zuri** — an AI Relationship Operating System built on top of WhatsApp. It is not a chatbot or auto-responder. It is a continuous, always-on intelligence layer that reads every conversation, builds living psychological profiles of contacts, reasons about relationship dynamics, surfaces proactive maintenance opportunities, and generates voice-matched reply drafts. The user stays in control; the AI advises, plans, and — in higher automation tiers — executes.
 
-Target users: individuals who want to maintain relationships better, and SMBs managing customer engagement.
+Twelve intelligence engines power the platform in three layers (Perception → Cognition → Execution). See `docs/PRODUCT_VISION.md` for the full product specification.
+
+**Target users:** Individuals managing personal networks · Freelancers and solopreneurs · SMBs doing customer engagement · Enterprise sales and support teams.
 
 Working title: **Zuri** (placeholder — rename before launch).
 
@@ -21,21 +23,23 @@ Working title: **Zuri** (placeholder — rename before launch).
 ├── services/
 │   ├── api/            Node.js (Fastify) — REST + WebSocket API server
 │   ├── whatsapp/       Node.js — open-wa session manager, one instance per user
-│   └── intelligence/   Python (FastAPI) — AI analysis, LiteLLM, context management
+│   └── intelligence/   Python (FastAPI) — all AI engines, LiteLLM, context management
 ├── packages/
 │   └── shared-types/   TypeScript types shared across Node.js services
 ├── db/
 │   ├── migrations/     PostgreSQL migrations (sequential, plain SQL)
 │   └── seeds/          Dev seed data
 ├── docs/
-│   ├── ARCHITECTURE.md Full technical architecture and decisions
-│   ├── ROADMAP.md      Phased build plan and current status
-│   └── SCHEMA.md       Database schema reference (28 tables, 8 domains)
+│   ├── ARCHITECTURE.md     System design, service communication, deployment
+│   ├── ROADMAP.md          Phased build plan and current status
+│   ├── SCHEMA.md           Database schema reference (28 tables, 8 domains)
+│   ├── PRODUCT_VISION.md   Full product spec — 12 engines, pricing, feature matrix
+│   └── NEXT_PHASE.md       Concrete implementation plan for the current sprint
 ├── CLAUDE.md           ← you are here
 ├── README.md
 ├── .gitignore
 ├── turbo.json          Turborepo pipeline config
-├── package.json        Root workspace manifest
+├── package.json        Root workspace manifest (npm workspaces)
 └── docker-compose.yml  Local dev infrastructure
 ```
 
@@ -49,15 +53,15 @@ Working title: **Zuri** (placeholder — rename before launch).
 | Mobile app | React Native + Expo (bare workflow) |
 | Companion app | Kotlin (Android) |
 | API server | Node.js + Fastify |
-| WhatsApp service | Node.js + @open-wa/wa-automate |
-| AI/analytics service | Python 3.12 + FastAPI + LiteLLM |
+| WhatsApp ingestion | Node.js + @open-wa/wa-automate |
+| AI / intelligence | Python 3.12 + FastAPI + LiteLLM |
 | Message queue | Redis 7 + BullMQ |
 | Real-time push | Socket.io (API server → web/mobile) |
 | Database | PostgreSQL 16 + pgvector extension |
-| ORM / migrations | Drizzle ORM (Node.js), raw SQL migrations |
-| Auth | NextAuth.js (web), JWT (API) |
+| Migrations | Raw SQL (sequential numbered files in `db/migrations/`) |
+| Auth | Clerk (web — `@clerk/nextjs`), JWT (API — `fastify-jwt`) |
 | Billing | Stripe |
-| Monorepo tooling | Turborepo + pnpm workspaces |
+| Monorepo tooling | Turborepo + npm workspaces |
 | Deployment | Alibaba Cloud ECS (Docker Compose) + Vercel (web) |
 | CI | GitHub Actions |
 
@@ -66,31 +70,38 @@ Working title: **Zuri** (placeholder — rename before launch).
 ## Services
 
 ### `services/api` — Node.js API Server
-The central hub. Handles auth, business logic, and real-time push to clients. All client requests (web and mobile) go here. Communicates with the `whatsapp` and `intelligence` services via BullMQ jobs and HTTP.
+The only internet-facing service (via nginx on ECS). All client traffic goes here.
 
 - Port: `3000` (dev)
 - WebSocket: same port via Socket.io
-- Key responsibilities: auth, user management, conversation CRUD, notification delivery, bridging queue results back to clients
+- Key responsibilities: auth, user management, conversation CRUD, notification delivery, routing commands to whatsapp/intelligence services
 
 ### `services/whatsapp` — open-wa Session Manager
-One open-wa instance per connected user. Manages QR authentication, session persistence, message ingestion, and outbound sends. On new message, fires a job onto the BullMQ `messages.incoming` queue. On approved reply, sends via the open-wa instance.
+One open-wa browser session per connected user.
 
-- Port: `3001` (dev, internal only — not exposed to clients)
+- Port: `3001` (dev, internal only)
 - Session data stored in `db/sessions/` (volume-mounted in Docker)
-- Memory: ~350MB per active user instance — monitor closely on ECS
+- Memory: ~350MB per active session — monitor on ECS
+- On new message: normalise → write to DB → push `messages.incoming` to queue
+- On approved reply: consume `messages.send` → call open-wa
 
 ### `services/intelligence` — Python AI Service
-Consumes jobs from `messages.incoming`, runs analysis, generates reply suggestions, manages contact profiles, context snapshots, and proactive queue population. Returns structured JSON results back via queue or HTTP callback.
+All AI inference lives here. Houses all 12 intelligence engines in three layers.
 
 - Port: `8000` (dev, internal only)
-- LiteLLM for provider-agnostic AI calls (Anthropic, OpenAI, Google, etc.)
-- pgvector queries for semantic context retrieval
+- LiteLLM for provider-agnostic model calls (Anthropic, OpenAI, Google, etc.)
+- pgvector for semantic context retrieval
+- Event-driven scheduling (relationship clocks) rather than a single daily cron
+- Web search tools for the World Knowledge Engine
 
 ### `apps/web` — Next.js SaaS Dashboard
-Full-featured product surface. Inbox, relationship map, proactive queue, AI advisor chat, calendar, settings, onboarding (QR flow), and billing. Connects to API server via REST and WebSocket.
+Full product surface. Inbox, relationships, proactive queue, AI advisor, calendar, onboarding (QR), settings, billing. Auth via Clerk.
 
 ### `apps/companion` — Kotlin Android App
-Silent background service. Reads WhatsApp notification content via `NotificationListenerService`, POSTs to API server as fallback when open-wa session is disconnected. Also used by mobile-only tier users.
+Background `NotificationListenerService`. Reads WhatsApp notifications, POSTs to `/api/companion/message`. Dual role: open-wa fallback + mobile-only tier enabler.
+
+### `apps/mobile` — React Native App (Expo)
+Mobile mirror of web dashboard. Lower priority — build after web is feature-complete.
 
 ---
 
@@ -100,32 +111,37 @@ Silent background service. Reads WhatsApp notification content via `Notification
 # Start local infrastructure (Postgres, Redis)
 docker compose up -d postgres redis
 
+# Install dependencies
+npm install --legacy-peer-deps
+
 # Start all services in development
-pnpm dev
+npm run dev
 
 # Start a single service
-pnpm --filter api dev
-pnpm --filter whatsapp dev
-pnpm --filter intelligence dev   # runs uvicorn with --reload
+npm run dev --workspace=services/api
+npm run dev --workspace=services/whatsapp
+npm run dev --workspace=services/intelligence   # runs uvicorn --reload
 
 # Run database migrations
-pnpm db:migrate
+npm run db:migrate
 
 # Seed development data
-pnpm db:seed
+npm run db:seed
 
 # Build all packages
-pnpm build
+npm run build
 
 # Run tests
-pnpm test
+npm run test
 
 # Type-check
-pnpm typecheck
+npm run typecheck
 
 # Lint
-pnpm lint
+npm run lint
 ```
+
+**Note:** This repo uses npm workspaces (not pnpm). `apps/mobile` is intentionally excluded from the root workspace to prevent React 18/19 conflicts — run `npm install` inside `apps/mobile` separately when doing mobile work.
 
 ---
 
@@ -133,26 +149,40 @@ pnpm lint
 
 Each service has its own `.env`. Never commit `.env` files. Copy from `.env.example` in each service directory.
 
-**Core variables across services:**
+**Core variables:**
 
-```
+```bash
 # Database
 DATABASE_URL=postgresql://zuri:password@localhost:5432/zuri_dev
 
 # Redis
 REDIS_URL=redis://localhost:6379
 
-# Auth
+# API auth
 JWT_SECRET=
-NEXTAUTH_SECRET=
-NEXTAUTH_URL=http://localhost:3000
+
+# Clerk (apps/web only)
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/login
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/register
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/inbox
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/inbox
+
+# Internal service security
+INTERNAL_API_SECRET=          # shared between apps/web and services/api
+API_URL=http://localhost:3000  # used by apps/web server-side
 
 # AI Providers (intelligence service — set at least one)
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 GOOGLE_AI_API_KEY=
 
-# Stripe (web + api)
+# Web search (intelligence service — World Knowledge Engine)
+SERP_API_KEY=
+TAVILY_API_KEY=
+
+# Stripe (apps/web + services/api)
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
@@ -160,7 +190,6 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 # Internal service URLs
 WHATSAPP_SERVICE_URL=http://localhost:3001
 INTELLIGENCE_SERVICE_URL=http://localhost:8000
-API_URL=http://localhost:3000
 ```
 
 ---
@@ -177,18 +206,26 @@ Browser / Mobile App
     │            BullMQ Queue           HTTP (internal)
     │            (Redis)                     │
     │                   │                    │
-    │         ┌─────────┴────┐    ┌──────────┴──────┐
-    │         │  WhatsApp    │    │  Intelligence   │
-    │         │  Service     │    │  Service        │
-    │         │  (Node.js)   │    │  (Python)       │
-    │         └──────────────┘    └─────────────────┘
-    │                   │                    │
-    └───────────────────┴────────────────────┘
+    │         ┌─────────┴────┐    ┌──────────┴──────────┐
+    │         │  WhatsApp    │    │  Intelligence       │
+    │         │  Service     │    │  Service            │
+    │         │  (Node.js)   │    │  (Python)           │
+    │         │  open-wa     │    │  12 engines         │
+    │         └──────────────┘    │  Web search tools   │
+    │                             └─────────────────────┘
+    │                                        │
+    └────────────────────────────────────────┘
                                  │
                         PostgreSQL + pgvector
+                        Redis (queue + cache)
+
+    ┌──────────────────┐
+    │ Kotlin Companion  │  ← Android background service
+    │ App               │  ← POSTs when open-wa is down
+    └──────────────────┘
 ```
 
-Message flow: WhatsApp → open-wa → `messages.incoming` queue → Intelligence service analyses → results written to DB → API server notified → WebSocket push to client.
+Message flow: WhatsApp → open-wa → `messages.incoming` queue → Intelligence service (analysis + suggestions) → DB write → `messages.suggestion_ready` job → API server → WebSocket push to client.
 
 ---
 
@@ -211,31 +248,43 @@ Key design notes:
 
 - **TypeScript** everywhere in Node.js services. Strict mode enabled.
 - **Shared types** live in `packages/shared-types` — queue job payloads, API response shapes, enum values. Import from `@zuri/types`.
-- **Queue job names** follow `domain.action` pattern: `messages.incoming`, `analysis.contact_profile`, `proactive.generate_daily`.
+- **Queue job names** follow `domain.action` pattern: `messages.incoming`, `analysis.contact_profile`, `temporal.check_relationship_clock`.
 - **Python**: use `ruff` for linting, `black` for formatting, `pydantic` for all data models.
-- **Migrations**: sequential numbered SQL files in `db/migrations/` — `0001_initial.sql`, `0002_add_pgvector.sql`, etc. Never edit an applied migration; add a new one.
+- **Migrations**: sequential numbered SQL files in `db/migrations/` — `0001_initial.sql`, etc. Never edit an applied migration; add a new one.
 - **No `console.log` in production paths** — use the logger (`pino` in Node.js, `structlog` in Python).
 - **Secrets**: never hardcode, always from environment.
+- **Engines**: each intelligence engine is a Python module under `services/intelligence/engines/`. Engines are self-contained — they read from DB, write to DB, and enqueue jobs. They do not call each other directly.
 
 ---
 
 ## Current Status
 
-- [x] Project documentation and architecture defined
-- [x] Database schema designed (28 tables)
-- [x] Monorepo scaffold (Turborepo + pnpm workspaces)
+**Active phase:** Phase 3 — AI Intelligence Core
+
+| Phase | Status |
+|-------|--------|
+| 1 — Foundation | ✅ Complete |
+| 2 — WhatsApp Integration | ✅ Complete |
+| 3 — AI Intelligence Core | 🔄 Next to build |
+| 4 — Web Dashboard (full UI) | 🔄 Scaffold deployed; UI shells exist, no live data |
+| 5 — Temporal Intelligence Engine | ⏳ Planned |
+| 6 — World Knowledge Engine | ⏳ Planned |
+| 7 — Production Deployment (ECS) | ⏳ Planned |
+| 8 — Autonomous Agent Engine | ⏳ Planned |
+| 9 — Business Intelligence Engine | ⏳ Planned |
+| 10 — Enterprise Features | ⏳ Planned |
+| 11 — Kotlin Companion App | ✅ Built |
+| 12 — React Native Mobile | 🔄 Scaffold done |
+
+**What's been built:**
+- [x] Full monorepo scaffold (Turborepo + npm workspaces)
 - [x] Docker Compose local dev environment
 - [x] Database migrations (all 28 tables, 10 SQL files)
-- [x] API service skeleton (Fastify 5, JWT auth, health endpoint)
-- [x] WhatsApp service skeleton (Fastify 5, health endpoint)
-- [x] Intelligence service skeleton (FastAPI, health endpoint)
-- [x] Auth flow (register, login, JWT — API service)
-- [x] open-wa session management (session manager, QR + link code, session persistence, watchdog)
-- [x] Message ingestion pipeline (normalisation, DB write, BullMQ publish)
-- [ ] Next.js web app scaffold
-- [ ] AI analysis pipeline
-- [ ] Suggested reply generation
-- [ ] Web dashboard UI
-- [ ] Billing (Stripe)
-- [ ] Kotlin companion app
-- [ ] React Native mobile app
+- [x] API service (Fastify 5, JWT auth, all auth endpoints, companion relay endpoint)
+- [x] WhatsApp service (open-wa session manager, QR + link code, session persistence, watchdog, message ingestion)
+- [x] Intelligence service skeleton (FastAPI, health endpoint — engines not yet implemented)
+- [x] Next.js web app deployed to Vercel (Clerk auth, route protection, dashboard shell)
+- [x] Kotlin companion app (NotificationListenerService, API relay, secure token storage)
+- [x] React Native mobile scaffold (Expo, navigation, auth, typed API client)
+
+**What's next:** See `docs/NEXT_PHASE.md`.
