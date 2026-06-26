@@ -13,7 +13,7 @@
     "@fastify/cors": "^10.0.0",
     "@fastify/jwt": "^9.0.0",
     "@fastify/websocket": "^8.0.0",
-    "@zuri/types": "workspace:*",
+    "@zuri/types": "*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.38.0",
     "dotenv": "^16.4.0",
