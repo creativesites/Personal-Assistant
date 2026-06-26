@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Zuri Companion</string>
+    <string name="notification_service_label">Zuri Notification Relay</string>
+    <string name="status_active">Zuri Companion is active</string>
+    <string name="status_inactive">Zuri Companion is not active</string>
+    <string name="btn_enable_permission">Enable Notification Access</string>
+    <string name="btn_save_settings">Save</string>
+    <string name="hint_api_url">API URL (e.g. https://api.example.com)</string>
+    <string name="hint_token">Auth Token</string>
+    <string name="label_api_url">API URL</string>
+    <string name="label_token">Auth Token</string>
+    <string name="settings_saved">Settings saved</string>
+    <string name="permission_required">Notification access is required to relay WhatsApp messages to Zuri.</string>
+</resources>

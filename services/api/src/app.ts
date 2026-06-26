@@ -9,6 +9,7 @@ import { conversationsRoutes } from './routes/conversations';
 import { contactsRoutes } from './routes/contacts';
 import { proactiveRoutes } from './routes/proactive';
 import { suggestionsRoutes } from './routes/suggestions';
+import { companionRoutes } from './routes/companion';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -31,6 +32,7 @@ export async function buildApp() {
   await fastify.register(contactsRoutes);
   await fastify.register(proactiveRoutes);
   await fastify.register(suggestionsRoutes);
+  await fastify.register(companionRoutes);
 
   return fastify;
 }

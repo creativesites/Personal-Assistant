@@ -1,0 +1,4 @@
+-keep class com.zuri.companion.** { *; }
+-keepattributes *Annotation*
+-dontwarn okhttp3.**
+-keep class okhttp3.** { *; }
