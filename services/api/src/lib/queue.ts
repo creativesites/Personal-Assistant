@@ -21,3 +21,17 @@ export const queues = {
   proactiveGenerateDaily: new Queue(QUEUE_NAMES.PROACTIVE_GENERATE_DAILY, { connection }),
   sendReply: new Queue(QUEUE_NAMES.SEND_REPLY, { connection }),
 };
+
+const queueMap: Record<string, Queue> = {
+  [QUEUE_NAMES.MESSAGES_INCOMING]: queues.messagesIncoming,
+  [QUEUE_NAMES.ANALYSIS_MESSAGE]: queues.analysisMessage,
+  [QUEUE_NAMES.ANALYSIS_CONTACT_PROFILE]: queues.analysisContactProfile,
+  [QUEUE_NAMES.PROACTIVE_GENERATE_DAILY]: queues.proactiveGenerateDaily,
+  [QUEUE_NAMES.SEND_REPLY]: queues.sendReply,
+};
+
+export async function addToQueue(queueName: string, data: Record<string, unknown>): Promise<void> {
+  const queue = queueMap[queueName];
+  if (!queue) throw new Error(`Unknown queue: ${queueName}`);
+  await queue.add(queueName, data);
+}
