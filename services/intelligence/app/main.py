@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import structlog
@@ -6,6 +7,7 @@ from .database import get_pool, close_pool
 from .routes.health import router as health_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
+from .workers.daily_worker import create_proactive_worker, run_daily_scheduler
 
 logger = structlog.get_logger()
 
@@ -17,12 +19,22 @@ async def lifespan(app: FastAPI):
 
     msg_worker = create_message_worker()
     profile_worker = create_profile_worker()
+    proactive_worker = create_proactive_worker()
     logger.info('workers_started')
+
+    scheduler_task = asyncio.create_task(run_daily_scheduler())
 
     yield
 
+    scheduler_task.cancel()
+    try:
+        await scheduler_task
+    except asyncio.CancelledError:
+        pass
+
     await msg_worker.close()
     await profile_worker.close()
+    await proactive_worker.close()
     logger.info('workers_stopped')
 
     await close_pool()
