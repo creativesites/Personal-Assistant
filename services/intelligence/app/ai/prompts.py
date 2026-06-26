@@ -1,0 +1,129 @@
+ANALYSE_MESSAGE = """\
+Analyze this WhatsApp message and return structured JSON.
+
+Sender: {sender_type} ({sender_name})
+Relationship type: {relationship_type}
+Recent conversation (last few messages for context):
+{recent_context}
+
+Message to analyze:
+"{body}"
+
+Return ONLY valid JSON in exactly this format:
+{{
+  "sentiment": "positive|negative|neutral|mixed",
+  "sentiment_score": 0.0,
+  "emotions": {{"joy": 0.0, "sadness": 0.0, "anger": 0.0, "fear": 0.0, "surprise": 0.0, "love": 0.0}},
+  "intent": {{"primary": "question|request|statement|expression|acknowledgment|farewell|greeting", "details": ""}},
+  "topics": [],
+  "entities": [{{"text": "", "type": "person|date|time|place|organization|product|event"}}],
+  "importance_score": 0.0,
+  "requires_response": false,
+  "response_urgency": "low|medium|high|urgent",
+  "promises_detected": [{{"text": "", "type": "commitment|deadline|offer|plan"}}],
+  "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}]
+}}
+"""
+
+GENERATE_REPLIES = """\
+You are helping {user_name} reply to a WhatsApp message from {contact_name}.
+
+{user_name}'s communication style:
+{user_style}
+
+About {contact_name} ({relationship_type}):
+{contact_summary}
+
+Conversation context:
+{context}
+
+Message to reply to: "{body}"
+Tone of message: {sentiment} | Intent: {intent}
+
+Generate exactly 3 reply suggestions that sound like {user_name}. Vary the tone across suggestions.
+
+Return ONLY valid JSON:
+{{
+  "suggestions": [
+    {{"text": "reply text here", "tone": "warm|casual|professional|playful|empathetic", "reasoning": "why this fits"}}
+  ]
+}}
+"""
+
+EXTRACT_CONTACT_INSIGHTS = """\
+Based on these recent WhatsApp messages from {contact_name} to {user_name}, extract psychological and behavioral insights about {contact_name}.
+
+Messages:
+{messages_text}
+
+Extract specific, evidence-based insights. Return ONLY valid JSON:
+{{
+  "insights": [
+    {{
+      "key": "snake_case_key",
+      "value": "specific observation",
+      "confidence": 0.0,
+      "supporting_text": "direct quote from messages"
+    }}
+  ]
+}}
+
+Focus on: communication patterns, emotional tendencies, values, interests, relationship dynamics, behavioral patterns.
+Only include insights with confidence > 0.5. Maximum 10 insights.
+"""
+
+BUILD_CONTACT_PROFILE = """\
+Synthesize a psychological profile of {contact_name} based on their WhatsApp communication patterns with {user_name}.
+
+Messages analyzed: {message_count}
+Time range: {date_range}
+Key insights already known: {existing_insights}
+
+Sample messages:
+{sample_messages}
+
+Return ONLY valid JSON:
+{{
+  "personality_summary": "2-3 sentence personality overview",
+  "communication_style": "how they communicate (direct/indirect, formal/casual, verbose/terse, etc.)",
+  "emotional_patterns": {{"primary_emotions": [], "emotional_triggers": [], "coping_style": ""}},
+  "known_triggers": ["list of things that upset or energize them"],
+  "current_life_context": "what's going on in their life based on recent messages",
+  "mood_baseline": "generally positive|neutral|negative|variable"
+}}
+"""
+
+GENERATE_CONTEXT_SNAPSHOT = """\
+Compress this conversation history between {user_name} and {contact_name} into a concise summary that preserves the most important relationship context.
+
+Conversation ({message_count} messages, {date_range}):
+{messages}
+
+Create a summary that would help an AI give good advice about this relationship. Focus on:
+- Key topics discussed
+- Important events or milestones mentioned
+- Relationship dynamics and tone
+- Any ongoing threads or unresolved matters
+- Recent emotional tone
+
+Return a single paragraph summary (max 300 words). No JSON needed — just the summary text.
+"""
+
+GENERATE_PROACTIVE_SUGGESTION = """\
+Based on this relationship context, generate a proactive suggestion for {user_name} to maintain their relationship with {contact_name}.
+
+Relationship: {relationship_type} ({importance_tier} priority)
+Health score: {health_score}/100 (trend: {health_trend})
+Last interaction: {last_interaction}
+Upcoming events: {upcoming_events}
+Recent context: {context}
+
+Generate a specific, actionable suggestion. Return ONLY valid JSON:
+{{
+  "suggestion_type": "check_in|birthday_message|follow_up|congratulate|condolence|reconnect|relationship_maintenance",
+  "title": "brief title for the suggestion",
+  "body": "explanation of why this suggestion matters (2-3 sentences)",
+  "draft_message": "suggested WhatsApp message they could send (conversational, matches their voice)",
+  "priority": 1-5
+}}
+"""

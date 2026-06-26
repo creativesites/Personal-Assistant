@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ''
     google_ai_api_key: str = ''
     default_ai_model: str = 'claude-haiku-4-5-20251001'
+    embedding_model: str = 'text-embedding-3-small'
 
 
 settings = Settings()
