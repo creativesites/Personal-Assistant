@@ -84,6 +84,19 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     });
   });
 
+  fastify.post(
+    '/api/auth/onboarding-complete',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      await db.query(
+        'UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE id = $1',
+        [userId],
+      );
+      return reply.send({ ok: true });
+    },
+  );
+
   fastify.get(
     '/api/auth/me',
     { preHandler: authenticate },
