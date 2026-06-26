@@ -201,12 +201,12 @@ Web dashboard and backend are the product. Mobile comes after.
 
 ## Current Status
 
-**Active phase:** Phase 1 — Foundation
+**Active phase:** Phase 2 — WhatsApp Integration
 
 | Phase | Status |
 |-------|--------|
-| 1 — Foundation | In progress |
-| 2 — WhatsApp Integration | Not started |
+| 1 — Foundation | Complete |
+| 2 — WhatsApp Integration | In progress |
 | 3 — AI Intelligence Core | Not started |
 | 4 — Web Dashboard | Not started |
 | 5 — Proactive System | Not started |

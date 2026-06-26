@@ -7,6 +7,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().url(),
   API_URL: z.string().url().default('http://localhost:3000'),
   OPEN_WA_LICENSE_KEY: z.string().optional(),
+  CHROMIUM_EXECUTABLE_PATH: z.string().optional(),
 });
 
 export const config = envSchema.parse(process.env);

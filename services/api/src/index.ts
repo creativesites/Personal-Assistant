@@ -2,6 +2,8 @@ import 'dotenv/config';
 import { buildApp } from './app';
 import { connectDb } from './lib/db';
 import { redis } from './lib/redis';
+import { redisSub, startRedisSubscriber } from './lib/redis-subscriber';
+import { setupSocket } from './lib/socket';
 import { config } from './config';
 
 async function main() {
@@ -14,7 +16,25 @@ async function main() {
   redis.on('error', (err) => app.log.error({ err }, 'Redis error'));
   app.log.info('Redis connected');
 
+  // listen() must come before Socket.io setup — fastify.server is only bound after listen
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
+
+  const io = setupSocket(app.server);
+  app.log.info('Socket.io initialised');
+
+  await redisSub.connect();
+  startRedisSubscriber(io);
+  app.log.info('Redis subscriber running');
+
+  const shutdown = async () => {
+    app.log.info('Shutting down...');
+    await app.close();
+    redisSub.disconnect();
+    await redis.quit();
+  };
+
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }
 
 main().catch((err) => {

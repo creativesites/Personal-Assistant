@@ -223,16 +223,16 @@ Key design notes:
 
 - [x] Project documentation and architecture defined
 - [x] Database schema designed (28 tables)
-- [ ] Monorepo scaffold (Turborepo + pnpm workspaces)
-- [ ] Docker Compose local dev environment
-- [ ] Database migrations
-- [ ] API service skeleton
-- [ ] WhatsApp service skeleton
-- [ ] Intelligence service skeleton
+- [x] Monorepo scaffold (Turborepo + pnpm workspaces)
+- [x] Docker Compose local dev environment
+- [x] Database migrations (all 28 tables, 10 SQL files)
+- [x] API service skeleton (Fastify 5, JWT auth, health endpoint)
+- [x] WhatsApp service skeleton (Fastify 5, health endpoint)
+- [x] Intelligence service skeleton (FastAPI, health endpoint)
+- [x] Auth flow (register, login, JWT — API service)
+- [x] open-wa session management (session manager, QR + link code, session persistence, watchdog)
+- [x] Message ingestion pipeline (normalisation, DB write, BullMQ publish)
 - [ ] Next.js web app scaffold
-- [ ] Auth flow
-- [ ] open-wa session management
-- [ ] Message ingestion pipeline
 - [ ] AI analysis pipeline
 - [ ] Suggested reply generation
 - [ ] Web dashboard UI
