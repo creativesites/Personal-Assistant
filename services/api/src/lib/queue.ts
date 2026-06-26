@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { QUEUE_NAMES } from '@zuri/types';
+import { QUEUE_NAMES, type QueueName } from '@zuri/types';
 import { config } from '../config';
 
 function parseRedisUrl(url: string) {
@@ -21,3 +21,13 @@ export const queues = {
   proactiveGenerateDaily: new Queue(QUEUE_NAMES.PROACTIVE_GENERATE_DAILY, { connection }),
   sendReply: new Queue(QUEUE_NAMES.SEND_REPLY, { connection }),
 };
+
+const queueByName = new Map<string, Queue>(
+  Object.values(queues).map((q) => [q.name, q]),
+);
+
+export async function addToQueue(name: QueueName, data: unknown): Promise<void> {
+  const queue = queueByName.get(name);
+  if (!queue) throw new Error(`Unknown queue: ${name}`);
+  await queue.add(name, data);
+}
