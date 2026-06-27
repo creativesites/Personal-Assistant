@@ -6,6 +6,8 @@ from ..queue import redis_conn_opts
 from ..services.proactive import ProactiveService
 from ..services.health import RelationshipHealthService
 from ..services.clock_engine import ClockEngine
+from ..services.interest_matcher import WorldKnowledgeEngine
+from ..services.news_indexer import get_news_indexer
 from ..database import get_pool
 
 log = structlog.get_logger()
@@ -13,6 +15,7 @@ log = structlog.get_logger()
 _proactive = ProactiveService()
 _health = RelationshipHealthService()
 _clock_engine = ClockEngine()
+_world_knowledge = WorldKnowledgeEngine()
 
 
 async def _process_proactive(job, token: str):
@@ -56,3 +59,16 @@ async def run_temporal_scheduler() -> None:
             log.info('temporal_clock_check_done')
         except Exception as exc:
             log.error('temporal_clock_check_failed', error=str(exc))
+
+
+async def run_world_knowledge_scheduler() -> None:
+    """Asyncio background task: refresh news and match to contact interests every 2 hours."""
+    while True:
+        await asyncio.sleep(7200)  # 2 hours
+        try:
+            log.info('world_knowledge_run_start')
+            await get_news_indexer().refresh()
+            await _world_knowledge.run_for_all_users()
+            log.info('world_knowledge_run_done')
+        except Exception as exc:
+            log.error('world_knowledge_run_failed', error=str(exc))

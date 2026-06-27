@@ -151,6 +151,61 @@ Capture how this person naturally writes. Return ONLY valid JSON:
 }}
 """
 
+MATCH_NEWS_TO_CONTACT = """\
+Does any of these news headlines clearly match the interests of {contact_name}?
+
+{contact_name}'s interests: {interests}
+
+Today's headlines:
+{headlines}
+
+Only match if the connection is specific and genuine — not vaguely related.
+Return ONLY valid JSON:
+{{
+  "matched": true,
+  "headline": "the matching headline title",
+  "url": "the headline url if known, else empty string",
+  "relevance_reason": "one sentence explaining the specific connection to their interests"
+}}
+
+If there is no strong match:
+{{
+  "matched": false
+}}
+"""
+
+GENERATE_WORLD_EVENT_NUDGE = """\
+{user_name} wants to send a spontaneous "thought of you" message to {contact_name} about a news story.
+
+{contact_name} ({relationship_type}) — interests: {interests}
+
+News story: {headline}
+Why it's relevant to them: {relevance_reason}
+URL: {url}
+
+Write a natural, casual WhatsApp message that feels spontaneous — not forced.
+Keep it brief (1–3 sentences). It should read like {user_name} genuinely thought of {contact_name}.
+
+Return ONLY valid JSON:
+{{
+  "title": "brief card title (e.g. 'Arsenal won — message Dad')",
+  "body": "1-2 sentences explaining why this moment is worth reaching out",
+  "draft_message": "the WhatsApp message {user_name} would send",
+  "priority": 1-5
+}}
+"""
+
+LIVE_SEARCH_CONTEXT = """\
+A contact asked a factual question. Here are web search results relevant to it.
+
+Question: "{question}"
+
+Search results:
+{search_results}
+
+Summarize the key factual answer in 1–2 sentences. Be accurate and concise. Plain text only.
+"""
+
 GENERATE_PROACTIVE_SUGGESTION = """\
 Based on this relationship context, generate a proactive suggestion for {user_name} to maintain their relationship with {contact_name}.
 
