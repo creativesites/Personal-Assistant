@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/relationships', label: 'Relationships', icon: '👥' },
   { href: '/proactive', label: 'Proactive', icon: '✨' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
+  { href: '/diagnostics', label: 'Diagnostics', icon: '🔧' },
 ] as const
 
 function SidebarContents({

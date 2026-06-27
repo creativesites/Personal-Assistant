@@ -92,13 +92,24 @@ export default function OnboardingPage() {
         </p>
 
         {step === 'idle' && (
-          <button
-            onClick={startConnection}
-            disabled={!token}
-            className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-          >
-            Start connection
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={startConnection}
+              disabled={!token}
+              className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Start connection
+            </button>
+            {session.data?.syncFailed && (
+              <p className="text-xs text-red-600 text-center">
+                Backend API unreachable — button disabled.{' '}
+                <a href="/diagnostics" className="underline hover:text-red-700">Check diagnostics</a>
+              </p>
+            )}
+            {!token && !session.data?.syncFailed && session.status === 'authenticated' && (
+              <p className="text-xs text-gray-400 text-center">Connecting to backend…</p>
+            )}
+          </div>
         )}
 
         {step === 'connecting' && (
