@@ -81,11 +81,26 @@ function CheckRow({ check }: { check: Check }) {
   )
 }
 
+interface ServerConfig {
+  INTERNAL_API_SECRET: { set: boolean; length: number; masked: string }
+  API_URL: { value: string; note: string }
+  NEXT_PUBLIC_API_URL: { value: string; note: string }
+  match: boolean | null
+}
+
 export default function DiagnosticsPage() {
   const { isSignedIn, isLoaded: authLoaded } = useAuth()
   const { user } = useUser()
   const session = useZuriSession()
   const token = session.data?.accessToken
+  const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null)
+
+  useEffect(() => {
+    fetch('/api/diagnostics/config')
+      .then((r) => r.json())
+      .then(setServerConfig)
+      .catch(() => {})
+  }, [])
 
   const [checks, setChecks] = useState<Check[]>([
     {
@@ -316,29 +331,51 @@ export default function DiagnosticsPage() {
           {/* Config snapshot */}
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Config Snapshot</p>
-            <div className="space-y-1.5 text-sm font-mono">
+            <div className="space-y-2 text-xs font-mono">
+
+              <p className="text-gray-400 uppercase text-xs tracking-wide pt-1">— Client (browser)</p>
               <div className="flex gap-3">
-                <span className="text-gray-400 w-48 shrink-0">NEXT_PUBLIC_API_URL</span>
+                <span className="text-gray-400 w-52 shrink-0">NEXT_PUBLIC_API_URL</span>
                 <span className="text-gray-900 break-all">{API_URL}</span>
               </div>
               <div className="flex gap-3">
-                <span className="text-gray-400 w-48 shrink-0">Clerk loaded</span>
-                <span className="text-gray-900">{authLoaded ? 'yes' : 'no'}</span>
-              </div>
-              <div className="flex gap-3">
-                <span className="text-gray-400 w-48 shrink-0">Clerk signed in</span>
+                <span className="text-gray-400 w-52 shrink-0">Clerk signed in</span>
                 <span className="text-gray-900">{isSignedIn ? 'yes' : 'no'}</span>
               </div>
               <div className="flex gap-3">
-                <span className="text-gray-400 w-48 shrink-0">Zuri JWT</span>
-                <span className="text-gray-900">{token ? `${token.slice(0, 24)}…` : 'none'}</span>
+                <span className="text-gray-400 w-52 shrink-0">Zuri JWT</span>
+                <span className="text-gray-900">{token ? `${token.slice(0, 20)}…` : 'none'}</span>
               </div>
               <div className="flex gap-3">
-                <span className="text-gray-400 w-48 shrink-0">syncFailed</span>
-                <span className={session.data?.syncFailed ? 'text-red-600' : 'text-gray-900'}>
+                <span className="text-gray-400 w-52 shrink-0">syncFailed</span>
+                <span className={session.data?.syncFailed ? 'text-red-600 font-bold' : 'text-gray-900'}>
                   {String(session.data?.syncFailed ?? false)}
                 </span>
               </div>
+
+              <p className="text-gray-400 uppercase text-xs tracking-wide pt-2">— Server (Vercel env)</p>
+              {serverConfig ? (
+                <>
+                  <div className="flex gap-3">
+                    <span className="text-gray-400 w-52 shrink-0">API_URL</span>
+                    <span className="text-gray-900 break-all">{serverConfig.API_URL.value}</span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="text-gray-400 w-52 shrink-0">INTERNAL_API_SECRET</span>
+                    <span className={`break-all ${serverConfig.INTERNAL_API_SECRET.set ? 'text-gray-900' : 'text-red-600'}`}>
+                      {serverConfig.INTERNAL_API_SECRET.masked}
+                      {serverConfig.INTERNAL_API_SECRET.set && (
+                        <span className="text-gray-400 ml-1">({serverConfig.INTERNAL_API_SECRET.length} chars)</span>
+                      )}
+                    </span>
+                  </div>
+                  {serverConfig.match === false && (
+                    <p className="text-amber-600">⚠ API_URL and NEXT_PUBLIC_API_URL differ — server and browser are hitting different backends</p>
+                  )}
+                </>
+              ) : (
+                <span className="text-gray-400">Loading…</span>
+              )}
             </div>
           </div>
 
