@@ -62,7 +62,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY:-}
-      DEFAULT_AI_MODEL: ${DEFAULT_AI_MODEL:-gemini/gemini-2.0-flash}
+      DEFAULT_AI_MODEL: ${DEFAULT_AI_MODEL:-gemini/gemini-3.5-flash}
       PORT: 8000
       API_URL: http://api:3000
     depends_on:
