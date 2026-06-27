@@ -9,10 +9,13 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
   const headers: Record<string, string> = {}
   const auth = req.headers.get('Authorization')
   if (auth) headers['Authorization'] = auth
-  const ct = req.headers.get('Content-Type')
-  if (ct) headers['Content-Type'] = ct
 
-  const body = req.method !== 'GET' && req.method !== 'HEAD' ? await req.text() : undefined
+  // Only read and forward a body for methods that carry one
+  const bodyText = req.method !== 'GET' && req.method !== 'HEAD' ? await req.text() : undefined
+  // Don't forward empty bodies — Fastify rejects Content-Type: application/json with empty body
+  const body = bodyText && bodyText.length > 0 ? bodyText : undefined
+  const ct = req.headers.get('Content-Type')
+  if (ct && body !== undefined) headers['Content-Type'] = ct
 
   try {
     const res = await fetch(url, { method: req.method, headers, body })
