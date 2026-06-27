@@ -6,6 +6,7 @@ from ..services.analyser import MessageAnalyser
 from ..services.reply_gen import ReplyGenerator
 from ..services.event_extractor import EventExtractor
 from ..services.health import RelationshipHealthService
+from ..services.cadence_learner import CadenceLearner
 
 log = structlog.get_logger()
 
@@ -13,6 +14,7 @@ _analyser = MessageAnalyser()
 _reply_gen = ReplyGenerator()
 _extractor = EventExtractor()
 _health_svc = RelationshipHealthService()
+_cadence = CadenceLearner()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
@@ -63,6 +65,10 @@ async def _process(job, token: str):
     # Recalculate health every 5 messages per contact
     if count % 5 == 0:
         await _health_svc.recalculate(contact_id, user_id)
+
+    # Update cadence model on every message (learning improves with each interaction)
+    if count % 5 == 0 or count == 1:
+        await _cadence.learn(contact_id, user_id)
 
     # Trigger contact profile rebuild: first message and every 10 thereafter
     if count == 1 or count % 10 == 0:

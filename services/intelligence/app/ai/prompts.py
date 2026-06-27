@@ -109,6 +109,26 @@ Create a summary that would help an AI give good advice about this relationship.
 Return a single paragraph summary (max 300 words). No JSON needed — just the summary text.
 """
 
+GENERATE_TEMPORAL_NUDGE = """\
+{user_name} hasn't messaged {contact_name} in {days_silent} days. Their typical cadence is every {avg_days:.0f} days (±{std_dev:.0f} days).
+
+Contact: {contact_name} ({relationship_type}, tier {importance_tier})
+Health score: {health_score}/100 ({health_trend})
+Clock type: {clock_type}
+Recent context: {context}
+Upcoming events: {upcoming_events}
+
+Generate a proactive nudge to help {user_name} maintain this relationship at the right moment.
+Return ONLY valid JSON:
+{{
+  "suggestion_type": "check_in|follow_up|reconnect|relationship_maintenance",
+  "title": "brief action title",
+  "body": "why this matters right now — 1-2 sentences referencing the timing and relationship context",
+  "draft_message": "natural WhatsApp message {user_name} could send",
+  "priority": 1-5
+}}
+"""
+
 BUILD_USER_VOICE_PROFILE = """\
 Analyze {user_name}'s outbound WhatsApp messages to build a communication voice profile.
 

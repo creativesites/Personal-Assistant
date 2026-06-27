@@ -5,6 +5,19 @@ import { useParams, useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 
+interface RelationshipClock {
+  id: string
+  clockType: string
+  avgDaysBetweenMessages: number | null
+  stdDevDays: number | null
+  isActive: boolean
+  isManuallyConfigured: boolean
+  checkIntervalDays: number
+  lastNudgeAt: string | null
+  nextCheckAt: string | null
+  nudgeCount: number
+}
+
 interface ContactDetail {
   id: string
   name: string
@@ -37,7 +50,8 @@ interface ContactDetail {
   }[]
   healthHistory: {
     score: number
-    trend: string
+    previousScore: number | null
+    changeReason: string | null
     factors: Record<string, unknown> | null
     recordedAt: string
   }[]
@@ -68,20 +82,33 @@ function formatDate(ts: string | null) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const CLOCK_TYPE_LABELS: Record<string, string> = {
+  dormancy_watch: 'Dormancy Watch',
+  weekly_touchpoint: 'Weekly Touchpoint',
+  daily_checkin: 'Daily Check-in',
+  post_event_followup: 'Post-event Follow-up',
+}
+
 export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const session = useZuriSession()
   const token = session.data?.accessToken
   const [contact, setContact] = useState<ContactDetail | null>(null)
+  const [clocks, setClocks] = useState<RelationshipClock[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [togglingClock, setTogglingClock] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token || !id) return
-    apiClient<{ contact: ContactDetail }>(`/api/contacts/${id}`, { token })
-      .then((data) => {
-        setContact(data.contact)
+    Promise.all([
+      apiClient<{ contact: ContactDetail }>(`/api/contacts/${id}`, { token }),
+      apiClient<{ clocks: RelationshipClock[] }>(`/api/contacts/${id}/clock`, { token }),
+    ])
+      .then(([contactData, clockData]) => {
+        setContact(contactData.contact)
+        setClocks(clockData.clocks)
         setLoading(false)
       })
       .catch(() => {
@@ -89,6 +116,20 @@ export default function ContactDetailPage() {
         setLoading(false)
       })
   }, [token, id])
+
+  const toggleClock = async (clockType: string, currentActive: boolean) => {
+    if (!token) return
+    setTogglingClock(clockType)
+    await apiClient(`/api/contacts/${id}/clock/${clockType}`, {
+      method: 'PUT',
+      token,
+      body: JSON.stringify({ isActive: !currentActive }),
+    })
+    setClocks((prev) => prev.map((c) =>
+      c.clockType === clockType ? { ...c, isActive: !currentActive, isManuallyConfigured: true } : c
+    ))
+    setTogglingClock(null)
+  }
 
   if (session.status === 'loading' || loading) {
     return (
@@ -275,11 +316,63 @@ export default function ContactDetailPage() {
                     <div className="flex-1">
                       <HealthBar score={h.score} />
                     </div>
-                    <span className={`text-xs w-16 text-right shrink-0 ${
-                      h.trend === 'improving' ? 'text-green-600'
-                      : h.trend === 'declining' ? 'text-red-500'
-                      : 'text-gray-400'
-                    }`}>{h.trend}</span>
+                    <span className="text-xs text-gray-400 w-4 text-right shrink-0">
+                      {h.previousScore != null && h.score !== h.previousScore && (
+                        <span className={h.score > h.previousScore ? 'text-green-600' : 'text-red-500'}>
+                          {h.score > h.previousScore ? '↑' : '↓'}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Relationship Clocks */}
+          {clocks.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-4">
+                Relationship Clocks
+              </p>
+              <p className="text-xs text-gray-400 mb-4">
+                AI-learned timing that triggers proactive suggestions at the right moment.
+              </p>
+              <div className="space-y-3">
+                {clocks.map((clock) => (
+                  <div key={clock.id} className="flex items-start justify-between gap-3 py-2 border-t border-gray-50 first:border-t-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-800">
+                          {CLOCK_TYPE_LABELS[clock.clockType] || clock.clockType}
+                        </p>
+                        {clock.isManuallyConfigured && (
+                          <span className="text-xs text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">manual</span>
+                        )}
+                      </div>
+                      {clock.avgDaysBetweenMessages != null && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Typical cadence: every {Math.round(clock.avgDaysBetweenMessages)} days
+                          {clock.stdDevDays != null && ` ±${Math.round(clock.stdDevDays)}d`}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Checks every {clock.checkIntervalDays} days
+                        {clock.nudgeCount > 0 && ` · ${clock.nudgeCount} nudge${clock.nudgeCount !== 1 ? 's' : ''} sent`}
+                        {clock.lastNudgeAt && ` · last ${formatDate(clock.lastNudgeAt)}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => toggleClock(clock.clockType, clock.isActive)}
+                      disabled={togglingClock === clock.clockType}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0 ${
+                        clock.isActive
+                          ? 'bg-green-50 text-green-700 hover:bg-red-50 hover:text-red-600'
+                          : 'bg-gray-100 text-gray-500 hover:bg-green-50 hover:text-green-700'
+                      } disabled:opacity-50`}
+                    >
+                      {clock.isActive ? 'Active' : 'Paused'}
+                    </button>
                   </div>
                 ))}
               </div>
