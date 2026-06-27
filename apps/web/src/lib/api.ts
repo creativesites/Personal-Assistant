@@ -29,5 +29,7 @@ export async function apiClient<T>(
     throw new ApiError(res.status, body.error || `HTTP ${res.status}`)
   }
 
-  return res.json() as Promise<T>
+  return res.json().catch(() => {
+    throw new Error(`Non-JSON response from server (HTTP ${res.status})`)
+  }) as Promise<T>
 }

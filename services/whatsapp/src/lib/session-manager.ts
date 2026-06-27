@@ -49,7 +49,15 @@ export class SessionManager {
         await this.redis.publish(`whatsapp:qr:${userId}`, qr);
       },
       linkCode: async (code: unknown) => {
-        await this.redis.publish(`whatsapp:link_code:${userId}`, code as string);
+        const lc = code as string;
+        await this.db.query(
+          `UPDATE whatsapp_instances
+           SET link_code = $1, link_code_expires_at = NOW() + INTERVAL '3 minutes',
+               status = 'link_code_pending', updated_at = NOW()
+           WHERE id = $2`,
+          [lc, instanceId]
+        );
+        await this.redis.publish(`whatsapp:link_code:${userId}`, lc);
       },
       sessionData: async (data: unknown) => {
         await this.db.query(

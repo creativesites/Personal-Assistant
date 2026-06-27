@@ -1,12 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
-import { getSocket } from '@/lib/socket'
 
 type Step = 'idle' | 'connecting' | 'qr' | 'link_code' | 'connected' | 'error'
+
+interface WAStatus {
+  connected: boolean
+  status: string
+  phone?: string
+  qrCode?: string | null
+  qrExpiresAt?: string | null
+  linkCode?: string | null
+  linkCodeExpiresAt?: string | null
+}
 
 export default function OnboardingPage() {
   const session = useZuriSession()
@@ -16,57 +25,43 @@ export default function OnboardingPage() {
   const [qrData, setQrData] = useState<string | null>(null)
   const [linkCode, setLinkCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  useEffect(() => {
-    if (!token) return
-
-    const socket = getSocket(token)
-
-    socket.on('whatsapp:qr', (payload: string) => {
-      try {
-        const data = JSON.parse(payload)
-        setQrData(data.qr || data)
-        setStep('qr')
-      } catch {
-        setQrData(payload)
-        setStep('qr')
-      }
-    })
-
-    socket.on('whatsapp:link_code', (payload: string) => {
-      try {
-        const data = JSON.parse(payload)
-        setLinkCode(data.code || data)
-        setStep('link_code')
-      } catch {
-        setLinkCode(payload)
-        setStep('link_code')
-      }
-    })
-
-    socket.on('whatsapp:connected', async () => {
-      setStep('connected')
-      await apiClient('/api/auth/onboarding-complete', { method: 'POST', token }).catch(() => {})
-      setTimeout(() => router.push('/inbox'), 1500)
-    })
-
-    socket.on('whatsapp:error', (payload: string) => {
-      try {
-        const data = JSON.parse(payload)
-        setError(data.message || 'Connection failed')
-      } catch {
-        setError('Connection failed')
-      }
-      setStep('error')
-    })
-
-    return () => {
-      socket.off('whatsapp:qr')
-      socket.off('whatsapp:link_code')
-      socket.off('whatsapp:connected')
-      socket.off('whatsapp:error')
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
     }
-  }, [token, router])
+  }
+
+  useEffect(() => () => stopPolling(), [])
+
+  const startPolling = (tok: string) => {
+    stopPolling()
+    pollRef.current = setInterval(async () => {
+      try {
+        const status = await apiClient<WAStatus>('/api/whatsapp/status', { token: tok })
+        if (status.connected) {
+          stopPolling()
+          setStep('connected')
+          await apiClient('/api/auth/onboarding-complete', { method: 'POST', token: tok }).catch(() => {})
+          setTimeout(() => router.push('/inbox'), 1500)
+        } else if (status.status === 'qr_pending' && status.qrCode) {
+          setQrData(status.qrCode)
+          setStep('qr')
+        } else if (status.status === 'link_code_pending' && status.linkCode) {
+          setLinkCode(status.linkCode)
+          setStep('link_code')
+        } else if (status.status === 'error') {
+          stopPolling()
+          setError('WhatsApp connection failed. Please try again.')
+          setStep('error')
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    }, 2000)
+  }
 
   const startConnection = async () => {
     if (!token) return
@@ -77,6 +72,7 @@ export default function OnboardingPage() {
 
     try {
       await apiClient('/api/whatsapp/connect', { method: 'POST', token })
+      startPolling(token)
     } catch (err: any) {
       setError(err.message || 'Failed to start connection')
       setStep('error')
