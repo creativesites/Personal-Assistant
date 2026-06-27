@@ -181,7 +181,7 @@ export default function DiagnosticsPage() {
           ? 'HTTP 403 — INTERNAL_API_SECRET mismatch. Update /opt/zuri/.env on ECS to match Vercel.'
           : r.status === 404
           ? 'HTTP 404 — API is running but /api/auth/clerk-sync route not found. Redeploy the API.'
-          : `HTTP ${r.status} — ${body?.error || body?.detail || 'No token in response'}. Check that ECS API is running and API_URL is correct on Vercel.`
+          : `HTTP ${r.status} — ${body?.error || 'No token in response'}${body?.detail ? `: ${body.detail}` : ''}${body?.code ? ` (DB code: ${body.code})` : ''}`
         setCheck('sync', {
           status: 'error',
           detail: hint,

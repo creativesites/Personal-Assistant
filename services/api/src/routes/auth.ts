@@ -31,56 +31,72 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: 'Forbidden' })
     }
 
-    const body = clerkSyncBody.parse(request.body)
-    const { clerkUserId, email, name } = body
-
-    // Find existing user by Clerk ID
-    let { rows: [user] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-      'SELECT id, email, full_name, onboarding_completed FROM users WHERE clerk_user_id = $1',
-      [clerkUserId],
-    )
-
-    if (!user) {
-      // Fall back to email match (Clerk user signed up before this column existed)
-      const { rows: [existing] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-        'SELECT id, email, full_name, onboarding_completed FROM users WHERE email = $1',
-        [email],
-      )
-
-      if (existing) {
-        await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])
-        user = existing
-      } else {
-        // New Clerk user — create account
-        const { rows: [created] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-          `INSERT INTO users (email, full_name, clerk_user_id)
-           VALUES ($1, $2, $3)
-           RETURNING id, email, full_name, onboarding_completed`,
-          [email, name || 'User', clerkUserId],
-        )
-        await Promise.all([
-          db.query('INSERT INTO subscriptions (user_id, plan) VALUES ($1, $2)', [created.id, 'free']),
-          db.query('INSERT INTO notification_preferences (user_id) VALUES ($1)', [created.id]),
-          db.query(
-            `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true)`,
-            [created.id],
-          ),
-        ])
-        user = created
-      }
+    let body: { clerkUserId: string; email: string; name: string }
+    try {
+      body = clerkSyncBody.parse(request.body)
+    } catch (err: any) {
+      fastify.log.error({ err }, 'clerk-sync: invalid request body')
+      return reply.code(400).send({ error: 'Invalid request body', detail: err.message })
     }
 
-    const token = fastify.jwt.sign({ userId: user.id }, { expiresIn: '30d' })
+    const { clerkUserId, email, name } = body
 
-    return reply.send({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-        onboardingCompleted: user.onboarding_completed,
-      },
-    })
+    try {
+      // Find existing user by Clerk ID
+      let { rows: [user] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+        'SELECT id, email, full_name, onboarding_completed FROM users WHERE clerk_user_id = $1',
+        [clerkUserId],
+      )
+
+      if (!user) {
+        // Fall back to email match (Clerk user signed up before this column existed)
+        const { rows: [existing] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+          'SELECT id, email, full_name, onboarding_completed FROM users WHERE email = $1',
+          [email],
+        )
+
+        if (existing) {
+          await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])
+          user = existing
+        } else {
+          // New Clerk user — create account
+          const { rows: [created] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+            `INSERT INTO users (email, full_name, clerk_user_id)
+             VALUES ($1, $2, $3)
+             RETURNING id, email, full_name, onboarding_completed`,
+            [email, name || 'User', clerkUserId],
+          )
+          await Promise.all([
+            db.query('INSERT INTO subscriptions (user_id, plan) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING', [created.id, 'free']),
+            db.query('INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [created.id]),
+            db.query(
+              `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true) ON CONFLICT DO NOTHING`,
+              [created.id],
+            ),
+          ])
+          user = created
+        }
+      }
+
+      const token = fastify.jwt.sign({ userId: user.id }, { expiresIn: '30d' })
+
+      return reply.send({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.full_name,
+          onboardingCompleted: user.onboarding_completed,
+        },
+      })
+    } catch (err: any) {
+      fastify.log.error({ err, clerkUserId, email }, 'clerk-sync: database error')
+      return reply.code(500).send({
+        error: 'Sync failed',
+        detail: err.message,
+        code: err.code,
+      })
+    }
   })
 
   fastify.post('/api/auth/register', async (request, reply) => {

@@ -23,17 +23,21 @@ export async function POST() {
   const apiUrl = process.env.API_URL || 'http://localhost:3000'
   const internalSecret = process.env.INTERNAL_API_SECRET || ''
 
+  const payload = { clerkUserId: userId, email, name }
+  console.log('[clerk-sync] sending to API:', { apiUrl, email, hasSecret: !!internalSecret, secretPrefix: internalSecret.slice(0, 8) })
+
   const res = await fetch(`${apiUrl}/api/auth/clerk-sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Internal-Secret': internalSecret,
     },
-    body: JSON.stringify({ clerkUserId: userId, email, name }),
+    body: JSON.stringify(payload),
   })
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
+    console.error('[clerk-sync] API error:', { status: res.status, body: text })
     return NextResponse.json(
       { error: 'Sync failed', detail: text },
       { status: res.status },
