@@ -7,7 +7,16 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "env": [
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        "CLERK_SECRET_KEY",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+        "API_URL",
+        "INTERNAL_API_SECRET",
+        "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
+      ]
     },
     "lint": {
       "cache": false

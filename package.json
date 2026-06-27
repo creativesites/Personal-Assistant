@@ -2,7 +2,12 @@
   "name": "zuri",
   "private": true,
   "version": "0.0.1",
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "npm@10.9.7",
+  "workspaces": [
+    "apps/web",
+    "services/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -11,6 +16,10 @@
     "test": "turbo run test",
     "db:migrate": "node db/migrate.js",
     "db:seed": "node db/seed.js"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

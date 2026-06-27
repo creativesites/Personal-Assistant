@@ -62,7 +62,7 @@ export default function RelationshipsPage() {
   }, [token])
 
   const filtered = filter === 'all' ? contacts : contacts.filter((c) => c.relationship.type === filter)
-  const uniqueTypes = [...new Set(contacts.map((c) => c.relationship.type))]
+  const uniqueTypes = Array.from(new Set(contacts.map((c) => c.relationship.type)))
 
   if (session.status === 'loading' || loading) {
     return (

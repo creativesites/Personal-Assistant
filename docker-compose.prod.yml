@@ -22,9 +22,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       PORT: 3000
       WHATSAPP_SERVICE_URL: http://whatsapp:3001
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+      INTELLIGENCE_SERVICE_URL: http://intelligence:8000
       CORS_ORIGIN: ${CORS_ORIGIN:-}
     depends_on:
       redis:
@@ -32,6 +33,12 @@ services:
     restart: unless-stopped
     expose:
       - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health -S 2>&1 | grep -q 'HTTP/' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   whatsapp:
     build:
@@ -49,6 +56,7 @@ services:
     volumes:
       - wa_sessions:/app/db/sessions
     restart: unless-stopped
+    shm_size: '512mb'
     expose:
       - "3001"
 
@@ -79,9 +87,10 @@ services:
     ports:
       - "5500:5500"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

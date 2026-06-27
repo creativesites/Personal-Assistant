@@ -1,29 +1,27 @@
 FROM node:22-alpine AS builder
-RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
 # Copy workspace manifests for layer caching
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json .npmrc ./
 COPY packages/shared-types/package.json ./packages/shared-types/
 COPY services/api/package.json ./services/api/
-RUN pnpm install --ignore-scripts
+RUN npm install --legacy-peer-deps --ignore-scripts
 
 # Copy source and build
 COPY tsconfig.base.json ./
 COPY packages/shared-types/ ./packages/shared-types/
 COPY services/api/ ./services/api/
-RUN pnpm --filter @zuri/types build
-RUN pnpm --filter api build
+RUN npm run build --workspace=packages/shared-types
+RUN npm run build --workspace=services/api
 
 # Runtime image
 FROM node:22-alpine AS runner
-RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
 
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json .npmrc ./
 COPY packages/shared-types/package.json ./packages/shared-types/
 COPY services/api/package.json ./services/api/
-RUN pnpm install --prod --ignore-scripts
+RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
 COPY --from=builder /app/packages/shared-types/dist ./packages/shared-types/dist
 COPY --from=builder /app/services/api/dist ./services/api/dist

@@ -1,14 +1,12 @@
 # Dependencies
 node_modules/
 .pnpm-store/
-
 # Build outputs
 dist/
 build/
 .next/
 out/
 .turbo/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -20,7 +18,6 @@ env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-
 # Environment files
 .env
 .env.local
@@ -30,21 +27,17 @@ env/
 .env.staging
 # Allow examples
 !.env.example
-
 # Database
 *.sql.bak
 db/data/
-
 # open-wa session data (contains auth tokens)
 services/whatsapp/sessions/
 *.json.bak
-
 # Logs
 *.log
 logs/
 npm-debug.log*
 pnpm-debug.log*
-
 # OS
 .DS_Store
 .DS_Store?
@@ -52,7 +45,6 @@ pnpm-debug.log*
 .Spotlight-V100
 .Trashes
 Thumbs.db
-
 # Editor
 .vscode/
 !.vscode/extensions.json
@@ -62,18 +54,14 @@ Thumbs.db
 *.swo
 *.sublime-project
 *.sublime-workspace
-
 # Docker volumes (local)
 .docker/
-
 # Test coverage
 coverage/
 .nyc_output/
 htmlcov/
-
 # TypeScript
 *.tsbuildinfo
-
 # Expo / React Native
 .expo/
 *.jks
@@ -85,14 +73,18 @@ htmlcov/
 android/
 ios/
 web-build/
-
 # Kotlin / Android build
 apps/companion/build/
 apps/companion/.gradle/
 apps/companion/local.properties
 *.apk
 *.aab
-
 # Certificates
 *.pem
 *.crt
+
+# managed by open-wa
+**.data.json
+**.node-persist**
+**_IGNORE_**
+# end managed by open-wa

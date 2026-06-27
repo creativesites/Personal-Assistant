@@ -6,9 +6,9 @@ import { config } from '../config';
 import { authenticate } from '../plugins/authenticate';
 
 const clerkSyncBody = z.object({
-  clerkUserId: z.string(),
+  clerkUserId: z.string().min(1),
   email: z.string().email(),
-  name: z.string().default(''),
+  name: z.string().min(1).max(255),
 });
 
 const registerBody = z.object({
@@ -23,6 +23,66 @@ const loginBody = z.object({
 });
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
+  // Called by the Next.js web app after Clerk authentication.
+  // Finds or creates a Zuri user and returns a Zuri JWT.
+  fastify.post('/api/auth/clerk-sync', async (request, reply) => {
+    const secret = (request.headers['x-internal-secret'] as string) ?? ''
+    if (config.INTERNAL_API_SECRET && secret !== config.INTERNAL_API_SECRET) {
+      return reply.code(403).send({ error: 'Forbidden' })
+    }
+
+    const body = clerkSyncBody.parse(request.body)
+    const { clerkUserId, email, name } = body
+
+    // Find existing user by Clerk ID
+    let { rows: [user] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+      'SELECT id, email, full_name, onboarding_completed FROM users WHERE clerk_user_id = $1',
+      [clerkUserId],
+    )
+
+    if (!user) {
+      // Fall back to email match (Clerk user signed up before this column existed)
+      const { rows: [existing] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+        'SELECT id, email, full_name, onboarding_completed FROM users WHERE email = $1',
+        [email],
+      )
+
+      if (existing) {
+        await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])
+        user = existing
+      } else {
+        // New Clerk user — create account
+        const { rows: [created] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+          `INSERT INTO users (email, full_name, clerk_user_id)
+           VALUES ($1, $2, $3)
+           RETURNING id, email, full_name, onboarding_completed`,
+          [email, name || 'User', clerkUserId],
+        )
+        await Promise.all([
+          db.query('INSERT INTO subscriptions (user_id, plan) VALUES ($1, $2)', [created.id, 'free']),
+          db.query('INSERT INTO notification_preferences (user_id) VALUES ($1)', [created.id]),
+          db.query(
+            `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true)`,
+            [created.id],
+          ),
+        ])
+        user = created
+      }
+    }
+
+    const token = fastify.jwt.sign({ userId: user.id }, { expiresIn: '30d' })
+
+    return reply.send({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.full_name,
+        onboardingCompleted: user.onboarding_completed,
+      },
+    })
+  })
+
   fastify.post('/api/auth/register', async (request, reply) => {
     const body = registerBody.parse(request.body);
 
@@ -103,64 +163,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({ ok: true });
     },
   );
-
-  fastify.post('/api/auth/clerk-sync', async (request, reply) => {
-    const secret = (request.headers['x-internal-secret'] as string) ?? ''
-    if (config.INTERNAL_API_SECRET && secret !== config.INTERNAL_API_SECRET) {
-      return reply.code(403).send({ error: 'Forbidden' })
-    }
-
-    const body = clerkSyncBody.parse(request.body)
-    const { clerkUserId, email, name } = body
-
-    // Find existing user by Clerk ID
-    let { rows: [user] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-      'SELECT id, email, full_name, onboarding_completed FROM users WHERE clerk_user_id = $1',
-      [clerkUserId],
-    )
-
-    if (!user) {
-      // Fall back to email match (Clerk user signed up before this column existed)
-      const { rows: [existing] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-        'SELECT id, email, full_name, onboarding_completed FROM users WHERE email = $1',
-        [email],
-      )
-
-      if (existing) {
-        await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])
-        user = existing
-      } else {
-        // New Clerk user — create account
-        const { rows: [created] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-          `INSERT INTO users (email, full_name, clerk_user_id)
-           VALUES ($1, $2, $3)
-           RETURNING id, email, full_name, onboarding_completed`,
-          [email, name || 'User', clerkUserId],
-        )
-        await Promise.all([
-          db.query('INSERT INTO subscriptions (user_id, plan) VALUES ($1, $2)', [created.id, 'free']),
-          db.query('INSERT INTO notification_preferences (user_id) VALUES ($1)', [created.id]),
-          db.query(
-            `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true)`,
-            [created.id],
-          ),
-        ])
-        user = created
-      }
-    }
-
-    const token = fastify.jwt.sign({ userId: user.id }, { expiresIn: '30d' })
-
-    return reply.send({
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-        onboardingCompleted: user.onboarding_completed,
-      },
-    })
-  })
 
   fastify.get(
     '/api/auth/me',
