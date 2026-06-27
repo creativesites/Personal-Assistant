@@ -105,7 +105,7 @@ export default function DiagnosticsPage() {
     {
       id: 'health',
       label: 'API Health (DB + Redis)',
-      description: `GET ${API_URL}/health`,
+      description: `Proxied server-side → ${API_URL}/health`,
       status: 'idle',
       detail: '',
     },
@@ -160,9 +160,16 @@ export default function DiagnosticsPage() {
           raw: { status: r.status, tokenReceived: true, user: body.user },
         })
       } else {
+        const hint = r.status === 401
+          ? 'HTTP 401 — INTERNAL_API_SECRET mismatch. The value in /opt/zuri/.env on ECS must match INTERNAL_API_SECRET on Vercel.'
+          : r.status === 403
+          ? 'HTTP 403 — INTERNAL_API_SECRET mismatch. Update /opt/zuri/.env on ECS to match Vercel.'
+          : r.status === 404
+          ? 'HTTP 404 — API is running but /api/auth/clerk-sync route not found. Redeploy the API.'
+          : `HTTP ${r.status} — ${body?.error || body?.detail || 'No token in response'}. Check that ECS API is running and API_URL is correct on Vercel.`
         setCheck('sync', {
           status: 'error',
-          detail: `HTTP ${r.status} — ${body?.error || 'No token in response'}. Check API_URL env var on Vercel and that the ECS API is running.`,
+          detail: hint,
           latencyMs,
           raw: { status: r.status, body },
         })
@@ -176,30 +183,35 @@ export default function DiagnosticsPage() {
       })
     }
 
-    // 3. API health (direct from browser)
+    // 3. API health — proxied through Next.js to avoid CORS
     const t3 = Date.now()
     try {
-      const r = await fetch(`${API_URL}/health`)
+      const r = await fetch('/api/diagnostics/health')
       const latencyMs = Date.now() - t3
-      const body = await r.json().catch(() => null)
-      const dbOk = body?.services?.database === 'ok'
-      const redisOk = body?.services?.redis === 'ok'
-      const allOk = dbOk && redisOk
-      setCheck('health', {
-        status: allOk ? 'ok' : body ? 'warn' : 'error',
-        detail: body
-          ? `API ${body.status} | DB: ${body.services?.database} | Redis: ${body.services?.redis}`
-          : `HTTP ${r.status} — no parseable response`,
-        latencyMs,
-        raw: body ?? { status: r.status },
-      })
+      const payload = await r.json().catch(() => null)
+      if (!payload?.reachable) {
+        setCheck('health', {
+          status: 'error',
+          detail: `API unreachable: ${payload?.error || 'unknown error'}. Check that Docker services are running on ECS.`,
+          latencyMs,
+          raw: payload,
+        })
+      } else {
+        const body = payload.body
+        const dbOk = body?.services?.database === 'ok'
+        const redisOk = body?.services?.redis === 'ok'
+        setCheck('health', {
+          status: dbOk && redisOk ? 'ok' : 'warn',
+          detail: `API ${body?.status ?? '?'} | DB: ${body?.services?.database ?? '?'} | Redis: ${body?.services?.redis ?? '?'}`,
+          latencyMs,
+          raw: body,
+        })
+      }
     } catch (err: any) {
-      const latencyMs = Date.now() - t3
-      const isCors = err.message?.includes('fetch') || err.message?.includes('network')
       setCheck('health', {
         status: 'error',
-        detail: `${err.message}. ${isCors ? 'Could be CORS — check CORS_ORIGIN on ECS matches this Vercel URL.' : 'API server may be down.'}`,
-        latencyMs,
+        detail: err.message,
+        latencyMs: Date.now() - t3,
         raw: { error: err.message },
       })
     }
