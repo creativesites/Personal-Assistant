@@ -36,14 +36,14 @@ jobs:
             # Build updated images
             docker compose -f docker-compose.prod.yml build --no-cache api intelligence whatsapp
 
-            # Restart services — migrations run automatically inside api on startup
+            # Restart services
             docker compose -f docker-compose.prod.yml up -d \
               --no-deps --force-recreate api intelligence whatsapp
 
-            # Wait for API to become healthy (migrations + boot)
+            # Wait for API to become healthy
             echo "Waiting for API..."
             for i in $(seq 1 30); do
-              if curl -sf http://localhost:5500/api/health > /dev/null 2>&1; then
+              if curl -sf http://localhost:5500/health > /dev/null 2>&1; then
                 echo "API healthy after ${i}s"
                 break
               fi
@@ -51,7 +51,7 @@ jobs:
             done
 
             # Verify it came up
-            curl -sf http://localhost:5500/api/health || { echo "API health check failed"; exit 1; }
+            curl -sf http://localhost:5500/health || { echo "API health check failed"; exit 1; }
 
             # Clean up old images
             docker image prune -f

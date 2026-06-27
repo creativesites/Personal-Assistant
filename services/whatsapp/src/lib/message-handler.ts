@@ -49,7 +49,7 @@ export class MessageHandler {
     const senderType = message.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
     const contactJid = message.fromMe ? String(message.to) : String(message.from);
     const messageType = mapType(message.type as string);
-    const body = (message.body || (message as Record<string, unknown>).caption as string) || null;
+    const body = (message.body || ((message as unknown as Record<string, unknown>).caption as string)) || null;
     const timestamp = new Date((message.t as number) * 1000);
     const waMessageId = String(message.id);
 
@@ -88,7 +88,7 @@ export class MessageHandler {
   private async upsertContact(userId: string, jid: string, message: Message): Promise<string> {
     const phoneNumber = jid.split('@')[0];
     const isGroup = jid.endsWith('@g.us');
-    const msg = message as Record<string, unknown>;
+    const msg = message as unknown as Record<string, unknown>;
     const displayName =
       (msg.notifyName as string) ||
       ((msg.sender as Record<string, string> | undefined)?.formattedName) ||

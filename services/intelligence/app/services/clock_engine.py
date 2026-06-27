@@ -1,8 +1,7 @@
-import json
 import structlog
 from datetime import datetime, timedelta, timezone
 from ..ai.client import get_ai_client
-from ..ai.prompts import GENERATE_TEMPORAL_NUDGE, GENERATE_PROACTIVE_SUGGESTION
+from ..ai.prompts import GENERATE_TEMPORAL_NUDGE
 from ..database import get_pool
 
 log = structlog.get_logger()

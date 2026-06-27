@@ -8,7 +8,6 @@ from ..services.health import RelationshipHealthService
 from ..services.clock_engine import ClockEngine
 from ..services.interest_matcher import WorldKnowledgeEngine
 from ..services.news_indexer import get_news_indexer
-from ..database import get_pool
 
 log = structlog.get_logger()
 

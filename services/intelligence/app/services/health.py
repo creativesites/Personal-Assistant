@@ -34,22 +34,6 @@ class RelationshipHealthService:
                 contact_id, user_id,
             )
 
-            # Count messages in last 30 days vs prior 30 days to detect trend
-            recent_count = await conn.fetchval(
-                """SELECT COUNT(*) FROM messages m
-                   JOIN conversations c ON c.id = m.conversation_id
-                   WHERE c.contact_id = $1 AND c.user_id = $2
-                     AND m.whatsapp_timestamp > NOW() - INTERVAL '30 days'""",
-                contact_id, user_id,
-            )
-            prior_count = await conn.fetchval(
-                """SELECT COUNT(*) FROM messages m
-                   JOIN conversations c ON c.id = m.conversation_id
-                   WHERE c.contact_id = $1 AND c.user_id = $2
-                     AND m.whatsapp_timestamp BETWEEN NOW() - INTERVAL '60 days'
-                                                  AND NOW() - INTERVAL '30 days'""",
-                contact_id, user_id,
-            )
 
         now = datetime.now(tz=timezone.utc)
         dormancy = rel['dormancy_alert_days'] or 30

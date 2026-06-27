@@ -1,4 +1,3 @@
-import json
 import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_REPLIES, LIVE_SEARCH_CONTEXT

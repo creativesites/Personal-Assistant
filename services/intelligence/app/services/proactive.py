@@ -82,7 +82,6 @@ class ProactiveService:
                 days_silent = delta.days
 
             # Skip if interacted recently (within 3 days) AND health is fine
-            dormancy = c['dormancy_alert_days'] or 30
             if days_silent is not None and days_silent < 3 and c['health_score'] >= 75:
                 continue
 
