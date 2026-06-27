@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 
@@ -46,10 +47,10 @@ const TIER_LABELS = ['', 'Critical', 'High', 'Medium', 'Low', 'Minimal'] as cons
 
 export default function RelationshipsPage() {
   const session = useZuriSession()
+  const router = useRouter()
   const token = session.data?.accessToken
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<Contact | null>(null)
   const [filter, setFilter] = useState<string>('all')
 
   useEffect(() => {
@@ -72,9 +73,8 @@ export default function RelationshipsPage() {
   }
 
   return (
-    <div className="flex h-full">
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="h-14 border-b border-gray-200 bg-white flex items-center justify-between px-6 shrink-0">
+    <div className="flex flex-col h-full">
+      <div className="h-14 border-b border-gray-200 bg-white flex items-center justify-between px-6 shrink-0">
           <h1 className="font-semibold text-gray-900">Relationships</h1>
           <select
             value={filter}
@@ -88,93 +88,45 @@ export default function RelationshipsPage() {
           </select>
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
-            No contacts yet
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((contact) => (
-                <button
-                  key={contact.id}
-                  onClick={() => setSelected(contact)}
-                  className={`text-left bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow ${
-                    selected?.id === contact.id ? 'border-indigo-300 ring-1 ring-indigo-300' : 'border-gray-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-base font-medium text-gray-600 shrink-0">
-                      {contact.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-gray-900 text-sm truncate">{contact.name}</p>
-                      <p className="text-xs text-gray-500 capitalize">
-                        {contact.relationship.type.replace(/_/g, ' ')} · {TIER_LABELS[contact.relationship.importanceTier]}
-                      </p>
-                    </div>
+      {filtered.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+          No contacts yet
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((contact) => (
+              <button
+                key={contact.id}
+                onClick={() => router.push(`/relationships/${contact.id}`)}
+                className="text-left bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm hover:border-indigo-200 transition-all"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-base font-medium text-gray-600 shrink-0">
+                    {contact.name.charAt(0).toUpperCase()}
                   </div>
-                  <HealthBar score={contact.relationship.healthScore} />
-                  <div className="flex items-center justify-between mt-2">
-                    <span className={`text-xs ${
-                      contact.relationship.healthTrend === 'improving' ? 'text-green-600'
-                      : contact.relationship.healthTrend === 'declining' ? 'text-red-500'
-                      : 'text-gray-400'
-                    }`}>
-                      {contact.relationship.healthTrend}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {formatLastSeen(contact.relationship.lastInteractionAt)}
-                    </span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 text-sm truncate">{contact.name}</p>
+                    <p className="text-xs text-gray-500 capitalize">
+                      {contact.relationship.type.replace(/_/g, ' ')} · {TIER_LABELS[contact.relationship.importanceTier]}
+                    </p>
                   </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Contact detail panel */}
-      {selected && (
-        <div className="w-72 border-l border-gray-200 bg-white flex flex-col shrink-0">
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-            <p className="font-medium text-gray-900 text-sm">{selected.name}</p>
-            <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">
-              &times;
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Relationship</p>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Type</span>
-                  <span className="text-gray-900 capitalize">{selected.relationship.type.replace(/_/g, ' ')}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Priority</span>
-                  <span className="text-gray-900">{TIER_LABELS[selected.relationship.importanceTier]}</span>
+                <HealthBar score={contact.relationship.healthScore} />
+                <div className="flex items-center justify-between mt-2">
+                  <span className={`text-xs ${
+                    contact.relationship.healthTrend === 'improving' ? 'text-green-600'
+                    : contact.relationship.healthTrend === 'declining' ? 'text-red-500'
+                    : 'text-gray-400'
+                  }`}>
+                    {contact.relationship.healthTrend}
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    {formatLastSeen(contact.relationship.lastInteractionAt)}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Health</span>
-                  <span className="text-gray-900">{selected.relationship.healthScore}/100</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Last seen</span>
-                  <span className="text-gray-900">{formatLastSeen(selected.relationship.lastInteractionAt)}</span>
-                </div>
-              </div>
-            </div>
-
-            {selected.profile && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">AI Profile</p>
-                <p className="text-sm text-gray-700 leading-relaxed">{selected.profile.personalitySummary}</p>
-                <p className="text-xs text-gray-500 mt-2">
-                  Mood baseline: <span className="capitalize">{selected.profile.moodBaseline}</span>
-                </p>
-              </div>
-            )}
+              </button>
+            ))}
           </div>
         </div>
       )}

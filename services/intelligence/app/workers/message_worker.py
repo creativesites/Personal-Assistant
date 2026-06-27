@@ -16,6 +16,9 @@ _health_svc = RelationshipHealthService()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
+_voice_queue = Queue('analysis.user_profile', {'connection': redis_conn_opts()})
+
+_user_msg_counter: dict[str, int] = {}
 
 
 async def _process(job, token: str):
@@ -24,6 +27,7 @@ async def _process(job, token: str):
     user_id = data.get('userId')
     conversation_id = data.get('conversationId')
     contact_id = data.get('contactId')
+    sender_type = data.get('senderType', 'contact')
 
     log.info('processing_message', message_id=message_id)
 
@@ -63,6 +67,13 @@ async def _process(job, token: str):
     # Trigger contact profile rebuild: first message and every 10 thereafter
     if count == 1 or count % 10 == 0:
         await _profile_queue.add('profile', {'contactId': contact_id, 'userId': user_id})
+
+    # Trigger user voice profile rebuild on outbound messages every 20
+    if sender_type == 'user':
+        ucount = _user_msg_counter.get(user_id, 0) + 1
+        _user_msg_counter[user_id] = ucount
+        if ucount == 1 or ucount % 20 == 0:
+            await _voice_queue.add('voice', {'userId': user_id})
 
     log.info('message_processed', message_id=message_id, requires_response=analysis.requires_response)
     return {'ok': True}

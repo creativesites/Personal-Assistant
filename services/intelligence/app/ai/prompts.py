@@ -109,6 +109,28 @@ Create a summary that would help an AI give good advice about this relationship.
 Return a single paragraph summary (max 300 words). No JSON needed — just the summary text.
 """
 
+BUILD_USER_VOICE_PROFILE = """\
+Analyze {user_name}'s outbound WhatsApp messages to build a communication voice profile.
+
+Messages sent by {user_name} ({message_count} total, {date_range}):
+{messages_text}
+
+Capture how this person naturally writes. Return ONLY valid JSON:
+{{
+  "vocabulary_style": "describe their word choices (formal/casual/slang/technical)",
+  "sentence_structure": "short|medium|long|varied - typical message length",
+  "punctuation_habits": "describe punctuation, capitalization, ellipsis usage",
+  "greeting_patterns": ["common ways they start conversations"],
+  "closing_patterns": ["common ways they end conversations"],
+  "emoji_usage": "heavy|moderate|light|none",
+  "humor_style": "dry|playful|sarcastic|serious|none",
+  "formality_level": "very_formal|formal|neutral|casual|very_casual",
+  "characteristic_phrases": ["phrases or expressions they commonly use"],
+  "communication_pace": "rapid_fire|measured|slow",
+  "voice_summary": "2-3 sentence description of their overall writing style"
+}}
+"""
+
 GENERATE_PROACTIVE_SUGGESTION = """\
 Based on this relationship context, generate a proactive suggestion for {user_name} to maintain their relationship with {contact_name}.
 

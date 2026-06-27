@@ -78,6 +78,43 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
   );
 
   fastify.post(
+    '/api/messages/:messageId/regenerate',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { messageId } = request.params as { messageId: string };
+
+      const { rows: [msg] } = await db.query(
+        `SELECT m.id, m.conversation_id, m.sender_type, m.message_type,
+                m.body, m.whatsapp_timestamp, c.contact_id
+         FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.id = $1 AND c.user_id = $2`,
+        [messageId, userId],
+      );
+      if (!msg) return reply.code(404).send({ error: 'Message not found' });
+
+      await db.query(
+        "UPDATE suggested_replies SET status = 'dismissed', updated_at = NOW() WHERE message_id = $1 AND status = 'pending'",
+        [messageId],
+      );
+
+      await addToQueue(QUEUE_NAMES.MESSAGES_INCOMING, {
+        messageId,
+        userId,
+        contactId: msg.contact_id,
+        conversationId: msg.conversation_id,
+        senderType: msg.sender_type,
+        messageType: msg.message_type,
+        body: msg.body,
+        whatsappTimestamp: msg.whatsapp_timestamp,
+      });
+
+      return reply.send({ ok: true });
+    },
+  );
+
+  fastify.post(
     '/api/suggestions/:id/dismiss',
     { preHandler: authenticate },
     async (request, reply) => {

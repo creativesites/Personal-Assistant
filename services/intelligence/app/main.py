@@ -9,6 +9,7 @@ from .routes.health import router as health_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
 from .workers.daily_worker import create_proactive_worker, run_daily_scheduler
+from .workers.voice_worker import create_voice_worker
 
 logger = structlog.get_logger()
 
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI):
     msg_worker = create_message_worker()
     profile_worker = create_profile_worker()
     proactive_worker = create_proactive_worker()
+    voice_worker = create_voice_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI):
     await msg_worker.close()
     await profile_worker.close()
     await proactive_worker.close()
+    await voice_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

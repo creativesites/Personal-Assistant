@@ -11,6 +11,13 @@ interface Contact {
   avatarUrl: string | null
 }
 
+interface ContactDetail {
+  id: string
+  name: string
+  relationship: { type: string; healthScore: number; healthTrend: string }
+  profile: { personalitySummary: string; moodBaseline: string; communicationStyle?: string } | null
+}
+
 interface Conversation {
   id: string
   contact: Contact
@@ -62,9 +69,11 @@ export default function InboxPage() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [contact, setContact] = useState<Contact | null>(null)
+  const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [regenerating, setRegenerating] = useState(false)
   const selectedIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -126,6 +135,7 @@ export default function InboxPage() {
     setSelectedId(convId)
     setSelectedMessageId(null)
     setSuggestions([])
+    setContactDetail(null)
     setLoadingMessages(true)
     if (!token) return
     const data = await apiClient<{ messages: Message[]; contact: Contact }>(
@@ -135,6 +145,13 @@ export default function InboxPage() {
     setMessages(data.messages)
     setContact(data.contact)
     setLoadingMessages(false)
+
+    // Load full contact detail for context panel
+    if (data.contact?.id) {
+      apiClient<{ contact: ContactDetail }>(`/api/contacts/${data.contact.id}`, { token })
+        .then((d) => setContactDetail(d.contact))
+        .catch(() => {})
+    }
 
     // Auto-select last message that has pending suggestions
     const last = [...data.messages].reverse().find((m) => m.pendingSuggestions > 0)
@@ -165,6 +182,14 @@ export default function InboxPage() {
     await apiClient(`/api/suggestions/${suggestionId}/dismiss`, { method: 'POST', token })
     setSuggestions((prev) => prev.filter((s) => s.id !== suggestionId))
     setActionLoading(null)
+  }
+
+  const regenerateSuggestions = async () => {
+    if (!token || !selectedMessageId) return
+    setRegenerating(true)
+    setSuggestions([])
+    await apiClient(`/api/messages/${selectedMessageId}/regenerate`, { method: 'POST', token })
+    setRegenerating(false)
   }
 
   if (session.status === 'loading' || loading) {
@@ -274,37 +299,76 @@ export default function InboxPage() {
               )}
             </div>
 
-            {/* Suggestions panel */}
-            {suggestions.length > 0 && (
+            {/* Right panel: contact context + suggestions */}
+            {(suggestions.length > 0 || regenerating || contactDetail) && (
               <div className="w-80 border-l border-gray-200 bg-white flex flex-col shrink-0">
-                <div className="p-4 border-b border-gray-100">
-                  <p className="text-sm font-medium text-gray-900">AI Reply Suggestions</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Select one to send or dismiss</p>
-                </div>
-                <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                  {suggestions.map((s) => (
-                    <div key={s.id} className="border border-gray-200 rounded-xl p-3">
-                      <p className="text-xs text-indigo-600 font-medium capitalize mb-1.5">{s.tone}</p>
-                      <p className="text-sm text-gray-800 mb-2">{s.text}</p>
-                      <p className="text-xs text-gray-400 mb-3">{s.reasoning}</p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => approveSuggestion(s.id)}
-                          disabled={actionLoading === s.id}
-                          className="flex-1 bg-indigo-600 text-white text-xs py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                        >
-                          Send
-                        </button>
-                        <button
-                          onClick={() => dismissSuggestion(s.id)}
-                          disabled={actionLoading === s.id}
-                          className="flex-1 bg-gray-100 text-gray-600 text-xs py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
+                {/* Contact context */}
+                {contactDetail?.profile && (
+                  <div className="p-4 border-b border-gray-100">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Contact Profile</p>
+                    <p className="text-xs text-gray-700 leading-relaxed">{contactDetail.profile.personalitySummary}</p>
+                    <div className="flex items-center gap-3 mt-2">
+                      <span className="text-xs text-gray-400">
+                        Mood: <span className="capitalize text-gray-600">{contactDetail.profile.moodBaseline}</span>
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        Health: <span className={`font-medium ${
+                          contactDetail.relationship.healthScore >= 75 ? 'text-green-600'
+                          : contactDetail.relationship.healthScore >= 50 ? 'text-amber-500'
+                          : 'text-red-500'
+                        }`}>{contactDetail.relationship.healthScore}</span>
+                      </span>
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* Suggestions */}
+                <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">AI Suggestions</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Select one to send or dismiss</p>
+                  </div>
+                  {selectedMessageId && (
+                    <button
+                      onClick={regenerateSuggestions}
+                      disabled={regenerating}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50"
+                    >
+                      {regenerating ? '...' : 'Regenerate'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                  {regenerating ? (
+                    <p className="text-xs text-gray-400 text-center py-4">Generating new suggestions...</p>
+                  ) : suggestions.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4">No suggestions yet</p>
+                  ) : (
+                    suggestions.map((s) => (
+                      <div key={s.id} className="border border-gray-200 rounded-xl p-3">
+                        <p className="text-xs text-indigo-600 font-medium capitalize mb-1.5">{s.tone}</p>
+                        <p className="text-sm text-gray-800 mb-2">{s.text}</p>
+                        <p className="text-xs text-gray-400 mb-3">{s.reasoning}</p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => approveSuggestion(s.id)}
+                            disabled={actionLoading === s.id}
+                            className="flex-1 bg-indigo-600 text-white text-xs py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                          >
+                            Send
+                          </button>
+                          <button
+                            onClick={() => dismissSuggestion(s.id)}
+                            disabled={actionLoading === s.id}
+                            className="flex-1 bg-gray-100 text-gray-600 text-xs py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
