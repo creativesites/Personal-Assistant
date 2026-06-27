@@ -25,8 +25,7 @@ RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
 COPY --from=builder /app/packages/shared-types/dist ./packages/shared-types/dist
 COPY --from=builder /app/services/api/dist ./services/api/dist
-COPY db/ ./db/
 
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["sh", "-c", "node db/migrate.js && node services/api/dist/index.js"]
+CMD ["node", "services/api/dist/index.js"]
