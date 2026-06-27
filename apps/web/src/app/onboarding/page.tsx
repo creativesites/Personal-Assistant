@@ -1,15 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useZuriSession as useSession } from '@/hooks/use-zuri-session'
 import { useRouter } from 'next/navigation'
+import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 
 type Step = 'idle' | 'connecting' | 'qr' | 'link_code' | 'connected' | 'error'
 
 export default function OnboardingPage() {
-  const { data: session } = useSession()
+  const session = useZuriSession()
+  const token = session.data?.accessToken
   const router = useRouter()
   const [step, setStep] = useState<Step>('idle')
   const [qrData, setQrData] = useState<string | null>(null)
@@ -17,9 +18,9 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!session?.accessToken) return
+    if (!token) return
 
-    const socket = getSocket(session.accessToken)
+    const socket = getSocket(token)
 
     socket.on('whatsapp:qr', (payload: string) => {
       try {
@@ -45,11 +46,7 @@ export default function OnboardingPage() {
 
     socket.on('whatsapp:connected', async () => {
       setStep('connected')
-      // Mark onboarding complete
-      await apiClient('/api/auth/onboarding-complete', {
-        method: 'POST',
-        token: session.accessToken ?? undefined,
-      }).catch(() => {})
+      await apiClient('/api/auth/onboarding-complete', { method: 'POST', token }).catch(() => {})
       setTimeout(() => router.push('/inbox'), 1500)
     })
 
@@ -69,20 +66,17 @@ export default function OnboardingPage() {
       socket.off('whatsapp:connected')
       socket.off('whatsapp:error')
     }
-  }, [session?.accessToken, router])
+  }, [token, router])
 
   const startConnection = async () => {
-    if (!session?.accessToken) return
+    if (!token) return
     setStep('connecting')
     setError(null)
     setQrData(null)
     setLinkCode(null)
 
     try {
-      await apiClient('/api/whatsapp/connect', {
-        method: 'POST',
-        token: session.accessToken ?? undefined,
-      })
+      await apiClient('/api/whatsapp/connect', { method: 'POST', token })
     } catch (err: any) {
       setError(err.message || 'Failed to start connection')
       setStep('error')
@@ -100,7 +94,8 @@ export default function OnboardingPage() {
         {step === 'idle' && (
           <button
             onClick={startConnection}
-            className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+            disabled={!token}
+            className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
           >
             Start connection
           </button>
@@ -119,7 +114,6 @@ export default function OnboardingPage() {
           <div className="space-y-4">
             <p className="text-sm text-gray-700 font-medium">Scan this QR code with WhatsApp</p>
             <div className="flex justify-center">
-              {/* Display QR as image if it's a data URI, otherwise show the raw string */}
               {qrData.startsWith('data:') ? (
                 <img src={qrData} alt="WhatsApp QR Code" className="w-56 h-56 rounded-lg" />
               ) : (

@@ -1,9 +1,17 @@
 import json
+import os
 import litellm
 import structlog
 from ..config import settings
 
 log = structlog.get_logger()
+
+
+def _normalize_model(model: str) -> str:
+    """Ensure provider prefix is present for Gemini models used via AI Studio."""
+    if model.startswith('gemini-'):
+        return f'gemini/{model}'
+    return model
 
 
 class AIClient:
@@ -13,13 +21,13 @@ class AIClient:
         if settings.openai_api_key:
             litellm.openai_key = settings.openai_api_key
         if settings.google_ai_api_key:
-            litellm.vertex_key = settings.google_ai_api_key
+            os.environ['GEMINI_API_KEY'] = settings.google_ai_api_key
 
         # Silence noisy litellm logging
         litellm.set_verbose = False
 
     async def complete_json(self, messages: list[dict], model: str | None = None) -> dict:
-        m = model or settings.default_ai_model
+        m = _normalize_model(model or settings.default_ai_model)
         try:
             response = await litellm.acompletion(
                 model=m,
@@ -35,7 +43,7 @@ class AIClient:
             raise
 
     async def complete_text(self, messages: list[dict], model: str | None = None) -> str:
-        m = model or settings.default_ai_model
+        m = _normalize_model(model or settings.default_ai_model)
         response = await litellm.acompletion(
             model=m,
             messages=messages,

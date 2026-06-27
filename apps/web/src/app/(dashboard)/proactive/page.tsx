@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useZuriSession as useSession } from '@/hooks/use-zuri-session'
+import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 
 interface ProactiveSuggestion {
@@ -21,31 +21,37 @@ interface ProactiveSuggestion {
 }
 
 const PRIORITY_LABELS = ['', 'Urgent', 'High', 'Medium', 'Low', 'Minimal'] as const
-const PRIORITY_COLORS = ['', 'bg-red-50 border-red-200', 'bg-orange-50 border-orange-200', 'bg-white border-gray-200', 'bg-white border-gray-200', 'bg-white border-gray-200'] as const
+const PRIORITY_COLORS = [
+  '',
+  'bg-red-50 border-red-200',
+  'bg-orange-50 border-orange-200',
+  'bg-white border-gray-200',
+  'bg-white border-gray-200',
+  'bg-white border-gray-200',
+] as const
 
 export default function ProactivePage() {
-  const { data: session } = useSession()
+  const session = useZuriSession()
+  const token = session.data?.accessToken
   const [suggestions, setSuggestions] = useState<ProactiveSuggestion[]>([])
   const [loading, setLoading] = useState(true)
   const [actioning, setActioning] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!session?.accessToken) return
-    apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', {
-      token: session.accessToken,
-    }).then((data) => {
+    if (!token) return
+    apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', { token }).then((data) => {
       setSuggestions(data.suggestions)
       setLoading(false)
     })
-  }, [session?.accessToken])
+  }, [token])
 
   const updateStatus = async (id: string, status: 'approved' | 'dismissed') => {
-    if (!session?.accessToken) return
+    if (!token) return
     setActioning(id)
     await apiClient(`/api/proactive/${id}`, {
       method: 'PATCH',
-      token: session.accessToken,
+      token,
       body: JSON.stringify({ status }),
     })
     setSuggestions((prev) => prev.filter((s) => s.id !== id))
@@ -58,7 +64,7 @@ export default function ProactivePage() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  if (loading) {
+  if (session.status === 'loading' || loading) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-gray-400">Loading suggestions...</p>
@@ -102,9 +108,7 @@ export default function ProactivePage() {
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs text-gray-500 shrink-0">
-                    {PRIORITY_LABELS[s.priority]} priority
-                  </span>
+                  <span className="text-xs text-gray-500 shrink-0">{PRIORITY_LABELS[s.priority]} priority</span>
                 </div>
 
                 <h3 className="font-medium text-gray-900 text-sm mb-1">{s.title}</h3>

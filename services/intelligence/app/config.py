@@ -13,8 +13,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ''
     openai_api_key: str = ''
     google_ai_api_key: str = ''
-    default_ai_model: str = 'claude-haiku-4-5-20251001'
+    default_ai_model: str = 'gemini/gemini-3.5-flash'
     embedding_model: str = 'text-embedding-3-small'
+
+    tavily_api_key: str = ''
+    serp_api_key: str = ''
 
 
 settings = Settings()

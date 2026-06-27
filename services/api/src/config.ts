@@ -8,6 +8,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   WHATSAPP_SERVICE_URL: z.string().url().default('http://localhost:3001'),
   INTELLIGENCE_SERVICE_URL: z.string().url().default('http://localhost:8000'),
+  INTERNAL_API_SECRET: z.string().default(''),
+  CORS_ORIGIN: z.string().default(''),
 });
 
 export const config = envSchema.parse(process.env);

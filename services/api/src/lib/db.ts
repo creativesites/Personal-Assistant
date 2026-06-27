@@ -5,7 +5,10 @@ import { config } from '../config';
 // Supabase resolves to IPv6 on some hosts; force IPv4 to avoid ENETUNREACH
 dns.setDefaultResultOrder('ipv4first');
 
-export const db = new Pool({ connectionString: config.DATABASE_URL });
+export const db = new Pool({
+  connectionString: config.DATABASE_URL,
+  ssl: config.DATABASE_URL.includes('supabase.com') ? { rejectUnauthorized: false } : false,
+});
 
 export async function connectDb(): Promise<void> {
   const maxAttempts = 10;

@@ -109,6 +109,103 @@ Create a summary that would help an AI give good advice about this relationship.
 Return a single paragraph summary (max 300 words). No JSON needed — just the summary text.
 """
 
+GENERATE_TEMPORAL_NUDGE = """\
+{user_name} hasn't messaged {contact_name} in {days_silent} days. Their typical cadence is every {avg_days:.0f} days (±{std_dev:.0f} days).
+
+Contact: {contact_name} ({relationship_type}, tier {importance_tier})
+Health score: {health_score}/100 ({health_trend})
+Clock type: {clock_type}
+Recent context: {context}
+Upcoming events: {upcoming_events}
+
+Generate a proactive nudge to help {user_name} maintain this relationship at the right moment.
+Return ONLY valid JSON:
+{{
+  "suggestion_type": "check_in|follow_up|reconnect|relationship_maintenance",
+  "title": "brief action title",
+  "body": "why this matters right now — 1-2 sentences referencing the timing and relationship context",
+  "draft_message": "natural WhatsApp message {user_name} could send",
+  "priority": 1-5
+}}
+"""
+
+BUILD_USER_VOICE_PROFILE = """\
+Analyze {user_name}'s outbound WhatsApp messages to build a communication voice profile.
+
+Messages sent by {user_name} ({message_count} total, {date_range}):
+{messages_text}
+
+Capture how this person naturally writes. Return ONLY valid JSON:
+{{
+  "vocabulary_style": "describe their word choices (formal/casual/slang/technical)",
+  "sentence_structure": "short|medium|long|varied - typical message length",
+  "punctuation_habits": "describe punctuation, capitalization, ellipsis usage",
+  "greeting_patterns": ["common ways they start conversations"],
+  "closing_patterns": ["common ways they end conversations"],
+  "emoji_usage": "heavy|moderate|light|none",
+  "humor_style": "dry|playful|sarcastic|serious|none",
+  "formality_level": "very_formal|formal|neutral|casual|very_casual",
+  "characteristic_phrases": ["phrases or expressions they commonly use"],
+  "communication_pace": "rapid_fire|measured|slow",
+  "voice_summary": "2-3 sentence description of their overall writing style"
+}}
+"""
+
+MATCH_NEWS_TO_CONTACT = """\
+Does any of these news headlines clearly match the interests of {contact_name}?
+
+{contact_name}'s interests: {interests}
+
+Today's headlines:
+{headlines}
+
+Only match if the connection is specific and genuine — not vaguely related.
+Return ONLY valid JSON:
+{{
+  "matched": true,
+  "headline": "the matching headline title",
+  "url": "the headline url if known, else empty string",
+  "relevance_reason": "one sentence explaining the specific connection to their interests"
+}}
+
+If there is no strong match:
+{{
+  "matched": false
+}}
+"""
+
+GENERATE_WORLD_EVENT_NUDGE = """\
+{user_name} wants to send a spontaneous "thought of you" message to {contact_name} about a news story.
+
+{contact_name} ({relationship_type}) — interests: {interests}
+
+News story: {headline}
+Why it's relevant to them: {relevance_reason}
+URL: {url}
+
+Write a natural, casual WhatsApp message that feels spontaneous — not forced.
+Keep it brief (1–3 sentences). It should read like {user_name} genuinely thought of {contact_name}.
+
+Return ONLY valid JSON:
+{{
+  "title": "brief card title (e.g. 'Arsenal won — message Dad')",
+  "body": "1-2 sentences explaining why this moment is worth reaching out",
+  "draft_message": "the WhatsApp message {user_name} would send",
+  "priority": 1-5
+}}
+"""
+
+LIVE_SEARCH_CONTEXT = """\
+A contact asked a factual question. Here are web search results relevant to it.
+
+Question: "{question}"
+
+Search results:
+{search_results}
+
+Summarize the key factual answer in 1–2 sentences. Be accurate and concise. Plain text only.
+"""
+
 GENERATE_PROACTIVE_SUGGESTION = """\
 Based on this relationship context, generate a proactive suggestion for {user_name} to maintain their relationship with {contact_name}.
 

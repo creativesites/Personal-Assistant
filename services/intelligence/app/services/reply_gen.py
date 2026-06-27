@@ -1,8 +1,12 @@
+import json
 import structlog
 from ..ai.client import get_ai_client
-from ..ai.prompts import GENERATE_REPLIES
+from ..ai.prompts import GENERATE_REPLIES, LIVE_SEARCH_CONTEXT
+from ..config import settings
 from ..database import get_pool
 from ..models import MessageAnalysis, ReplySuggestions
+from ..queue import publish_event
+from .web_search import get_web_search
 
 log = structlog.get_logger()
 
@@ -79,6 +83,31 @@ class ReplyGenerator:
             f"[{r['sender_type']}]: {r['body']}" for r in reversed(list(recent))
         ) or '(no prior context)'
 
+        client = get_ai_client()
+
+        # Live web search for factual questions
+        search_context = ''
+        if (
+            analysis.intent.primary == 'question'
+            and (settings.tavily_api_key or settings.serp_api_key)
+            and _is_factual_query(body)
+        ):
+            results = await get_web_search().search(body[:200], max_results=3)
+            if results:
+                results_text = '\n'.join(f"- {r.title}: {r.snippet}" for r in results)
+                try:
+                    summary = await client.complete_text([{
+                        'role': 'user',
+                        'content': LIVE_SEARCH_CONTEXT.format(
+                            question=body[:300],
+                            search_results=results_text,
+                        ),
+                    }])
+                    if summary:
+                        search_context = f'\n\nLive search answer for contact\'s question:\n{summary}'
+                except Exception as exc:
+                    log.warning('live_search_context_failed', error=str(exc))
+
         prompt = GENERATE_REPLIES.format(
             user_name=user_name,
             contact_name=contact_name,
@@ -89,9 +118,8 @@ class ReplyGenerator:
             body=body,
             sentiment=analysis.sentiment,
             intent=analysis.intent.primary,
-        )
+        ) + search_context
 
-        client = get_ai_client()
         raw = await client.complete_json([{'role': 'user', 'content': prompt}])
         suggestions_model = ReplySuggestions(**raw)
 
@@ -108,4 +136,23 @@ class ReplyGenerator:
                 )
 
         log.info('replies_generated', message_id=message_id, count=len(suggestions_model.suggestions))
+
+        await publish_event(
+            f'suggestion:ready:{user_id}',
+            json.dumps({'messageId': message_id, 'count': len(suggestions_model.suggestions)}),
+        )
+
         return [s.model_dump() for s in suggestions_model.suggestions]
+
+
+_FACTUAL_MARKERS = (
+    'what is', 'what are', 'who is', 'where is', 'when is',
+    'how much', 'how many', 'price of', 'cost of', 'what\'s the',
+    'latest', 'current', 'today\'s', 'news about', 'score',
+    'weather', 'stock price', 'crypto', 'bitcoin', 'rate',
+)
+
+
+def _is_factual_query(text: str) -> bool:
+    lower = text.lower()
+    return any(m in lower for m in _FACTUAL_MARKERS)

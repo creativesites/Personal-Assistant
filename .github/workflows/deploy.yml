@@ -31,44 +31,29 @@ jobs:
             git pull origin main
 
             # Write .env from GitHub secret
-            echo "${{ secrets.PROD_ENV }}" > .env.prod
+            echo "${{ secrets.PROD_ENV }}" > .env
 
-            # Run database migrations
-            docker compose -f docker-compose.prod.yml run --rm api \
-              node -e "require('./services/api/dist/lib/migrate').migrate()"
+            # Build updated images
+            docker compose -f docker-compose.prod.yml build --no-cache api intelligence whatsapp
 
-            # Build and restart services (rolling restart)
-            docker compose -f docker-compose.prod.yml build --no-cache api intelligence
-
+            # Restart services — migrations run automatically inside api on startup
             docker compose -f docker-compose.prod.yml up -d \
               --no-deps --force-recreate api intelligence whatsapp
+
+            # Wait for API to become healthy (migrations + boot)
+            echo "Waiting for API..."
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:5500/api/health > /dev/null 2>&1; then
+                echo "API healthy after ${i}s"
+                break
+              fi
+              sleep 2
+            done
+
+            # Verify it came up
+            curl -sf http://localhost:5500/api/health || { echo "API health check failed"; exit 1; }
 
             # Clean up old images
             docker image prune -f
 
             echo "Deployment complete"
-
-  deploy-web:
-    name: Deploy web to Vercel
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: Deploy to Vercel
-        run: |
-          cd apps/web && npx vercel \
-            --token ${{ secrets.VERCEL_TOKEN }} \
-            --prod \
-            --yes
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
