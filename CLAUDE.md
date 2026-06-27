@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Branch Policy
+
+**Always work directly on `main`.** Do not create feature branches. All commits go straight to `main` and are auto-deployed to production via GitHub Actions. This avoids branch divergence and merge conflicts.
+
+---
+
 ## What This Project Is
 
 **Zuri** — an AI Relationship Operating System built on top of WhatsApp. It is not a chatbot or auto-responder. It is a continuous, always-on intelligence layer that reads every conversation, builds living psychological profiles of contacts, reasons about relationship dynamics, surfaces proactive maintenance opportunities, and generates voice-matched reply drafts. The user stays in control; the AI advises, plans, and — in higher automation tiers — executes.
