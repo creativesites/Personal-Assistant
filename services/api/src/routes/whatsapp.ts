@@ -14,7 +14,7 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: authenticate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
-      const body = connectBody.parse(request.body);
+      const body = connectBody.parse(request.body ?? {});
 
       try {
         const res = await fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/connect`, {

@@ -15,8 +15,16 @@ export async function apiClient<T>(
   options: RequestInit & { token?: string } = {},
 ): Promise<T> {
   const { token, headers, ...rest } = options
+
+  // POST/PUT/PATCH with no explicit body: send '{}' so Fastify's JSON parser
+  // sees a valid object instead of a null body that fails Zod validation.
+  const method = (rest.method || 'GET').toUpperCase()
+  const isWrite = method === 'POST' || method === 'PUT' || method === 'PATCH'
+  const body = rest.body !== undefined ? rest.body : (isWrite ? '{}' : undefined)
+
   const res = await fetch(`${API_URL}${path}`, {
     ...rest,
+    body,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
