@@ -25,6 +25,9 @@ export async function GET() {
       value: publicApiUrl || '(not set)',
       note: 'Client-side — used by the browser to call the backend directly',
     },
-    match: apiUrl && publicApiUrl ? apiUrl === publicApiUrl : null,
+    // /api/proxy is intentionally different — not a mismatch
+    match: apiUrl && publicApiUrl && !publicApiUrl.startsWith('/api/proxy')
+      ? apiUrl === publicApiUrl
+      : null,
   })
 }

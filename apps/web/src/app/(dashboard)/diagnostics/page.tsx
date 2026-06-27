@@ -161,13 +161,15 @@ export default function DiagnosticsPage() {
       })
     }
 
-    // 2. Backend sync
+    // 2. Backend sync — capture fresh token for use in checks 4 & 5
+    let freshToken: string | null = null
     const t2 = Date.now()
     try {
       const r = await fetch('/api/auth/clerk-sync', { method: 'POST' })
       const latencyMs = Date.now() - t2
       const body = await r.json().catch(() => null)
       if (r.ok && body?.token) {
+        freshToken = body.token
         setCheck('sync', {
           status: 'ok',
           detail: `JWT received. Token starts with: ${body.token.slice(0, 20)}…`,
@@ -232,7 +234,7 @@ export default function DiagnosticsPage() {
     }
 
     // 4. Authenticated call — /api/auth/me
-    const currentToken = token
+    const currentToken = freshToken || token
     if (!currentToken) {
       setCheck('authme', {
         status: 'warn',
