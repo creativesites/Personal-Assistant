@@ -51,14 +51,14 @@ export default function RelationshipsPage() {
   const token = session.data?.accessToken
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [filter, setFilter] = useState<string>('all')
 
   useEffect(() => {
     if (!token) return
-    apiClient<{ contacts: Contact[] }>('/api/contacts', { token }).then((data) => {
-      setContacts(data.contacts)
-      setLoading(false)
-    })
+    apiClient<{ contacts: Contact[] }>('/api/contacts', { token })
+      .then((data) => { setContacts(data.contacts); setLoading(false) })
+      .catch(() => { setError(true); setLoading(false) })
   }, [token])
 
   const filtered = filter === 'all' ? contacts : contacts.filter((c) => c.relationship.type === filter)
@@ -68,6 +68,15 @@ export default function RelationshipsPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-gray-400">Loading relationships...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center flex-col gap-3">
+        <p className="text-sm text-gray-500">Couldn&apos;t reach the backend.</p>
+        <p className="text-xs text-gray-400">Make sure the API server is running.</p>
       </div>
     )
   }

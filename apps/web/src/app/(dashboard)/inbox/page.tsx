@@ -71,6 +71,7 @@ export default function InboxPage() {
   const [contact, setContact] = useState<Contact | null>(null)
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
@@ -79,9 +80,15 @@ export default function InboxPage() {
 
   const loadConversations = useCallback(async () => {
     if (!token) return
-    const data = await apiClient<{ conversations: Conversation[] }>('/api/conversations', { token })
-    setConversations(data.conversations)
-    setLoading(false)
+    try {
+      const data = await apiClient<{ conversations: Conversation[] }>('/api/conversations', { token })
+      setConversations(data.conversations)
+      setError(false)
+    } catch {
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
   }, [token])
 
   useEffect(() => {
@@ -196,6 +203,21 @@ export default function InboxPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-gray-400">Loading conversations...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center flex-col gap-3">
+        <p className="text-sm text-gray-500">Couldn&apos;t reach the backend.</p>
+        <p className="text-xs text-gray-400">Make sure the API server is running.</p>
+        <button
+          onClick={loadConversations}
+          className="text-sm text-indigo-600 hover:underline"
+        >
+          Try again
+        </button>
       </div>
     )
   }
