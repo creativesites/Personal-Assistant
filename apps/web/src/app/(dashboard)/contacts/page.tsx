@@ -2,6 +2,15 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  AlertCircle,
+  Users,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { Avatar, Badge, EmptyState, HealthBar, PageHeader, SkeletonCard } from '@/components/ui'
@@ -36,9 +45,9 @@ function formatLastSeen(ts: string | null) {
 }
 
 const TREND_CONFIG = {
-  improving: { icon: '↑', class: 'text-green-600' },
-  stable:    { icon: '→', class: 'text-gray-400' },
-  declining: { icon: '↓', class: 'text-red-500' },
+  improving: { Icon: TrendingUp,   class: 'text-green-600', label: 'Improving' },
+  stable:    { Icon: Minus,        class: 'text-gray-400',  label: 'Stable'    },
+  declining: { Icon: TrendingDown, class: 'text-red-500',   label: 'Declining' },
 }
 
 export default function ContactsPage() {
@@ -103,9 +112,7 @@ export default function ContactsPage() {
       {/* Search + sort bar */}
       <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-3 flex items-center gap-3 flex-shrink-0">
         <div className="relative flex-1">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
             placeholder="Search contacts…"
@@ -114,16 +121,19 @@ export default function ContactsPage() {
             className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
           />
         </div>
-        <select
-          value={sort}
-          onChange={e => setSort(e.target.value as SortKey)}
-          className="text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-shrink-0"
-        >
-          <option value="recent">Most recent</option>
-          <option value="health">Health score</option>
-          <option value="name">Name A–Z</option>
-          {mode !== 'personal' && <option value="lead">Lead score</option>}
-        </select>
+        <div className="relative flex-shrink-0">
+          <SlidersHorizontal size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <select
+            value={sort}
+            onChange={e => setSort(e.target.value as SortKey)}
+            className="pl-8 pr-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+          >
+            <option value="recent">Most recent</option>
+            <option value="health">Health score</option>
+            <option value="name">Name A–Z</option>
+            {mode !== 'personal' && <option value="lead">Lead score</option>}
+          </select>
+        </div>
       </div>
 
       {/* Filter pills */}
@@ -137,11 +147,11 @@ export default function ContactsPage() {
                 key={f.key}
                 onClick={() => setFilter(f.key)}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                  filter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  filter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
                 {f.label}
-                <span className={`rounded-full px-1.5 py-px text-[10px] leading-none ${filter === f.key ? 'bg-white/25 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                <span className={`rounded-full px-1.5 py-px text-[10px] leading-none font-semibold ${filter === f.key ? 'bg-white/25 text-white' : 'bg-gray-200 text-gray-500'}`}>
                   {count}
                 </span>
               </button>
@@ -153,24 +163,33 @@ export default function ContactsPage() {
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         {error ? (
-          <EmptyState icon="⚠️" title="Couldn't load contacts" description="Make sure the API server is running." />
+          <EmptyState
+            icon={<AlertCircle size={36} className="text-gray-400" />}
+            title="Couldn't load contacts"
+            description="Make sure the API server is running."
+          />
         ) : contacts.length === 0 ? (
           <EmptyState
-            icon="👥"
+            icon={<Users size={36} className="text-gray-400" />}
             title="No contacts yet"
             description="Connect WhatsApp and start chatting — contacts appear automatically."
             action={
-              <a href="/onboarding" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
+              <a href="/onboarding" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm">
                 Connect WhatsApp
               </a>
             }
           />
         ) : processed.length === 0 ? (
-          <EmptyState icon="🔍" title="No contacts match" description={search ? `No results for "${search}"` : 'No contacts match this filter.'} />
+          <EmptyState
+            icon={<Search size={36} className="text-gray-400" />}
+            title="No contacts match"
+            description={search ? `No results for "${search}"` : 'No contacts match this filter.'}
+          />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
             {processed.map(contact => {
               const trend = TREND_CONFIG[contact.relationship.healthTrend] ?? TREND_CONFIG.stable
+              const TrendIcon = trend.Icon
               return (
                 <button
                   key={contact.id}
@@ -195,11 +214,12 @@ export default function ContactsPage() {
                       )}
                     </div>
                     {mode !== 'personal' && contact.leadScore !== undefined && (
-                      <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
-                        contact.leadScore >= 70 ? 'bg-green-100 text-green-700' :
-                        contact.leadScore >= 40 ? 'bg-amber-100 text-amber-700' :
-                        'bg-gray-100 text-gray-500'
+                      <div className={`flex-shrink-0 flex flex-col items-center justify-center w-9 h-9 rounded-lg text-xs font-bold ${
+                        contact.leadScore >= 70 ? 'bg-green-50 text-green-700 border border-green-100' :
+                        contact.leadScore >= 40 ? 'bg-amber-50 text-amber-700 border border-amber-100' :
+                        'bg-gray-50 text-gray-500 border border-gray-100'
                       }`}>
+                        <TrendingUp size={10} className="mb-0.5 opacity-70" />
                         {contact.leadScore}
                       </div>
                     )}
@@ -208,8 +228,9 @@ export default function ContactsPage() {
                   <HealthBar score={contact.relationship.healthScore} size="sm" className="mb-2.5" />
 
                   <div className="flex items-center justify-between">
-                    <span className={`text-xs font-medium ${trend.class}`}>
-                      {trend.icon} {contact.relationship.healthTrend}
+                    <span className={`text-xs font-medium flex items-center gap-1 ${trend.class}`}>
+                      <TrendIcon size={12} />
+                      {trend.label}
                     </span>
                     <span className="text-xs text-gray-400">{formatLastSeen(contact.lastMessageAt)}</span>
                   </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { BarChart3 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { EmptyState, PageHeader, SkeletonCard, StatCard } from '@/components/ui'
@@ -182,7 +183,7 @@ export default function AnalyticsPage() {
 
           {!stats ? (
             <EmptyState
-              icon="📊"
+              icon={<BarChart3 className="w-10 h-10 text-indigo-400" />}
               title="No analytics yet"
               description="Analytics appear once you start using Zuri with WhatsApp connected."
             />

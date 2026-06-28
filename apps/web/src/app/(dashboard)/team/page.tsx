@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
+import { Users, CheckCircle2, X, Lock } from 'lucide-react'
 
 interface TeamMember {
   id: string
@@ -173,7 +174,7 @@ export default function TeamPage() {
           ) : null}
 
           <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <div className="text-4xl mb-3">👥</div>
+            <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-900 font-semibold mb-1">No team yet</p>
             <p className="text-gray-500 text-sm mb-4">Create a team to share conversations and collaborate</p>
             <button onClick={() => setShowCreateTeam(true)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
@@ -211,7 +212,7 @@ export default function TeamPage() {
               [1,2,3].map(i => <div key={i} className="h-20 bg-white rounded-xl border border-gray-200 animate-pulse" />)
             ) : conversations.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-                <div className="text-3xl mb-3">✅</div>
+                <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-3" />
                 <p className="text-gray-700 font-semibold">Team inbox is clear</p>
                 <p className="text-gray-400 text-sm mt-1">No conversations assigned to the team</p>
               </div>
@@ -232,12 +233,12 @@ export default function TeamPage() {
                             </span>
                           )}
                           {isLockedByOther && (
-                            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                              🔒 {conv.locked_by_name ?? 'teammate'} is replying
+                            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Lock className="w-3 h-3" />{conv.locked_by_name ?? 'teammate'} is replying
                             </span>
                           )}
                           {isLockedByMe && (
-                            <span className="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full">🔒 You</span>
+                            <span className="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full flex items-center gap-1"><Lock className="w-3 h-3" />You</span>
                           )}
                         </div>
                         {conv.last_message_at && (
@@ -319,7 +320,7 @@ export default function TeamPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
               <p className="font-semibold text-gray-900 text-sm">Internal notes</p>
-              <button onClick={() => { setSelectedConvId(null); setNotes([]) }} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button onClick={() => { setSelectedConvId(null); setNotes([]) }} className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 transition-colors"><X className="w-4 h-4" /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
               {notesLoading ? (

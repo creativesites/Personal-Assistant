@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { CheckCircle2, ClipboardCopy, Search, Sparkles, XCircle } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard } from '@/components/ui'
@@ -145,7 +146,7 @@ export default function ProactivePage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         {suggestions.length === 0 ? (
           <EmptyState
-            icon="✨"
+            icon={<Sparkles className="w-10 h-10 text-indigo-500" />}
             title="All caught up"
             description="No pending relationship suggestions right now. Zuri will notify you when action is needed."
             action={
@@ -156,7 +157,7 @@ export default function ProactivePage() {
           />
         ) : filtered.length === 0 ? (
           <EmptyState
-            icon="🔍"
+            icon={<Search className="w-10 h-10 text-gray-400" />}
             title="No suggestions match"
             description={`No suggestions of type "${formatType(typeFilter)}".`}
           />
@@ -198,9 +199,13 @@ export default function ProactivePage() {
                       <p className="text-sm text-indigo-900 italic flex-1 leading-relaxed">&ldquo;{s.draftMessage}&rdquo;</p>
                       <button
                         onClick={() => copyDraft(s.id, s.draftMessage!)}
-                        className="flex-shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-white border border-indigo-200 rounded-lg px-2.5 py-1 transition-colors"
+                        className="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-white border border-indigo-200 rounded-lg px-2.5 py-1 transition-colors"
                       >
-                        {copied === s.id ? '✓ Copied' : 'Copy'}
+                        {copied === s.id ? (
+                          <><CheckCircle2 className="w-3 h-3" />Copied</>
+                        ) : (
+                          <><ClipboardCopy className="w-3 h-3" />Copy</>
+                        )}
                       </button>
                     </div>
                   )}
@@ -211,16 +216,16 @@ export default function ProactivePage() {
                   <button
                     onClick={() => updateStatus(s.id, 'approved')}
                     disabled={actioning === s.id}
-                    className="flex-1 bg-indigo-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
+                    className="flex-1 inline-flex items-center justify-center gap-2 bg-indigo-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
                   >
-                    {actioning === s.id ? 'Saving…' : '✓ Done'}
+                    {actioning === s.id ? 'Saving…' : <><CheckCircle2 className="w-4 h-4" />Done</>}
                   </button>
                   <button
                     onClick={() => updateStatus(s.id, 'dismissed')}
                     disabled={actioning === s.id}
-                    className="flex-1 bg-white text-gray-600 text-sm font-medium py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-gray-600 text-sm font-medium py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
                   >
-                    Skip
+                    <XCircle className="w-4 h-4" />Skip
                   </button>
                 </div>
               </div>

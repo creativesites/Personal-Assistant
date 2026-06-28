@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Brain, MessageSquare, Send } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { Avatar, PageHeader } from '@/components/ui'
@@ -146,8 +147,8 @@ export default function AdvisorPage() {
       <div className="flex-1 overflow-y-auto px-4 md:px-6">
         {isEmpty ? (
           <div className="h-full flex flex-col items-center justify-center py-8">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-3xl font-bold mb-4 shadow-lg">
-              Z
+            <div className="w-16 h-16 rounded-2xl bg-indigo-600 flex items-center justify-center mb-4 shadow-lg">
+              <Brain className="w-8 h-8 text-white" />
             </div>
             <h2 className="text-lg font-semibold text-gray-900 mb-1">Zuri, your AI advisor</h2>
             <p className="text-sm text-gray-500 text-center max-w-xs mb-8">
@@ -159,8 +160,9 @@ export default function AdvisorPage() {
                 <button
                   key={prompt}
                   onClick={() => sendMessage(prompt)}
-                  className="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
+                  className="w-full text-left inline-flex items-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
                 >
+                  <MessageSquare className="w-4 h-4 flex-shrink-0 text-gray-400 group-hover:text-indigo-400" />
                   {prompt}
                 </button>
               ))}
@@ -197,9 +199,7 @@ export default function AdvisorPage() {
             disabled={!input.trim() || loading || !token}
             className="flex-shrink-0 w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
+            <Send className="w-4 h-4" />
           </button>
         </div>
         <p className="text-center text-[11px] text-gray-400 mt-2">Press Enter to send · Shift+Enter for new line</p>

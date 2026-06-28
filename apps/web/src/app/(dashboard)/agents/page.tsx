@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Bot, Headphones, Globe, Settings, ChevronRight, Plus } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -20,19 +21,21 @@ interface Agent {
 
 interface AgentsResponse { agents: Agent[] }
 
-const TYPE_META: Record<string, { label: string; icon: string; color: string }> = {
-  sales:             { label: 'Sales',             icon: '💼', color: 'bg-blue-900/40 text-blue-300 border-blue-800' },
-  support:           { label: 'Support',           icon: '🎧', color: 'bg-green-900/40 text-green-300 border-green-800' },
-  community_manager: { label: 'Community Mgr',     icon: '🌐', color: 'bg-purple-900/40 text-purple-300 border-purple-800' },
-  custom:            { label: 'Custom',            icon: '⚙️', color: 'bg-gray-800 text-gray-300 border-gray-700' },
+type TypeMeta = { label: string; Icon: React.ComponentType<{ className?: string }>; color: string; iconBg: string }
+
+const TYPE_META: Record<string, TypeMeta> = {
+  sales:             { label: 'Sales',           Icon: Bot,        color: 'bg-blue-50 text-blue-600 border-blue-200',    iconBg: 'bg-blue-50' },
+  support:           { label: 'Support',         Icon: Headphones, color: 'bg-green-50 text-green-600 border-green-200', iconBg: 'bg-green-50' },
+  community_manager: { label: 'Community Mgr',   Icon: Globe,      color: 'bg-purple-50 text-purple-600 border-purple-200', iconBg: 'bg-purple-50' },
+  custom:            { label: 'Custom',          Icon: Settings,   color: 'bg-gray-100 text-gray-600 border-gray-200',   iconBg: 'bg-gray-100' },
 }
 
 const TRUST_META: Record<string, { label: string; color: string }> = {
-  observe:    { label: 'Observe only',  color: 'text-gray-400' },
-  suggest:    { label: 'Suggest',       color: 'text-blue-400' },
-  assisted:   { label: 'Assisted',      color: 'text-yellow-400' },
-  delegated:  { label: 'Delegated',     color: 'text-orange-400' },
-  autonomous: { label: 'Autonomous',    color: 'text-green-400' },
+  observe:    { label: 'Observe only',  color: 'text-gray-500' },
+  suggest:    { label: 'Suggest',       color: 'text-blue-500' },
+  assisted:   { label: 'Assisted',      color: 'text-amber-500' },
+  delegated:  { label: 'Delegated',     color: 'text-orange-500' },
+  autonomous: { label: 'Autonomous',    color: 'text-green-500' },
 }
 
 const AGENT_TYPES = ['sales', 'support', 'community_manager', 'custom'] as const
@@ -77,8 +80,9 @@ export default function AgentsPage() {
             <h1 className="text-xl font-bold text-gray-900">AI Agents</h1>
             <p className="text-gray-500 text-sm mt-0.5">Autonomous agents that handle conversations on your behalf</p>
           </div>
-          <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
-            + New agent
+          <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
+            <Plus className="w-4 h-4" />
+            New agent
           </button>
         </div>
 
@@ -132,10 +136,13 @@ export default function AgentsPage() {
           </div>
         ) : agents.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <div className="text-4xl mb-3">🤖</div>
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+              <Bot className="w-7 h-7 text-indigo-500" />
+            </div>
             <p className="text-gray-900 font-semibold mb-1">No agents yet</p>
             <p className="text-gray-500 text-sm mb-4">Create an agent to handle conversations autonomously</p>
-            <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">
+            <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
+              <Plus className="w-4 h-4" />
               Create first agent
             </button>
           </div>
@@ -144,11 +151,12 @@ export default function AgentsPage() {
             {agents.map(agent => {
               const tm = TYPE_META[agent.agent_type] ?? TYPE_META.custom
               const trust = TRUST_META[agent.trust_level] ?? TRUST_META.suggest
+              const AgentIcon = tm.Icon
               return (
-                <div key={agent.id} className="bg-white rounded-xl border border-gray-200 p-5 hover:border-indigo-300 transition-colors">
+                <div key={agent.id} className="bg-white rounded-xl border border-gray-200 p-5 hover:border-indigo-300 hover:shadow-sm transition-all">
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-xl flex-shrink-0">
-                      {tm.icon}
+                    <div className={`w-10 h-10 rounded-xl ${tm.iconBg} flex items-center justify-center flex-shrink-0`}>
+                      <AgentIcon className="w-5 h-5 text-indigo-600" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -165,13 +173,14 @@ export default function AgentsPage() {
                         <span>{agent.action_count} actions taken</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-3 flex-shrink-0">
                       <button onClick={() => toggleActive(agent)}
                         className={`relative w-9 h-5 rounded-full transition-colors ${agent.is_active ? 'bg-indigo-600' : 'bg-gray-300'}`}>
                         <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${agent.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
                       </button>
-                      <button onClick={() => router.push(`/agents/${agent.id}`)} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
-                        Configure →
+                      <button onClick={() => router.push(`/agents/${agent.id}`)} className="inline-flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                        Configure
+                        <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -182,13 +191,14 @@ export default function AgentsPage() {
         )}
 
         {/* Knowledge base link */}
-        <div className="mt-6 bg-white rounded-xl border border-gray-200 p-5 flex items-center justify-between">
+        <div className="mt-6 bg-white rounded-xl border border-gray-200 p-5 flex items-center justify-between hover:border-indigo-200 transition-colors">
           <div>
             <p className="text-gray-900 font-semibold text-sm">Knowledge Base</p>
             <p className="text-gray-500 text-xs mt-0.5">Upload documents and URLs your agents can reference</p>
           </div>
-          <button onClick={() => router.push('/knowledge-base')} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
-            Manage →
+          <button onClick={() => router.push('/knowledge-base')} className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:text-indigo-700 font-medium">
+            Manage
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>

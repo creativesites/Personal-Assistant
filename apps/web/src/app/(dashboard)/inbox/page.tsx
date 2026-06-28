@@ -1,6 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Search,
+  ChevronLeft,
+  Zap,
+  Bot,
+  RefreshCw,
+  X,
+  MessageSquare,
+  AlertCircle,
+} from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
@@ -205,7 +215,7 @@ export default function InboxPage() {
           href="/inbox/queue"
           className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors flex-shrink-0"
         >
-          <span>⚡</span>
+          <Zap size={12} />
           <span>Queue</span>
         </a>
       </div>
@@ -213,9 +223,7 @@ export default function InboxPage() {
       {/* Search */}
       <div className="px-3 py-2 border-b border-gray-50 flex-shrink-0">
         <div className="relative">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
             placeholder="Search conversations…"
@@ -233,9 +241,18 @@ export default function InboxPage() {
             {Array.from({ length: 7 }, (_, i) => <SkeletonListItem key={i} />)}
           </div>
         ) : error ? (
-          <EmptyState icon="⚠️" title="Couldn't load conversations" description="Check the API server." action={<button onClick={loadConversations} className="text-sm text-indigo-600 hover:underline">Retry</button>} />
+          <EmptyState
+            icon={<AlertCircle size={32} className="text-gray-400" />}
+            title="Couldn't load conversations"
+            description="Check the API server."
+            action={<button onClick={loadConversations} className="text-sm text-indigo-600 hover:underline font-medium">Retry</button>}
+          />
         ) : filtered.length === 0 ? (
-          <EmptyState icon="💬" title={search ? 'No results' : 'No conversations yet'} description={search ? `No match for "${search}"` : 'Connect WhatsApp to get started.'} />
+          <EmptyState
+            icon={<MessageSquare size={32} className="text-gray-400" />}
+            title={search ? 'No results' : 'No conversations yet'}
+            description={search ? `No match for "${search}"` : 'Connect WhatsApp to get started.'}
+          />
         ) : (
           filtered.map(conv => {
             const active = selectedId === conv.id
@@ -247,7 +264,12 @@ export default function InboxPage() {
                   active ? 'bg-indigo-50 border-indigo-100' : 'hover:bg-gray-50/80'
                 }`}
               >
-                <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="md" />
+                <div className="relative flex-shrink-0">
+                  <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="md" />
+                  {conv.unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-indigo-600 border-2 border-white rounded-full" />
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <span className={`text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
@@ -263,7 +285,7 @@ export default function InboxPage() {
                   )}
                 </div>
                 {conv.unreadCount > 0 && (
-                  <span className="flex-shrink-0 w-5 h-5 bg-indigo-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center mt-0.5">
+                  <span className="flex-shrink-0 min-w-[20px] h-5 bg-indigo-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 mt-0.5">
                     {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
                   </span>
                 )}
@@ -284,9 +306,7 @@ export default function InboxPage() {
           className="md:hidden p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
           aria-label="Back to list"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
+          <ChevronLeft size={20} />
         </button>
         {contact && (
           <>
@@ -304,7 +324,7 @@ export default function InboxPage() {
                 onClick={() => setShowAIPanel(v => !v)}
                 className="md:hidden flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 text-xs font-medium rounded-lg border border-amber-200"
               >
-                <span>⚡</span>
+                <Zap size={12} />
                 <span>{suggestions.length}</span>
               </button>
             )}
@@ -341,8 +361,9 @@ export default function InboxPage() {
                   >
                     <p className="leading-relaxed">{msg.body || '(media)'}</p>
                     {msg.pendingSuggestions > 0 && (
-                      <p className={`text-xs mt-1 font-medium ${msg.senderType === 'user' ? 'text-indigo-200' : 'text-amber-600'}`}>
-                        ⚡ {msg.pendingSuggestions} suggestion{msg.pendingSuggestions !== 1 ? 's' : ''}
+                      <p className={`text-xs mt-1 font-medium flex items-center gap-1 ${msg.senderType === 'user' ? 'text-indigo-200' : 'text-amber-600'}`}>
+                        <Zap size={10} />
+                        {msg.pendingSuggestions} suggestion{msg.pendingSuggestions !== 1 ? 's' : ''}
                       </p>
                     )}
                   </div>
@@ -367,13 +388,23 @@ export default function InboxPage() {
               </div>
             )}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">AI Suggestions</p>
-                <p className="text-xs text-gray-400">Tap a reply to send</p>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-indigo-50 rounded-md flex items-center justify-center">
+                  <Bot size={13} className="text-indigo-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 leading-tight">AI Suggestions</p>
+                  <p className="text-xs text-gray-400 leading-tight">Tap a reply to send</p>
+                </div>
               </div>
               {selectedMsgId && (
-                <button onClick={regenerate} disabled={regenerating} className="text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50 font-medium">
-                  {regenerating ? '…' : '↺ Regenerate'}
+                <button
+                  onClick={regenerate}
+                  disabled={regenerating}
+                  className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 disabled:opacity-50 font-medium"
+                >
+                  <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
+                  Regenerate
                 </button>
               )}
             </div>
@@ -386,7 +417,10 @@ export default function InboxPage() {
                   </div>
                 </div>
               ) : suggestions.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-8">No suggestions yet</p>
+                <div className="flex flex-col items-center justify-center py-8 text-center px-4">
+                  <Bot size={28} className="text-gray-300 mb-2" />
+                  <p className="text-xs text-gray-400">No suggestions yet</p>
+                </div>
               ) : (
                 suggestions.map(s => (
                   <div key={s.id} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
@@ -425,18 +459,26 @@ export default function InboxPage() {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowAIPanel(false)} />
           <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">AI Suggestions</p>
-                <p className="text-xs text-gray-400">{suggestions.length} option{suggestions.length !== 1 ? 's' : ''}</p>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 bg-indigo-50 rounded-lg flex items-center justify-center">
+                  <Bot size={15} className="text-indigo-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">AI Suggestions</p>
+                  <p className="text-xs text-gray-400">{suggestions.length} option{suggestions.length !== 1 ? 's' : ''}</p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={regenerate} disabled={regenerating} className="text-xs text-indigo-600 font-medium disabled:opacity-50">
-                  {regenerating ? '…' : '↺'}
+                <button
+                  onClick={regenerate}
+                  disabled={regenerating}
+                  className="flex items-center gap-1 text-xs text-indigo-600 font-medium disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
+                  Regenerate
                 </button>
                 <button onClick={() => setShowAIPanel(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <X size={16} />
                 </button>
               </div>
             </div>
@@ -473,8 +515,10 @@ export default function InboxPage() {
   ) : (
     <div className="hidden md:flex flex-1 items-center justify-center bg-gray-50">
       <div className="text-center">
-        <div className="text-5xl mb-3">💬</div>
-        <p className="text-sm font-medium text-gray-900">Select a conversation</p>
+        <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <MessageSquare size={28} className="text-gray-400" />
+        </div>
+        <p className="text-sm font-semibold text-gray-900">Select a conversation</p>
         <p className="text-xs text-gray-500 mt-1">Choose from the list to open a thread</p>
       </div>
     </div>

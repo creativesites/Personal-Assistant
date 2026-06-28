@@ -2,6 +2,7 @@
 
 import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { AlertTriangle, CheckCircle, CornerDownRight } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -90,8 +91,14 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
               <div className="space-y-2">
                 {TRUST_LEVELS.map(level => (
                   <button key={level} onClick={() => patch({ trust_level: level })}
-                    className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left ${agent.trust_level === level ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex-shrink-0 ${agent.trust_level === level ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`} />
+                    className={`w-full flex items-start gap-3 p-3 rounded-lg border transition-all text-left ${agent.trust_level === level ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
+                    <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex-shrink-0 transition-colors ${agent.trust_level === level ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`}>
+                      {agent.trust_level === level && (
+                        <div className="w-full h-full rounded-full flex items-center justify-center">
+                          <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                        </div>
+                      )}
+                    </div>
                     <div>
                       <p className={`text-sm font-medium capitalize ${agent.trust_level === level ? 'text-indigo-700' : 'text-gray-700'}`}>{level}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{TRUST_DESC[level]}</p>
@@ -165,14 +172,31 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
               <div className="divide-y divide-gray-100">
                 {actions.map(a => (
                   <div key={a.id} className="px-5 py-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${a.was_escalated ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                        {a.was_escalated ? 'Escalated' : a.action_type.replace('_', ' ')}
-                      </span>
+                    <div className="flex items-center gap-2 mb-2">
+                      {a.was_escalated ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium bg-red-50 text-red-600">
+                          <AlertTriangle className="w-3 h-3" />
+                          Escalated
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium bg-green-50 text-green-600">
+                          <CheckCircle className="w-3 h-3" />
+                          {a.action_type.replace('_', ' ')}
+                        </span>
+                      )}
                       <span className="text-xs text-gray-400">{new Date(a.created_at).toLocaleString()}</span>
                     </div>
-                    {a.input_message && <p className="text-xs text-gray-500 mb-1">↳ {a.input_message.slice(0, 120)}{a.input_message.length > 120 ? '…' : ''}</p>}
-                    {a.output_message && <p className="text-xs text-gray-700">⤷ {a.output_message.slice(0, 120)}{a.output_message.length > 120 ? '…' : ''}</p>}
+                    {a.input_message && (
+                      <p className="text-xs text-gray-500 mb-1 pl-1 border-l-2 border-gray-200">
+                        {a.input_message.slice(0, 120)}{a.input_message.length > 120 ? '…' : ''}
+                      </p>
+                    )}
+                    {a.output_message && (
+                      <div className="flex items-start gap-1.5 mt-1">
+                        <CornerDownRight className="w-3.5 h-3.5 text-indigo-400 mt-0.5 flex-shrink-0" />
+                        <p className="text-xs text-gray-700">{a.output_message.slice(0, 120)}{a.output_message.length > 120 ? '…' : ''}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

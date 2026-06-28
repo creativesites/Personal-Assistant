@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { ModeBadge, PageHeader, Tabs, useToast } from '@/components/ui'
+import { Briefcase, Users, Zap, AlertTriangle } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
@@ -24,28 +25,28 @@ const MODE_OPTIONS: {
   label: string
   description: string
   tier: string | null
-  icon: string
+  Icon: React.ElementType
 }[] = [
   {
     value: 'business',
     label: 'Business',
     description: 'Customer relationships, deals, and support. WhatsApp as your CRM.',
     tier: null,
-    icon: '💼',
+    Icon: Briefcase,
   },
   {
     value: 'personal',
     label: 'Personal',
     description: 'Family, friends, and personal relationships. AI relationship coach.',
     tier: 'Starter+',
-    icon: '🧑‍🤝‍🧑',
+    Icon: Users,
   },
   {
     value: 'hybrid',
     label: 'Hybrid',
     description: 'Full access to both business and personal intelligence engines.',
     tier: 'Pro',
-    icon: '⚡',
+    Icon: Zap,
   },
 ]
 
@@ -255,7 +256,7 @@ export default function SettingsPage() {
 
           {apiReachable === false && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
-              <span>⚠️</span>
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               <span>Backend not reachable — some settings cannot be saved.</span>
             </div>
           )}
@@ -363,7 +364,7 @@ export default function SettingsPage() {
                             }`}
                           >
                             <div className="flex items-start gap-3">
-                              <span className="text-2xl flex-shrink-0">{opt.icon}</span>
+                              <opt.Icon className="w-5 h-5 flex-shrink-0 mt-0.5 text-gray-500" />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap mb-1">
                                   <ModeBadge mode={opt.value} />

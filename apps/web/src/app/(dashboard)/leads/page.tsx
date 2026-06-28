@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { AlertTriangle, Flame, Search, Snowflake, TrendingUp, Wind } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { Avatar, EmptyState, FeatureGate, PageHeader, SkeletonCard } from '@/components/ui'
@@ -92,11 +93,11 @@ export default function LeadsPage() {
     })
   }, [leads, search, stage, sort])
 
-  const STAGES: { key: StageFilter; label: string; emoji: string }[] = [
-    { key: 'all',  label: 'All leads',  emoji: '📋' },
-    { key: 'hot',  label: 'Hot',        emoji: '🔥' },
-    { key: 'warm', label: 'Warm',       emoji: '🌤️' },
-    { key: 'cold', label: 'Cold',       emoji: '❄️' },
+  const STAGES: { key: StageFilter; label: string; icon: React.ReactNode }[] = [
+    { key: 'all',  label: 'All leads',  icon: <TrendingUp className="w-3 h-3" /> },
+    { key: 'hot',  label: 'Hot',        icon: <Flame className="w-3 h-3" /> },
+    { key: 'warm', label: 'Warm',       icon: <Wind className="w-3 h-3" /> },
+    { key: 'cold', label: 'Cold',       icon: <Snowflake className="w-3 h-3" /> },
   ]
 
   if (session.status === 'loading' || loading) {
@@ -124,7 +125,7 @@ export default function LeadsPage() {
         fallback={
           <div className="flex-1 flex items-center justify-center p-6">
             <div className="text-center max-w-sm">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center text-3xl mx-auto mb-4">🔥</div>
+              <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center mx-auto mb-4"><Flame className="w-8 h-8 text-indigo-500" /></div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Leads is a Business feature</h3>
               <p className="text-sm text-gray-500 mb-5">Switch to Business or Hybrid mode in settings to access lead scoring and pipeline management.</p>
               <a href="/settings" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
@@ -169,7 +170,7 @@ export default function LeadsPage() {
                 stage === s.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              <span>{s.emoji}</span>
+              {s.icon}
               {s.label}
               <span className={`rounded-full px-1.5 py-px text-[10px] leading-none ${stage === s.key ? 'bg-white/25 text-white' : 'bg-gray-200 text-gray-500'}`}>
                 {stageCounts[s.key]}
@@ -183,17 +184,17 @@ export default function LeadsPage() {
           <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-4 md:px-6 py-3 flex items-center gap-6 flex-shrink-0">
             <div className="text-center">
               <p className="text-white font-bold text-lg tabular-nums">{stageCounts.hot}</p>
-              <p className="text-indigo-200 text-[11px]">Hot 🔥</p>
+              <p className="text-indigo-200 text-[11px] inline-flex items-center gap-1"><Flame className="w-3 h-3" />Hot</p>
             </div>
             <div className="w-px h-8 bg-white/20" />
             <div className="text-center">
               <p className="text-white font-bold text-lg tabular-nums">{stageCounts.warm}</p>
-              <p className="text-indigo-200 text-[11px]">Warm 🌤️</p>
+              <p className="text-indigo-200 text-[11px] inline-flex items-center gap-1"><Wind className="w-3 h-3" />Warm</p>
             </div>
             <div className="w-px h-8 bg-white/20" />
             <div className="text-center">
               <p className="text-white font-bold text-lg tabular-nums">{stageCounts.cold}</p>
-              <p className="text-indigo-200 text-[11px]">Cold ❄️</p>
+              <p className="text-indigo-200 text-[11px] inline-flex items-center gap-1"><Snowflake className="w-3 h-3" />Cold</p>
             </div>
             <div className="ml-auto text-right hidden sm:block">
               <p className="text-white text-xs font-medium">Avg score</p>
@@ -207,15 +208,15 @@ export default function LeadsPage() {
         {/* Cards */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6">
           {error ? (
-            <EmptyState icon="⚠️" title="Couldn't load leads" description="Make sure the API server is running." />
+            <EmptyState icon={<AlertTriangle className="w-10 h-10 text-amber-400" />} title="Couldn't load leads" description="Make sure the API server is running." />
           ) : leads.length === 0 ? (
             <EmptyState
-              icon="🔥"
+              icon={<Flame className="w-10 h-10 text-red-400" />}
               title="No leads yet"
               description="When Zuri detects buying signals in your conversations, leads appear here automatically."
             />
           ) : processed.length === 0 ? (
-            <EmptyState icon="🔍" title="No leads match" description={search ? `No results for "${search}"` : 'No leads in this stage.'} />
+            <EmptyState icon={<Search className="w-10 h-10 text-gray-400" />} title="No leads match" description={search ? `No results for "${search}"` : 'No leads in this stage.'} />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl mx-auto">
               {processed.map(lead => {

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
+import { AlertTriangle, Bell, Flame, MessageSquare, Smartphone, SmartphoneNfc, Sparkles, Zap } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { Avatar, Badge, EmptyState, PageHeader, SkeletonListItem } from '@/components/ui'
@@ -15,14 +16,16 @@ interface Notification {
   contact?: { id: string; name: string; avatarUrl: string | null }
 }
 
-const TYPE_CONFIG: Record<string, { icon: string; variant: 'info' | 'success' | 'warning' | 'error' | 'default' | 'purple' }> = {
-  suggestion_ready:    { icon: '⚡', variant: 'info' },
-  relationship_alert:  { icon: '⚠️', variant: 'warning' },
-  lead_detected:       { icon: '🔥', variant: 'success' },
-  proactive_reminder:  { icon: '✨', variant: 'purple' },
-  session_connected:   { icon: '📱', variant: 'success' },
-  session_disconnected:{ icon: '📵', variant: 'error' },
-  system:              { icon: '🔔', variant: 'default' },
+type BadgeVariantType = 'info' | 'success' | 'warning' | 'error' | 'default' | 'purple'
+
+const TYPE_CONFIG: Record<string, { Icon: React.ElementType; variant: BadgeVariantType; iconColor: string }> = {
+  suggestion_ready:     { Icon: Zap,           variant: 'info',    iconColor: 'text-blue-500' },
+  relationship_alert:   { Icon: AlertTriangle,  variant: 'warning', iconColor: 'text-amber-500' },
+  lead_detected:        { Icon: Flame,          variant: 'success', iconColor: 'text-red-500' },
+  proactive_reminder:   { Icon: Sparkles,       variant: 'purple',  iconColor: 'text-purple-500' },
+  session_connected:    { Icon: Smartphone,     variant: 'success', iconColor: 'text-green-500' },
+  session_disconnected: { Icon: SmartphoneNfc,  variant: 'error',   iconColor: 'text-red-400' },
+  system:               { Icon: Bell,           variant: 'default', iconColor: 'text-gray-400' },
 }
 
 function timeAgo(ts: string) {
@@ -113,11 +116,11 @@ export default function NotificationsPage() {
       <div className="flex-1 overflow-y-auto">
         {error ? (
           <div className="p-6 max-w-2xl mx-auto">
-            <EmptyState icon="⚠️" title="Couldn't load notifications" description="Make sure the API server is running." />
+            <EmptyState icon={<AlertTriangle className="w-10 h-10 text-amber-400" />} title="Couldn't load notifications" description="Make sure the API server is running." />
           </div>
         ) : displayed.length === 0 ? (
           <EmptyState
-            icon="🔔"
+            icon={<Bell className="w-10 h-10 text-gray-400" />}
             title={filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}
             description={filter === 'unread' ? "You're all caught up." : 'Activity across your workspace will appear here.'}
           />
@@ -125,6 +128,7 @@ export default function NotificationsPage() {
           <div className="max-w-2xl mx-auto">
             {displayed.map(n => {
               const config = TYPE_CONFIG[n.type] ?? TYPE_CONFIG.system
+              const TypeIcon = config.Icon
               return (
                 <div
                   key={n.id}
@@ -136,11 +140,13 @@ export default function NotificationsPage() {
                   {n.contact ? (
                     <div className="flex-shrink-0 relative">
                       <Avatar name={n.contact.name} src={n.contact.avatarUrl ?? undefined} size="md" />
-                      <span className="absolute -bottom-0.5 -right-0.5 text-sm leading-none">{config.icon}</span>
+                      <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white flex items-center justify-center shadow-sm">
+                        <TypeIcon className={`w-2.5 h-2.5 ${config.iconColor}`} />
+                      </span>
                     </div>
                   ) : (
-                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">
-                      {config.icon}
+                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+                      <TypeIcon className={`w-5 h-5 ${config.iconColor}`} />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">

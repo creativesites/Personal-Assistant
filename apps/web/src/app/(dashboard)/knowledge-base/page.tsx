@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
+import { FileText, Link2, FileEdit, BookOpen } from 'lucide-react'
 
 interface KbDocument {
   id: string
@@ -24,11 +25,11 @@ const STATUS_STYLE: Record<string, string> = {
   error:      'bg-red-50 text-red-600 border-red-200',
 }
 
-const TYPE_ICON: Record<string, string> = {
-  pdf:    '📄',
-  url:    '🔗',
-  text:   '📝',
-  notion: '📓',
+const TYPE_ICON: Record<string, React.ElementType> = {
+  pdf:    FileText,
+  url:    Link2,
+  text:   FileEdit,
+  notion: BookOpen,
 }
 
 export default function KnowledgeBasePage() {
@@ -130,7 +131,7 @@ export default function KnowledgeBasePage() {
           <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-20 bg-white rounded-xl border border-gray-200 animate-pulse" />)}</div>
         ) : documents.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <div className="text-4xl mb-3">📚</div>
+            <BookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
             <p className="text-gray-900 font-semibold mb-1">No documents yet</p>
             <p className="text-gray-500 text-sm mb-4">Add FAQs, product guides, or URLs to give your agents knowledge</p>
             <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700">Add first source</button>
@@ -139,7 +140,9 @@ export default function KnowledgeBasePage() {
           <div className="space-y-3">
             {documents.map(doc => (
               <div key={doc.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-4">
-                <div className="text-2xl flex-shrink-0">{TYPE_ICON[doc.source_type] ?? '📄'}</div>
+                <div className="flex-shrink-0 mt-0.5">
+                  {(() => { const Icon = TYPE_ICON[doc.source_type] ?? FileText; return <Icon className="w-6 h-6 text-gray-400" /> })()}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <p className="text-sm font-semibold text-gray-900">{doc.title}</p>
