@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { apiClient } from '@/lib/api'
+import { apiClient, ApiError } from '@/lib/api'
 
 type Step = 'idle' | 'connecting' | 'qr' | 'link_code' | 'connected' | 'error'
 
@@ -17,6 +17,8 @@ interface WAStatus {
   linkCodeExpiresAt?: string | null
 }
 
+const POLL_TIMEOUT_MS = 90_000
+
 export default function OnboardingPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
@@ -26,6 +28,7 @@ export default function OnboardingPage() {
   const [linkCode, setLinkCode] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollStartRef = useRef<number>(0)
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -38,7 +41,14 @@ export default function OnboardingPage() {
 
   const startPolling = (tok: string) => {
     stopPolling()
+    pollStartRef.current = Date.now()
     pollRef.current = setInterval(async () => {
+      if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
+        stopPolling()
+        setError('Connection timed out. Please try again.')
+        setStep('error')
+        return
+      }
       try {
         const status = await apiClient<WAStatus>('/api/whatsapp/status', { token: tok })
         console.log('[poll]', status.status, 'qrCode:', !!status.qrCode, 'linkCode:', !!status.linkCode)
@@ -57,7 +67,12 @@ export default function OnboardingPage() {
           stopPolling()
           setError('WhatsApp connection failed. Please try again.')
           setStep('error')
+        } else if (status.status === 'disconnected') {
+          stopPolling()
+          setError('Connection lost. Please try again.')
+          setStep('error')
         }
+        // 'connecting' and 'qr_pending' without qrCode: keep polling
       } catch (err) {
         console.error('[poll] error:', err)
       }
@@ -75,6 +90,11 @@ export default function OnboardingPage() {
       await apiClient('/api/whatsapp/connect', { method: 'POST', token })
       startPolling(token)
     } catch (err: any) {
+      // 409 = session already active (e.g. restoreAll() started it on boot) — just poll for it
+      if (err instanceof ApiError && err.status === 409) {
+        startPolling(token)
+        return
+      }
       setError(err.message || 'Failed to start connection')
       setStep('error')
     }
