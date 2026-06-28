@@ -26,8 +26,11 @@ export default function OnboardingPage() {
   const [linkCodeData, setLinkCodeData] = useState<string | null>(null)
   // True while the POST /connect call is in flight
   const [isStarting, setIsStarting] = useState(false)
-  // Error from the POST /connect call only
+  // Error from the POST /connect call or a lost connection
   const [connectError, setConnectError] = useState<string | null>(null)
+  // Tracks whether we've seen an active backend state this page session so we
+  // can show an error (not silent idle) when the session drops unexpectedly
+  const wasActiveRef = useRef(false)
 
   // ── Polling ────────────────────────────────────────────────────────────────
   // Starts as soon as we have a token; runs the whole time the page is open.
@@ -43,13 +46,24 @@ export default function OnboardingPage() {
         if (cancelled) return
 
         setWaStatus(s)
-        // Cache the most-recent non-null QR so it stays visible during regeneration
         if (s.qrCode) setQrData(s.qrCode)
         if (s.linkCode) setLinkCodeData(s.linkCode)
+
+        // Track that we've reached an active state so a drop looks like an error
+        if (s.status === 'connecting' || s.status === 'qr_pending') {
+          wasActiveRef.current = true
+        }
 
         if (s.connected) {
           apiClient('/api/auth/onboarding-complete', { method: 'POST', token }).catch(() => {})
           router.push('/inbox')
+          return
+        }
+
+        // Session dropped after we were already in an active state → surface as error
+        if (s.status === 'disconnected' && wasActiveRef.current) {
+          setConnectError('Connection was lost. Please try again.')
+          wasActiveRef.current = false
         }
       } catch (err) {
         if (!cancelled) console.error('[onboarding poll]', err)
@@ -69,6 +83,7 @@ export default function OnboardingPage() {
     if (!token) return
     setIsStarting(true)
     setConnectError(null)
+    wasActiveRef.current = false
 
     try {
       await apiClient('/api/whatsapp/connect', { method: 'POST', token })
