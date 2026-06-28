@@ -7,6 +7,28 @@ import { EmptyState, PageHeader, SkeletonCard, StatCard } from '@/components/ui'
 
 type Range = '7d' | '30d' | '90d'
 
+interface OverviewData {
+  suggestion_acceptance_rate: number
+  avg_response_time_seconds: number | null
+  proactive_items_approved: number
+  ai_drafted_vs_manual: { ai_drafted: number; manual: number }
+  period: string
+}
+
+interface FunnelStage {
+  stage: string
+  count: number
+  avg_days_in_stage: number | null
+  conversion_rate_to_next: number | null
+}
+
+interface RevenueData {
+  total_attributed_cents: number
+  deal_count: number
+  avg_deal_cents: number | null
+  by_month: Array<{ month: string; amount_cents: number; count: number }>
+}
+
 interface AnalyticsData {
   messagesSent: number
   messagesReceived: number
@@ -72,6 +94,9 @@ export default function AnalyticsPage() {
   const { data: convData, loading: loadingConv } = useApi<{ conversations: Conversation[] }>('/api/conversations', token)
   const { data: contactData, loading: loadingContacts } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
   const { data: analyticsData, loading: loadingAnalytics } = useApi<AnalyticsData>('/api/analytics', token)
+  const { data: overviewData } = useApi<OverviewData>('/api/analytics/overview', token)
+  const { data: funnelData } = useApi<FunnelStage[]>('/api/analytics/funnel', token)
+  const { data: revenueData } = useApi<RevenueData>('/api/analytics/revenue', token)
 
   const loading = loadingConv || loadingContacts || loadingAnalytics
 
@@ -262,6 +287,131 @@ export default function AnalyticsPage() {
                     <HealthDistBar label="Low"       count={stats.healthDist.low}       total={healthTotal} color="text-orange-600" bg="bg-orange-400" />
                     <HealthDistBar label="Critical"  count={stats.healthDist.critical}  total={healthTotal} color="text-red-600"    bg="bg-red-500" />
                   </div>
+                </div>
+              )}
+
+              {/* AI Performance (Phase 9) */}
+              {overviewData && mode !== 'personal' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">AI Agent Performance</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-indigo-600 tabular-nums">
+                        {Math.round(overviewData.suggestion_acceptance_rate * 100)}%
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Suggestion acceptance</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-gray-900 tabular-nums">
+                        {overviewData.proactive_items_approved}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Proactive approved</p>
+                    </div>
+                    {overviewData.avg_response_time_seconds && (
+                      <div className="text-center col-span-2">
+                        <p className="text-2xl font-bold text-gray-900 tabular-nums">
+                          {overviewData.avg_response_time_seconds < 60
+                            ? `${Math.round(overviewData.avg_response_time_seconds)}s`
+                            : `${Math.round(overviewData.avg_response_time_seconds / 60)}m`}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">Avg decision time</p>
+                      </div>
+                    )}
+                  </div>
+                  {(overviewData.ai_drafted_vs_manual.ai_drafted + overviewData.ai_drafted_vs_manual.manual) > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-50">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs text-gray-500">AI-drafted replies</span>
+                        <span className="text-xs font-semibold text-indigo-600">
+                          {Math.round((overviewData.ai_drafted_vs_manual.ai_drafted /
+                            (overviewData.ai_drafted_vs_manual.ai_drafted + overviewData.ai_drafted_vs_manual.manual)) * 100)}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.round((overviewData.ai_drafted_vs_manual.ai_drafted /
+                            (overviewData.ai_drafted_vs_manual.ai_drafted + overviewData.ai_drafted_vs_manual.manual)) * 100)}%` }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Conversion Funnel (Phase 9) */}
+              {funnelData && funnelData.length > 0 && mode !== 'personal' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Conversion Funnel</p>
+                  <div className="space-y-2">
+                    {funnelData.map((stage, i) => {
+                      const maxCount = Math.max(...funnelData.map(s => s.count), 1)
+                      const pct = Math.round((stage.count / maxCount) * 100)
+                      const STAGE_COLORS: Record<string, string> = {
+                        lead: 'bg-blue-400', qualified: 'bg-indigo-400', opportunity: 'bg-violet-400',
+                        proposal: 'bg-purple-400', closed_won: 'bg-green-500', closed_lost: 'bg-red-400', churned: 'bg-gray-400',
+                      }
+                      return (
+                        <div key={stage.stage} className="flex items-center gap-3">
+                          <span className="text-xs text-gray-500 w-24 flex-shrink-0 capitalize">{stage.stage.replace('_', ' ')}</span>
+                          <div className="flex-1 h-6 bg-gray-100 rounded overflow-hidden flex items-center">
+                            <div className={`h-full ${STAGE_COLORS[stage.stage] ?? 'bg-indigo-400'} rounded transition-all duration-500 flex items-center justify-end pr-2`}
+                              style={{ width: `${Math.max(pct, 4)}%` }}>
+                              {pct > 15 && <span className="text-white text-xs font-semibold">{stage.count}</span>}
+                            </div>
+                          </div>
+                          {pct <= 15 && <span className="text-xs text-gray-600 w-8 tabular-nums">{stage.count}</span>}
+                          {stage.conversion_rate_to_next !== null && i < funnelData.length - 1 && (
+                            <span className="text-xs text-gray-400 w-10 text-right tabular-nums flex-shrink-0">
+                              {Math.round(stage.conversion_rate_to_next * 100)}%→
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Revenue Attribution (Phase 9) */}
+              {revenueData && revenueData.deal_count > 0 && mode !== 'personal' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">AI-Attributed Revenue</p>
+                  <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-green-600 tabular-nums">
+                        ${(revenueData.total_attributed_cents / 100).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">Total</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xl font-bold text-gray-900 tabular-nums">{revenueData.deal_count}</p>
+                      <p className="text-xs text-gray-500 mt-1">Deals</p>
+                    </div>
+                    {revenueData.avg_deal_cents && (
+                      <div className="text-center">
+                        <p className="text-xl font-bold text-gray-900 tabular-nums">
+                          ${(revenueData.avg_deal_cents / 100).toLocaleString()}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">Avg deal</p>
+                      </div>
+                    )}
+                  </div>
+                  {revenueData.by_month.slice(0, 6).length > 0 && (
+                    <div className="space-y-1.5">
+                      {revenueData.by_month.slice(0, 6).map(m => {
+                        const maxAmt = Math.max(...revenueData.by_month.slice(0, 6).map(x => x.amount_cents), 1)
+                        const pct = Math.round((m.amount_cents / maxAmt) * 100)
+                        return (
+                          <div key={m.month} className="flex items-center gap-3">
+                            <span className="text-xs text-gray-400 w-16 flex-shrink-0">{m.month}</span>
+                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-green-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs text-gray-600 w-20 text-right tabular-nums">${(m.amount_cents / 100).toLocaleString()}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 

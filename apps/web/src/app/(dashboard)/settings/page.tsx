@@ -149,11 +149,101 @@ export default function SettingsPage() {
     return name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
   })()
 
+  const [apiKeys, setApiKeys] = useState<Array<{ id: string; label: string; created_at: string }>>([])
+  const [webhooks, setWebhooks] = useState<Array<{ id: string; url: string; events: string[]; is_active: boolean }>>([])
+  const [creatingKey, setCreatingKey] = useState(false)
+  const [newKeyLabel, setNewKeyLabel] = useState('')
+  const [newKeyValue, setNewKeyValue] = useState<string | null>(null)
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [addingWebhook, setAddingWebhook] = useState(false)
+  const [byokKeys, setByokKeys] = useState<Array<{ id: string; provider: string }>>([])
+  const [byokProvider, setByokProvider] = useState('anthropic')
+  const [byokApiKey, setByokApiKey] = useState('')
+  const [savingByok, setSavingByok] = useState(false)
+  const [enterpriseLoaded, setEnterpriseLoaded] = useState(false)
+
+  const loadEnterprise = async () => {
+    if (!token || enterpriseLoaded) return
+    setEnterpriseLoaded(true)
+    try {
+      const [keysData, hooksData, byokData] = await Promise.all([
+        apiClient<{ api_keys: typeof apiKeys }>('/api/enterprise/api-keys', { token }).catch(() => ({ api_keys: [] })),
+        apiClient<{ webhooks: typeof webhooks }>('/api/enterprise/webhooks', { token }).catch(() => ({ webhooks: [] })),
+        apiClient<{ keys: typeof byokKeys }>('/api/enterprise/byok', { token }).catch(() => ({ keys: [] })),
+      ])
+      setApiKeys((keysData as any).api_keys ?? [])
+      setWebhooks((hooksData as any).webhooks ?? [])
+      setByokKeys((byokData as any).keys ?? [])
+    } catch { /* ignore */ }
+  }
+
+  const createApiKey = async () => {
+    if (!token || !newKeyLabel.trim()) return
+    setCreatingKey(true)
+    try {
+      const data = await apiClient<{ api_key: { id: string; label: string; created_at: string }; key: string }>(
+        '/api/enterprise/api-keys', { method: 'POST', token, body: JSON.stringify({ label: newKeyLabel.trim() }) }
+      )
+      setNewKeyValue((data as any).key)
+      setNewKeyLabel('')
+      const keysData = await apiClient<{ api_keys: typeof apiKeys }>('/api/enterprise/api-keys', { token }).catch(() => ({ api_keys: [] }))
+      setApiKeys((keysData as any).api_keys ?? [])
+    } finally { setCreatingKey(false) }
+  }
+
+  const revokeApiKey = async (id: string) => {
+    if (!token || !confirm('Revoke this API key? It cannot be undone.')) return
+    await apiClient(`/api/enterprise/api-keys/${id}`, { method: 'DELETE', token })
+    setApiKeys(k => k.filter(k => k.id !== id))
+  }
+
+  const addWebhook = async () => {
+    if (!token || !webhookUrl.trim()) return
+    setAddingWebhook(true)
+    try {
+      await apiClient('/api/enterprise/webhooks', {
+        method: 'POST', token,
+        body: JSON.stringify({ url: webhookUrl.trim(), events: ['message.incoming', 'escalation.created', 'broadcast.sent'] }),
+      })
+      setWebhookUrl('')
+      const data = await apiClient<{ webhooks: typeof webhooks }>('/api/enterprise/webhooks', { token }).catch(() => ({ webhooks: [] }))
+      setWebhooks((data as any).webhooks ?? [])
+    } finally { setAddingWebhook(false) }
+  }
+
+  const deleteWebhook = async (id: string) => {
+    if (!token) return
+    await apiClient(`/api/enterprise/webhooks/${id}`, { method: 'DELETE', token })
+    setWebhooks(w => w.filter(w => w.id !== id))
+  }
+
+  const saveByok = async () => {
+    if (!token || !byokApiKey.trim()) return
+    setSavingByok(true)
+    try {
+      await apiClient('/api/enterprise/byok', {
+        method: 'POST', token,
+        body: JSON.stringify({ provider: byokProvider, api_key: byokApiKey.trim() }),
+      })
+      setByokApiKey('')
+      const data = await apiClient<{ keys: typeof byokKeys }>('/api/enterprise/byok', { token }).catch(() => ({ keys: [] }))
+      setByokKeys((data as any).keys ?? [])
+    } finally { setSavingByok(false) }
+  }
+
+  const [activeTab, setActiveTab] = useState('account')
+
+  const handleTabChange = (id: string) => {
+    setActiveTab(id)
+    if (id === 'enterprise' && !enterpriseLoaded) loadEnterprise()
+  }
+
   const tabs = [
     { id: 'account',      label: 'Account' },
     { id: 'workspace',    label: 'Workspace' },
     { id: 'intelligence', label: 'AI Engines' },
     { id: 'privacy',      label: 'Privacy' },
+    { id: 'enterprise',   label: 'Enterprise' },
   ]
 
   return (
@@ -189,11 +279,11 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <Tabs tabs={tabs} defaultTab="account">
-            {activeTab => (
+          <Tabs tabs={tabs} activeTab={activeTab} onChange={handleTabChange}>
+            {(currentTab) => (
               <>
                 {/* ── Account tab ── */}
-                {activeTab === 'account' && (
+                {currentTab === 'account' && (
                   <div className="space-y-4 pt-2">
                     <Section title="WhatsApp Connection">
                       {waStatus === null ? (
@@ -254,7 +344,7 @@ export default function SettingsPage() {
                 )}
 
                 {/* ── Workspace tab ── */}
-                {activeTab === 'workspace' && (
+                {currentTab === 'workspace' && (
                   <div className="space-y-4 pt-2">
                     <p className="text-sm text-gray-500">
                       Choose how Zuri operates. This controls which intelligence engines run and what features appear in your dashboard.
@@ -336,7 +426,7 @@ export default function SettingsPage() {
                 )}
 
                 {/* ── Intelligence tab ── */}
-                {activeTab === 'intelligence' && (
+                {currentTab === 'intelligence' && (
                   <div className="space-y-4 pt-2">
                     <Section title="AI Engines">
                       {[
@@ -362,8 +452,118 @@ export default function SettingsPage() {
                   </div>
                 )}
 
+                {/* ── Enterprise tab ── */}
+                {currentTab === 'enterprise' && (
+                  <div className="space-y-4 pt-2">
+                    {/* API Keys */}
+                    <Section title="API Keys">
+                      <div className="px-5 py-4">
+                        <p className="text-xs text-gray-400 mb-3">Use API keys to integrate Zuri with external services. Keys are shown only once at creation.</p>
+                        {apiKeys.length > 0 && (
+                          <div className="space-y-2 mb-3">
+                            {apiKeys.map(k => (
+                              <div key={k.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                                <div>
+                                  <p className="text-sm font-medium text-gray-800">{k.label}</p>
+                                  <p className="text-xs text-gray-400">Created {new Date(k.created_at).toLocaleDateString()}</p>
+                                </div>
+                                <button onClick={() => revokeApiKey(k.id)} className="text-xs text-red-400 hover:text-red-600 font-medium">Revoke</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {newKeyValue && (
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+                            <p className="text-xs font-semibold text-green-700 mb-1">Copy this key now — it won&apos;t be shown again</p>
+                            <code className="text-xs text-green-800 break-all">{newKeyValue}</code>
+                            <button onClick={() => setNewKeyValue(null)} className="mt-2 text-xs text-green-600 hover:text-green-800 block">Dismiss</button>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <input value={newKeyLabel} onChange={e => setNewKeyLabel(e.target.value)}
+                            placeholder="Key label (e.g. Zapier)" className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                          <button disabled={creatingKey || !newKeyLabel.trim()} onClick={createApiKey}
+                            className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                            {creatingKey ? '…' : 'Create'}
+                          </button>
+                        </div>
+                      </div>
+                    </Section>
+
+                    {/* Webhooks */}
+                    <Section title="Webhooks">
+                      <div className="px-5 py-4">
+                        <p className="text-xs text-gray-400 mb-3">Receive real-time POST events for messages, escalations, and broadcasts.</p>
+                        {webhooks.length > 0 && (
+                          <div className="space-y-2 mb-3">
+                            {webhooks.map(w => (
+                              <div key={w.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs text-gray-700 truncate font-mono">{w.url}</p>
+                                  <p className="text-xs text-gray-400">{w.events?.join(', ')}</p>
+                                </div>
+                                <button onClick={() => deleteWebhook(w.id)} className="text-xs text-red-400 hover:text-red-600 flex-shrink-0">Delete</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          <input value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)}
+                            placeholder="https://your-app.com/webhook"
+                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                          <button disabled={addingWebhook || !webhookUrl.trim()} onClick={addWebhook}
+                            className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                            {addingWebhook ? '…' : 'Add'}
+                          </button>
+                        </div>
+                      </div>
+                    </Section>
+
+                    {/* BYOK */}
+                    <Section title="Bring Your Own AI Keys (BYOK)">
+                      <div className="px-5 py-4">
+                        <p className="text-xs text-gray-400 mb-3">Use your own AI provider API keys so usage is billed directly to your account.</p>
+                        {byokKeys.length > 0 && (
+                          <div className="space-y-1.5 mb-3">
+                            {byokKeys.map(k => (
+                              <div key={k.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                                <p className="text-sm font-medium text-gray-800 capitalize">{k.provider}</p>
+                                <span className="text-xs text-green-600 font-medium">● Configured</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex gap-2 mb-2">
+                          <select value={byokProvider} onChange={e => setByokProvider(e.target.value)}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="anthropic">Anthropic</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="google">Google AI</option>
+                          </select>
+                          <input value={byokApiKey} onChange={e => setByokApiKey(e.target.value)}
+                            type="password" placeholder="sk-..."
+                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                        </div>
+                        <button disabled={savingByok || !byokApiKey.trim()} onClick={saveByok}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                          {savingByok ? 'Saving…' : 'Save key'}
+                        </button>
+                      </div>
+                    </Section>
+
+                    {/* CRM link */}
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">CRM Integrations</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Connect HubSpot, Salesforce, and more</p>
+                      </div>
+                      <a href="/settings/integrations" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">Configure →</a>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Privacy tab ── */}
-                {activeTab === 'privacy' && (
+                {currentTab === 'privacy' && (
                   <div className="space-y-4 pt-2">
                     <Section title="Data & Privacy">
                       <div className="px-5 py-4">

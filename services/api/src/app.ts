@@ -11,6 +11,11 @@ import { proactiveRoutes } from './routes/proactive';
 import { suggestionsRoutes } from './routes/suggestions';
 import { companionRoutes } from './routes/companion';
 import { adminRoutes } from './routes/admin';
+import { agentRoutes } from './routes/agents';
+import { analyticsRoutes } from './routes/analytics';
+import { teamRoutes } from './routes/team';
+import { broadcastsRoutes } from './routes/broadcasts';
+import { enterpriseRoutes } from './routes/enterprise';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -42,6 +47,11 @@ export async function buildApp() {
   await fastify.register(suggestionsRoutes);
   await fastify.register(companionRoutes);
   await fastify.register(adminRoutes);
+  await fastify.register(agentRoutes);
+  await fastify.register(analyticsRoutes);
+  await fastify.register(teamRoutes);
+  await fastify.register(broadcastsRoutes);
+  await fastify.register(enterpriseRoutes);
 
   return fastify;
 }

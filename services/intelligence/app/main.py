@@ -12,6 +12,7 @@ from .workers.daily_worker import create_proactive_worker, run_daily_scheduler, 
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
 from .workers.world_knowledge_worker import create_world_knowledge_worker
+from .workers.agent_worker import create_agent_worker, create_kb_worker
 
 logger = structlog.get_logger()
 
@@ -27,6 +28,8 @@ async def lifespan(app: FastAPI):
     voice_worker = create_voice_worker()
     temporal_worker = create_temporal_worker()
     world_knowledge_worker = create_world_knowledge_worker()
+    agent_worker = create_agent_worker()
+    kb_worker = create_kb_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -48,6 +51,8 @@ async def lifespan(app: FastAPI):
     await voice_worker.close()
     await temporal_worker.close()
     await world_knowledge_worker.close()
+    await agent_worker.close()
+    await kb_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()
