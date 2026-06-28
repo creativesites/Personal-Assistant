@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
+import { Avatar, HealthBar, Badge, EmptyState, SkeletonCard } from '@/components/ui'
 
 interface ContactRelationship {
   type: string
@@ -22,17 +23,8 @@ interface Contact {
   profile: { personalitySummary: string; moodBaseline: string } | null
 }
 
-function HealthBar({ score }: { score: number }) {
-  const color = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-amber-400' : 'bg-red-400'
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-        <div className={`${color} h-1.5 rounded-full`} style={{ width: `${score}%` }} />
-      </div>
-      <span className="text-xs text-gray-500 w-6 text-right">{score}</span>
-    </div>
-  )
-}
+type FilterKey = 'all' | 'attention' | 'critical' | 'dormant'
+type SortKey = 'health' | 'recent' | 'name'
 
 function formatLastSeen(ts: string | null) {
   if (!ts) return 'Never'
@@ -45,6 +37,12 @@ function formatLastSeen(ts: string | null) {
 
 const TIER_LABELS = ['', 'Critical', 'High', 'Medium', 'Low', 'Minimal'] as const
 
+const TREND: Record<string, { variant: 'success' | 'error' | 'default'; label: string }> = {
+  improving: { variant: 'success', label: '↑ Improving' },
+  declining:  { variant: 'error',   label: '↓ Declining'  },
+  stable:     { variant: 'default', label: '→ Stable'     },
+}
+
 export default function RelationshipsPage() {
   const session = useZuriSession()
   const router = useRouter()
@@ -52,7 +50,9 @@ export default function RelationshipsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
-  const [filter, setFilter] = useState<string>('all')
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<FilterKey>('all')
+  const [sort, setSort] = useState<SortKey>('health')
 
   useEffect(() => {
     if (!token) return
@@ -61,84 +61,190 @@ export default function RelationshipsPage() {
       .catch(() => { setError(true); setLoading(false) })
   }, [token])
 
-  const filtered = filter === 'all' ? contacts : contacts.filter((c) => c.relationship.type === filter)
-  const uniqueTypes = Array.from(new Set(contacts.map((c) => c.relationship.type)))
+  const stats = useMemo(() => {
+    const needsAttention = contacts.filter(
+      (c) => c.relationship.healthScore < 60 || c.relationship.healthTrend === 'declining',
+    ).length
+    const avgHealth = contacts.length > 0
+      ? Math.round(contacts.reduce((s, c) => s + c.relationship.healthScore, 0) / contacts.length)
+      : 0
+    return { total: contacts.length, needsAttention, avgHealth }
+  }, [contacts])
+
+  const filterDefs = useMemo<{ key: FilterKey; label: string; count: number }[]>(() => [
+    { key: 'all',       label: 'All',            count: contacts.length },
+    { key: 'attention', label: 'Needs attention', count: contacts.filter(c => c.relationship.healthScore < 60 || c.relationship.healthTrend === 'declining').length },
+    { key: 'critical',  label: 'High priority',   count: contacts.filter(c => c.relationship.importanceTier <= 2).length },
+    { key: 'dormant',   label: 'Dormant',         count: contacts.filter(c => { if (!c.relationship.lastInteractionAt) return true; return (Date.now() - new Date(c.relationship.lastInteractionAt).getTime()) / 86400000 > 30 }).length },
+  ], [contacts])
+
+  const filtered = useMemo(() => {
+    let result = contacts.filter((c) => {
+      if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false
+      switch (filter) {
+        case 'attention': return c.relationship.healthScore < 60 || c.relationship.healthTrend === 'declining'
+        case 'critical':  return c.relationship.importanceTier <= 2
+        case 'dormant':   return !c.relationship.lastInteractionAt || (Date.now() - new Date(c.relationship.lastInteractionAt).getTime()) / 86400000 > 30
+        default:          return true
+      }
+    })
+    return [...result].sort((a, b) => {
+      if (sort === 'health')  return a.relationship.healthScore - b.relationship.healthScore
+      if (sort === 'name')    return a.name.localeCompare(b.name)
+      const ta = a.relationship.lastInteractionAt ? new Date(a.relationship.lastInteractionAt).getTime() : 0
+      const tb = b.relationship.lastInteractionAt ? new Date(b.relationship.lastInteractionAt).getTime() : 0
+      return tb - ta
+    })
+  }, [contacts, search, filter, sort])
 
   if (session.status === 'loading' || loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-gray-400">Loading relationships...</p>
+      <div className="flex flex-col h-full">
+        <div className="h-14 border-b border-gray-200 bg-white flex items-center px-6 shrink-0">
+          <h1 className="font-semibold text-gray-900">Relationships</h1>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)}
+          </div>
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center flex-col gap-3">
-        <p className="text-sm text-gray-500">Couldn&apos;t reach the backend.</p>
-        <p className="text-xs text-gray-400">Make sure the API server is running.</p>
+      <div className="flex flex-col h-full">
+        <div className="h-14 border-b border-gray-200 bg-white flex items-center px-6 shrink-0">
+          <h1 className="font-semibold text-gray-900">Relationships</h1>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <EmptyState icon="⚠️" title="Couldn't load contacts" description="Make sure the API server is running." />
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="h-14 border-b border-gray-200 bg-white flex items-center justify-between px-6 shrink-0">
-          <h1 className="font-semibold text-gray-900">Relationships</h1>
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="all">All types</option>
-            {uniqueTypes.map((t) => (
-              <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-            ))}
-          </select>
+      {/* Header bar */}
+      <div className="h-14 border-b border-gray-200 bg-white flex items-center gap-4 px-6 shrink-0">
+        <h1 className="font-semibold text-gray-900 shrink-0">Relationships</h1>
+        <div className="flex-1 max-w-xs">
+          <input
+            type="search"
+            placeholder="Search contacts…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
         </div>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          className="ml-auto text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 shrink-0"
+        >
+          <option value="health">Needs care first</option>
+          <option value="recent">Most recent</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
 
-      {filtered.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
-          No contacts yet
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((contact) => (
+      {/* Stats + filter pills */}
+      {contacts.length > 0 && (
+        <div className="border-b border-gray-100 bg-white px-6 py-2.5 flex items-center gap-4 shrink-0 overflow-x-auto">
+          <div className="flex items-center gap-3 text-sm shrink-0">
+            <span className="font-semibold text-gray-900 tabular-nums">{stats.total}</span>
+            <span className="text-gray-400">contacts</span>
+            {stats.needsAttention > 0 && (
+              <>
+                <span className="text-gray-200">·</span>
+                <span className="font-semibold text-red-500 tabular-nums">{stats.needsAttention}</span>
+                <span className="text-gray-400">need attention</span>
+              </>
+            )}
+            <span className="text-gray-200">·</span>
+            <span className="font-semibold text-gray-900 tabular-nums">{stats.avgHealth}</span>
+            <span className="text-gray-400">avg health</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+            {filterDefs.map((f) => (
               <button
-                key={contact.id}
-                onClick={() => router.push(`/relationships/${contact.id}`)}
-                className="text-left bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm hover:border-indigo-200 transition-all"
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                  filter === f.key
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
               >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-base font-medium text-gray-600 shrink-0">
-                    {contact.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-gray-900 text-sm truncate">{contact.name}</p>
-                    <p className="text-xs text-gray-500 capitalize">
-                      {contact.relationship.type.replace(/_/g, ' ')} · {TIER_LABELS[contact.relationship.importanceTier]}
-                    </p>
-                  </div>
-                </div>
-                <HealthBar score={contact.relationship.healthScore} />
-                <div className="flex items-center justify-between mt-2">
-                  <span className={`text-xs ${
-                    contact.relationship.healthTrend === 'improving' ? 'text-green-600'
-                    : contact.relationship.healthTrend === 'declining' ? 'text-red-500'
-                    : 'text-gray-400'
-                  }`}>
-                    {contact.relationship.healthTrend}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    {formatLastSeen(contact.relationship.lastInteractionAt)}
-                  </span>
-                </div>
+                {f.label}
+                {f.count > 0 && (
+                  <span className={`rounded-full px-1.5 py-px text-[10px] leading-none ${
+                    filter === f.key ? 'bg-white/25 text-white' : 'bg-gray-200 text-gray-500'
+                  }`}>{f.count}</span>
+                )}
               </button>
             ))}
           </div>
         </div>
       )}
+
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {contacts.length === 0 ? (
+          <EmptyState
+            icon="👥"
+            title="No contacts yet"
+            description="Connect WhatsApp and exchange a few messages — your contacts and relationship scores appear here automatically."
+            action={
+              <a href="/onboarding" className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+                Connect WhatsApp
+              </a>
+            }
+          />
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon="🔍"
+            title="No contacts match"
+            description={search ? `No results for "${search}"` : 'No contacts match the selected filter.'}
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((contact) => {
+              const trend = TREND[contact.relationship.healthTrend] ?? TREND.stable
+              return (
+                <button
+                  key={contact.id}
+                  onClick={() => router.push(`/relationships/${contact.id}`)}
+                  className="text-left bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm hover:border-indigo-200 transition-all group"
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-gray-900 text-sm truncate group-hover:text-indigo-600 transition-colors">
+                        {contact.name}
+                      </p>
+                      <p className="text-xs text-gray-500 capitalize truncate">
+                        {contact.relationship.type.replace(/_/g, ' ')}
+                        {TIER_LABELS[contact.relationship.importanceTier]
+                          ? ` · ${TIER_LABELS[contact.relationship.importanceTier]}`
+                          : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <HealthBar score={contact.relationship.healthScore} showLabel size="sm" className="mb-2.5" />
+                  <div className="flex items-center justify-between">
+                    <Badge variant={trend.variant}>{trend.label}</Badge>
+                    <span className="text-xs text-gray-400">{formatLastSeen(contact.relationship.lastInteractionAt)}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
