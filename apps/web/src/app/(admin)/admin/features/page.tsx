@@ -111,7 +111,7 @@ export default function AdminFeaturesPage() {
                 <div className="divide-y divide-gray-800">
                   {categoryFlags.map(([key, meta]) => {
                     const enabled = flags[key] ?? false
-                    const changed = localFlags !== null && (data?.flags ?? {})[key] !== localFlags[key] && key in (localFlags ?? {})
+                    const changed = localFlags !== null && data?.flags?.[key] !== localFlags[key]
                     return (
                       <div key={key} className="px-5 py-4 flex items-center justify-between gap-4">
                         <div className="min-w-0">
