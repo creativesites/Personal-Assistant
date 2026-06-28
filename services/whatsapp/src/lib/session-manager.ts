@@ -175,14 +175,18 @@ export class SessionManager {
   }
 
   private async upsertInstance(userId: string, status: string): Promise<string> {
+    // ORDER BY created_at DESC must match the status-API query so we read/write the same row
     const { rows: [existing] } = await this.db.query<{ id: string }>(
-      `SELECT id FROM whatsapp_instances WHERE user_id = $1`,
+      `SELECT id FROM whatsapp_instances WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
       [userId]
     );
 
     if (existing) {
       await this.db.query(
-        `UPDATE whatsapp_instances SET status = $1, updated_at = NOW() WHERE id = $2`,
+        `UPDATE whatsapp_instances
+         SET status = $1, qr_code = NULL, qr_expires_at = NULL,
+             link_code = NULL, link_code_expires_at = NULL, updated_at = NOW()
+         WHERE id = $2`,
         [status, existing.id]
       );
       return existing.id;

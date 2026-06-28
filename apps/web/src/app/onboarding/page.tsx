@@ -41,6 +41,7 @@ export default function OnboardingPage() {
     pollRef.current = setInterval(async () => {
       try {
         const status = await apiClient<WAStatus>('/api/whatsapp/status', { token: tok })
+        console.log('[poll]', status.status, 'qrCode:', !!status.qrCode, 'linkCode:', !!status.linkCode)
         if (status.connected) {
           stopPolling()
           setStep('connected')
@@ -57,8 +58,8 @@ export default function OnboardingPage() {
           setError('WhatsApp connection failed. Please try again.')
           setStep('error')
         }
-      } catch {
-        // ignore transient poll errors
+      } catch (err) {
+        console.error('[poll] error:', err)
       }
     }, 2000)
   }
