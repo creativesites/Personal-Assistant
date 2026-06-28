@@ -118,10 +118,10 @@ export default function DashboardPage() {
   ]
 
   const personalStats = [
-    { label: 'Contacts', value: stats.totalContacts, icon: '👥' },
-    { label: 'Avg health', value: `${stats.avgHealth}`, icon: '💚' },
-    { label: 'Need attention', value: stats.needsAttention, icon: '⚠️' },
-    { label: 'Pending nudges', value: stats.proactiveCount, icon: '✨' },
+    { label: 'Contacts', value: stats.totalContacts, delta: undefined, icon: '👥' },
+    { label: 'Avg health', value: `${stats.avgHealth}`, delta: undefined, icon: '💚' },
+    { label: 'Need attention', value: stats.needsAttention, delta: undefined, icon: '⚠️' },
+    { label: 'Pending nudges', value: stats.proactiveCount, delta: undefined, icon: '✨' },
   ]
 
   const displayStats = mode === 'personal' ? personalStats : businessStats
