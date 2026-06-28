@@ -426,8 +426,8 @@ export default function InboxPage() {
     setActionLoading(id)
     await apiClient(`/api/suggestions/${id}/approve`, {
       method: 'POST', token,
-      ...(customText ? { body: { text: customText } } : {}),
-    } as Parameters<typeof apiClient>[1])
+      ...(customText ? { body: JSON.stringify({ text: customText }) } : {}),
+    })
     setSuggestions(prev => prev.filter(s => s.id !== id))
     setActionLoading(null); setEditingSuggId(null); setShowMobileAI(false)
   }
@@ -453,7 +453,7 @@ export default function InboxPage() {
     const tempMsg: Message = { id: `temp-${Date.now()}`, senderType: 'user', body: text, timestamp: new Date().toISOString(), pendingSuggestions: 0 }
     setMessages(prev => [...prev, tempMsg])
     try {
-      await apiClient(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: { text } } as Parameters<typeof apiClient>[1])
+      await apiClient(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text }) })
     } catch {}
   }
 
