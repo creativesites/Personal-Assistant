@@ -97,12 +97,10 @@ export default function EscalationsPage() {
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
-                        {REASON_LABEL[e.reason] ? (
-                          <>
-                            <REASON_LABEL[e.reason].Icon className="w-3.5 h-3.5 flex-shrink-0" />
-                            {REASON_LABEL[e.reason].label}
-                          </>
-                        ) : e.reason}
+                        {REASON_LABEL[e.reason] ? (() => {
+                          const { Icon, label } = REASON_LABEL[e.reason]
+                          return <><Icon className="w-3.5 h-3.5 flex-shrink-0" />{label}</>
+                        })() : e.reason}
                       </span>
                       <span>via {e.agent_name}</span>
                       <span>{new Date(e.created_at).toLocaleString()}</span>
