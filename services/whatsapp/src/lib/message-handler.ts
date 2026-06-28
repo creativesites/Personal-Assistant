@@ -1,4 +1,3 @@
-import type { Message } from '@open-wa/wa-automate';
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
 import { Queue } from 'bullmq';
@@ -45,13 +44,25 @@ export class MessageHandler {
     });
   }
 
-  async handleMessage(userId: string, message: Message): Promise<void> {
+  async handleMessage(userId: string, message: Record<string, unknown>): Promise<void> {
     const senderType = message.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
     const contactJid = message.fromMe ? String(message.to) : String(message.from);
     const messageType = mapType(message.type as string);
-    const body = (message.body || ((message as unknown as Record<string, unknown>).caption as string)) || null;
-    const timestamp = new Date((message.t as number) * 1000);
-    const waMessageId = String(message.id);
+    const body = (message.body as string | undefined) ||
+      ((message.caption as string | undefined)) || null;
+
+    // whatsapp-web.js uses message.timestamp (Unix seconds); open-wa used message.t
+    const tsSec = (message.timestamp as number | undefined) ??
+      (message.t as number | undefined) ??
+      Math.floor(Date.now() / 1000);
+    const timestamp = new Date(tsSec * 1000);
+
+    // whatsapp-web.js: message.id is { _serialized, id, fromMe, remote }
+    // open-wa: message.id was a plain string
+    const msgId = message.id as Record<string, unknown> | string | undefined;
+    const waMessageId = (msgId && typeof msgId === 'object')
+      ? String((msgId._serialized ?? msgId.id ?? JSON.stringify(msgId)))
+      : String(msgId);
 
     const contactId = await this.upsertContact(userId, contactJid, message);
     const conversationId = await this.upsertConversation(
@@ -85,13 +96,22 @@ export class MessageHandler {
     );
   }
 
-  private async upsertContact(userId: string, jid: string, message: Message): Promise<string> {
+  private async upsertContact(
+    userId: string,
+    jid: string,
+    message: Record<string, unknown>
+  ): Promise<string> {
     const phoneNumber = jid.split('@')[0];
     const isGroup = jid.endsWith('@g.us');
-    const msg = message as unknown as Record<string, unknown>;
+
+    // whatsapp-web.js puts push name in message._data.notifyName
+    // open-wa had message.notifyName directly; sender.formattedName as fallback
+    const data = message._data as Record<string, unknown> | undefined;
+    const sender = message.sender as Record<string, string> | undefined;
     const displayName =
-      (msg.notifyName as string) ||
-      ((msg.sender as Record<string, string> | undefined)?.formattedName) ||
+      (data?.notifyName as string | undefined) ||
+      (message.notifyName as string | undefined) ||
+      sender?.formattedName ||
       null;
 
     const { rows: [existing] } = await this.db.query<{ id: string }>(
