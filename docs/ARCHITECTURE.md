@@ -10,6 +10,7 @@ Zuri is a multi-service system. Each service has a single responsibility. They c
 │   Next.js Web App (Vercel)  │  React Native Mobile    │
 └──────────────┬──────────────┴──────────┬─────────────┘
                │ REST + WebSocket         │ REST + WebSocket
+               │ (via /api/proxy)         │
                ▼                         ▼
 ┌─────────────────────────────────────────────────────┐
 │              API Server  (Node.js / Fastify)          │
@@ -21,23 +22,23 @@ Zuri is a multi-service system. Each service has a single responsibility. They c
 ┌───────────────────┐      ┌─────────────────────────┐
 │  WhatsApp Service  │      │   Intelligence Service   │
 │  (Node.js)         │      │   (Python / FastAPI)     │
-│  open-wa instances │      │   LiteLLM · pgvector     │
+│  whatsapp-web.js   │      │   LiteLLM · pgvector     │
 │  Port 3001         │      │   Port 8000              │
 └────────┬──────────┘      └────────────┬────────────┘
          │                              │
          └──────────────┬───────────────┘
                         ▼
           ┌─────────────────────────┐
-          │   PostgreSQL 16         │
+          │   Supabase PostgreSQL   │
           │   + pgvector extension  │
           │                         │
-          │   Redis 7               │
-          │   (BullMQ + cache)      │
+          │   Redis 7 (Docker)      │
+          │   BullMQ + pub/sub      │
           └─────────────────────────┘
 
          ┌──────────────────┐
          │  Kotlin Companion │  ← Android only, background service
-         │  App              │  ← POSTs to API when open-wa is down
+         │  App              │  ← POSTs to API when WA service is down
          └──────────────────┘
 ```
 
@@ -48,41 +49,46 @@ Zuri is a multi-service system. Each service has a single responsibility. They c
 ### API Server (`services/api`)
 The only service reachable from the internet (via nginx on ECS). All client traffic goes here.
 
-- **Auth**: Clerk JWT verification (web), JWT issuance/verification for API-only clients
+- **Auth**: Clerk JWT → Zuri JWT sync (`POST /api/auth/clerk-sync`); JWT verification on all protected routes
 - **User management**: account, subscription, settings
 - **Conversation proxy**: clients read message/conversation data through here (from DB)
 - **Command routing**: client-approved replies → WhatsApp service; AI advisor queries → Intelligence service
-- **Real-time**: Socket.io rooms per user — pushes incoming message events and suggestion-ready notifications
+- **Real-time**: Socket.io rooms per user — pushes incoming message events and suggestion-ready notifications; Redis pub/sub subscriber bridges WhatsApp/Intelligence events to Socket.io
 - **Webhooks**: Stripe payment events
 
-Does **not** talk to open-wa directly. Does **not** run AI inference. It coordinates.
+Does **not** talk to the WhatsApp service except via HTTP command routing. Does **not** run AI inference. It coordinates.
 
 ### WhatsApp Service (`services/whatsapp`)
-Manages one open-wa browser session per connected user.
+Manages one browser-based WhatsApp Web session per connected user via `whatsapp-web.js` (Puppeteer + Chromium).
 
-- **Session lifecycle**: spawn on user connect, persist session to disk, reconnect on restart
-- **Inbound**: receives message events from open-wa → normalises → pushes `messages.incoming` job to queue
-- **Outbound**: consumes `messages.send` jobs → calls open-wa to send
-- **QR flow**: generates QR, streams to API server which pushes to web client via WebSocket
-- **Health monitoring**: watchdog pings each session, restarts on failure, notifies API on status change
+- **Session lifecycle**: spawn Chromium session per user, persist auth credentials to disk, restore on restart
+- **QR flow**: on new session, Chromium loads WhatsApp Web, QR code is captured → converted to PNG data URL → written to `whatsapp_instances.qr_code` in DB → frontend polls status endpoint until QR appears
+- **Auth persistence**: `LocalAuth` stores session credentials in `/app/db/sessions` (Docker volume `wa_sessions`). On service restart, `restoreAll()` finds DB rows with `status='connected'` and restores sessions without needing a new QR scan
+- **Inbound**: receives message events from whatsapp-web.js → normalises → pushes `messages.incoming` job to queue
+- **Outbound**: consumes `messages.send` jobs → calls whatsapp-web.js `sendMessage()`
+- **Redis pub/sub**: publishes `whatsapp:qr:{userId}`, `whatsapp:connected:{userId}`, `whatsapp:disconnected:{userId}` — API's Redis subscriber picks these up and emits to the user's Socket.io room
 
-Memory budget: ~350MB per active session. The session manager hibernates sessions idle for >2 hours to reclaim memory.
+Memory budget: ~350–500MB per active session (Chromium). The `shm_size: 512mb` on the Docker container is required.
+
+**Runtime stack**: `node:22-bookworm-slim` + `apt-get install chromium`. Alpine Linux is incompatible with Puppeteer v20+.
 
 ### Intelligence Service (`services/intelligence`)
 All AI inference and relationship analysis lives here. Structured around twelve engines in three layers.
 
-- **Message analysis**: consume `messages.incoming` → run full analysis pipeline → write `message_analyses`
-- **Suggestion generation**: build context from profiles + snapshots → generate 3 reply variants → write `suggested_replies`
-- **Profile management**: maintain `contact_profiles`, `contact_insights`, `user_communication_profiles`
-- **Context management**: compress message history into `context_snapshots` with embeddings
-- **Temporal engine**: per-relationship clocks, cadence deviation detection, proactive nudges
-- **World knowledge**: web search integration, news monitoring, interest-to-story matching
-- **Opportunity detection**: scan conversations for business and personal opportunities
-- **Autonomous agents**: sales/support/community manager agents with permission boundaries
-- **Governance**: AI Memory Explorer, privacy levels, explainability, audit log, data control center
-- **Learning**: optimise from outcomes — accepted/rejected suggestions, timing feedback, model routing
+> **Current state**: Core pipeline implemented and running. The `messages.incoming` worker analyses every message, generates reply suggestions, extracts calendar events, and updates relationship health. Temporal, world knowledge, profile, and voice workers are also running. Autonomous agents, governance, and learning engines are not yet implemented.
 
-Uses LiteLLM for all model calls — swap providers by changing config, not code.
+- **Message analysis**: consume `messages.incoming` → run full analysis pipeline → write `message_analyses` ✅
+- **Suggestion generation**: build context from profiles + snapshots → generate 3 reply variants → write `suggested_replies` ✅
+- **Profile management**: maintain `contact_profiles`, `contact_insights`, `user_communication_profiles` ✅
+- **Context management**: compress message history into `context_snapshots` with embeddings ✅
+- **Temporal engine**: per-relationship clocks, cadence deviation detection, proactive nudges ✅
+- **World knowledge**: web search integration, news monitoring, interest-to-story matching ✅
+- **Opportunity detection**: scan conversations for business and personal opportunities ⏳ Planned
+- **Autonomous agents**: sales/support/community manager agents with permission boundaries ⏳ Planned
+- **Governance**: AI Memory Explorer, privacy levels, explainability, audit log, data control center ⏳ Planned
+- **Learning**: optimise from outcomes — accepted/rejected suggestions, timing feedback, model routing ⏳ Planned
+
+Uses LiteLLM for all model calls — swap providers by changing config, not code. Primary model: `gemini/gemini-3.5-flash` (must use `gemini/` prefix with LiteLLM).
 
 ---
 
@@ -119,19 +125,59 @@ Each engine is a Python module under `services/intelligence/engines/`. They are 
 
 ---
 
+## WhatsApp Connection Flow (End to End)
+
+The full sequence for linking a new WhatsApp account:
+
+```
+1. User navigates to /onboarding
+   → Frontend starts polling GET /api/whatsapp/status every 2 s immediately
+
+2. User clicks "Start connection"
+   → POST /api/proxy/api/whatsapp/connect  (Next.js proxy → API)
+   → API forwards to POST /internal/sessions/connect (WhatsApp service)
+
+3. WhatsApp service: startSession(userId)
+   → upsertInstance(userId, 'connecting')  — DB row created/reset
+   → Client created with LocalAuth (clientId = userId, dataPath = /app/db/sessions)
+   → sessions.set(userId, { client, instanceId })  — in-memory registration
+   → client.initialize()  — launches Chromium, loads WhatsApp Web (async)
+
+4. client 'qr' event fires (within ~15–30 s)
+   → QRCode.toDataURL(rawQr) — converts to base64 PNG data URL
+   → DB: UPDATE whatsapp_instances SET qr_code = $1, status = 'qr_pending'
+   → Redis: PUBLISH whatsapp:qr:{userId}  (API Socket.io picks this up)
+
+5. Frontend poll returns: { status: 'qr_pending', qrCode: '<data:image/png;base64,...>' }
+   → <img src={qrCode}> rendered — user sees QR
+
+6. User scans QR with WhatsApp mobile app
+
+7. client 'authenticated' event → client 'ready' event
+   → DB: status = 'connected', phone_number = <number>, qr_code = NULL
+   → Redis: PUBLISH whatsapp:connected:{userId}
+
+8. Frontend poll returns: { connected: true }
+   → Redirect to /inbox
+```
+
+If the session already exists in memory (e.g., `restoreAll()` started it on container boot), the connect endpoint returns **409**. The frontend treats this as "already starting — keep polling" rather than an error.
+
+---
+
 ## Message Processing Pipeline
 
 The critical path from a raw WhatsApp message to a suggestion appearing on the user's screen:
 
 ```
-1. open-wa fires onMessage event
+1. whatsapp-web.js fires 'message' event
         ↓
 2. WhatsApp service normalises message
    → persists to messages table
    → pushes messages.incoming job (HIGH priority)
         ↓
 3. Intelligence service picks up job
-   a. Transcribe audio if message_type = audio  (Whisper API)
+   a. Transcribe audio if message_type = audio
    b. Run message_analyses (sentiment, intent, entities, importance, promises)
    c. Generate and store message embedding (pgvector)
    d. Check if response is needed
@@ -148,7 +194,7 @@ The critical path from a raw WhatsApp message to a suggestion appearing on the u
    → user sees message + 3 suggested replies with tone/reasoning
 ```
 
-Background jobs (profile updates, proactive queue generation, context trimming) run on LOW priority queues and are preempted by HIGH priority message jobs.
+The full pipeline is implemented and running.
 
 ---
 
@@ -206,35 +252,34 @@ All queues run in Redis via BullMQ.
 | Environment | Web | Services |
 |-------------|-----|---------|
 | Development | `localhost:3000` | `docker compose` |
-| Production | Vercel | Alibaba Cloud ECS |
+| Production | Vercel (auto-deploy on push to `main`) | Alibaba Cloud ECS `47.84.205.81` |
 
 ### Alibaba ECS (Production)
 
-Single ECS instance running Docker Compose. Services communicate via Docker internal network. Only nginx is exposed to the internet.
+Single ECS instance running Docker Compose (`docker-compose.prod.yml`). Services communicate via Docker internal network. Only nginx is exposed externally.
 
 ```
-nginx (80/443) → API server (3000)
-               → Web app is on Vercel — direct
-               
-Internal network (docker):
-  api ↔ whatsapp (3001)
-  api ↔ intelligence (8000)
-  api ↔ redis (6379)
-  intelligence ↔ postgres (5432)
-  whatsapp ↔ postgres (5432)
+nginx (port 5500) → API server (3000)
+
+Internal Docker network:
+  api     → whatsapp    (http://whatsapp:3001)
+  api     → intelligence (http://intelligence:8000)
+  api     → redis        (redis://redis:6379)
+  whatsapp → supabase    (DATABASE_URL)
+  intelligence → supabase (DATABASE_URL)
 ```
 
-**SSL**: Let's Encrypt via Certbot on the ECS instance.
+**Database**: Supabase PostgreSQL (external managed service, not a local Docker container). Both `services/api` and `services/whatsapp` connect via the same `DATABASE_URL`.
 
-**Session storage**: open-wa session files volume-mounted to `/data/sessions` on the ECS host for persistence across container restarts.
+**Session storage**: whatsapp-web.js auth credentials stored in Docker named volume `wa_sessions`, mounted at `/app/db/sessions` inside the container. Persists across container restarts.
 
-**Database**: PostgreSQL runs in Docker on the same ECS instance. When usage grows, migrate to Alibaba RDS (drop-in, change `DATABASE_URL`).
+**Web app**: Browser API calls go to `NEXT_PUBLIC_API_URL=/api/proxy` — a Next.js catch-all route that proxies to the ECS backend. This avoids mixed-content errors (HTTPS Vercel → HTTP ECS).
+
+**No SSL yet on ECS**: API is served plain HTTP on port 5500. The proxy on Vercel handles HTTPS for the browser.
 
 ### Vercel (Web App)
 
-Next.js deploys to Vercel automatically. API routes that need long-running connections or WebSockets proxy to the ECS backend — they do not run on Vercel serverless.
-
-WebSocket connections from the browser go directly to the ECS backend (not through Vercel).
+Next.js auto-deploys on push to `main`. The `/api/proxy/[...path]` route forwards browser requests to the ECS backend, stripping CORS and mixed-content issues. Direct WebSocket connections for Socket.io are proxied the same way.
 
 ---
 
@@ -242,10 +287,10 @@ WebSocket connections from the browser go directly to the ECS backend (not throu
 
 The current architecture runs on a single ECS instance. When that's no longer enough:
 
-1. **Move open-wa instances to a dedicated ECS instance** — they're the most memory-hungry component
-2. **Move PostgreSQL to Alibaba RDS** — managed backups, read replicas, no operational burden
+1. **Move WhatsApp sessions to a dedicated instance** — they're the most memory-hungry component (~400–500MB per session)
+2. **Move database to Alibaba RDS** — managed backups, read replicas; already using Supabase as an external DB, migration is a connection string change
 3. **Scale intelligence service horizontally** — it's stateless, runs multiple workers behind a load balancer
-4. **Move Redis to Alibaba Redis (ApsaraDB)** — managed, persistent
+4. **Move Redis to Alibaba ApsaraDB** — managed, persistent
 
 No architectural changes needed for any of these steps — they're infrastructure swaps.
 
@@ -254,7 +299,6 @@ No architectural changes needed for any of these steps — they're infrastructur
 ## Security
 
 - All secrets in environment variables, never in code
-- open-wa `session_data` encrypted at rest in the database
 - Internal services not exposed outside Docker network
 - API server validates JWT on every request
 - Clerk verifies session tokens for web app routes

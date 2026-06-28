@@ -20,11 +20,11 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 |-------|--------|
 | 1 — Foundation | ✅ Complete |
 | 2 — WhatsApp Integration | ✅ Complete |
-| 3 — AI Intelligence Core | 🔄 Active |
-| 4 — Web Dashboard (Full UI) | 🔄 Active (scaffold deployed) |
-| 5 — Temporal Intelligence Engine | ⏳ Up next |
-| 6 — World Knowledge Engine | ⏳ Up next |
-| 7 — Production Deployment (ECS) | ⏳ Planned |
+| 3 — AI Intelligence Core | ✅ Core pipeline running; opportunity detection + learning remaining |
+| 4 — Web Dashboard (Full UI) | 🔄 Active — inbox/relationships/proactive wired; contact detail + inbox sidebar remaining |
+| 5 — Temporal Intelligence Engine | ✅ Core running (cadence learning, clock checks, nudges) |
+| 6 — World Knowledge Engine | ✅ Core running (web search, news indexer, interest matcher) |
+| 7 — Production Deployment (ECS) | 🔄 Running at 47.84.205.81:5500 — SSL + CD pipeline remaining |
 | 8 — Autonomous Agent Engine | ⏳ Planned |
 | 9 — Business Intelligence Engine | ⏳ Planned |
 | 10 — Enterprise Features | ⏳ Planned |
@@ -54,17 +54,17 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 **Goal:** A user can connect their WhatsApp via QR code. Incoming messages are ingested and stored.
 
-- [x] open-wa session manager — spawn instance per user
-- [x] QR code generation and streaming to API server
-- [x] Session persistence — save/restore auth to avoid re-scanning
+- [x] whatsapp-web.js session manager (Puppeteer + Chromium) — spawn instance per user
+- [x] QR code generation and storage to DB; frontend polls for display
+- [x] Session persistence — `LocalAuth` stores credentials to Docker volume `wa_sessions`; `restoreAll()` on service restart
 - [x] Session health watchdog — auto-restart on disconnect
-- [x] Inbound message normalisation — map open-wa event to `messages` schema
+- [x] Inbound message normalisation — map whatsapp-web.js events to `messages` schema
 - [x] Message persistence — write conversations and messages to DB
 - [x] `messages.incoming` BullMQ job on every new message
 - [x] Media handling — store audio/image URLs, queue transcription jobs
-- [x] Outbound send — consume `messages.send` jobs, call open-wa
+- [x] Outbound send — consume `messages.send` jobs, call whatsapp-web.js
 - [x] API endpoints: `/api/whatsapp/connect`, `/api/whatsapp/status`
-- [x] WebSocket events: `whatsapp:qr`, `whatsapp:connected`, `message:new`
+- [x] Redis pub/sub events: `whatsapp:qr:{userId}`, `whatsapp:connected:{userId}`, `whatsapp:disconnected:{userId}`
 - [x] Companion relay endpoint: `POST /api/companion/message`
 
 ---
@@ -74,26 +74,26 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 **Goal:** Every incoming message gets analysed. Suggested replies are generated and stored. The product becomes useful.
 
 ### Intelligence Pipeline
-- [ ] LiteLLM setup — Anthropic + OpenAI, env-driven model selection
-- [ ] BullMQ consumer for `messages.incoming` in Python
-- [ ] Message analysis: sentiment, intent, entities, importance, promises, urgency
-- [ ] `message_analyses` population with pgvector embedding
+- [x] LiteLLM setup — env-driven model selection (primary: `gemini/gemini-3.5-flash`)
+- [x] BullMQ consumer for `messages.incoming` in Python
+- [x] Message analysis: sentiment, intent, entities, importance, promises, urgency
+- [x] `message_analyses` population with pgvector embedding
 - [ ] Audio transcription via Whisper for voice notes
 
 ### Profiles & Memory
-- [ ] `user_communication_profiles` — analyse user's outbound messages to build voice model
-- [ ] Contact profile bootstrapping — build initial `contact_profiles` on first contact
-- [ ] Contact insight extraction — atomic observations written to `contact_insights`
-- [ ] Context snapshot creation — compress message history with pgvector embeddings
-- [ ] Context retrieval — semantic search to pull relevant past context into prompts
-- [ ] Nightly context trimming cron
+- [x] `user_communication_profiles` — analyse user's outbound messages to build voice model
+- [x] Contact profile bootstrapping — build initial `contact_profiles` on first contact
+- [x] Contact insight extraction — atomic observations written to `contact_insights`
+- [x] Context snapshot creation — compress message history with pgvector embeddings
+- [x] Context retrieval — semantic search to pull relevant past context into prompts
+- [x] Nightly context trimming cron
 
 ### Suggestion Generation
-- [ ] Persona resolution — contact-specific → relationship-type → default
-- [ ] Reply generation — 3 variants per message with tone + reasoning
-- [ ] Voice matching — replies must sound like the user, not generic AI
-- [ ] `suggested_replies` population
-- [ ] `messages.suggestion_ready` → API server → WebSocket push to client
+- [x] Persona resolution — contact-specific → relationship-type → default
+- [x] Reply generation — 3 variants per message with tone + reasoning
+- [x] Voice matching — replies must sound like the user, not generic AI
+- [x] `suggested_replies` population
+- [x] `messages.suggestion_ready` → API server → WebSocket push to client
 
 **Exit criteria:** Incoming WhatsApp message → 3 suggested replies in dashboard within 15 seconds.
 
@@ -103,10 +103,10 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 **Goal:** The deployed shell becomes a real, usable product. Currently the pages exist but show no live data.
 
-**Auth & Onboarding** (partially done — Clerk auth working)
+**Auth & Onboarding**
 - [x] Clerk authentication — registration, login, route protection
-- [ ] Onboarding flow — persona setup, QR connection, history import progress
-- [ ] First-run experience
+- [x] Onboarding flow — WhatsApp QR connection with real-time polling
+- [ ] Persona setup step, history import progress
 
 **Inbox**
 - [ ] Conversation list — unread counts, health indicators, last message preview
@@ -145,7 +145,7 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 ---
 
-## Phase 5 — Temporal Intelligence Engine ⏳
+## Phase 5 — Temporal Intelligence Engine ✅
 
 **Goal:** Replace the single daily cron with per-relationship clocks. The system becomes genuinely proactive based on each relationship's unique rhythm.
 
@@ -163,7 +163,7 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 ---
 
-## Phase 6 — World Knowledge Engine ⏳
+## Phase 6 — World Knowledge Engine ✅
 
 **Goal:** The intelligence layer has live awareness of world events and can connect external information to specific relationships.
 
@@ -180,15 +180,16 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 ---
 
-## Phase 7 — Production Deployment (ECS) ⏳
+## Phase 7 — Production Deployment (ECS) 🔄
 
 **Goal:** Full backend running on Alibaba ECS. Accessible at a real domain. Deployments automated.
 
-- [ ] `docker-compose.prod.yml` — production Docker Compose config
-- [ ] Nginx config — SSL termination, WebSocket support, rate limiting
-- [ ] Let's Encrypt SSL via Certbot
-- [ ] GitHub Actions CD — build + push images to Alibaba Container Registry → SSH deploy on push to `main`
-- [ ] Environment variable management on ECS (Alibaba KMS or host `.env`)
+- [x] `docker-compose.prod.yml` — production Docker Compose config (api + whatsapp + intelligence + redis + nginx)
+- [x] Nginx config — routing, WebSocket support
+- [x] Environment variable management on ECS (host `.env` at `/opt/zuri/.env`)
+- [x] Backend running at `47.84.205.81:5500`; web app deployed on Vercel
+- [ ] Let's Encrypt SSL via Certbot (ECS backend currently HTTP only)
+- [ ] GitHub Actions CD — automated deploy on push to `main`
 - [ ] Database backup — daily pg_dump to Alibaba OSS
 - [ ] Monitoring — Uptime Robot (health endpoints), Sentry (error tracking)
 - [ ] Log aggregation — structured logs from all services

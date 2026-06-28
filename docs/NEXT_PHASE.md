@@ -1,20 +1,37 @@
 # Next Phase — Implementation Plan
 
-## Current State (as of 2026-06-26)
+## Current State (as of 2026-06-28)
 
 ### What Exists and Works
-- ✅ Full monorepo, CI, Vercel deployment live
-- ✅ PostgreSQL 28-table schema with pgvector
-- ✅ open-wa session manager: QR auth, session persistence, watchdog, message ingestion → DB + queue
+- ✅ Full monorepo, Vercel deployment live
+- ✅ PostgreSQL 28-table schema with pgvector (Supabase managed)
+- ✅ WhatsApp service: whatsapp-web.js (Puppeteer + Chromium), QR auth, session persistence via LocalAuth + Docker volume `wa_sessions`, message ingestion → DB + BullMQ queue
 - ✅ Clerk authentication on web app (deployed and working)
-- ✅ Web dashboard shell: Inbox, Relationships, Proactive, Settings pages (no live data yet)
+- ✅ Onboarding page: WhatsApp connection flow with real-time polling (2s interval), QR display, error recovery
+- ✅ Web dashboard: Inbox, Relationships, Proactive, Settings pages wired to live API
+- ✅ Intelligence service: full pipeline running — message analysis, reply generation (3 variants), contact profiler, voice builder, cadence learner, health calculator, temporal worker, world knowledge worker
+- ✅ End-to-end suggestion pipeline: `messages.incoming` → analysis → `suggested_replies` → `messages.suggestion_ready` → Socket.io push → browser
+- ✅ ECS production deployment: api + whatsapp + intelligence + redis + nginx at `47.84.205.81:5500`
 - ✅ Kotlin companion app: NotificationListenerService → API relay
 - ✅ React Native mobile scaffold: navigation, auth, typed API client
 
-### What's Missing Before the Product Works
-The web dashboard is a shell. The AI has never run. No suggestions have been generated. The pipeline ends at `messages.incoming` being queued — nothing consumes it yet.
+### What Remains Before the Product Is Fully Polished
+The core intelligence pipeline is operational. The main remaining gaps are:
 
-**The gap:** `services/intelligence` has a FastAPI skeleton and health endpoint. Zero engines are implemented.
+**Web Dashboard:**
+- Contact detail page (full profile view, insights, health chart)
+- Inbox conversation thread view with suggestion panel
+- Proactive queue UI refinement
+
+**Production Infrastructure:**
+- SSL on ECS backend (currently HTTP only at port 5500)
+- GitHub Actions CD (currently deploying manually)
+- Database backups and monitoring
+
+**Intelligence:**
+- Audio transcription (voice notes unhandled)
+- Opportunity detection engine (not implemented)
+- Learning & optimization engine (not implemented)
 
 ---
 

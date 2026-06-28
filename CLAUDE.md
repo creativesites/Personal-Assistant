@@ -82,14 +82,14 @@ The only internet-facing service (via nginx on ECS). All client traffic goes her
 - WebSocket: same port via Socket.io
 - Key responsibilities: auth, user management, conversation CRUD, notification delivery, routing commands to whatsapp/intelligence services
 
-### `services/whatsapp` — open-wa Session Manager
-One open-wa browser session per connected user.
+### `services/whatsapp` — whatsapp-web.js Session Manager
+One whatsapp-web.js (Puppeteer + Chromium) browser session per connected user.
 
 - Port: `3001` (dev, internal only)
-- Session data stored in `db/sessions/` (volume-mounted in Docker)
-- Memory: ~350MB per active session — monitor on ECS
+- Session credentials stored via `LocalAuth` in Docker volume `wa_sessions` (mounted at `/app/db/sessions`)
+- Memory: ~350–500MB per active session (Chromium) — monitor on ECS; requires `shm_size: 512mb`
 - On new message: normalise → write to DB → push `messages.incoming` to queue
-- On approved reply: consume `messages.send` → call open-wa
+- On approved reply: consume `messages.send` → call whatsapp-web.js `sendMessage()`
 
 ### `services/intelligence` — Python AI Service
 All AI inference lives here. Houses all 12 intelligence engines in three layers.
@@ -257,9 +257,9 @@ Browser / Mobile App
     │         │  WhatsApp    │    │  Intelligence       │
     │         │  Service     │    │  Service            │
     │         │  (Node.js)   │    │  (Python)           │
-    │         │  open-wa     │    │  12 engines         │
-    │         └──────────────┘    │  Web search tools   │
-    │                             └─────────────────────┘
+    │         │  whatsapp-   │    │  12 engines         │
+    │         │  web.js      │    │  Web search tools   │
+    │         └──────────────┘    └─────────────────────┘
     │                                        │
     └────────────────────────────────────────┘
                                  │
@@ -268,11 +268,11 @@ Browser / Mobile App
 
     ┌──────────────────┐
     │ Kotlin Companion  │  ← Android background service
-    │ App               │  ← POSTs when open-wa is down
+    │ App               │  ← POSTs when WhatsApp service is down
     └──────────────────┘
 ```
 
-Message flow: WhatsApp → open-wa → `messages.incoming` queue → Intelligence service (analysis + suggestions) → DB write → `messages.suggestion_ready` job → API server → WebSocket push to client.
+Message flow: WhatsApp → whatsapp-web.js → `messages.incoming` queue → Intelligence service (analysis + suggestions) → DB write → `messages.suggestion_ready` job → API server → WebSocket push to client.
 
 ---
 
@@ -320,17 +320,17 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 
 ## Current Status
 
-**Active phases:** Phase 3 (AI Intelligence) + Phase 4 (Web Dashboard)
+**Active phases:** Phase 4 (Web Dashboard) + Phase 7 (Production — SSL + CD remaining)
 
 | Phase | Status |
 |-------|--------|
 | 1 — Foundation | ✅ Complete |
 | 2 — WhatsApp Integration | ✅ Complete |
-| 3 — AI Intelligence Core | 🔄 Core pipeline done; voice model + context snapshots remaining |
+| 3 — AI Intelligence Core | ✅ Complete (opportunity detection + learning engines remaining) |
 | 4 — Web Dashboard (full UI) | 🔄 All pages wired to live API; contact detail + inbox sidebar remaining |
-| 5 — Temporal Intelligence Engine | ⏳ Planned |
-| 6 — World Knowledge Engine | ⏳ Planned |
-| 7 — Production Deployment (ECS) | 🔄 Running on 47.84.205.81:5500 |
+| 5 — Temporal Intelligence Engine | ✅ Running |
+| 6 — World Knowledge Engine | ✅ Running |
+| 7 — Production Deployment (ECS) | 🔄 Running at 47.84.205.81:5500; SSL + CD remaining |
 | 8 — Autonomous Agent Engine | ⏳ Planned |
 | 9 — Business Intelligence Engine | ⏳ Planned |
 | 10 — Enterprise Features | ⏳ Planned |
@@ -338,13 +338,13 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 | 12 — React Native Mobile | 🔄 Scaffold done |
 
 **What's been built:**
-- [x] Full monorepo scaffold (Turborepo + pnpm workspaces)
+- [x] Full monorepo scaffold (Turborepo + npm workspaces)
 - [x] Database: Supabase PostgreSQL, all migrations (0001–0011), pgvector
 - [x] API service: Fastify 5, JWT auth, Clerk-sync endpoint, all CRUD routes, Socket.io
-- [x] WhatsApp service: open-wa session manager, QR + link code, session persistence, message ingestion
-- [x] Intelligence service: message analyser, reply generator, contact profiler, health calculator, proactive engine, all BullMQ workers
+- [x] WhatsApp service: whatsapp-web.js (Puppeteer + Chromium), QR + link code, LocalAuth session persistence, message ingestion
+- [x] Intelligence service: message analyser, reply generator, contact profiler, voice builder, health calculator, cadence learner, temporal engine, world knowledge engine, all BullMQ workers
 - [x] Redis pub/sub pipeline: intelligence → `suggestion:ready:{userId}` → API Socket.io → browser
-- [x] Next.js web app on Vercel: Clerk auth, inbox (live), relationships (live), proactive (live), onboarding
+- [x] Next.js web app on Vercel: Clerk auth, inbox (live), relationships (live), proactive (live), onboarding with QR flow
 - [x] Kotlin companion app (NotificationListenerService, API relay)
 - [x] React Native mobile scaffold (Expo, navigation, auth, typed API client)
 - [x] Production Docker Compose on ECS: api + whatsapp + intelligence + redis + nginx
