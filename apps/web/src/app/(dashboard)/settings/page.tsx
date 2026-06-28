@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
-import { Tabs, ModeBadge, useToast } from '@/components/ui'
+import { ModeBadge, PageHeader, Tabs, useToast } from '@/components/ui'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
@@ -24,24 +24,28 @@ const MODE_OPTIONS: {
   label: string
   description: string
   tier: string | null
+  icon: string
 }[] = [
   {
     value: 'business',
     label: 'Business',
     description: 'Customer relationships, deals, and support. WhatsApp as your CRM.',
     tier: null,
+    icon: '💼',
   },
   {
     value: 'personal',
     label: 'Personal',
     description: 'Family, friends, and personal relationships. AI relationship coach.',
     tier: 'Starter+',
+    icon: '🧑‍🤝‍🧑',
   },
   {
     value: 'hybrid',
     label: 'Hybrid',
     description: 'Full access to both business and personal intelligence engines.',
     tier: 'Pro',
+    icon: '⚡',
   },
 ]
 
@@ -67,10 +71,8 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 
 function Toggle({ enabled }: { enabled: boolean }) {
   return (
-    <div
-      className={`w-9 h-5 rounded-full flex items-center px-0.5 cursor-not-allowed opacity-70 ${enabled ? 'bg-indigo-600 justify-end' : 'bg-gray-200 justify-start'}`}
-    >
-      <div className="w-4 h-4 bg-white rounded-full shadow" />
+    <div className={`w-10 h-6 rounded-full flex items-center px-1 cursor-not-allowed opacity-60 transition-colors ${enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}>
+      <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
     </div>
   )
 }
@@ -86,7 +88,6 @@ export default function SettingsPage() {
   const [pendingMode, setPendingMode] = useState<WorkspaceMode>(session.data?.mode ?? 'business')
   const [savingMode, setSavingMode] = useState(false)
 
-  // Sync pendingMode with session once it loads
   useEffect(() => {
     if (session.data?.mode) setPendingMode(session.data.mode)
   }, [session.data?.mode])
@@ -95,7 +96,7 @@ export default function SettingsPage() {
     if (!token) return
 
     apiClient<WhatsAppStatus>('/api/whatsapp/status', { token })
-      .then((s) => { setWaStatus(s); setApiReachable(true) })
+      .then(s => { setWaStatus(s); setApiReachable(true) })
       .catch(() => { setWaStatus({ connected: false }); setApiReachable(false) })
 
     Promise.all([
@@ -116,6 +117,9 @@ export default function SettingsPage() {
     try {
       await apiClient('/api/whatsapp/connect', { method: 'DELETE', token })
       setWaStatus({ connected: false })
+      addToast({ variant: 'success', title: 'WhatsApp disconnected' })
+    } catch {
+      addToast({ variant: 'error', title: 'Disconnect failed', description: 'Please try again.' })
     } finally {
       setDisconnecting(false)
     }
@@ -146,16 +150,15 @@ export default function SettingsPage() {
   })()
 
   const tabs = [
-    { id: 'account', label: 'Account' },
-    { id: 'workspace', label: 'Workspace' },
-    { id: 'intelligence', label: 'Intelligence' },
+    { id: 'account',      label: 'Account' },
+    { id: 'workspace',    label: 'Workspace' },
+    { id: 'intelligence', label: 'AI Engines' },
+    { id: 'privacy',      label: 'Privacy' },
   ]
 
   return (
     <div className="flex flex-col h-full">
-      <div className="h-14 border-b border-gray-200 bg-white flex items-center px-6 shrink-0">
-        <h1 className="font-semibold text-gray-900">Settings</h1>
-      </div>
+      <PageHeader title="Settings" />
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="max-w-xl mx-auto space-y-4">
@@ -163,13 +166,13 @@ export default function SettingsPage() {
           {apiReachable === false && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
               <span>⚠️</span>
-              <span>Backend not reachable — some features will be unavailable.</span>
+              <span>Backend not reachable — some settings cannot be saved.</span>
             </div>
           )}
 
           {/* Profile card */}
           <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center text-white text-lg font-semibold shrink-0">
+            <div className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
               {initials}
             </div>
             <div className="min-w-0 flex-1">
@@ -177,42 +180,37 @@ export default function SettingsPage() {
                 {session.data?.user.name || session.data?.user.email}
               </p>
               {session.data?.user.name && (
-                <p className="text-sm text-gray-400 truncate">{session.data?.user.email}</p>
+                <p className="text-sm text-gray-400 truncate">{session.data.user.email}</p>
               )}
               <div className="mt-1.5 flex items-center gap-2">
-                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
-                  Free plan
-                </span>
+                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">Free plan</span>
                 <ModeBadge mode={session.data?.mode ?? 'business'} />
               </div>
             </div>
           </div>
 
           <Tabs tabs={tabs} defaultTab="account">
-            {(activeTab) => (
+            {activeTab => (
               <>
                 {/* ── Account tab ── */}
                 {activeTab === 'account' && (
                   <div className="space-y-4 pt-2">
-                    {/* WhatsApp */}
                     <Section title="WhatsApp Connection">
                       {waStatus === null ? (
-                        <div className="px-5 py-4 text-sm text-gray-400">Checking status...</div>
+                        <div className="px-5 py-4 text-sm text-gray-400">Checking status…</div>
                       ) : waStatus.connected ? (
                         <div className="px-5 py-4 flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />
                             <div>
                               <p className="text-sm font-medium text-gray-900">Connected</p>
-                              {waStatus.phone && (
-                                <p className="text-xs text-gray-400 mt-0.5">{waStatus.phone}</p>
-                              )}
+                              {waStatus.phone && <p className="text-xs text-gray-400 mt-0.5">{waStatus.phone}</p>}
                             </div>
                           </div>
                           <button
                             onClick={disconnect}
                             disabled={disconnecting}
-                            className="text-sm text-red-500 hover:text-red-600 disabled:opacity-50 transition-colors"
+                            className="text-sm text-red-500 hover:text-red-600 disabled:opacity-50 font-medium transition-colors"
                           >
                             {disconnecting ? 'Disconnecting…' : 'Disconnect'}
                           </button>
@@ -220,12 +218,12 @@ export default function SettingsPage() {
                       ) : (
                         <div className="px-5 py-4 flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="w-2.5 h-2.5 rounded-full bg-gray-300 shrink-0" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0" />
                             <p className="text-sm text-gray-500">Not connected</p>
                           </div>
                           <a
                             href="/onboarding"
-                            className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
+                            className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
                           >
                             Connect
                           </a>
@@ -233,21 +231,23 @@ export default function SettingsPage() {
                       )}
                     </Section>
 
-                    {/* Activity stats */}
                     {stats && (
-                      <Section title="Activity">
-                        <Row label="Contacts tracked" value={stats.totalContacts.toLocaleString()} />
-                        <Row label="Messages analysed" value={stats.totalMessages.toLocaleString()} />
+                      <Section title="Usage">
+                        <Row label="Contacts tracked"         value={stats.totalContacts.toLocaleString()} />
+                        <Row label="Messages analysed"        value={stats.totalMessages.toLocaleString()} />
                         <Row label="AI suggestions generated" value={stats.totalSuggestions.toLocaleString()} />
                       </Section>
                     )}
 
-                    {/* Account */}
                     <Section title="Account">
                       <div className="px-5 py-3">
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-400 leading-relaxed">
                           Account managed via Clerk SSO. To change your email or password, visit your account settings.
                         </p>
+                      </div>
+                      <div className="px-5 py-3 flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Billing & plan</span>
+                        <a href="/billing" className="text-sm text-indigo-600 hover:underline font-medium">Manage →</a>
                       </div>
                     </Section>
                   </div>
@@ -256,82 +256,69 @@ export default function SettingsPage() {
                 {/* ── Workspace tab ── */}
                 {activeTab === 'workspace' && (
                   <div className="space-y-4 pt-2">
-                    <div>
-                      <p className="text-sm text-gray-500 mb-3">
-                        Choose how Zuri operates. This controls which intelligence engines run and which features appear in your dashboard.
-                      </p>
+                    <p className="text-sm text-gray-500">
+                      Choose how Zuri operates. This controls which intelligence engines run and what features appear in your dashboard.
+                    </p>
 
-                      <div className="space-y-2">
-                        {MODE_OPTIONS.map((opt) => {
-                          const selected = pendingMode === opt.value
-                          return (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              onClick={() => setPendingMode(opt.value)}
-                              className={`w-full text-left rounded-xl border-2 px-4 py-4 transition-all ${
-                                selected
-                                  ? 'border-indigo-600 bg-indigo-50'
-                                  : 'border-gray-200 bg-white hover:border-gray-300'
-                              }`}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                  selected ? 'border-indigo-600' : 'border-gray-300'
-                                }`}>
-                                  {selected && (
-                                    <div className="w-2 h-2 rounded-full bg-indigo-600" />
+                    <div className="space-y-2">
+                      {MODE_OPTIONS.map(opt => {
+                        const selected = pendingMode === opt.value
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setPendingMode(opt.value)}
+                            className={`w-full text-left rounded-xl border-2 px-4 py-4 transition-all ${
+                              selected ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span className="text-2xl flex-shrink-0">{opt.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <ModeBadge mode={opt.value} />
+                                  {opt.tier && (
+                                    <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">{opt.tier}</span>
                                   )}
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <ModeBadge mode={opt.value} />
-                                    {opt.tier && (
-                                      <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">
-                                        {opt.tier}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-sm text-gray-600 mt-1">{opt.description}</p>
-                                </div>
+                                <p className="text-sm text-gray-600">{opt.description}</p>
                               </div>
-                            </button>
-                          )
-                        })}
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between">
-                        <p className="text-xs text-gray-400">
-                          Personal and Hybrid modes unlock relationship intelligence features.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={saveMode}
-                          disabled={savingMode || pendingMode === session.data?.mode || !token}
-                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
-                        >
-                          {savingMode ? 'Saving…' : 'Save Mode'}
-                        </button>
-                      </div>
+                              <div className={`mt-1 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selected ? 'border-indigo-600' : 'border-gray-300'}`}>
+                                {selected && <div className="w-2 h-2 rounded-full bg-indigo-600" />}
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
                     </div>
 
-                    {/* What each mode enables */}
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-gray-400 flex-1">Changes apply across all devices immediately.</p>
+                      <button
+                        type="button"
+                        onClick={saveMode}
+                        disabled={savingMode || pendingMode === session.data?.mode || !token}
+                        className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                      >
+                        {savingMode ? 'Saving…' : 'Save Mode'}
+                      </button>
+                    </div>
+
                     <Section title="What's included">
                       {[
-                        { label: 'WhatsApp inbox', modes: ['business', 'personal', 'hybrid'] },
-                        { label: 'AI reply drafts', modes: ['business', 'personal', 'hybrid'] },
-                        { label: 'Proactive follow-up queue', modes: ['business', 'personal', 'hybrid'] },
-                        { label: 'Customer / contact profiles', modes: ['business', 'personal', 'hybrid'] },
-                        { label: 'Relationship health tracking', modes: ['personal', 'hybrid'] },
-                        { label: 'Personal relationship coaching', modes: ['personal', 'hybrid'] },
-                        { label: 'Dual intelligence engines', modes: ['hybrid'] },
-                      ].map((row) => {
+                        { label: 'WhatsApp inbox',             modes: ['business', 'personal', 'hybrid'] },
+                        { label: 'AI reply drafts',            modes: ['business', 'personal', 'hybrid'] },
+                        { label: 'Proactive follow-up queue',  modes: ['business', 'personal', 'hybrid'] },
+                        { label: 'Contact profiles',           modes: ['business', 'personal', 'hybrid'] },
+                        { label: 'Relationship health',        modes: ['personal', 'hybrid'] },
+                        { label: 'Personal relationship coach', modes: ['personal', 'hybrid'] },
+                        { label: 'Lead scoring',               modes: ['business', 'hybrid'] },
+                        { label: 'Dual intelligence engines',  modes: ['hybrid'] },
+                      ].map(row => {
                         const enabled = row.modes.includes(pendingMode)
                         return (
                           <div key={row.label} className="flex items-center justify-between px-5 py-3">
-                            <span className={`text-sm ${enabled ? 'text-gray-900' : 'text-gray-400'}`}>
-                              {row.label}
-                            </span>
+                            <span className={`text-sm ${enabled ? 'text-gray-900' : 'text-gray-400'}`}>{row.label}</span>
                             {enabled ? (
                               <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -352,38 +339,75 @@ export default function SettingsPage() {
                 {activeTab === 'intelligence' && (
                   <div className="space-y-4 pt-2">
                     <Section title="AI Engines">
-                      <div className="px-5 py-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">Proactive suggestions</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Daily AI-generated relationship nudges</p>
+                      {[
+                        { label: 'Proactive suggestions',  desc: 'Daily AI-generated relationship nudges' },
+                        { label: 'Relationship clocks',    desc: 'Per-contact timing engine' },
+                        { label: 'World knowledge',        desc: 'Match news to contact interests' },
+                        { label: 'Voice matching',         desc: 'Reply drafts in your writing style' },
+                        { label: 'Lead detection',         desc: 'Buying-signal detection in conversations' },
+                        { label: 'Sentiment analysis',     desc: 'Mood and tone tracking per contact' },
+                      ].map(engine => (
+                        <div key={engine.label} className="flex items-center justify-between px-5 py-4">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{engine.label}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">{engine.desc}</p>
+                          </div>
+                          <Toggle enabled />
                         </div>
-                        <Toggle enabled />
-                      </div>
-                      <div className="px-5 py-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">Relationship clocks</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Per-contact timing engine</p>
-                        </div>
-                        <Toggle enabled />
-                      </div>
-                      <div className="px-5 py-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">World knowledge</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Match news to contact interests</p>
-                        </div>
-                        <Toggle enabled />
-                      </div>
-                      <div className="px-5 py-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">Voice matching</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Reply drafts in your writing style</p>
-                        </div>
-                        <Toggle enabled />
-                      </div>
+                      ))}
                     </Section>
                     <p className="text-xs text-gray-400 px-1">
                       Engine configuration managed by your subscription plan. Granular controls available on Pro.
                     </p>
+                  </div>
+                )}
+
+                {/* ── Privacy tab ── */}
+                {activeTab === 'privacy' && (
+                  <div className="space-y-4 pt-2">
+                    <Section title="Data & Privacy">
+                      <div className="px-5 py-4">
+                        <p className="text-sm text-gray-700 leading-relaxed mb-3">
+                          Zuri processes your WhatsApp messages locally through your own account to build contact profiles and generate suggestions. Message content is never shared with third parties.
+                        </p>
+                        <ul className="space-y-2">
+                          {[
+                            'Messages are analysed on our secure servers',
+                            'AI profiles are stored in your private database',
+                            'You can delete all data at any time',
+                            'No message content is used to train AI models',
+                          ].map(item => (
+                            <li key={item} className="flex items-start gap-2 text-sm text-gray-600">
+                              <svg className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </Section>
+
+                    <Section title="Data Controls">
+                      <div className="px-5 py-4 flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Export my data</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Download all your contacts, messages, and AI profiles</p>
+                        </div>
+                        <button className="flex-shrink-0 text-sm text-indigo-600 hover:text-indigo-700 font-medium transition-colors">
+                          Export
+                        </button>
+                      </div>
+                      <div className="px-5 py-4 flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-red-600">Delete all data</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Permanently remove all contacts, profiles, and history</p>
+                        </div>
+                        <button className="flex-shrink-0 text-sm text-red-500 hover:text-red-600 font-medium transition-colors">
+                          Delete
+                        </button>
+                      </div>
+                    </Section>
                   </div>
                 )}
               </>

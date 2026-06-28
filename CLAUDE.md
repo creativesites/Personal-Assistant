@@ -327,7 +327,7 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 | 1 — Foundation | ✅ Complete |
 | 2 — WhatsApp Integration | ✅ Complete |
 | 3 — AI Intelligence Core | ✅ Complete (opportunity detection + learning engines remaining) |
-| 4 — Web Dashboard (full UI) | 🔄 All pages wired to live API; contact detail + inbox sidebar remaining |
+| 4 — Web Dashboard (full UI) | ✅ All Phase 3 pages complete — see Web Dashboard section below |
 | 5 — Temporal Intelligence Engine | ✅ Running |
 | 6 — World Knowledge Engine | ✅ Running |
 | 7 — Production Deployment (ECS) | 🔄 Running at 47.84.205.81:5500; SSL + CD remaining |
@@ -344,9 +344,100 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 - [x] WhatsApp service: whatsapp-web.js (Puppeteer + Chromium), QR + link code, LocalAuth session persistence, message ingestion
 - [x] Intelligence service: message analyser, reply generator, contact profiler, voice builder, health calculator, cadence learner, temporal engine, world knowledge engine, all BullMQ workers
 - [x] Redis pub/sub pipeline: intelligence → `suggestion:ready:{userId}` → API Socket.io → browser
-- [x] Next.js web app on Vercel: Clerk auth, inbox (live), relationships (live), proactive (live), onboarding with QR flow
+- [x] Next.js web app on Vercel: all Phase 3 pages built, mobile-first, polished UI
 - [x] Kotlin companion app (NotificationListenerService, API relay)
 - [x] React Native mobile scaffold (Expo, navigation, auth, typed API client)
 - [x] Production Docker Compose on ECS: api + whatsapp + intelligence + redis + nginx
 
 **What's next:** See `docs/NEXT_PHASE.md`.
+
+---
+
+## Web Dashboard — Phase 1 Audit & Phase 3 Pages
+
+### Phase 1 UI Audit (apps/web)
+
+All components in `apps/web/src/components/ui/` are production-ready. Key findings:
+
+| Component | File | Notes |
+|-----------|------|-------|
+| Button | `button.tsx` | variants: primary/secondary/ghost/danger; sizes: sm/md/lg |
+| Badge | `badge.tsx` | variants: default/info/success/warning/error/purple |
+| Card | `card.tsx` | wrapper div with standard border+shadow |
+| Input + Textarea | `input.tsx` | forwarded ref, error state, label |
+| Select | `select.tsx` | forwarded ref, options prop |
+| Modal + ConfirmModal | `modal.tsx` | Portal-based, backdrop dismiss |
+| Toast + ToastProvider | `toast.tsx` | variants match Badge; use `useToast()` hook |
+| Avatar | `avatar.tsx` | sizes: xs/sm/md/lg/xl; initials fallback |
+| Skeleton | `skeleton.tsx` | SkeletonText, SkeletonCard, SkeletonListItem |
+| EmptyState | `empty-state.tsx` | icon + title + description + optional action |
+| PageHeader | `page-header.tsx` | title + description + breadcrumbs + action slot |
+| DataTable | `data-table.tsx` | sortable columns, row click handler |
+| Tabs | `tabs.tsx` | render-prop API; variants: underline/pill |
+| Dropdown | `dropdown.tsx` | trigger + items with icons |
+| HealthBar | `health-bar.tsx` | 0–100 score → colour gradient bar |
+| StatCard | `stat-card.tsx` | label + value + delta % + icon slot |
+| ModeBadge | `mode-badge.tsx` | coloured pill for business/personal/hybrid |
+| FeatureGate | `feature-gate.tsx` | mode-based gating; `fallback` prop |
+
+**Shared utilities:**
+- `src/lib/cn.ts` — `cn(...classes)` classname helper
+- `src/hooks/use-api.ts` — `useApi<T>(path, token)` → `{ data, loading, error, refetch }`
+- `src/lib/api.ts` — `apiClient<T>(path, opts)` + `ApiError`
+- `src/lib/socket.ts` — singleton Socket.io client (`getSocket()`)
+- `src/hooks/use-zuri-session.ts` — Clerk sync + JWT + mode broadcaster
+
+**Design tokens (Tailwind):**
+- Primary: `indigo-600` (hover: `indigo-700`)
+- Surface: `white` with `border-gray-200` / `shadow-sm`
+- Background: `gray-50`
+- Text: `gray-900` (headings), `gray-700` (body), `gray-500` (muted), `gray-400` (placeholder)
+- Danger: `red-500/600`
+- Success: `green-500/600`
+- Rounded corners: `rounded-xl` for cards, `rounded-lg` for inputs/buttons, `rounded-full` for pills/avatars
+- Touch targets: minimum `44px` height on all interactive elements
+- Mobile-first breakpoints: base (mobile) → `sm:` (640px) → `md:` (768px) → `lg:` (1024px)
+
+### Phase 3 Page Inventory
+
+All pages are in `apps/web/src/app/(dashboard)/`:
+
+| Route | File | Description |
+|-------|------|-------------|
+| `/dashboard` | `dashboard/page.tsx` | Home: stats, quick actions, recent activity |
+| `/inbox` | `inbox/page.tsx` | 3-panel desktop / pane-switch mobile; AI suggestions |
+| `/inbox/queue` | `inbox/queue/page.tsx` | Pending AI reply suggestions; approve/edit/skip |
+| `/contacts` | `contacts/page.tsx` | CRM contact grid; filter/sort/search; lead scores |
+| `/contacts/[id]` | `contacts/[id]/page.tsx` | Contact detail; tabs: Overview/Messages/AI Notes |
+| `/leads` | `leads/page.tsx` | Lead pipeline; hot/warm/cold stages; score meter |
+| `/relationships` | `relationships/page.tsx` | Relationship health grid; filter by attention/dormant |
+| `/proactive` | `proactive/page.tsx` | Relationship nudge queue; approve/skip with draft copy |
+| `/analytics` | `analytics/page.tsx` | KPIs, AI performance, health distribution bars |
+| `/automation` | `automation/page.tsx` | Automation rules list; toggle enable/disable |
+| `/advisor` | `advisor/page.tsx` | Full-height AI chat; suggested prompts when empty |
+| `/calendar` | `calendar/page.tsx` | Month grid; day event list; AI-extracted events |
+| `/notifications` | `notifications/page.tsx` | All/unread filter; mark read; type badges |
+| `/billing` | `billing/page.tsx` | Plan card; usage bars; plan comparison table |
+| `/settings` | `settings/page.tsx` | Account/Workspace/AI Engines/Privacy tabs |
+| `/profile` | `profile/page.tsx` | User card; WA status; quick nav links |
+| `/diagnostics` | `diagnostics/page.tsx` | 7 connection checks; config snapshot; expandable rows |
+
+### Navigation Architecture
+
+**Sidebar (desktop, md+):** Full nav with grouped sections + footer nav. Width: `w-64`.
+
+**Bottom tab bar (mobile):** Fixed bottom, mode-aware 4 tabs:
+- Business: Home / Inbox / Contacts / Queue
+- Personal: Home / Inbox / People / Proactive
+- Hybrid: Home / Inbox / Contacts / Proactive
+
+**Mobile top bar:** Hamburger + logo + notifications bell link.
+
+**Content clearance:** `pt-14 pb-14 md:pt-0 md:pb-0` to avoid overlap with top/bottom bars.
+
+### Mode-Gating Conventions
+
+Use `<FeatureGate modes={['business', 'hybrid']}>` to gate business-only features.
+Use `useZuriSession()` to read `session.data?.mode` for conditional rendering.
+Leads and lead score UI only renders when `mode !== 'personal'`.
+The AI Notes tab in contact detail is hidden when `mode === 'personal'`.
