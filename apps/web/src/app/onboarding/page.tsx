@@ -5,100 +5,99 @@ import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 
-type Step = 'idle' | 'connecting' | 'qr' | 'link_code' | 'connected' | 'error'
-
 interface WAStatus {
   connected: boolean
   status: string
-  phone?: string
+  phone?: string | null
   qrCode?: string | null
-  qrExpiresAt?: string | null
   linkCode?: string | null
-  linkCodeExpiresAt?: string | null
 }
 
-const POLL_TIMEOUT_MS = 90_000
-
 export default function OnboardingPage() {
-  const session = useZuriSession()
-  const token = session.data?.accessToken
+  const { data: sessionData, status: sessionStatus } = useZuriSession()
+  const token = sessionData?.accessToken
   const router = useRouter()
-  const [step, setStep] = useState<Step>('idle')
+
+  // Raw status from the last successful poll (null = not yet loaded)
+  const [waStatus, setWaStatus] = useState<WAStatus | null>(null)
+  // Last known QR data — persists so the image stays visible while the QR refreshes
   const [qrData, setQrData] = useState<string | null>(null)
-  const [linkCode, setLinkCode] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const pollStartRef = useRef<number>(0)
+  // Last known link code
+  const [linkCodeData, setLinkCodeData] = useState<string | null>(null)
+  // True while the POST /connect call is in flight
+  const [isStarting, setIsStarting] = useState(false)
+  // Error from the POST /connect call only
+  const [connectError, setConnectError] = useState<string | null>(null)
 
-  const stopPolling = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }
+  // ── Polling ────────────────────────────────────────────────────────────────
+  // Starts as soon as we have a token; runs the whole time the page is open.
+  // The UI is derived entirely from `waStatus` — not from button clicks.
+  useEffect(() => {
+    if (!token) return
 
-  useEffect(() => () => stopPolling(), [])
+    let cancelled = false
 
-  const startPolling = (tok: string) => {
-    stopPolling()
-    pollStartRef.current = Date.now()
-    pollRef.current = setInterval(async () => {
-      if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
-        stopPolling()
-        setError('Connection timed out. Please try again.')
-        setStep('error')
-        return
-      }
+    const poll = async () => {
       try {
-        const status = await apiClient<WAStatus>('/api/whatsapp/status', { token: tok })
-        console.log('[poll]', status.status, 'qrCode:', !!status.qrCode, 'linkCode:', !!status.linkCode)
-        if (status.connected) {
-          stopPolling()
-          setStep('connected')
-          await apiClient('/api/auth/onboarding-complete', { method: 'POST', token: tok }).catch(() => {})
-          setTimeout(() => router.push('/inbox'), 1500)
-        } else if (status.status === 'qr_pending' && status.qrCode) {
-          setQrData(status.qrCode)
-          setStep('qr')
-        } else if (status.status === 'link_code_pending' && status.linkCode) {
-          setLinkCode(status.linkCode)
-          setStep('link_code')
-        } else if (status.status === 'error') {
-          stopPolling()
-          setError('WhatsApp connection failed. Please try again.')
-          setStep('error')
-        } else if (status.status === 'disconnected') {
-          stopPolling()
-          setError('Connection lost. Please try again.')
-          setStep('error')
-        }
-        // 'connecting' and 'qr_pending' without qrCode: keep polling
-      } catch (err) {
-        console.error('[poll] error:', err)
-      }
-    }, 2000)
-  }
+        const s = await apiClient<WAStatus>('/api/whatsapp/status', { token })
+        if (cancelled) return
 
+        setWaStatus(s)
+        // Cache the most-recent non-null QR so it stays visible during regeneration
+        if (s.qrCode) setQrData(s.qrCode)
+        if (s.linkCode) setLinkCodeData(s.linkCode)
+
+        if (s.connected) {
+          apiClient('/api/auth/onboarding-complete', { method: 'POST', token }).catch(() => {})
+          router.push('/inbox')
+        }
+      } catch (err) {
+        if (!cancelled) console.error('[onboarding poll]', err)
+      }
+    }
+
+    poll() // run immediately on mount so we never wait 2 s for the first result
+    const id = setInterval(poll, 2000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [token, router])
+
+  // ── Actions ────────────────────────────────────────────────────────────────
   const startConnection = async () => {
     if (!token) return
-    setStep('connecting')
-    setError(null)
-    setQrData(null)
-    setLinkCode(null)
+    setIsStarting(true)
+    setConnectError(null)
 
     try {
       await apiClient('/api/whatsapp/connect', { method: 'POST', token })
-      startPolling(token)
     } catch (err: any) {
-      // 409 = session already active (e.g. restoreAll() started it on boot) — just poll for it
-      if (err instanceof ApiError && err.status === 409) {
-        startPolling(token)
-        return
+      // 409 = session already active (restoreAll() beat us) — polling will surface the QR
+      if (!(err instanceof ApiError && err.status === 409)) {
+        setConnectError(err.message || 'Failed to start connection')
       }
-      setError(err.message || 'Failed to start connection')
-      setStep('error')
+    } finally {
+      setIsStarting(false)
     }
+    // Don't update waStatus here — polling will do it within 2 s
   }
+
+  // ── Derived display state (priority order) ────────────────────────────────
+  const s = waStatus
+  const backendStatus = s?.status ?? null
+
+  const isConnected     = s?.connected === true
+  const isQrReady       = backendStatus === 'qr_pending' && !!qrData
+  const isLinkCodeReady = backendStatus === 'link_code_pending' && !!linkCodeData
+  const isConnecting    = isStarting || backendStatus === 'connecting' ||
+                          (backendStatus === 'qr_pending' && !qrData)
+  const hasError        = backendStatus === 'error' || !!connectError
+  // Show idle (start button) once we have a real status and nothing is happening
+  const isIdle          = s !== null && !isConnecting && !hasError && !isQrReady &&
+                          !isLinkCodeReady && !isConnected
+  // Show spinner while waiting for the very first poll response
+  const isFirstLoad     = s === null && !connectError
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -108,45 +107,59 @@ export default function OnboardingPage() {
           Link your WhatsApp account so Zuri can start analysing your conversations
         </p>
 
-        {step === 'idle' && (
+        {/* ── First-load spinner ── */}
+        {isFirstLoad && (
+          <div className="flex justify-center py-6">
+            <div className="w-8 h-8 border-4 border-gray-200 border-t-indigo-500 rounded-full animate-spin" />
+          </div>
+        )}
+
+        {/* ── Idle / start button ── */}
+        {isIdle && (
           <div className="space-y-2">
             <button
               onClick={startConnection}
-              disabled={!token}
+              disabled={!token || isStarting}
               className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               Start connection
             </button>
-            {session.data?.syncFailed && (
+            {sessionData?.syncFailed && (
               <p className="text-xs text-red-600 text-center">
-                Backend API unreachable — button disabled.{' '}
+                Backend API unreachable.{' '}
                 <a href="/diagnostics" className="underline hover:text-red-700">Check diagnostics</a>
               </p>
-            )}
-            {!token && !session.data?.syncFailed && session.status === 'authenticated' && (
-              <p className="text-xs text-gray-400 text-center">Connecting to backend…</p>
             )}
           </div>
         )}
 
-        {step === 'connecting' && (
+        {/* ── Connecting spinner ── */}
+        {isConnecting && !isQrReady && !isLinkCodeReady && !isConnected && (
           <div className="space-y-4">
             <div className="flex justify-center">
               <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
             </div>
-            <p className="text-sm text-gray-500">Initialising WhatsApp session...</p>
+            <p className="text-sm text-gray-500">
+              {isStarting ? 'Starting session…' : 'Waiting for QR code…'}
+            </p>
+            <p className="text-xs text-gray-400">This takes up to 30 seconds</p>
           </div>
         )}
 
-        {step === 'qr' && qrData && (
+        {/* ── QR code ── */}
+        {isQrReady && !isConnected && (
           <div className="space-y-4">
             <p className="text-sm text-gray-700 font-medium">Scan this QR code with WhatsApp</p>
-            <div className="flex justify-center">
-              {qrData.startsWith('data:') ? (
-                <img src={qrData} alt="WhatsApp QR Code" className="w-56 h-56 rounded-lg" />
-              ) : (
-                <div className="w-56 h-56 bg-gray-100 rounded-lg flex items-center justify-center p-4 text-xs text-gray-500 break-all font-mono">
-                  {qrData}
+            <div className="relative flex justify-center">
+              <img
+                src={qrData!}
+                alt="WhatsApp QR Code"
+                className="w-56 h-56 rounded-lg"
+              />
+              {/* Overlay while QR is regenerating (qrCode just became null) */}
+              {backendStatus === 'qr_pending' && !s?.qrCode && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/75 rounded-lg">
+                  <p className="text-xs text-gray-500">Refreshing QR…</p>
                 </div>
               )}
             </div>
@@ -156,11 +169,14 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {step === 'link_code' && linkCode && (
+        {/* ── Link code ── */}
+        {isLinkCodeReady && !isConnected && (
           <div className="space-y-4">
             <p className="text-sm text-gray-700 font-medium">Enter this code in WhatsApp</p>
             <div className="bg-gray-100 rounded-xl px-6 py-4">
-              <p className="font-mono text-3xl font-bold text-gray-900 tracking-widest">{linkCode}</p>
+              <p className="font-mono text-3xl font-bold text-gray-900 tracking-widest">
+                {linkCodeData}
+              </p>
             </div>
             <p className="text-xs text-gray-400">
               Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link with phone number
@@ -168,7 +184,8 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {step === 'connected' && (
+        {/* ── Connected ── */}
+        {isConnected && (
           <div className="space-y-3">
             <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
               <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -176,20 +193,22 @@ export default function OnboardingPage() {
               </svg>
             </div>
             <p className="text-sm font-medium text-gray-900">Connected!</p>
-            <p className="text-sm text-gray-500">Redirecting to your inbox...</p>
+            <p className="text-sm text-gray-500">Redirecting to your inbox…</p>
           </div>
         )}
 
-        {step === 'error' && (
+        {/* ── Error ── */}
+        {hasError && !isConnected && !isQrReady && !isLinkCodeReady && (
           <div className="space-y-4">
             <div className="p-3 bg-red-50 border border-red-100 text-red-700 text-sm rounded-lg">
-              {error || 'Something went wrong'}
+              {connectError || 'WhatsApp connection failed. Please try again.'}
             </div>
             <button
               onClick={startConnection}
-              className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              disabled={isStarting}
+              className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
-              Try again
+              {isStarting ? 'Starting…' : 'Try again'}
             </button>
           </div>
         )}
