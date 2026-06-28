@@ -33,7 +33,7 @@ export interface GenerateDailyProactiveJob {
 export interface SendReplyJob {
   userId: string;
   messageId: string;
-  suggestedReplyId: string;
+  suggestedReplyId: string | null;
   recipientJid: string;
   text: string;
 }

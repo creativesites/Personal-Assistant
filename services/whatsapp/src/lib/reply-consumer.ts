@@ -26,12 +26,14 @@ export function startReplyConsumer(
 
       await sessionManager.sendMessage(userId, recipientJid, text);
 
-      await db.query(
-        `UPDATE suggested_replies
-         SET status = 'sent', sent_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [suggestedReplyId]
-      );
+      if (suggestedReplyId) {
+        await db.query(
+          `UPDATE suggested_replies
+           SET status = 'sent', sent_at = NOW(), updated_at = NOW()
+           WHERE id = $1`,
+          [suggestedReplyId]
+        );
+      }
     },
     { connection: parseRedisUrl(redisUrl) }
   );
