@@ -75,7 +75,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           const { rows: [created] } = await db.query<UserRow>(
             `INSERT INTO users (email, full_name, clerk_user_id)
              VALUES ($1, $2, $3)
-             RETURNING id, email, full_name, COALESCE(mode, 'business') AS mode, is_admin, onboarding_completed`,
+             RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode, is_admin, onboarding_completed`,
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
@@ -106,7 +106,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           id: user.id,
           email: user.email,
           fullName: user.full_name,
-          mode: user.mode ?? 'business',
+          mode: user.mode ?? 'hybrid',
           isAdmin: user.is_admin ?? false,
           onboardingCompleted: user.onboarding_completed,
         },
@@ -220,7 +220,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         mode: string;
         onboarding_completed: boolean;
       }>(
-        `SELECT id, email, full_name, timezone, COALESCE(mode, 'business') AS mode, onboarding_completed
+        `SELECT id, email, full_name, timezone, COALESCE(mode, 'hybrid') AS mode, onboarding_completed
          FROM users WHERE id = $1`,
         [userId]
       );

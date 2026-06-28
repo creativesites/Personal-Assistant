@@ -123,6 +123,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       `SELECT
         co.id,
         COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS name,
+        co.phone_number,
         co.avatar_url,
         co.last_message_at,
         r.id AS relationship_id,
@@ -146,6 +147,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       contacts: rows.map((r: any) => ({
         id: r.id,
         name: r.name,
+        phone: r.phone_number,
         avatarUrl: r.avatar_url,
         lastMessageAt: r.last_message_at,
         relationship: {

@@ -10,7 +10,7 @@ type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 const _store: { userId: string; token: string; mode: WorkspaceMode; isAdmin: boolean } = {
   userId: '',
   token: '',
-  mode: 'business',
+  mode: 'hybrid',
   isAdmin: false,
 }
 
@@ -30,7 +30,7 @@ export function useZuriSession() {
     user?.id && _store.userId === user.id ? _store.token : null,
   )
   const [mode, setMode] = useState<WorkspaceMode>(
-    user?.id && _store.userId === user.id ? _store.mode : 'business',
+    user?.id && _store.userId === user.id ? _store.mode : 'hybrid',
   )
   const [isAdmin, setIsAdmin] = useState<boolean>(
     user?.id && _store.userId === user.id ? _store.isAdmin : false,
