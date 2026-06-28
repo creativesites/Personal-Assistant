@@ -28,6 +28,8 @@ import {
   Zap,
   Clock,
   Heart,
+  Brain,
+  Sparkles,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
@@ -53,6 +55,8 @@ interface Contact {
   }
   profile: { personalitySummary: string; moodBaseline: string } | null
   leadScore: number
+  insightCount: number
+  pendingActions: number
 }
 
 type SortKey = 'health' | 'recent' | 'name' | 'lead'
@@ -61,6 +65,7 @@ type StatusFilter = 'all' | 'vip' | 'key' | 'customer' | 'lead' | 'partner' | 'a
 type HealthFilter = 'all' | 'healthy' | 'moderate' | 'at_risk'
 type ActivityFilter = 'all' | 'today' | 'week' | 'month' | 'dormant'
 type LeadFilter = 'all' | 'hot' | 'warm' | 'cold'
+type AiFilter = 'all' | 'profiled' | 'with_insights' | 'has_action'
 
 function formatLastSeen(ts: string | null) {
   if (!ts) return 'Never'
@@ -226,6 +231,7 @@ export default function ContactsPage() {
   const [healthFilter, setHealthFilter] = useState<HealthFilter>('all')
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all')
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all')
+  const [aiFilter, setAiFilter] = useState<AiFilter>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [showAddContact, setShowAddContact] = useState(false)
@@ -288,6 +294,10 @@ export default function ContactsPage() {
         if (leadFilter === 'warm' && ((c.leadScore ?? 0) < 40 || (c.leadScore ?? 0) >= 70)) return false
         if (leadFilter === 'cold' && (c.leadScore ?? 0) >= 40) return false
       }
+      // AI filter
+      if (aiFilter === 'profiled' && !c.profile?.personalitySummary) return false
+      if (aiFilter === 'with_insights' && (c.insightCount ?? 0) === 0) return false
+      if (aiFilter === 'has_action' && (c.pendingActions ?? 0) === 0) return false
       return true
     })
     return [...result].sort((a, b) => {
@@ -298,7 +308,7 @@ export default function ContactsPage() {
       const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0
       return tb - ta
     })
-  }, [contacts, search, statusFilter, healthFilter, activityFilter, leadFilter, sort, mode])
+  }, [contacts, search, statusFilter, healthFilter, activityFilter, leadFilter, aiFilter, sort, mode])
 
   const allSelected = processed.length > 0 && processed.every(c => selected.has(c.id))
   const toggleAll = () => {
@@ -348,6 +358,19 @@ export default function ContactsPage() {
           <FilterRow active={leadFilter === 'cold'} onClick={() => setLeadFilter('cold')}><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300 inline-block" />Cold (&lt;40)</span></FilterRow>
         </FilterSection>
       )}
+
+      <FilterSection title="AI Intelligence">
+        <FilterRow active={aiFilter === 'all'} onClick={() => setAiFilter('all')}>All</FilterRow>
+        <FilterRow active={aiFilter === 'profiled'} onClick={() => setAiFilter('profiled')} count={contacts.filter(c => !!c.profile?.personalitySummary).length}>
+          <span className="flex items-center gap-1.5"><Brain size={12} className="text-indigo-500" />AI profiled</span>
+        </FilterRow>
+        <FilterRow active={aiFilter === 'with_insights'} onClick={() => setAiFilter('with_insights')} count={contacts.filter(c => (c.insightCount ?? 0) > 0).length}>
+          <span className="flex items-center gap-1.5"><Sparkles size={12} className="text-purple-500" />Has insights</span>
+        </FilterRow>
+        <FilterRow active={aiFilter === 'has_action'} onClick={() => setAiFilter('has_action')} count={contacts.filter(c => (c.pendingActions ?? 0) > 0).length}>
+          <span className="flex items-center gap-1.5"><Zap size={12} className="text-amber-500" />Action suggested</span>
+        </FilterRow>
+      </FilterSection>
     </aside>
   )
 
@@ -501,6 +524,7 @@ export default function ContactsPage() {
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Relationship</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">AI</th>
                     {mode !== 'personal' && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Lead</th>}
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Last active</th>
                     <th className="w-16 px-3 py-3" />
@@ -542,6 +566,25 @@ export default function ContactsPage() {
                             <HealthBar score={contact.relationship.healthScore} size="sm" className="w-16 flex-shrink-0" />
                             <span className="text-xs text-gray-500 font-medium w-7 flex-shrink-0">{contact.relationship.healthScore}</span>
                             <TrendIcon size={12} className={`flex-shrink-0 ${trend.cls}`} />
+                          </div>
+                        </td>
+                        <td className="px-3 py-3.5 hidden lg:table-cell">
+                          <div className="flex items-center gap-1.5">
+                            {contact.profile?.personalitySummary ? (
+                              <span title="AI profiled" className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded-full font-medium">
+                                <Brain size={9} />
+                                {contact.insightCount > 0 ? contact.insightCount : '✓'}
+                              </span>
+                            ) : (
+                              <span title="No AI profile yet" className="inline-flex items-center gap-1 text-[11px] bg-gray-50 text-gray-400 border border-gray-100 px-1.5 py-0.5 rounded-full">
+                                <Brain size={9} /> —
+                              </span>
+                            )}
+                            {contact.pendingActions > 0 && (
+                              <span title={`${contact.pendingActions} pending action${contact.pendingActions > 1 ? 's' : ''}`} className="inline-flex items-center gap-0.5 text-[11px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium">
+                                <Zap size={9} /> {contact.pendingActions}
+                              </span>
+                            )}
                           </div>
                         </td>
                         {mode !== 'personal' && (
@@ -602,11 +645,28 @@ export default function ContactsPage() {
                     </div>
                     {contact.phone && <p className="text-xs text-gray-400 mb-3 truncate">{contact.phone}</p>}
                     <HealthBar score={contact.relationship.healthScore} size="sm" className="mb-2" />
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-2">
                       <span className={`text-xs font-medium flex items-center gap-1 ${trend.cls}`}>
                         <TrendIcon size={11} /> {trend.label}
                       </span>
                       <span className="text-xs text-gray-400">{formatLastSeen(contact.lastMessageAt)}</span>
+                    </div>
+                    {/* AI signals row */}
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-gray-50">
+                      {contact.profile?.personalitySummary ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded-full font-medium">
+                          <Brain size={9} /> AI {contact.insightCount > 0 ? `· ${contact.insightCount}` : ''}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-gray-300 px-1.5 py-0.5 rounded-full">
+                          <Brain size={9} /> learning…
+                        </span>
+                      )}
+                      {contact.pendingActions > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-[11px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium ml-auto">
+                          <Zap size={9} /> {contact.pendingActions} action{contact.pendingActions > 1 ? 's' : ''}
+                        </span>
+                      )}
                     </div>
                   </button>
                 )

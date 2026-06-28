@@ -28,7 +28,15 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         r.last_interaction_at,
         cp.personality_summary,
         cp.mood_baseline,
-        ARRAY_REMOVE(ARRAY_AGG(DISTINCT ct.tag ORDER BY ct.tag), NULL) AS tags
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT ct.tag ORDER BY ct.tag), NULL) AS tags,
+        COALESCE((
+          SELECT COUNT(*) FROM contact_insights ci
+          WHERE ci.contact_id = co.id AND ci.user_id = $1 AND ci.is_active = TRUE
+        ), 0)::int AS insight_count,
+        COALESCE((
+          SELECT COUNT(*) FROM proactive_queue pq
+          WHERE pq.contact_id = co.id AND pq.user_id = $1 AND pq.status = 'pending'
+        ), 0)::int AS pending_actions
       FROM contacts co
       LEFT JOIN relationships r        ON r.contact_id  = co.id AND r.user_id  = $1
       LEFT JOIN contact_profiles cp    ON cp.contact_id = co.id AND cp.user_id = $1
@@ -63,6 +71,8 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         profile: r.personality_summary
           ? { personalitySummary: r.personality_summary, moodBaseline: r.mood_baseline }
           : null,
+        insightCount: r.insight_count,
+        pendingActions: r.pending_actions,
       })),
     });
   });
@@ -116,7 +126,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (!contact) return reply.code(404).send({ error: 'Contact not found' });
 
-    const [insights, healthLogs, msgStats, tagsResult] = await Promise.all([
+    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult] = await Promise.all([
       db.query(
         `SELECT insight_key, insight_value, confidence, supporting_text, created_at
          FROM contact_insights
@@ -148,6 +158,22 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       ),
       db.query(
         `SELECT tag FROM contact_tags WHERE contact_id = $1 AND user_id = $2 ORDER BY tag`,
+        [id, userId],
+      ),
+      db.query(
+        `SELECT id, suggestion_type, title, body, draft_message, priority
+         FROM proactive_queue
+         WHERE contact_id = $1 AND user_id = $2 AND status = 'pending'
+         ORDER BY priority ASC, created_at DESC
+         LIMIT 3`,
+        [id, userId],
+      ),
+      db.query(
+        `SELECT id, event_type, title, event_date, is_recurring, confidence_score
+         FROM events
+         WHERE contact_id = $1 AND user_id = $2 AND event_date >= CURRENT_DATE
+         ORDER BY event_date ASC
+         LIMIT 5`,
         [id, userId],
       ),
     ]);
@@ -210,6 +236,22 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           sent:          parseInt(msgStats.rows[0]?.sent || '0'),
           received:      parseInt(msgStats.rows[0]?.received || '0'),
         },
+        proactiveSuggestions: proactiveResult.rows.map((p: any) => ({
+          id:             p.id,
+          suggestionType: p.suggestion_type,
+          title:          p.title,
+          body:           p.body,
+          draftMessage:   p.draft_message,
+          priority:       p.priority,
+        })),
+        upcomingEvents: eventsResult.rows.map((e: any) => ({
+          id:         e.id,
+          eventType:  e.event_type,
+          title:      e.title,
+          eventDate:  e.event_date,
+          isRecurring:e.is_recurring,
+          confidence: parseFloat(e.confidence_score ?? '0'),
+        })),
       },
     });
   });

@@ -30,6 +30,12 @@ import {
   X,
   Check,
   Loader2,
+  Calendar,
+  Gift,
+  Briefcase as BriefcaseIcon,
+  Plane,
+  PartyPopper,
+  Bell,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
@@ -95,6 +101,22 @@ interface ContactDetail {
     sent: number
     received: number
   }
+  proactiveSuggestions: Array<{
+    id: string
+    suggestionType: string
+    title: string
+    body: string
+    draftMessage: string | null
+    priority: number
+  }>
+  upcomingEvents: Array<{
+    id: string
+    eventType: string
+    title: string
+    eventDate: string
+    isRecurring: boolean
+    confidence: number
+  }>
 }
 
 interface EditForm {
@@ -129,11 +151,37 @@ const CUSTOMER_STATUS_OPTIONS = [
 
 const PIPELINE_STAGES = ['', 'New Lead', 'Contacted', 'Qualified', 'Negotiating', 'Won', 'Lost']
 
+const EVENT_ICONS: Record<string, React.ReactNode> = {
+  birthday:    <Gift size={13} className="text-pink-500" />,
+  anniversary: <Heart size={13} className="text-red-500" />,
+  job_change:  <BriefcaseIcon size={13} className="text-blue-500" />,
+  travel:      <Plane size={13} className="text-sky-500" />,
+  celebration: <PartyPopper size={13} className="text-amber-500" />,
+  appointment: <Calendar size={13} className="text-indigo-500" />,
+  deadline:    <Bell size={13} className="text-orange-500" />,
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDate(ts: string | null) {
   if (!ts) return 'Never'
   return new Date(ts).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function formatEventDate(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString([], { month: 'long', day: 'numeric' })
+}
+
+function daysUntil(dateStr: string) {
+  const today = new Date(); today.setHours(0,0,0,0)
+  const d = new Date(dateStr + 'T00:00:00')
+  const diff = Math.round((d.getTime() - today.getTime()) / 86400000)
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Tomorrow'
+  if (diff < 7)  return `In ${diff} days`
+  if (diff < 30) return `In ${Math.floor(diff / 7)} week${diff >= 14 ? 's' : ''}`
+  return formatEventDate(dateStr)
 }
 
 function timeAgo(ts: string) {
@@ -157,16 +205,24 @@ function statusBadgeVariant(status: string): 'default' | 'success' | 'info' | 'w
   }
 }
 
+function moodColor(mood: string | null) {
+  if (!mood) return 'bg-gray-100 text-gray-600 border-gray-200'
+  if (mood === 'positive') return 'bg-green-50 text-green-700 border-green-200'
+  if (mood === 'negative') return 'bg-red-50 text-red-600 border-red-200'
+  if (mood === 'variable') return 'bg-amber-50 text-amber-700 border-amber-200'
+  return 'bg-blue-50 text-blue-700 border-blue-200'
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SectionCard({ title, icon, children, className }: {
-  title: string; icon?: React.ReactNode; children: React.ReactNode; className?: string
+function SectionCard({ title, icon, children, className, accent }: {
+  title: string; icon?: React.ReactNode; children: React.ReactNode; className?: string; accent?: boolean
 }) {
   return (
-    <div className={`bg-white rounded-xl border border-gray-200 overflow-hidden ${className ?? ''}`}>
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-gray-100">
-        {icon && <span className="text-gray-400">{icon}</span>}
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
+    <div className={`bg-white rounded-xl border overflow-hidden ${accent ? 'border-indigo-100' : 'border-gray-200'} ${className ?? ''}`}>
+      <div className={`flex items-center gap-2 px-5 py-3.5 border-b ${accent ? 'border-indigo-50 bg-indigo-50/30' : 'border-gray-100'}`}>
+        {icon && <span className={accent ? 'text-indigo-500' : 'text-gray-400'}>{icon}</span>}
+        <p className={`text-xs font-semibold uppercase tracking-wide ${accent ? 'text-indigo-700' : 'text-gray-500'}`}>{title}</p>
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -278,12 +334,8 @@ function EditSlideOver({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Panel */}
       <div className="relative w-full max-w-md bg-white h-full flex flex-col shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-900">Edit Contact</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 -mr-1 rounded-lg hover:bg-gray-100">
@@ -291,10 +343,7 @@ function EditSlideOver({
           </button>
         </div>
 
-        {/* Scrollable form */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
-
-          {/* Identity */}
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Identity</p>
             <div className="space-y-3">
@@ -320,7 +369,6 @@ function EditSlideOver({
             </div>
           </div>
 
-          {/* Contact info */}
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Contact Info</p>
             <div className="space-y-3">
@@ -343,7 +391,6 @@ function EditSlideOver({
             </div>
           </div>
 
-          {/* Business */}
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Business</p>
             <div className="space-y-3">
@@ -374,7 +421,6 @@ function EditSlideOver({
             </div>
           </div>
 
-          {/* Pipeline */}
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Pipeline</p>
             <div className="space-y-3">
@@ -398,7 +444,6 @@ function EditSlideOver({
             </div>
           </div>
 
-          {/* Notes */}
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Notes</p>
             <textarea
@@ -410,7 +455,6 @@ function EditSlideOver({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200">
           <button
             onClick={onClose}
@@ -452,7 +496,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
   const tabs: { id: TabId; label: string; show?: boolean }[] = [
     { id: 'overview',     label: 'Overview'                              },
-    { id: 'intelligence', label: 'AI Intelligence', show: mode !== 'personal' },
+    { id: 'intelligence', label: 'AI Intelligence'                       },
     { id: 'timeline',     label: 'Health History'                        },
     { id: 'messages',     label: 'Messages'                              },
   ]
@@ -502,13 +546,15 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
     ? Math.round((contact.stats.received / contact.stats.totalMessages) * 100)
     : 0
 
-  const buyingSignals     = contact.insights.filter(i => ['buying_signal','purchase_intent','interest','opportunity'].includes(i.key))
+  const buyingSignals      = contact.insights.filter(i => ['buying_signal','purchase_intent','interest','opportunity'].includes(i.key))
   const personalityInsights= contact.insights.filter(i => ['personality','communication_style','preference','behavior'].includes(i.key))
-  const otherInsights     = contact.insights.filter(i =>
+  const otherInsights      = contact.insights.filter(i =>
     !buyingSignals.find(b => b.key === i.key) && !personalityInsights.find(p => p.key === i.key)
   )
 
-  const hasContactInfo = contact.email || contact.company || contact.jobTitle || contact.industry || contact.website
+  const topSuggestion = contact.proactiveSuggestions[0] ?? null
+  const hasAiProfile  = !!contact.profile?.personalitySummary
+  const aiInsightCount= contact.insights.length
 
   return (
     <>
@@ -573,6 +619,17 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         {contact.pipelineStage}
                       </span>
                     )}
+                    {/* AI badges in hero */}
+                    {hasAiProfile && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-full">
+                        <Brain size={9} /> AI profiled
+                      </span>
+                    )}
+                    {topSuggestion && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                        <Zap size={9} /> Action suggested
+                      </span>
+                    )}
                     {contact.tags.map(tag => (
                       <span key={tag} className="inline-flex items-center gap-0.5 text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
                         <Tag size={9} />{tag}
@@ -590,7 +647,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 </span>
               </div>
 
-              {/* Stats row */}
               <div className="mt-3 flex items-center gap-4 flex-wrap">
                 <div className="text-center">
                   <p className="text-base font-bold text-gray-900">{contact.stats.totalMessages.toLocaleString()}</p>
@@ -611,6 +667,15 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   <p className="text-base font-bold text-gray-900">{responseRatio}%</p>
                   <p className="text-[10px] text-gray-400 leading-tight">from them</p>
                 </div>
+                {aiInsightCount > 0 && (
+                  <>
+                    <div className="w-px h-8 bg-gray-200" />
+                    <div className="text-center">
+                      <p className="text-base font-bold text-indigo-600">{aiInsightCount}</p>
+                      <p className="text-[10px] text-gray-400 leading-tight">AI insights</p>
+                    </div>
+                  </>
+                )}
                 {contact.leadScore > 0 && mode !== 'personal' && (
                   <>
                     <div className="w-px h-8 bg-gray-200" />
@@ -641,6 +706,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 }`}
               >
                 {tab.label}
+                {tab.id === 'intelligence' && aiInsightCount > 0 && (
+                  <span className="ml-1.5 text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-bold">
+                    {aiInsightCount}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -653,7 +723,206 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {/* ══ OVERVIEW ══ */}
             {activeTab === 'overview' && (
               <>
-                {/* Contact Information — always visible */}
+                {/* 1. AI INTELLIGENCE HUB — always first */}
+                <div className={`rounded-xl border p-5 ${
+                  hasAiProfile
+                    ? 'bg-gradient-to-br from-indigo-50 via-purple-50 to-violet-50 border-indigo-100'
+                    : 'bg-gray-50 border-dashed border-gray-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Brain size={16} className={hasAiProfile ? 'text-indigo-600' : 'text-gray-300'} />
+                      <p className={`text-sm font-semibold ${hasAiProfile ? 'text-indigo-900' : 'text-gray-500'}`}>
+                        Zuri's Intelligence
+                      </p>
+                    </div>
+                    {contact.profile?.updatedAt && (
+                      <span className="text-[10px] text-indigo-400">Updated {timeAgo(contact.profile.updatedAt)}</span>
+                    )}
+                  </div>
+
+                  {hasAiProfile ? (
+                    <>
+                      <p className="text-sm text-indigo-900 leading-relaxed">{contact.profile!.personalitySummary}</p>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {contact.profile!.moodBaseline && (
+                          <span className={`inline-flex items-center gap-1 text-xs border px-2.5 py-1 rounded-full font-medium ${moodColor(contact.profile!.moodBaseline)}`}>
+                            <Heart size={10} /> {contact.profile!.moodBaseline} mood
+                          </span>
+                        )}
+                        {contact.profile!.communicationStyle && (
+                          <span className="inline-flex items-center gap-1 text-xs bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full">
+                            <MessageSquare size={10} /> {contact.profile!.communicationStyle}
+                          </span>
+                        )}
+                        {aiInsightCount > 0 && (
+                          <button
+                            onClick={() => setActiveTab('intelligence')}
+                            className="inline-flex items-center gap-1 text-xs bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-50 transition-colors"
+                          >
+                            <Sparkles size={10} /> {aiInsightCount} insights
+                          </button>
+                        )}
+                      </div>
+
+                      {contact.profile!.currentLifeContext && (
+                        <div className="mt-3 pt-3 border-t border-indigo-100">
+                          <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Current Context</p>
+                          <p className="text-sm text-indigo-800 leading-relaxed">{contact.profile!.currentLifeContext}</p>
+                        </div>
+                      )}
+
+                      {(contact.profile!.emotionalPatterns || contact.profile!.knownTriggers) && (
+                        <div className="mt-3 pt-3 border-t border-indigo-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {contact.profile!.emotionalPatterns && (
+                            <div>
+                              <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Emotional Patterns</p>
+                              <p className="text-xs text-indigo-800 leading-relaxed">{contact.profile!.emotionalPatterns}</p>
+                            </div>
+                          )}
+                          {contact.profile!.knownTriggers && (
+                            <div>
+                              <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Known Triggers</p>
+                              <p className="text-xs text-indigo-800 leading-relaxed">{contact.profile!.knownTriggers}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-3 py-1">
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                        <Brain size={16} className="text-gray-300" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600 font-medium">Building {contact.name}'s AI profile…</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Zuri analyses every conversation and builds a living psychological profile over time.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. NEXT BEST ACTION — proactive suggestion */}
+                {topSuggestion && (
+                  <div className="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden">
+                    <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-100 bg-amber-100/50">
+                      <Zap size={14} className="text-amber-600" />
+                      <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Recommended Action</p>
+                      <span className="ml-auto text-[11px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-medium capitalize">
+                        {topSuggestion.suggestionType.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <div className="p-5">
+                      <p className="text-sm font-semibold text-amber-900">{topSuggestion.title}</p>
+                      <p className="text-sm text-amber-800 mt-1 leading-relaxed">{topSuggestion.body}</p>
+                      {topSuggestion.draftMessage && (
+                        <div className="mt-3 bg-white rounded-lg p-4 border border-amber-100">
+                          <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide mb-1.5">Draft Message</p>
+                          <p className="text-sm text-gray-700 leading-relaxed">"{topSuggestion.draftMessage}"</p>
+                        </div>
+                      )}
+                      <div className="mt-3 flex items-center justify-between">
+                        <Link
+                          href="/proactive"
+                          className="text-xs text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium"
+                        >
+                          View all in Proactive Queue <ChevronRight size={11} />
+                        </Link>
+                        {contact.proactiveSuggestions.length > 1 && (
+                          <span className="text-[11px] text-amber-500">
+                            +{contact.proactiveSuggestions.length - 1} more suggestion{contact.proactiveSuggestions.length > 2 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. BUYING SIGNALS — if any exist */}
+                {buyingSignals.length > 0 && (
+                  <SectionCard title="Buying Signals" icon={<Zap size={14} />} accent>
+                    <div className="space-y-3">
+                      {buyingSignals.map((insight, i) => (
+                        <div key={i} className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                          <Zap size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 font-medium leading-snug">{insight.value}</p>
+                            {insight.supportingText && (
+                              <p className="text-xs text-gray-500 mt-1 italic">"{insight.supportingText}"</p>
+                            )}
+                            <p className="text-[10px] text-gray-400 mt-1">{timeAgo(insight.createdAt)}</p>
+                          </div>
+                          <span className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${
+                            insight.confidence >= 0.8 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {Math.round(insight.confidence * 100)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
+
+                {/* 4. UPCOMING EVENTS — AI-extracted */}
+                {contact.upcomingEvents.length > 0 && (
+                  <SectionCard title="Upcoming Events" icon={<Calendar size={14} />} accent>
+                    <div className="space-y-0">
+                      {contact.upcomingEvents.map((event, i) => (
+                        <div key={i} className="flex items-center gap-3 py-3 border-b border-gray-50 last:border-0">
+                          <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                            {EVENT_ICONS[event.eventType] ?? <Calendar size={13} className="text-indigo-400" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-800 truncate">{event.title}</p>
+                            <p className="text-xs text-gray-400 capitalize">{event.eventType.replace(/_/g, ' ')}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-semibold text-indigo-600">{daysUntil(event.eventDate)}</p>
+                            <p className="text-[10px] text-gray-400">{formatEventDate(event.eventDate)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
+
+                {/* 5. AI MEMORY PREVIEW — top insights */}
+                {contact.insights.length > 0 && (
+                  <SectionCard title="AI Memory" icon={<Brain size={14} />} accent>
+                    <div className="space-y-3">
+                      {contact.insights.slice(0, 6).map((insight, i) => (
+                        <div key={i} className="flex items-start gap-3">
+                          <div className={`w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0 ${
+                            insight.confidence >= 0.8 ? 'bg-indigo-500' : insight.confidence >= 0.5 ? 'bg-amber-400' : 'bg-gray-300'
+                          }`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-xs font-semibold text-indigo-600 capitalize">{insight.key.replace(/_/g, ' ')}</p>
+                              <span className="text-[10px] text-gray-400 flex-shrink-0">{timeAgo(insight.createdAt)}</span>
+                            </div>
+                            <p className="text-sm text-gray-700 leading-snug mt-0.5">{insight.value}</p>
+                            {insight.supportingText && (
+                              <p className="text-xs text-gray-400 mt-0.5 italic">"{insight.supportingText}"</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {contact.insights.length > 6 && (
+                        <button
+                          onClick={() => setActiveTab('intelligence')}
+                          className="text-xs text-indigo-600 hover:underline flex items-center gap-1 mt-1 font-medium"
+                        >
+                          View all {contact.insights.length} insights <ChevronRight size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </SectionCard>
+                )}
+
+                {/* 6. CONTACT INFORMATION */}
                 <SectionCard title="Contact Information" icon={<User size={14} />}>
                   <InfoRow icon={<Phone size={14} />}    label="Phone"    value={contact.phoneNumber} href={contact.phoneNumber ? `tel:${contact.phoneNumber}` : undefined} />
                   <InfoRow icon={<Mail size={14} />}     label="Email"    value={contact.email}       href={contact.email ? `mailto:${contact.email}` : undefined} />
@@ -663,7 +932,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   <InfoRow icon={<Globe size={14} />}    label="Website"  value={contact.website}     href={contact.website ?? undefined} />
                   <InfoRow icon={<Activity size={14} />} label="Source"   value={contact.source !== 'whatsapp' ? contact.source : null} />
                   <InfoRow icon={<Clock size={14} />}    label="Added"    value={formatDate(contact.createdAt)} />
-                  {!hasContactInfo && !contact.phoneNumber && (
+                  {!contact.phoneNumber && !contact.email && !contact.company && (
                     <div className="text-center py-4">
                       <p className="text-sm text-gray-400">No additional info yet.</p>
                       <button onClick={() => setShowEdit(true)} className="text-xs text-indigo-600 hover:underline mt-1">
@@ -673,104 +942,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   )}
                 </SectionCard>
 
-                {/* Notes */}
+                {/* 7. NOTES */}
                 {contact.notes && (
                   <SectionCard title="Notes" icon={<Lightbulb size={14} />}>
                     <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{contact.notes}</p>
                   </SectionCard>
-                )}
-
-                {/* AI Summary */}
-                {contact.profile?.personalitySummary && (
-                  <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border border-indigo-100 p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Brain size={16} className="text-indigo-600" />
-                      <p className="text-sm font-semibold text-indigo-900">AI Summary</p>
-                      {contact.profile.updatedAt && (
-                        <span className="ml-auto text-[10px] text-indigo-400">Updated {timeAgo(contact.profile.updatedAt)}</span>
-                      )}
-                    </div>
-                    <p className="text-sm text-indigo-900 leading-relaxed">{contact.profile.personalitySummary}</p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {contact.profile.moodBaseline && (
-                        <span className="inline-flex items-center gap-1 text-xs bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full">
-                          <Heart size={10} /> {contact.profile.moodBaseline}
-                        </span>
-                      )}
-                      {contact.profile.communicationStyle && (
-                        <span className="inline-flex items-center gap-1 text-xs bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full">
-                          <MessageSquare size={10} /> {contact.profile.communicationStyle}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Personality deep-dive */}
-                {(contact.profile?.emotionalPatterns || contact.profile?.knownTriggers || contact.profile?.currentLifeContext) && (
-                  <SectionCard title="Personality Profile" icon={<User size={14} />}>
-                    <div className="space-y-4">
-                      {contact.profile?.emotionalPatterns && (
-                        <div>
-                          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Emotional Patterns</p>
-                          <p className="text-sm text-gray-700 leading-relaxed">{contact.profile.emotionalPatterns}</p>
-                        </div>
-                      )}
-                      {contact.profile?.knownTriggers && (
-                        <div>
-                          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Known Triggers</p>
-                          <p className="text-sm text-gray-700 leading-relaxed">{contact.profile.knownTriggers}</p>
-                        </div>
-                      )}
-                      {contact.profile?.currentLifeContext && (
-                        <div>
-                          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Life Context</p>
-                          <p className="text-sm text-gray-700 leading-relaxed">{contact.profile.currentLifeContext}</p>
-                        </div>
-                      )}
-                    </div>
-                  </SectionCard>
-                )}
-
-                {/* AI Memory preview */}
-                {contact.insights.length > 0 && (
-                  <SectionCard title="AI Memory" icon={<Brain size={14} />}>
-                    <div className="space-y-3">
-                      {contact.insights.slice(0, 5).map((insight, i) => (
-                        <div key={i} className="flex items-start gap-3">
-                          <div className={`w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0 ${
-                            insight.confidence >= 0.8 ? 'bg-indigo-500' : insight.confidence >= 0.5 ? 'bg-amber-400' : 'bg-gray-300'
-                          }`} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-700 leading-snug">{insight.value}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <p className="text-[10px] text-gray-400 capitalize">{insight.key.replace(/_/g, ' ')}</p>
-                              <span className="text-gray-200">·</span>
-                              <p className="text-[10px] text-gray-400">{timeAgo(insight.createdAt)}</p>
-                              {insight.confidence >= 0.8 && <span className="text-[10px] text-indigo-500 font-medium">High confidence</span>}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {contact.insights.length > 5 && (
-                        <button
-                          onClick={() => setActiveTab('intelligence')}
-                          className="text-xs text-indigo-600 hover:underline flex items-center gap-1 mt-1"
-                        >
-                          View all {contact.insights.length} insights <ChevronRight size={12} />
-                        </button>
-                      )}
-                    </div>
-                  </SectionCard>
-                )}
-
-                {/* No AI data nudge */}
-                {!contact.profile?.personalitySummary && contact.insights.length === 0 && (
-                  <div className="bg-gray-50 rounded-xl border border-dashed border-gray-200 p-6 text-center">
-                    <Brain size={28} className="text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-gray-500">No AI profile yet</p>
-                    <p className="text-xs text-gray-400 mt-1">Zuri builds an AI profile as conversations with {contact.name} are analysed.</p>
-                  </div>
                 )}
               </>
             )}
@@ -778,8 +954,59 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {/* ══ AI INTELLIGENCE ══ */}
             {activeTab === 'intelligence' && (
               <>
+                {/* Profile deep-dive */}
+                {contact.profile && (
+                  <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-violet-50 rounded-xl border border-indigo-100 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Brain size={16} className="text-indigo-600" />
+                      <p className="text-sm font-semibold text-indigo-900">Full AI Profile</p>
+                      {contact.profile.updatedAt && (
+                        <span className="ml-auto text-[10px] text-indigo-400">Updated {timeAgo(contact.profile.updatedAt)}</span>
+                      )}
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1.5">Personality Summary</p>
+                        <p className="text-sm text-indigo-900 leading-relaxed">{contact.profile.personalitySummary}</p>
+                      </div>
+                      {contact.profile.communicationStyle && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1.5">Communication Style</p>
+                          <p className="text-sm text-indigo-800 leading-relaxed">{contact.profile.communicationStyle}</p>
+                        </div>
+                      )}
+                      {contact.profile.emotionalPatterns && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1.5">Emotional Patterns</p>
+                          <p className="text-sm text-indigo-800 leading-relaxed">{contact.profile.emotionalPatterns}</p>
+                        </div>
+                      )}
+                      {contact.profile.knownTriggers && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1.5">Known Triggers</p>
+                          <p className="text-sm text-indigo-800 leading-relaxed">{contact.profile.knownTriggers}</p>
+                        </div>
+                      )}
+                      {contact.profile.currentLifeContext && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1.5">Current Life Context</p>
+                          <p className="text-sm text-indigo-800 leading-relaxed">{contact.profile.currentLifeContext}</p>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {contact.profile.moodBaseline && (
+                          <span className={`inline-flex items-center gap-1 text-xs border px-2.5 py-1 rounded-full font-medium ${moodColor(contact.profile.moodBaseline)}`}>
+                            <Heart size={10} /> {contact.profile.moodBaseline} mood
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Buying signals */}
                 {buyingSignals.length > 0 && (
-                  <SectionCard title="Buying Signals & Opportunities" icon={<Zap size={14} />}>
+                  <SectionCard title="Buying Signals & Opportunities" icon={<Zap size={14} />} accent>
                     <div className="space-y-3">
                       {buyingSignals.map((insight, i) => (
                         <div key={i} className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
@@ -791,21 +1018,45 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                             )}
                             <p className="text-[10px] text-gray-400 mt-1">{timeAgo(insight.createdAt)}</p>
                           </div>
-                          <div className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${
+                          <span className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${
                             insight.confidence >= 0.8 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                           }`}>
                             {Math.round(insight.confidence * 100)}%
-                          </div>
+                          </span>
                         </div>
                       ))}
                     </div>
                   </SectionCard>
                 )}
 
-                {contact.insights.length > 0 ? (
-                  <SectionCard title={`All Insights (${contact.insights.length})`} icon={<Sparkles size={14} />}>
+                {/* Personality insights */}
+                {personalityInsights.length > 0 && (
+                  <SectionCard title="Personality & Behaviour" icon={<User size={14} />} accent>
                     <div className="space-y-3">
-                      {contact.insights.map((insight, i) => (
+                      {personalityInsights.map((insight, i) => (
+                        <div key={i} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                            insight.confidence >= 0.8 ? 'bg-indigo-500' : insight.confidence >= 0.5 ? 'bg-amber-400' : 'bg-gray-300'
+                          }`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-indigo-600 capitalize">{insight.key.replace(/_/g, ' ')}</p>
+                            <p className="text-sm text-gray-700 leading-snug mt-0.5">{insight.value}</p>
+                            {insight.supportingText && (
+                              <p className="text-xs text-gray-400 mt-0.5 italic">"{insight.supportingText}"</p>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-gray-400 flex-shrink-0">{timeAgo(insight.createdAt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                )}
+
+                {/* Other insights */}
+                {otherInsights.length > 0 && (
+                  <SectionCard title={`All Insights (${contact.insights.length})`} icon={<Sparkles size={14} />} accent>
+                    <div className="space-y-3">
+                      {otherInsights.map((insight, i) => (
                         <div key={i} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
                           <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
                             insight.confidence >= 0.8 ? 'bg-indigo-500' : insight.confidence >= 0.5 ? 'bg-amber-400' : 'bg-gray-300'
@@ -824,7 +1075,9 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                       ))}
                     </div>
                   </SectionCard>
-                ) : (
+                )}
+
+                {contact.insights.length === 0 && !contact.profile && (
                   <div className="bg-gray-50 rounded-xl border border-dashed border-gray-200 p-8 text-center">
                     <Sparkles size={32} className="text-gray-300 mx-auto mb-3" />
                     <p className="text-sm font-medium text-gray-500">No intelligence data yet</p>
@@ -896,7 +1149,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      {/* Edit slide-over */}
       {showEdit && token && (
         <EditSlideOver
           contact={contact}
