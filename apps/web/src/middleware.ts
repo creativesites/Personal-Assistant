@@ -3,6 +3,18 @@ import { NextResponse } from 'next/server'
 import { updateSession } from '@/utils/supabase/middleware'
 
 const isPublicRoute = createRouteMatcher([
+  '/',
+  '/how-it-works(.*)',
+  '/pricing(.*)',
+  '/privacy(.*)',
+  '/retail(.*)',
+  '/mechanics(.*)',
+  '/clinics(.*)',
+  '/real-estate(.*)',
+  '/restaurants(.*)',
+  '/travel(.*)',
+  '/legal(.*)',
+  '/schools(.*)',
   '/login(.*)',
   '/register(.*)',
   '/api/auth/clerk-sync(.*)',
