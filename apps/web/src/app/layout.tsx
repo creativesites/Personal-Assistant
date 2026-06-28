@@ -5,8 +5,8 @@ import { Providers } from '@/providers'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Zuri — Relationship Intelligence',
-  description: 'Your AI-powered WhatsApp relationship co-pilot',
+  title: 'Zuri — WhatsApp CRM for Growing Businesses',
+  description: 'AI-powered WhatsApp platform that turns conversations into customers. Smart inbox, lead scoring, broadcast campaigns, and AI agents — built for African businesses.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

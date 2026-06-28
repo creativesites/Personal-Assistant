@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
+import { AlertCircle, UserX, HelpCircle, AlertOctagon, CheckCircle2 } from 'lucide-react'
 
 interface Escalation {
   id: string
@@ -26,11 +27,11 @@ const URGENCY_STYLE: Record<string, string> = {
   critical: 'bg-red-100 text-red-700 font-bold',
 }
 
-const REASON_LABEL: Record<string, string> = {
-  frustration:              '😤 Frustration detected',
-  explicit_request:         '🙋 Asked for human',
-  out_of_scope:             '❓ Out of scope',
-  other:                    '⚠️ Other',
+const REASON_LABEL: Record<string, { label: string; Icon: React.ElementType }> = {
+  frustration:      { label: 'Frustration detected', Icon: AlertCircle },
+  explicit_request: { label: 'Asked for human',      Icon: UserX },
+  out_of_scope:     { label: 'Out of scope',          Icon: HelpCircle },
+  other:            { label: 'Other',                 Icon: AlertOctagon },
 }
 
 const STATUS_FILTER = ['pending', 'in_progress', 'resolved'] as const
@@ -78,7 +79,7 @@ export default function EscalationsPage() {
           <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-28 bg-white rounded-xl border border-gray-200 animate-pulse" />)}</div>
         ) : escalations.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <div className="text-4xl mb-3">✅</div>
+            <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-3" />
             <p className="text-gray-900 font-semibold mb-1">
               {statusFilter === 'pending' ? 'No pending escalations' : `No ${statusFilter.replace('_', ' ')} escalations`}
             </p>
@@ -95,7 +96,14 @@ export default function EscalationsPage() {
                       <span className={`text-xs px-2 py-0.5 rounded-full ${URGENCY_STYLE[e.urgency]}`}>{e.urgency}</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-500">
-                      <span>{REASON_LABEL[e.reason] ?? e.reason}</span>
+                      <span className="flex items-center gap-1">
+                        {REASON_LABEL[e.reason] ? (
+                          <>
+                            <REASON_LABEL[e.reason].Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                            {REASON_LABEL[e.reason].label}
+                          </>
+                        ) : e.reason}
+                      </span>
                       <span>via {e.agent_name}</span>
                       <span>{new Date(e.created_at).toLocaleString()}</span>
                     </div>

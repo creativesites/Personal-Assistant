@@ -6,13 +6,20 @@ import Link from 'next/link'
 import { useClerk } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { ModeBadge } from '@/components/ui'
+import {
+  LayoutDashboard, MessageSquare, Zap, Users, Flame, BarChart3,
+  Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
+  Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
+  Wrench, LogOut, Smartphone, Menu, X, TrendingUp, UserCheck,
+  ChevronRight,
+} from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
 interface NavItem {
   href: string
   label: string
-  icon: string
+  icon: React.FC<{ className?: string }>
   badge?: boolean
   muted?: boolean
 }
@@ -26,80 +33,80 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     items: [
-      { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
-      { href: '/inbox',     label: 'Inbox',     icon: '💬', badge: true },
+      { href: '/dashboard', label: 'Dashboard',   icon: LayoutDashboard },
+      { href: '/inbox',     label: 'Inbox',        icon: MessageSquare,  badge: true },
     ],
   },
   {
     label: 'Business',
     showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/inbox/queue', label: 'AI Queue',    icon: '⚡' },
-      { href: '/contacts',    label: 'Contacts',    icon: '👥' },
-      { href: '/leads',       label: 'Leads',       icon: '🔥' },
-      { href: '/analytics',   label: 'Analytics',   icon: '📊' },
-      { href: '/automation',  label: 'Automation',  icon: '🤖' },
-      { href: '/broadcasts',  label: 'Broadcasts',  icon: '📡' },
+      { href: '/inbox/queue', label: 'AI Queue',    icon: Zap },
+      { href: '/contacts',    label: 'Contacts',    icon: Users },
+      { href: '/leads',       label: 'Leads',       icon: Flame },
+      { href: '/analytics',   label: 'Analytics',   icon: BarChart3 },
+      { href: '/automation',  label: 'Automation',  icon: Settings2 },
+      { href: '/broadcasts',  label: 'Broadcasts',  icon: Radio },
     ],
   },
   {
     label: 'AI Agents',
     showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/agents',         label: 'Agents',        icon: '🤖' },
-      { href: '/knowledge-base', label: 'Knowledge Base', icon: '📚' },
-      { href: '/escalations',    label: 'Escalations',   icon: '🚨', badge: true },
+      { href: '/agents',         label: 'Agents',        icon: Bot },
+      { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
+      { href: '/escalations',    label: 'Escalations',   icon: AlertTriangle, badge: true },
     ],
   },
   {
     label: 'Team',
     showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/team', label: 'Team Inbox', icon: '👥' },
+      { href: '/team', label: 'Team Inbox', icon: UserCheck },
     ],
   },
   {
     label: 'Personal',
     showForModes: ['personal', 'hybrid'],
     items: [
-      { href: '/relationships', label: 'Relationships', icon: '❤️' },
+      { href: '/relationships', label: 'Relationships', icon: HeartPulse },
     ],
   },
   {
     items: [
-      { href: '/proactive', label: 'Proactive',  icon: '✨' },
-      { href: '/advisor',   label: 'AI Advisor', icon: '🧠' },
-      { href: '/calendar',  label: 'Calendar',   icon: '📅' },
+      { href: '/proactive', label: 'Proactive',  icon: Sparkles },
+      { href: '/advisor',   label: 'AI Advisor', icon: Brain },
+      { href: '/calendar',  label: 'Calendar',   icon: Calendar },
     ],
   },
 ]
 
 const FOOTER_NAV: NavItem[] = [
-  { href: '/notifications', label: 'Notifications', icon: '🔔' },
-  { href: '/billing',       label: 'Billing',       icon: '💳' },
-  { href: '/settings',      label: 'Settings',      icon: '⚙️' },
-  { href: '/profile',       label: 'Profile',       icon: '👤' },
-  { href: '/diagnostics',   label: 'Diagnostics',   icon: '🔧', muted: true },
+  { href: '/notifications', label: 'Notifications', icon: Bell },
+  { href: '/billing',       label: 'Billing',       icon: CreditCard },
+  { href: '/settings',      label: 'Settings',      icon: Settings },
+  { href: '/profile',       label: 'Profile',       icon: User },
+  { href: '/diagnostics',   label: 'Diagnostics',   icon: Wrench, muted: true },
 ]
 
 const BOTTOM_NAV: Record<WorkspaceMode, NavItem[]> = {
   business: [
-    { href: '/dashboard',   label: 'Home',     icon: '🏠' },
-    { href: '/inbox',       label: 'Inbox',    icon: '💬', badge: true },
-    { href: '/contacts',    label: 'Contacts', icon: '👥' },
-    { href: '/inbox/queue', label: 'Queue',    icon: '⚡' },
+    { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
+    { href: '/inbox',       label: 'Inbox',    icon: MessageSquare, badge: true },
+    { href: '/contacts',    label: 'Contacts', icon: Users },
+    { href: '/inbox/queue', label: 'Queue',    icon: Zap },
   ],
   personal: [
-    { href: '/dashboard',     label: 'Home',     icon: '🏠' },
-    { href: '/inbox',         label: 'Inbox',    icon: '💬', badge: true },
-    { href: '/relationships', label: 'People',   icon: '❤️' },
-    { href: '/proactive',     label: 'Proactive',icon: '✨' },
+    { href: '/dashboard',     label: 'Home',      icon: LayoutDashboard },
+    { href: '/inbox',         label: 'Inbox',     icon: MessageSquare, badge: true },
+    { href: '/relationships', label: 'People',    icon: HeartPulse },
+    { href: '/proactive',     label: 'Proactive', icon: Sparkles },
   ],
   hybrid: [
-    { href: '/dashboard',  label: 'Home',     icon: '🏠' },
-    { href: '/inbox',      label: 'Inbox',    icon: '💬', badge: true },
-    { href: '/contacts',   label: 'Contacts', icon: '👥' },
-    { href: '/proactive',  label: 'Proactive',icon: '✨' },
+    { href: '/dashboard',  label: 'Home',      icon: LayoutDashboard },
+    { href: '/inbox',      label: 'Inbox',     icon: MessageSquare, badge: true },
+    { href: '/contacts',   label: 'Contacts',  icon: Users },
+    { href: '/proactive',  label: 'Proactive', icon: Sparkles },
   ],
 }
 
@@ -115,19 +122,20 @@ function NavLink({
   compact?: boolean
 }) {
   const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+  const Icon = item.icon
   return (
     <Link
       href={item.href}
       onClick={onClick}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
         active
-          ? 'bg-indigo-600 text-white shadow-sm'
+          ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/30'
           : item.muted
-          ? 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-          : 'text-gray-400 hover:text-white hover:bg-gray-800'
+          ? 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/50'
+          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'
       } ${compact ? 'text-xs py-2' : ''}`}
     >
-      <span className="text-base leading-none flex-shrink-0">{item.icon}</span>
+      <Icon className={`flex-shrink-0 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
       <span className="truncate">{item.label}</span>
     </Link>
   )
@@ -153,21 +161,21 @@ function SidebarContents({
   return (
     <>
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-gray-800 flex-shrink-0">
-        <div className="flex items-center gap-2">
+      <div className="h-14 flex items-center px-5 border-b border-gray-800/80 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold">Z</span>
+            <span className="text-white text-xs font-bold tracking-tight">Z</span>
           </div>
           <span className="text-white font-semibold tracking-tight">Zuri</span>
         </div>
       </div>
 
       {/* Scrollable nav */}
-      <nav className="flex-1 overflow-y-auto p-3 space-y-4">
+      <nav className="flex-1 overflow-y-auto p-3 space-y-5">
         {visibleGroups.map((group, gi) => (
           <div key={gi}>
             {group.label && (
-              <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest px-3 mb-1">
+              <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest px-3 mb-1.5">
                 {group.label}
               </p>
             )}
@@ -179,7 +187,7 @@ function SidebarContents({
           </div>
         ))}
 
-        <div className="border-t border-gray-800 pt-3 space-y-0.5">
+        <div className="border-t border-gray-800/80 pt-4 space-y-0.5">
           {FOOTER_NAV.map(item => (
             <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} compact />
           ))}
@@ -187,25 +195,25 @@ function SidebarContents({
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-gray-800 space-y-1 flex-shrink-0">
+      <div className="p-3 border-t border-gray-800/80 space-y-1 flex-shrink-0">
         <Link
           href="/onboarding"
           onClick={onNav}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800 transition-colors"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/60 transition-colors"
         >
-          <span className="text-base leading-none">📱</span>
+          <Smartphone className="w-4 h-4 flex-shrink-0" />
           <span>Connect WhatsApp</span>
         </Link>
         <button
           onClick={onSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors text-left"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 hover:text-gray-300 hover:bg-gray-800/60 transition-colors text-left"
         >
-          <span className="text-base leading-none">→</span>
+          <LogOut className="w-4 h-4 flex-shrink-0" />
           Sign out
         </button>
         <div className="px-3 py-2 flex items-center justify-between gap-2">
           <ModeBadge mode={mode} />
-          {email && <p className="text-xs text-gray-600 truncate min-w-0">{email}</p>}
+          {email && <p className="text-xs text-gray-700 truncate min-w-0">{email}</p>}
         </div>
       </div>
     </>
@@ -224,15 +232,16 @@ function MobileBottomNav({
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-gray-900 border-t border-gray-800 flex items-stretch safe-area-bottom">
       {items.map(item => {
         const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
+        const Icon = item.icon
         return (
           <Link
             key={item.href}
             href={item.href}
             className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[56px] transition-colors ${
-              active ? 'text-indigo-400' : 'text-gray-500 hover:text-gray-300'
+              active ? 'text-indigo-400' : 'text-gray-600 hover:text-gray-400'
             }`}
           >
-            <span className="text-xl leading-none">{item.icon}</span>
+            <Icon className="w-5 h-5" />
             <span className="text-[10px] font-medium leading-none">{item.label}</span>
           </Link>
         )
@@ -272,12 +281,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-14 bg-gray-900 flex items-center px-4 gap-3 border-b border-gray-800">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="text-gray-400 hover:text-white p-2 -ml-2 rounded-lg transition-colors"
+          className="text-gray-500 hover:text-gray-200 p-2 -ml-2 rounded-lg transition-colors"
           aria-label="Open menu"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          <Menu className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center flex-shrink-0">
@@ -288,12 +295,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="ml-auto flex items-center gap-1">
           <Link
             href="/notifications"
-            className="text-gray-400 hover:text-white p-2 rounded-lg transition-colors"
+            className="text-gray-500 hover:text-gray-200 p-2 rounded-lg transition-colors"
             aria-label="Notifications"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
+            <Bell className="w-5 h-5" />
           </Link>
         </div>
       </div>
@@ -313,8 +318,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           flex flex-col h-full w-64 bg-gray-900 flex-shrink-0
           transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
+          border-r border-gray-800/60
         `}
       >
+        {sidebarOpen && (
+          <button
+            onClick={closeSidebar}
+            className="md:hidden absolute top-4 right-4 text-gray-500 hover:text-gray-200 p-1 rounded-lg"
+            aria-label="Close menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
         <SidebarContents
           pathname={pathname}
           email={session.data?.user.email}
