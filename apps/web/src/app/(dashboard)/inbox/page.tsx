@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Search, ChevronLeft, Zap, Bot, RefreshCw, X, MessageSquare,
+  Search, ChevronLeft, Zap, RefreshCw, X, MessageSquare,
   AlertCircle, Send, Paperclip, Smile, Archive, StickyNote,
   ExternalLink, ChevronRight, TrendingUp, Clock, Flame, Star,
   AlertTriangle, Calendar, DollarSign, CheckCircle, XCircle,
   Sparkles, Brain, Bell, Tag, Edit3, Copy, UserPlus, CreditCard,
-  UserCheck, FileText, WifiOff, Filter,
+  UserCheck, FileText, WifiOff, Info, Lightbulb, Activity,
+  ShoppingCart, MessageCircle,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -89,6 +90,31 @@ interface TimelineEvent {
   date: string
 }
 
+interface BriefingData {
+  waitingCount: number
+  highIntentCount: number
+  slaBreachCount: number
+  vipCount: number
+  items: string[]
+}
+
+interface ConvContext {
+  contactName: string | null
+  summary: string | null
+  dominantSentiment: string
+  intents: string[]
+  topTopics: string[]
+  buyingSignals: string[]
+  nextAction: string
+  requiresResponse: boolean
+  urgency: 'high' | 'normal'
+  moodBaseline: string | null
+  communicationStyle: string | null
+  personalitySummary: string | null
+  insights: Array<{ key: string; value: string; confidence: number }>
+  analysedAt: string | null
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const AI_PRIORITY: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -104,6 +130,15 @@ const AI_PRIORITY: Record<string, { label: string; color: string; icon: React.El
 const SENTIMENT_DOT: Record<string, string> = {
   happy: 'bg-emerald-400', neutral: 'bg-gray-300',
   frustrated: 'bg-amber-400', angry: 'bg-red-400',
+}
+
+const SENTIMENT_STYLE: Record<string, { badge: string; label: string }> = {
+  positive: { badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', label: 'Positive' },
+  happy:    { badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', label: 'Happy' },
+  neutral:  { badge: 'bg-gray-50 text-gray-600 border-gray-200',          label: 'Neutral' },
+  negative: { badge: 'bg-rose-50 text-rose-700 border-rose-100',          label: 'Negative' },
+  frustrated:{ badge: 'bg-amber-50 text-amber-700 border-amber-100',      label: 'Frustrated' },
+  angry:    { badge: 'bg-red-50 text-red-700 border-red-100',             label: 'Angry' },
 }
 
 const TONE_STYLE: Record<string, string> = {
@@ -126,21 +161,6 @@ const FILTERS = [
   { id: 'at_risk',     label: 'At Risk' },
 ] as const
 
-const MOCK_MEMORIES = [
-  'Interested in Barcelona away kit',
-  'Prefers WhatsApp calls over texts',
-  'Usually buys at month end',
-  'Sensitive about pricing — always asks for discount',
-  'Asked about children\'s sizes',
-]
-
-const MOCK_INSIGHTS = [
-  { text: 'Usually replies between 6–8 PM', icon: Clock },
-  { text: 'Average response time: 4 minutes', icon: Zap },
-  { text: 'Most interested in football jerseys', icon: Star },
-  { text: 'High chance of repeat purchase', icon: TrendingUp },
-]
-
 const MOCK_ACTIONS = [
   { label: 'Follow up tomorrow',  icon: Bell },
   { label: 'Offer 10% discount',  icon: Tag },
@@ -155,13 +175,6 @@ const MOCK_TIMELINE: TimelineEvent[] = [
   { id: '3', type: 'invoice',   label: 'Invoice sent',            date: '2 months ago' },
   { id: '4', type: 'followup',  label: 'Follow-up sent',          date: '3 weeks ago' },
   { id: '5', type: 'message',   label: 'Re-engaged conversation', date: '2 days ago' },
-]
-
-const MOCK_BRIEFING = [
-  '5 customers are waiting for your reply',
-  '3 conversations have high buying intent',
-  '2 invoices are unpaid and overdue',
-  'Following up with open leads today could recover K8,500',
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -194,7 +207,7 @@ function getGreeting() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function DailyBriefing({ name, onDismiss }: { name: string; onDismiss: () => void }) {
+function DailyBriefing({ name, items, loading, onDismiss }: { name: string; items: string[]; loading: boolean; onDismiss: () => void }) {
   return (
     <div className="mx-3 mt-3 mb-1 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 p-4 relative shadow-md">
       <button onClick={onDismiss} className="absolute top-3 right-3 text-indigo-300 hover:text-white transition-colors">
@@ -205,14 +218,20 @@ function DailyBriefing({ name, onDismiss }: { name: string; onDismiss: () => voi
         <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest">AI Daily Briefing</p>
       </div>
       <p className="text-sm font-semibold text-white mb-2">{getGreeting()}, {name}.</p>
-      <ul className="space-y-1">
-        {MOCK_BRIEFING.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs text-indigo-100 leading-relaxed">
-            <span className="mt-1.5 w-1 h-1 rounded-full bg-indigo-300 flex-shrink-0" />
-            {item}
-          </li>
-        ))}
-      </ul>
+      {loading ? (
+        <div className="space-y-1.5">
+          {[1,2,3].map(i => <div key={i} className="h-3 bg-white/20 rounded animate-pulse" />)}
+        </div>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-indigo-100 leading-relaxed">
+              <span className="mt-1.5 w-1 h-1 rounded-full bg-indigo-300 flex-shrink-0" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -280,6 +299,203 @@ function ConvRow({
   )
 }
 
+// ─── Context Panel ────────────────────────────────────────────────────────────
+
+function ContextPanel({
+  data, loading, contactName, onClose,
+}: {
+  data: ConvContext | null; loading: boolean; contactName: string; onClose: () => void
+}) {
+  const sentimentStyle = data ? (SENTIMENT_STYLE[data.dominantSentiment] ?? SENTIMENT_STYLE.neutral) : SENTIMENT_STYLE.neutral
+
+  return (
+    <div className="absolute inset-0 z-10 bg-white flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0 bg-white">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-indigo-50 rounded-md flex items-center justify-center">
+            <Brain size={13} className="text-indigo-600" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">AI Context</p>
+            <p className="text-[10px] text-gray-400">{contactName}</p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="p-5 space-y-4">
+            {[1,2,3,4].map(i => (
+              <div key={i} className="space-y-2">
+                <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+                <div className="h-14 bg-gray-50 rounded-xl animate-pulse" />
+              </div>
+            ))}
+          </div>
+        ) : data ? (
+          <div className="divide-y divide-gray-50">
+
+            {/* Next Action — hero recommendation */}
+            <div className="p-4">
+              <div className={`rounded-xl p-3.5 flex items-start gap-3 ${data.urgency === 'high' ? 'bg-amber-50 border border-amber-100' : 'bg-indigo-50 border border-indigo-100'}`}>
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${data.urgency === 'high' ? 'bg-amber-100' : 'bg-indigo-100'}`}>
+                  <Lightbulb size={14} className={data.urgency === 'high' ? 'text-amber-600' : 'text-indigo-600'} />
+                </div>
+                <div>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${data.urgency === 'high' ? 'text-amber-500' : 'text-indigo-400'}`}>
+                    Recommended Action
+                  </p>
+                  <p className={`text-sm font-semibold ${data.urgency === 'high' ? 'text-amber-900' : 'text-indigo-900'}`}>
+                    {data.nextAction}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Sentiment */}
+            <div className="p-4">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Conversation Mood</p>
+              <div className="flex items-center gap-2.5">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${sentimentStyle.badge}`}>
+                  <Activity size={11} />
+                  {sentimentStyle.label}
+                </span>
+                {data.requiresResponse && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-red-50 text-red-600 border border-red-100">
+                    <AlertCircle size={10} />
+                    Needs reply
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Summary */}
+            {data.summary && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Relationship Summary</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{data.summary}</p>
+              </div>
+            )}
+
+            {/* Buying Signals */}
+            {data.buyingSignals.length > 0 && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Buying Signals</p>
+                <div className="space-y-1.5">
+                  {data.buyingSignals.map((signal, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <ShoppingCart size={12} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-gray-700 leading-relaxed">{signal}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Intents & Topics */}
+            {(data.intents.length > 0 || data.topTopics.length > 0) && (
+              <div className="p-4">
+                {data.intents.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Intent Signals</p>
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                      {data.intents.map(intent => (
+                        <span key={intent} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-full border border-blue-100 capitalize">
+                          {intent.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {data.topTopics.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Key Topics</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {data.topTopics.map(topic => (
+                        <span key={topic} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full capitalize">
+                          {topic.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Contact Profile */}
+            {(data.personalitySummary || data.communicationStyle || data.moodBaseline) && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Contact Profile</p>
+                <div className="space-y-2.5">
+                  {data.personalitySummary && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase mb-0.5">Personality</p>
+                      <p className="text-xs text-gray-700 leading-relaxed">{data.personalitySummary}</p>
+                    </div>
+                  )}
+                  {data.communicationStyle && (
+                    <div className="flex items-center gap-2">
+                      <MessageCircle size={11} className="text-gray-400 flex-shrink-0" />
+                      <p className="text-xs text-gray-600">{data.communicationStyle}</p>
+                    </div>
+                  )}
+                  {data.moodBaseline && (
+                    <div className="flex items-center gap-2">
+                      <Activity size={11} className="text-gray-400 flex-shrink-0" />
+                      <p className="text-xs text-gray-600">Baseline mood: {data.moodBaseline}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* AI Insights */}
+            {data.insights.length > 0 && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">AI Memory</p>
+                <div className="space-y-2">
+                  {data.insights.map((insight, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-300 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-gray-700 leading-relaxed">{insight.value}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 capitalize">{insight.key?.replace(/_/g, ' ')}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Analysed timestamp */}
+            {data.analysedAt && (
+              <div className="px-4 py-3">
+                <p className="text-[10px] text-gray-300 text-center">
+                  Context analysed {formatTime(data.analysedAt)}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
+            <Brain size={32} className="text-gray-300 mb-3" />
+            <p className="text-sm font-semibold text-gray-600 mb-1">No context yet</p>
+            <p className="text-xs text-gray-400">AI context builds as the conversation progresses.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 type MobilePane = 'list' | 'thread'
@@ -305,6 +521,15 @@ export default function InboxPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState(false)
+
+  // Briefing
+  const [briefingItems, setBriefingItems] = useState<string[]>([])
+  const [briefingLoading, setBriefingLoading] = useState(false)
+
+  // Context panel
+  const [showContextPanel, setShowContextPanel] = useState(false)
+  const [contextData, setContextData] = useState<ConvContext | null>(null)
+  const [loadingContext, setLoadingContext] = useState(false)
 
   // UI
   const [mobilePane, setMobilePane] = useState<MobilePane>('list')
@@ -342,9 +567,21 @@ export default function InboxPage() {
     }
   }, [token])
 
+  const loadBriefing = useCallback(async () => {
+    if (!token) return
+    setBriefingLoading(true)
+    try {
+      const data = await apiClient<BriefingData>('/api/inbox/briefing', { token })
+      setBriefingItems(data.items)
+    } catch {} finally {
+      setBriefingLoading(false)
+    }
+  }, [token])
+
   useEffect(() => {
     if (!token) return
     loadConversations()
+    loadBriefing()
     const socket = getSocket(token)
     socket.on('message:new', loadConversations)
     socket.on('suggestion:ready', (payload: string) => {
@@ -358,7 +595,7 @@ export default function InboxPage() {
       } catch {}
     })
     return () => { socket.off('message:new', loadConversations); socket.off('suggestion:ready') }
-  }, [token, loadConversations])
+  }, [token, loadConversations, loadBriefing])
 
   useEffect(() => {
     const on = () => setIsOnline(true)
@@ -374,7 +611,7 @@ export default function InboxPage() {
       const tag = (document.activeElement as HTMLElement)?.tagName
       const inField = tag === 'INPUT' || tag === 'TEXTAREA'
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setShowSearch(v => !v) }
-      if (e.key === 'Escape') { setShowSearch(false); setShowMobileAI(false) }
+      if (e.key === 'Escape') { setShowSearch(false); setShowMobileAI(false); setShowContextPanel(false) }
       if (e.key === 'r' && !inField && !e.metaKey && !e.ctrlKey) {
         if (selectedIdRef.current && selectedMsgIdRef.current && token) {
           setRegenerating(true); setSuggestions([])
@@ -397,6 +634,7 @@ export default function InboxPage() {
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
     setContactDetail(null); setLoadingMsgs(true); setMobilePane('thread')
     setShowMobileAI(false); setDraft(''); setAiTab('overview')
+    setShowContextPanel(false); setContextData(null)
     if (!token) return
     const data = await apiClient<{ messages: Message[]; contact: Contact }>(
       `/api/conversations/${convId}/messages`, { token }
@@ -411,6 +649,19 @@ export default function InboxPage() {
       setSelectedMsgId(last.id)
       apiClient<{ suggestions: Suggestion[] }>(`/api/messages/${last.id}/suggestions`, { token })
         .then(d => setSuggestions(d.suggestions)).catch(() => {})
+    }
+  }
+
+  const openContext = async (convId: string) => {
+    if (!token) return
+    setShowContextPanel(true)
+    setLoadingContext(true)
+    setContextData(null)
+    try {
+      const data = await apiClient<{ context: ConvContext }>(`/api/conversations/${convId}/context`, { token })
+      setContextData(data.context)
+    } catch {} finally {
+      setLoadingContext(false)
     }
   }
 
@@ -563,7 +814,12 @@ export default function InboxPage() {
 
         {/* Daily briefing */}
         {!briefingDismissed && mode !== 'personal' && (
-          <DailyBriefing name={userName} onDismiss={() => setBriefingDismissed(true)} />
+          <DailyBriefing
+            name={userName}
+            items={briefingItems}
+            loading={briefingLoading}
+            onDismiss={() => setBriefingDismissed(true)}
+          />
         )}
 
         {/* Conversation rows */}
@@ -621,6 +877,13 @@ export default function InboxPage() {
                 </p>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0">
+                <button
+                  onClick={() => selectedId && openContext(selectedId)}
+                  className={`p-2 rounded-lg transition-colors ${showContextPanel ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                  title="AI Context"
+                >
+                  <Info size={16} />
+                </button>
                 <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Add note" onClick={() => { setShowAIPanel(true); setAiTab('notes') }}>
                   <StickyNote size={16} />
                 </button>
@@ -652,7 +915,18 @@ export default function InboxPage() {
             <div className="flex flex-1 min-h-0">
 
               {/* Messages */}
-              <div className="flex flex-col flex-1 min-w-0 bg-gray-50">
+              <div className="flex flex-col flex-1 min-w-0 bg-gray-50 relative">
+
+                {/* AI Context Panel overlay */}
+                {showContextPanel && (
+                  <ContextPanel
+                    data={contextData}
+                    loading={loadingContext}
+                    contactName={contact.name}
+                    onClose={() => setShowContextPanel(false)}
+                  />
+                )}
+
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
                   {loadingMsgs ? (
                     <div className="space-y-3">
@@ -939,19 +1213,6 @@ export default function InboxPage() {
                           </div>
                         )}
 
-                        {/* AI Memory */}
-                        <div className="p-4">
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">AI Memory</p>
-                          <div className="space-y-1.5">
-                            {MOCK_MEMORIES.map((m, i) => (
-                              <div key={i} className="flex items-start gap-2">
-                                <span className="mt-1.5 w-1 h-1 rounded-full bg-indigo-300 flex-shrink-0" />
-                                <p className="text-xs text-gray-600 leading-relaxed">{m}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
                         {/* Suggested actions */}
                         {mode !== 'personal' && (
                           <div className="p-4">
@@ -991,17 +1252,16 @@ export default function InboxPage() {
                           </div>
                         )}
 
-                        {/* AI Insights */}
+                        {/* Context panel shortcut */}
                         <div className="p-4">
-                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">AI Insights</p>
-                          <div className="space-y-2">
-                            {MOCK_INSIGHTS.map(({ text, icon: Icon }) => (
-                              <div key={text} className="flex items-center gap-2.5 text-xs text-gray-600">
-                                <Icon size={12} className="text-indigo-400 flex-shrink-0" />
-                                {text}
-                              </div>
-                            ))}
-                          </div>
+                          <button
+                            onClick={() => selectedId && openContext(selectedId)}
+                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors text-left group border border-indigo-100"
+                          >
+                            <Info size={12} className="text-indigo-500 flex-shrink-0" />
+                            View full AI context for this conversation
+                            <ChevronRight size={11} className="ml-auto text-indigo-300" />
+                          </button>
                         </div>
                       </>
                     )}
