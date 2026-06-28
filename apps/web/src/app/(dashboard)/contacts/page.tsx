@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { apiClient } from '@/lib/api'
 import {
   Search,
   TrendingUp,
@@ -30,14 +31,19 @@ import {
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
-import { Avatar, Badge, EmptyState, HealthBar, SkeletonCard } from '@/components/ui'
+import { Avatar, Badge, EmptyState, HealthBar, SkeletonCard, useToast } from '@/components/ui'
 
 interface Contact {
   id: string
   name: string
   phone?: string
+  email?: string
+  company?: string
+  customerStatus?: string
+  pipelineStage?: string
   avatarUrl: string | null
   lastMessageAt: string | null
+  tags: string[]
   relationship: {
     type: string
     healthScore: number
@@ -46,7 +52,7 @@ interface Contact {
     lastInteractionAt: string | null
   }
   profile: { personalitySummary: string; moodBaseline: string } | null
-  leadScore?: number
+  leadScore: number
 }
 
 type SortKey = 'health' | 'recent' | 'name' | 'lead'
@@ -99,6 +105,87 @@ function leadBadgeCls(score: number) {
   return 'bg-gray-50 text-gray-500 border-gray-200'
 }
 
+// ─── Add Contact modal ────────────────────────────────────────────────────────
+
+function AddContactModal({ token, onClose, onCreated }: {
+  token: string; onClose: () => void; onCreated: () => void
+}) {
+  const { addToast } = useToast()
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ name: '', phoneNumber: '', email: '', company: '', customerStatus: 'contact' })
+  const set = (field: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setForm(f => ({ ...f, [field]: e.target.value }))
+
+  const create = async () => {
+    if (!form.name && !form.phoneNumber) {
+      addToast({ variant: 'error', title: 'Name or phone number required' }); return
+    }
+    setSaving(true)
+    try {
+      await apiClient('/api/contacts', { method: 'POST', token, body: JSON.stringify(form) })
+      addToast({ variant: 'success', title: 'Contact created' })
+      onCreated(); onClose()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to create contact' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-gray-900">Add Contact</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Name</span>
+            <input value={form.name} onChange={set('name')} placeholder="Contact name"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Phone Number</span>
+            <input type="tel" value={form.phoneNumber} onChange={set('phoneNumber')} placeholder="+260971234567"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Email</span>
+            <input type="email" value={form.email} onChange={set('email')} placeholder="email@example.com"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Company</span>
+            <input value={form.company} onChange={set('company')} placeholder="Company name"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Status</span>
+            <select value={form.customerStatus} onChange={set('customerStatus')}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              {['contact','lead','prospect','customer','vip','supplier','employee','partner','personal'].map(s => (
+                <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+          <button onClick={create} disabled={saving}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            {saving ? 'Creating…' : 'Create Contact'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FilterSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
@@ -141,8 +228,9 @@ export default function ContactsPage() {
   const [leadFilter, setLeadFilter] = useState<LeadFilter>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const [showAddContact, setShowAddContact] = useState(false)
 
-  const { data, loading, error } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
+  const { data, loading, error, refetch } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
   const contacts = data?.contacts ?? []
 
   // Compute filter counts
@@ -295,7 +383,10 @@ export default function ContactsPage() {
             <button className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
               <Download size={14} /> Export
             </button>
-            <button className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+            <button
+              onClick={() => setShowAddContact(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+            >
               <UserPlus size={14} /> Add Contact
             </button>
           </div>
@@ -437,7 +528,9 @@ export default function ContactsPage() {
                             <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-indigo-600 transition-colors">{contact.name}</p>
-                              {contact.phone && <p className="text-xs text-gray-400 truncate">{contact.phone}</p>}
+                              <p className="text-xs text-gray-400 truncate">
+                                {contact.company ?? contact.phone ?? ''}
+                              </p>
                             </div>
                           </div>
                         </td>
@@ -539,6 +632,15 @@ export default function ContactsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add Contact modal */}
+      {showAddContact && token && (
+        <AddContactModal
+          token={token}
+          onClose={() => setShowAddContact(false)}
+          onCreated={refetch}
+        />
       )}
     </div>
   )
