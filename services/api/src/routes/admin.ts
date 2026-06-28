@@ -91,8 +91,8 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           (SELECT COUNT(*) FROM whatsapp_instances WHERE status IN ('error', 'disconnected')) AS error_sessions,
           (SELECT COUNT(*) FROM messages WHERE created_at >= NOW() - INTERVAL '1 day') AS total_messages_today,
           (SELECT COUNT(*) FROM messages) AS total_messages,
-          (SELECT COUNT(*) FROM subscriptions WHERE plan = 'pro' AND status = 'active') AS pro_users,
-          (SELECT COUNT(*) FROM subscriptions WHERE plan = 'business' AND status = 'active') AS business_users
+          (SELECT COUNT(*) FROM subscriptions WHERE plan = 'pro' AND status IN ('active', 'trialing')) AS pro_users,
+          (SELECT COUNT(*) FROM subscriptions WHERE plan = 'business' AND status IN ('active', 'trialing')) AS business_users
       `)
 
       let queueDepth = 0
@@ -157,7 +157,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
            COALESCE(s.plan, 'free') AS plan,
            wi.status AS wa_status, wi.phone_number AS wa_phone
          FROM users u
-         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status = 'active'
+         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('active', 'trialing')
          LEFT JOIN whatsapp_instances wi ON wi.user_id = u.id
          ${searchClause}
          ORDER BY u.created_at DESC
@@ -206,7 +206,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
            wi.status AS wa_status, wi.phone_number AS wa_phone,
            wi.last_connected_at, wi.reconnect_count
          FROM users u
-         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status = 'active'
+         LEFT JOIN subscriptions s ON s.user_id = u.id AND s.status IN ('active', 'trialing')
          LEFT JOIN whatsapp_instances wi ON wi.user_id = u.id
          WHERE u.id = $1`,
         [id],
@@ -496,34 +496,50 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       }>(`
         SELECT
           COUNT(*) FILTER (WHERE plan = 'free') AS free_count,
-          COUNT(*) FILTER (WHERE plan = 'pro' AND status = 'active') AS pro_count,
-          COUNT(*) FILTER (WHERE plan = 'business' AND status = 'active') AS business_count,
-          (COUNT(*) FILTER (WHERE plan = 'pro' AND status = 'active') * 19 +
-           COUNT(*) FILTER (WHERE plan = 'business' AND status = 'active') * 49) AS mrr_estimate,
+          COUNT(*) FILTER (WHERE plan = 'pro' AND status IN ('active', 'trialing')) AS pro_count,
+          COUNT(*) FILTER (WHERE plan = 'business' AND status IN ('active', 'trialing')) AS business_count,
+          (COUNT(*) FILTER (WHERE plan = 'pro' AND status = 'active') * 29 +
+           COUNT(*) FILTER (WHERE plan = 'business' AND status = 'active') * 99) AS mrr_estimate,
           COUNT(*) FILTER (WHERE cancel_at_period_end = true) AS cancelled_this_month
         FROM subscriptions
       `)
 
       const { rows: recentSubs } = await db.query<{
-        user_email: string; plan: string; status: string
-        created_at: string; cancel_at_period_end: boolean
+        user_id: string; user_email: string; user_name: string | null
+        plan: string; created_at: string
       }>(
-        `SELECT u.email AS user_email, s.plan, s.status,
-           s.created_at, s.cancel_at_period_end
+        `SELECT s.user_id, u.email AS user_email, u.full_name AS user_name,
+           s.plan, s.created_at
          FROM subscriptions s
          JOIN users u ON u.id = s.user_id
+         WHERE s.plan != 'free'
          ORDER BY s.created_at DESC LIMIT 20`,
       )
 
+      const { rows: [{ total_users }] } = await db.query<{ total_users: string }>(
+        'SELECT COUNT(*) AS total_users FROM users',
+      )
+
+      const freeCount = parseInt(stats.free_count, 10)
+      const proCount = parseInt(stats.pro_count, 10)
+      const businessCount = parseInt(stats.business_count, 10)
+      const mrr = parseInt(stats.mrr_estimate, 10) || 0
+
       return reply.send({
-        stats: {
-          free: parseInt(stats.free_count, 10),
-          pro: parseInt(stats.pro_count, 10),
-          business: parseInt(stats.business_count, 10),
-          mrrEstimate: parseInt(stats.mrr_estimate, 10),
-          cancelledThisMonth: parseInt(stats.cancelled_this_month, 10),
-        },
-        recentSubscriptions: recentSubs,
+        plans: [
+          { plan: 'free', count: freeCount, mrr: 0 },
+          { plan: 'pro', count: proCount, mrr: proCount * 29 },
+          { plan: 'business', count: businessCount, mrr: businessCount * 99 },
+        ],
+        totalMrr: mrr,
+        totalUsers: parseInt(total_users, 10),
+        recentSubscriptions: recentSubs.map((s) => ({
+          userId: s.user_id,
+          email: s.user_email,
+          name: s.user_name,
+          plan: s.plan,
+          createdAt: s.created_at,
+        })),
       })
     },
   )

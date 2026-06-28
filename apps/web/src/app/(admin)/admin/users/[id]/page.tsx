@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
@@ -19,19 +19,20 @@ interface UserDetail {
 
 const PLAN_OPTIONS = ['free', 'pro', 'business'] as const
 
-export default function AdminUserDetailPage({ params }: { params: { id: string } }) {
+export default function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
   const session = useZuriSession()
   const router = useRouter()
   const token = session.data?.accessToken
 
-  const { data, loading, refetch } = useApi<UserDetail>(`/api/admin/users/${params.id}`, token)
+  const { data, loading, refetch } = useApi<UserDetail>(`/api/admin/users/${id}`, token)
   const [saving, setSaving] = useState<string | null>(null)
 
   const patch = async (body: Record<string, unknown>, label: string) => {
     if (!token) return
     setSaving(label)
     try {
-      await apiClient(`/api/admin/users/${params.id}`, { method: 'PATCH', token, body: JSON.stringify(body) })
+      await apiClient(`/api/admin/users/${id}`, { method: 'PATCH', token, body: JSON.stringify(body) })
       await refetch()
     } finally {
       setSaving(null)

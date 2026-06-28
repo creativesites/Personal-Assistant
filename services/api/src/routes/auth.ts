@@ -79,7 +79,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
-            db.query('INSERT INTO subscriptions (user_id, plan) VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING', [created.id, 'free']),
+            db.query(
+              `INSERT INTO subscriptions (user_id, plan, status, trial_ends_at)
+               VALUES ($1, 'pro', 'trialing', NOW() + INTERVAL '30 days')
+               ON CONFLICT (user_id) DO NOTHING`,
+              [created.id],
+            ),
             db.query('INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [created.id]),
             db.query(
               `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true) ON CONFLICT DO NOTHING`,
@@ -138,11 +143,15 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     );
 
     await Promise.all([
-      db.query('INSERT INTO subscriptions (user_id, plan) VALUES ($1, $2)', [user.id, 'free']),
+      db.query(
+        `INSERT INTO subscriptions (user_id, plan, status, trial_ends_at)
+         VALUES ($1, 'pro', 'trialing', NOW() + INTERVAL '30 days')`,
+        [user.id],
+      ),
       db.query('INSERT INTO notification_preferences (user_id) VALUES ($1)', [user.id]),
       db.query(
         `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true)`,
-        [user.id]
+        [user.id],
       ),
     ]);
 
