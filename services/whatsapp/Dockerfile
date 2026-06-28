@@ -1,5 +1,7 @@
 FROM node:22-bookworm-slim AS builder
 
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json .npmrc ./
@@ -14,6 +16,8 @@ RUN npm run build --workspace=packages/shared-types
 RUN npm run build --workspace=services/whatsapp
 
 FROM node:22-bookworm-slim AS runner
+
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 
