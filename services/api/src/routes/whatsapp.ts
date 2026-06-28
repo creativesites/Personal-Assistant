@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { config } from '../config';
 import { authenticate } from '../plugins/authenticate';
 import { db } from '../lib/db';
+import { redis } from '../lib/redis';
 
 const connectBody = z.object({
   phoneNumber: z.string().optional(),
@@ -114,18 +115,17 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
         const now = new Date();
         const lcValid = instance.link_code_expires_at && new Date(instance.link_code_expires_at) > now;
 
-        // When status is qr_pending the client is actively cycling QR codes every ~20 s.
-        // Always return whatever QR is in the DB — the frontend holds onto the last-known
-        // image while the new code is being generated, so filtering by qr_expires_at
-        // causes unnecessary blank windows that looked like the session had died.
-        const qrCode = instance.status === 'qr_pending' ? instance.qr_code : null;
+        // QR lives in Redis (wa:qr:{userId}) with a 3-minute TTL set by the WhatsApp service.
+        // The DB qr_code column is no longer written; Redis is the source of truth for QR data.
+        const qrCode = instance.status === 'qr_pending'
+          ? await redis.get(`wa:qr:${userId}`)
+          : null;
 
         return reply.send({
           connected: instance.status === 'connected',
           status: instance.status,
           phone: instance.phone_number,
           qrCode,
-          qrExpiresAt: instance.qr_expires_at,
           linkCode: lcValid ? instance.link_code : null,
           linkCodeExpiresAt: instance.link_code_expires_at,
           lastConnectedAt: instance.last_connected_at,

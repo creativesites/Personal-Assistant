@@ -56,7 +56,6 @@ services:
     volumes:
       - wa_sessions:/app/db/sessions
     restart: unless-stopped
-    shm_size: '512mb'
     expose:
       - "3001"
 

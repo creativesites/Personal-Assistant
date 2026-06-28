@@ -6,8 +6,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
   API_URL: z.string().url().default('http://localhost:3000'),
-  OPEN_WA_LICENSE_KEY: z.string().optional(),
-  CHROMIUM_EXECUTABLE_PATH: z.string().optional(),
+  SESSIONS_DIR: z.string().default('/app/db/sessions'),
 });
 
 export const config = envSchema.parse(process.env);

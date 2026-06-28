@@ -25,7 +25,7 @@ export function sessionRoutes(sessionManager: SessionManager) {
         return reply.code(409).send({ error: 'Session already active' });
       }
 
-      await sessionManager.startSession(body.userId, body.phoneNumber);
+      await sessionManager.startSession(body.userId);
 
       return reply.code(202).send({
         message: 'Connection started. Listen for whatsapp:qr or whatsapp:link_code events.',
