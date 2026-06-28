@@ -162,7 +162,7 @@ export default function AdminQueuesPage() {
           <div className="px-5 py-12 text-center text-gray-500 text-sm">No queues found</div>
         ) : (
           queues.map((q) => (
-            <QueueRow key={q.name} q={q} token={token} onRefresh={refetch} />
+            <QueueRow key={q.name} q={q} token={token ?? undefined} onRefresh={refetch} />
           ))
         )}
       </div>
