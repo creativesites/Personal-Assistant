@@ -22,6 +22,20 @@ const loginBody = z.object({
   password: z.string(),
 });
 
+const updateMeBody = z.object({
+  mode: z.enum(['business', 'personal', 'hybrid']).optional(),
+  timezone: z.string().max(100).optional(),
+});
+
+type UserRow = {
+  id: string
+  email: string
+  full_name: string
+  mode: string
+  onboarding_completed: boolean
+  timezone?: string
+}
+
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // Called by the Next.js web app after Clerk authentication.
   // Finds or creates a Zuri user and returns a Zuri JWT.
@@ -42,16 +56,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     const { clerkUserId, email, name } = body
 
     try {
-      // Find existing user by Clerk ID
-      let { rows: [user] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-        'SELECT id, email, full_name, onboarding_completed FROM users WHERE clerk_user_id = $1',
+      let { rows: [user] } = await db.query<UserRow>(
+        'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, onboarding_completed FROM users WHERE clerk_user_id = $1',
         [clerkUserId],
       )
 
       if (!user) {
-        // Fall back to email match (Clerk user signed up before this column existed)
-        const { rows: [existing] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
-          'SELECT id, email, full_name, onboarding_completed FROM users WHERE email = $1',
+        const { rows: [existing] } = await db.query<UserRow>(
+          'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, onboarding_completed FROM users WHERE email = $1',
           [email],
         )
 
@@ -59,11 +71,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])
           user = existing
         } else {
-          // New Clerk user — create account
-          const { rows: [created] } = await db.query<{ id: string; email: string; full_name: string; onboarding_completed: boolean }>(
+          const { rows: [created] } = await db.query<UserRow>(
             `INSERT INTO users (email, full_name, clerk_user_id)
              VALUES ($1, $2, $3)
-             RETURNING id, email, full_name, onboarding_completed`,
+             RETURNING id, email, full_name, COALESCE(mode, 'business') AS mode, onboarding_completed`,
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
@@ -86,6 +97,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           id: user.id,
           email: user.email,
           fullName: user.full_name,
+          mode: user.mode ?? 'business',
           onboardingCompleted: user.onboarding_completed,
         },
       })
@@ -191,9 +203,11 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         email: string;
         full_name: string;
         timezone: string;
+        mode: string;
         onboarding_completed: boolean;
       }>(
-        'SELECT id, email, full_name, timezone, onboarding_completed FROM users WHERE id = $1',
+        `SELECT id, email, full_name, timezone, COALESCE(mode, 'business') AS mode, onboarding_completed
+         FROM users WHERE id = $1`,
         [userId]
       );
 
@@ -207,9 +221,105 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           fullName: user.full_name,
           timezone: user.timezone,
+          mode: user.mode,
           onboardingCompleted: user.onboarding_completed,
         },
       });
     }
   );
+
+  fastify.patch(
+    '/api/users/me',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      let body: z.infer<typeof updateMeBody>
+      try {
+        body = updateMeBody.parse(request.body)
+      } catch (err: any) {
+        return reply.code(400).send({ error: 'Invalid request body', detail: err.message })
+      }
+
+      const updates: string[] = []
+      const values: unknown[] = []
+      let idx = 1
+
+      if (body.mode !== undefined) {
+        updates.push(`mode = $${idx++}`)
+        values.push(body.mode)
+      }
+      if (body.timezone !== undefined) {
+        updates.push(`timezone = $${idx++}`)
+        values.push(body.timezone)
+      }
+
+      if (updates.length === 0) {
+        return reply.code(400).send({ error: 'No fields to update' })
+      }
+
+      updates.push('updated_at = NOW()')
+      values.push(userId)
+
+      const { rows: [user] } = await db.query<{
+        id: string
+        email: string
+        full_name: string
+        mode: string
+        timezone: string
+        onboarding_completed: boolean
+      }>(
+        `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}
+         RETURNING id, email, full_name, mode, timezone, onboarding_completed`,
+        values,
+      )
+
+      if (!user) {
+        return reply.code(404).send({ error: 'User not found' })
+      }
+
+      return reply.send({
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.full_name,
+          mode: user.mode,
+          timezone: user.timezone,
+          onboardingCompleted: user.onboarding_completed,
+        },
+      })
+    },
+  )
+
+  fastify.get(
+    '/api/users/me/stats',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const { rows: [stats] } = await db.query<{
+        total_contacts: string
+        total_messages: string
+        total_suggestions: string
+      }>(
+        `SELECT
+           (SELECT COUNT(*) FROM contacts WHERE user_id = $1) AS total_contacts,
+           (SELECT COUNT(*) FROM messages m
+            JOIN conversations c ON m.conversation_id = c.id
+            WHERE c.user_id = $1) AS total_messages,
+           (SELECT COUNT(*) FROM reply_suggestions rs
+            JOIN conversations c ON rs.conversation_id = c.id
+            WHERE c.user_id = $1) AS total_suggestions`,
+        [userId],
+      )
+
+      return reply.send({
+        stats: {
+          totalContacts: parseInt(stats.total_contacts, 10),
+          totalMessages: parseInt(stats.total_messages, 10),
+          totalSuggestions: parseInt(stats.total_suggestions, 10),
+        },
+      })
+    },
+  )
 }

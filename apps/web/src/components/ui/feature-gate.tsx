@@ -1,5 +1,9 @@
+'use client'
+
 import { ReactNode } from 'react'
-import type { WorkspaceMode } from './mode-badge'
+import { useZuriSession } from '@/hooks/use-zuri-session'
+
+type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
 interface FeatureGateProps {
   modes?: WorkspaceMode[]
@@ -8,8 +12,14 @@ interface FeatureGateProps {
   fallback?: ReactNode
 }
 
-// Phase 1 stub — always renders children.
-// Phase 2 wires this to useZuriSession to check mode + subscription tier.
-export function FeatureGate({ children }: FeatureGateProps) {
+export function FeatureGate({ modes, children, fallback = null }: FeatureGateProps) {
+  const session = useZuriSession()
+  const mode = session.data?.mode ?? 'business'
+
+  if (modes && modes.length > 0 && !modes.includes(mode)) {
+    return <>{fallback}</>
+  }
+
+  // tier check wired in Phase 3 when subscription data is in the session
   return <>{children}</>
 }

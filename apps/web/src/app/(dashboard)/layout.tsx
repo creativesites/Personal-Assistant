@@ -5,26 +5,35 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useClerk } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { ModeBadge } from '@/components/ui'
 
-const NAV_ITEMS = [
-  { href: '/inbox', label: 'Inbox', icon: '💬' },
-  { href: '/relationships', label: 'Relationships', icon: '👥' },
-  { href: '/proactive', label: 'Proactive', icon: '✨' },
-  { href: '/settings', label: 'Settings', icon: '⚙️' },
-  { href: '/diagnostics', label: 'Diagnostics', icon: '🔧' },
+type WorkspaceMode = 'business' | 'personal' | 'hybrid'
+
+const BASE_NAV = [
+  { href: '/inbox', label: 'Inbox', icon: '💬', modes: ['business', 'personal', 'hybrid'] },
+  { href: '/relationships', label: 'Relationships', icon: '👥', modes: ['personal', 'hybrid'] },
+  { href: '/proactive', label: 'Proactive', icon: '✨', modes: ['business', 'personal', 'hybrid'] },
+  { href: '/settings', label: 'Settings', icon: '⚙️', modes: ['business', 'personal', 'hybrid'] },
+  { href: '/diagnostics', label: 'Diagnostics', icon: '🔧', modes: ['business', 'personal', 'hybrid'] },
 ] as const
 
 function SidebarContents({
   pathname,
   email,
+  mode,
   onNav,
   onSignOut,
 }: {
   pathname: string
   email: string | undefined
+  mode: WorkspaceMode
   onNav: () => void
   onSignOut: () => void
 }) {
+  const visibleNav = BASE_NAV.filter((item) =>
+    (item.modes as readonly string[]).includes(mode),
+  )
+
   return (
     <>
       <div className="h-14 flex items-center px-5 border-b border-gray-800 shrink-0">
@@ -32,7 +41,7 @@ function SidebarContents({
       </div>
 
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {visibleNav.map((item) => {
           const active = pathname.startsWith(item.href)
           return (
             <Link
@@ -68,9 +77,12 @@ function SidebarContents({
           <span className="text-base leading-none">→</span>
           Sign out
         </button>
-        {email && (
-          <p className="px-3 py-1 text-xs text-gray-600 truncate">{email}</p>
-        )}
+        <div className="px-3 py-1.5 flex items-center justify-between gap-2">
+          <ModeBadge mode={mode} />
+          {email && (
+            <p className="text-xs text-gray-600 truncate min-w-0">{email}</p>
+          )}
+        </div>
       </div>
     </>
   )
@@ -92,6 +104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (session.status === 'unauthenticated') return null
 
+  const mode: WorkspaceMode = session.data?.mode ?? 'business'
   const handleSignOut = () => signOut({ redirectUrl: '/login' })
   const closeSidebar = () => setSidebarOpen(false)
 
@@ -131,6 +144,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <SidebarContents
           pathname={pathname}
           email={session.data?.user.email}
+          mode={mode}
           onNav={closeSidebar}
           onSignOut={handleSignOut}
         />

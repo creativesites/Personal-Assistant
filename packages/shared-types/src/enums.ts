@@ -112,3 +112,5 @@ export enum EventType {
   LOSS = 'loss',
   OTHER = 'other',
 }
+
+export type WorkspaceMode = 'business' | 'personal' | 'hybrid'
