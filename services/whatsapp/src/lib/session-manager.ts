@@ -122,11 +122,14 @@ export class SessionManager {
       '--disable-gpu',
       '--no-zygote',
       '--disable-extensions',
+      '--window-size=1280,800',
     ];
 
     const createConfig: Record<string, unknown> = {
       sessionId: userId,
       headless: true,
+      // Give WhatsApp Web up to 2 minutes to load the QR element
+      navigationTimeout: 120000,
       skipSessionSave: true,
       killProcessOnBrowserClose: true,
       throwErrorOnTosBlock: false,
