@@ -64,6 +64,27 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   fastify.get(
+    '/api/whatsapp/service-health',
+    { preHandler: authenticate },
+    async (_request, reply) => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const res = await fetch(`${config.WHATSAPP_SERVICE_URL}/health`, { signal: controller.signal });
+        clearTimeout(timer);
+        const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+        return reply.send({ reachable: true, httpStatus: res.status, ...body });
+      } catch (err: any) {
+        const isTimeout = err.name === 'AbortError';
+        return reply.code(503).send({
+          reachable: false,
+          error: isTimeout ? 'Timed out after 5s' : err.message,
+        });
+      }
+    }
+  );
+
+  fastify.get(
     '/api/whatsapp/status',
     { preHandler: authenticate },
     async (request, reply) => {

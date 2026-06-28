@@ -138,6 +138,20 @@ export default function DiagnosticsPage() {
       status: 'idle',
       detail: '',
     },
+    {
+      id: 'wa_service',
+      label: 'WhatsApp Service Health',
+      description: 'Internal whatsapp service — DB, Redis, Chromium',
+      status: 'idle',
+      detail: '',
+    },
+    {
+      id: 'wa_instance',
+      label: 'WhatsApp Instance Status',
+      description: 'Your WhatsApp connection state from the database',
+      status: 'idle',
+      detail: '',
+    },
   ])
 
   function setCheck(id: string, patch: Partial<Check>) {
@@ -293,6 +307,85 @@ export default function DiagnosticsPage() {
           status: 'error',
           detail: err.message,
           latencyMs: Date.now() - t5,
+          raw: { error: err.message },
+        })
+      }
+    }
+
+    // 6. WhatsApp service health
+    if (!currentToken) {
+      setCheck('wa_service', { status: 'warn', detail: 'No JWT available — fix the sync step first.' })
+    } else {
+      const t6 = Date.now()
+      try {
+        const r = await fetch(`${API_URL}/api/whatsapp/service-health`, {
+          headers: { Authorization: `Bearer ${currentToken}` },
+        })
+        const latencyMs = Date.now() - t6
+        const body = await r.json().catch(() => null)
+        const up = body?.reachable === true
+        setCheck('wa_service', {
+          status: up ? (body?.status === 'ok' ? 'ok' : 'warn') : 'error',
+          detail: up
+            ? `Service up | DB: ${body?.services?.database ?? '?'} | Redis: ${body?.services?.redis ?? '?'}`
+            : `Service unreachable: ${body?.error || `HTTP ${r.status}`}. Check that the whatsapp Docker container is running on ECS.`,
+          latencyMs,
+          raw: body,
+        })
+      } catch (err: any) {
+        setCheck('wa_service', {
+          status: 'error',
+          detail: err.message,
+          latencyMs: Date.now() - t6,
+          raw: { error: err.message },
+        })
+      }
+    }
+
+    // 7. WhatsApp instance status
+    if (!currentToken) {
+      setCheck('wa_instance', { status: 'warn', detail: 'No JWT available — fix the sync step first.' })
+    } else {
+      const t7 = Date.now()
+      try {
+        const r = await fetch(`${API_URL}/api/whatsapp/status`, {
+          headers: { Authorization: `Bearer ${currentToken}` },
+        })
+        const latencyMs = Date.now() - t7
+        const body = await r.json().catch(() => null) as Record<string, unknown> | null
+
+        let waStatus: Status = 'ok'
+        let detail = ''
+
+        if (!r.ok) {
+          waStatus = 'error'
+          detail = `HTTP ${r.status} — ${(body as any)?.error || 'Unknown error'}`
+        } else if (body?.status === 'connected') {
+          waStatus = 'ok'
+          detail = `Connected${body.phone ? ` as +${body.phone}` : ''}${body.lastConnectedAt ? ` · last seen ${new Date(body.lastConnectedAt as string).toLocaleString()}` : ''}`
+        } else if (body?.status === 'qr_pending') {
+          waStatus = 'warn'
+          detail = `QR pending · expires ${body.qrExpiresAt ? new Date(body.qrExpiresAt as string).toLocaleString() : 'unknown'} — go to /onboarding to scan`
+        } else if (body?.status === 'link_code_pending') {
+          waStatus = 'warn'
+          detail = 'Link-code pending — go to /onboarding to enter the code'
+        } else if (body?.status === 'error') {
+          waStatus = 'error'
+          detail = 'Chromium/Puppeteer failed to launch. Check server logs for "Code: 21". This usually means the Dockerfile needs a Debian base image instead of Alpine — redeploy after the latest push.'
+        } else if (body?.status === 'connecting') {
+          waStatus = 'warn'
+          detail = 'Connection in progress — wait a moment and re-run'
+        } else {
+          waStatus = 'warn'
+          detail = `Status: ${body?.status || 'unknown'} — not connected. Go to /onboarding to connect.`
+        }
+
+        setCheck('wa_instance', { status: waStatus, detail, latencyMs, raw: body })
+      } catch (err: any) {
+        setCheck('wa_instance', {
+          status: 'error',
+          detail: err.message,
+          latencyMs: Date.now() - t7,
           raw: { error: err.message },
         })
       }

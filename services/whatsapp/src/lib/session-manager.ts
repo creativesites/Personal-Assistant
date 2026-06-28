@@ -35,8 +35,6 @@ export class SessionManager {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--no-zygote',
-      '--disable-extensions',
       '--window-size=1280,800',
     ];
 

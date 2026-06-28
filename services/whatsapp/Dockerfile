@@ -1,10 +1,4 @@
-FROM node:22-alpine AS builder
-
-# Chromium is required by open-wa — install system deps
-RUN apk add --no-cache chromium nss freetype freetype-dev harfbuzz ca-certificates ttf-freefont
-
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -19,12 +13,18 @@ COPY services/whatsapp/ ./services/whatsapp/
 RUN npm run build --workspace=packages/shared-types
 RUN npm run build --workspace=services/whatsapp
 
-FROM node:22-alpine AS runner
-RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
+FROM node:22-bookworm-slim AS runner
+
+# Chromium for Puppeteer (whatsapp-web.js). Puppeteer v20+ is incompatible with Alpine.
+RUN apt-get update && apt-get install -y \
+  chromium \
+  fonts-noto-color-emoji \
+  --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
