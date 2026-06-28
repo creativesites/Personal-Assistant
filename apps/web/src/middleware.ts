@@ -15,6 +15,7 @@ const isPublicRoute = createRouteMatcher([
   '/travel(.*)',
   '/legal(.*)',
   '/schools(.*)',
+  '/admin-setup(.*)',
   '/login(.*)',
   '/register(.*)',
   '/api/auth/clerk-sync(.*)',

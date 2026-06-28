@@ -10,6 +10,7 @@ import { contactsRoutes } from './routes/contacts';
 import { proactiveRoutes } from './routes/proactive';
 import { suggestionsRoutes } from './routes/suggestions';
 import { companionRoutes } from './routes/companion';
+import { adminRoutes } from './routes/admin';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -40,6 +41,7 @@ export async function buildApp() {
   await fastify.register(proactiveRoutes);
   await fastify.register(suggestionsRoutes);
   await fastify.register(companionRoutes);
+  await fastify.register(adminRoutes);
 
   return fastify;
 }

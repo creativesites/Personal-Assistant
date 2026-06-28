@@ -32,6 +32,7 @@ type UserRow = {
   email: string
   full_name: string
   mode: string
+  is_admin: boolean
   onboarding_completed: boolean
   timezone?: string
 }
@@ -57,13 +58,13 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
     try {
       let { rows: [user] } = await db.query<UserRow>(
-        'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, onboarding_completed FROM users WHERE clerk_user_id = $1',
+        'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, is_admin, onboarding_completed FROM users WHERE clerk_user_id = $1',
         [clerkUserId],
       )
 
       if (!user) {
         const { rows: [existing] } = await db.query<UserRow>(
-          'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, onboarding_completed FROM users WHERE email = $1',
+          'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, is_admin, onboarding_completed FROM users WHERE email = $1',
           [email],
         )
 
@@ -74,7 +75,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           const { rows: [created] } = await db.query<UserRow>(
             `INSERT INTO users (email, full_name, clerk_user_id)
              VALUES ($1, $2, $3)
-             RETURNING id, email, full_name, COALESCE(mode, 'business') AS mode, onboarding_completed`,
+             RETURNING id, email, full_name, COALESCE(mode, 'business') AS mode, is_admin, onboarding_completed`,
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
@@ -89,7 +90,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
-      const token = fastify.jwt.sign({ userId: user.id }, { expiresIn: '30d' })
+      const token = fastify.jwt.sign(
+        { userId: user.id, isAdmin: user.is_admin ?? false },
+        { expiresIn: '30d' },
+      )
 
       return reply.send({
         token,
@@ -98,6 +102,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           fullName: user.full_name,
           mode: user.mode ?? 'business',
+          isAdmin: user.is_admin ?? false,
           onboardingCompleted: user.onboarding_completed,
         },
       })

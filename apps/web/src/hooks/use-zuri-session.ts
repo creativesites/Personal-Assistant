@@ -7,10 +7,11 @@ type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
 // Module-level cache keyed by Clerk userId so it survives re-renders
 // but clears automatically when a different user signs in.
-const _store: { userId: string; token: string; mode: WorkspaceMode } = {
+const _store: { userId: string; token: string; mode: WorkspaceMode; isAdmin: boolean } = {
   userId: '',
   token: '',
   mode: 'business',
+  isAdmin: false,
 }
 
 // Subscribers get notified when mode changes via setStoredMode
@@ -30,6 +31,9 @@ export function useZuriSession() {
   )
   const [mode, setMode] = useState<WorkspaceMode>(
     user?.id && _store.userId === user.id ? _store.mode : 'business',
+  )
+  const [isAdmin, setIsAdmin] = useState<boolean>(
+    user?.id && _store.userId === user.id ? _store.isAdmin : false,
   )
   const [syncFailed, setSyncFailed] = useState(false)
   const pending = useRef(false)
@@ -60,8 +64,10 @@ export function useZuriSession() {
           _store.userId = user.id
           _store.token = data.token
           _store.mode = (data.user?.mode as WorkspaceMode) ?? 'business'
+          _store.isAdmin = data.user?.isAdmin ?? false
           setToken(data.token)
           setMode(_store.mode)
+          setIsAdmin(_store.isAdmin)
         } else {
           setSyncFailed(true)
         }
@@ -87,6 +93,7 @@ export function useZuriSession() {
       accessToken: token,
       syncFailed,
       mode,
+      isAdmin,
       user: {
         id: user!.id,
         email: user!.emailAddresses[0]?.emailAddress ?? '',
