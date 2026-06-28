@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { Badge, PageHeader } from '@/components/ui'
@@ -96,6 +96,9 @@ export default function DiagnosticsPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [lastRun, setLastRun] = useState<Date | null>(null)
+  const isRunning = useRef(false)
 
   useEffect(() => {
     fetch('/api/diagnostics/config')
@@ -118,7 +121,9 @@ export default function DiagnosticsPage() {
     setChecks(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
   }
 
-  async function runChecks() {
+  const runChecks = useCallback(async () => {
+    if (isRunning.current) return
+    isRunning.current = true
     setChecks(prev => prev.map(c => ({ ...c, status: 'running' as Status, detail: '', latencyMs: undefined, raw: undefined })))
 
     // 1. Clerk
@@ -257,12 +262,21 @@ export default function DiagnosticsPage() {
         setCheck('wa_instance', { status: 'error', detail: err.message, latencyMs: Date.now() - t3 })
       }
     }
-  }
+
+    setLastRun(new Date())
+    isRunning.current = false
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoaded, isSignedIn, user, token])
 
   useEffect(() => {
     if (authLoaded) runChecks()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoaded])
+  }, [authLoaded, runChecks])
+
+  useEffect(() => {
+    if (!autoRefresh || !authLoaded) return
+    const id = setInterval(() => runChecks(), 30_000)
+    return () => clearInterval(id)
+  }, [autoRefresh, authLoaded, runChecks])
 
   const overallStatus: Status = (() => {
     const statuses = checks.map(c => c.status)
@@ -276,10 +290,26 @@ export default function DiagnosticsPage() {
       <PageHeader
         title="Diagnostics"
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            {lastRun && (
+              <span className="text-xs text-gray-400 tabular-nums">
+                Last run {lastRun.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <span className="text-xs text-gray-500">Auto-refresh</span>
+              <button
+                role="switch"
+                aria-checked={autoRefresh}
+                onClick={() => setAutoRefresh(v => !v)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoRefresh ? 'bg-indigo-600' : 'bg-gray-200'}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${autoRefresh ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+              </button>
+            </label>
             <StatusBadge status={overallStatus} />
             <button
-              onClick={runChecks}
+              onClick={() => runChecks()}
               className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors font-medium"
             >
               Re-run all
@@ -341,11 +371,33 @@ export default function DiagnosticsPage() {
             </div>
           </div>
 
-          {/* Checks */}
+          {/* Auth checks */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Connection Checks</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Auth</p>
             <div className="space-y-2">
-              {checks.map(check => <CheckRow key={check.id} check={check} />)}
+              {checks.filter(c => ['clerk', 'sync', 'authme'].includes(c.id)).map(check => (
+                <CheckRow key={check.id} check={check} />
+              ))}
+            </div>
+          </div>
+
+          {/* Service checks */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Services</p>
+            <div className="space-y-2">
+              {checks.filter(c => ['health', 'wa_service', 'wa_instance'].includes(c.id)).map(check => (
+                <CheckRow key={check.id} check={check} />
+              ))}
+            </div>
+          </div>
+
+          {/* Data checks */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Data</p>
+            <div className="space-y-2">
+              {checks.filter(c => ['contacts'].includes(c.id)).map(check => (
+                <CheckRow key={check.id} check={check} />
+              ))}
             </div>
           </div>
 

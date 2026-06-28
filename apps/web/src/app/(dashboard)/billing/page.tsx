@@ -139,6 +139,19 @@ export default function BillingPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="max-w-2xl mx-auto space-y-4">
 
+          {/* Zambia mobile money notice */}
+          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-start gap-3">
+            <span className="text-xl shrink-0" aria-hidden="true">🇿🇲</span>
+            <div>
+              <p className="text-sm font-semibold text-green-900">Mobile money available for Zambia</p>
+              <p className="text-xs text-green-700 mt-0.5">
+                Pay with Airtel Money or MTN Mobile Money. Contact{' '}
+                <a href="mailto:billing@zuri.app" className="underline hover:no-underline">billing@zuri.app</a>
+                {' '}to set up mobile money payments.
+              </p>
+            </div>
+          </div>
+
           {/* Current plan */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-4">
