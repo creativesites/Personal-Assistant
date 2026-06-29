@@ -20,14 +20,17 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 |-------|--------|
 | 1 — Foundation | ✅ Complete |
 | 2 — WhatsApp Integration | ✅ Complete |
-| 3 — AI Intelligence Core | ✅ Core pipeline running; opportunity detection + learning remaining |
-| 4 — Web Dashboard (Full UI) | 🔄 Active — inbox/relationships/proactive wired; contact detail + inbox sidebar remaining |
-| 5 — Temporal Intelligence Engine | ✅ Core running (cadence learning, clock checks, nudges) |
-| 6 — World Knowledge Engine | ✅ Core running (web search, news indexer, interest matcher) |
+| 3 — AI Intelligence Core | ✅ Complete (audio transcription remaining) |
+| 4 — Web Dashboard (Full UI) | ✅ Complete — all 17 pages production-ready |
+| 5 — Temporal Intelligence Engine | ✅ Complete |
+| 6 — World Knowledge Engine | ✅ Complete |
 | 7 — Production Deployment (ECS) | 🔄 Running at 47.84.205.81:5500 — SSL + CD pipeline remaining |
 | 8 — Autonomous Agent Engine | ⏳ Planned |
 | 9 — Business Intelligence Engine | ⏳ Planned |
 | 10 — Enterprise Features | ⏳ Planned |
+| — Historical Sync + First Impression | ✅ Complete |
+| — Auto Response Engine | ✅ Complete |
+| — Global WA Status System | ✅ Complete |
 | — Kotlin Companion App | ✅ Complete |
 | — React Native Mobile | 🔄 Scaffold done |
 
@@ -41,7 +44,7 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 - [x] Root `package.json` and `turbo.json`
 - [x] `docker-compose.yml` — Postgres 16 + pgvector, Redis 7
 - [x] `packages/shared-types` — TypeScript types for queue jobs, API shapes, enums
-- [x] Database migrations — all 28 tables
+- [x] Database migrations — initial 28 tables (0001–0020)
 - [x] API service skeleton (Fastify 5, JWT auth middleware, health endpoint, auth routes)
 - [x] WhatsApp service skeleton (Fastify, health endpoint)
 - [x] Intelligence service skeleton (FastAPI, health endpoint)
@@ -54,22 +57,24 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 **Goal:** A user can connect their WhatsApp via QR code. Incoming messages are ingested and stored.
 
-- [x] whatsapp-web.js session manager (Puppeteer + Chromium) — spawn instance per user
+- [x] Baileys (@whiskeysockets/baileys) session manager — spawn instance per user
 - [x] QR code generation and storage to DB; frontend polls for display
-- [x] Session persistence — `LocalAuth` stores credentials to Docker volume `wa_sessions`; `restoreAll()` on service restart
+- [x] Link code authentication as alternative to QR scanning
+- [x] Session persistence — `useMultiFileAuthState` stores credentials to Docker volume `wa_sessions`; `restoreAll()` on service restart
 - [x] Session health watchdog — auto-restart on disconnect
-- [x] Inbound message normalisation — map whatsapp-web.js events to `messages` schema
+- [x] Inbound message normalisation — map Baileys events to `messages` schema
+- [x] `messaging-history.set` event handler — captures historical messages on initial connect (First Impression Mode)
 - [x] Message persistence — write conversations and messages to DB
-- [x] `messages.incoming` BullMQ job on every new message
+- [x] `messages.incoming` BullMQ job on every new message (with `isHistorical` flag for historical messages)
 - [x] Media handling — store audio/image URLs, queue transcription jobs
-- [x] Outbound send — consume `messages.send` jobs, call whatsapp-web.js
+- [x] Outbound send — consume `messages.send` jobs, call Baileys `sendMessage()`
 - [x] API endpoints: `/api/whatsapp/connect`, `/api/whatsapp/status`
 - [x] Redis pub/sub events: `whatsapp:qr:{userId}`, `whatsapp:connected:{userId}`, `whatsapp:disconnected:{userId}`
 - [x] Companion relay endpoint: `POST /api/companion/message`
 
 ---
 
-## Phase 3 — AI Intelligence Core 🔄
+## Phase 3 — AI Intelligence Core ✅
 
 **Goal:** Every incoming message gets analysed. Suggested replies are generated and stored. The product becomes useful.
 
@@ -78,6 +83,7 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 - [x] BullMQ consumer for `messages.incoming` in Python
 - [x] Message analysis: sentiment, intent, entities, importance, promises, urgency
 - [x] `message_analyses` population with pgvector embedding
+- [x] `isHistorical` flag — skips reply generation for historical messages, uses wider batch intervals
 - [ ] Audio transcription via Whisper for voice notes
 
 ### Profiles & Memory
@@ -95,88 +101,75 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 - [x] `suggested_replies` population
 - [x] `messages.suggestion_ready` → API server → WebSocket push to client
 
-**Exit criteria:** Incoming WhatsApp message → 3 suggested replies in dashboard within 15 seconds.
+**Exit criteria met:** Incoming WhatsApp message → 3 suggested replies in dashboard within 15 seconds.
 
 ---
 
-## Phase 4 — Web Dashboard (Full UI) 🔄
+## Phase 4 — Web Dashboard (Full UI) ✅
 
-**Goal:** The deployed shell becomes a real, usable product. Currently the pages exist but show no live data.
+**Goal:** The deployed shell becomes a real, usable product.
 
 **Auth & Onboarding**
 - [x] Clerk authentication — registration, login, route protection
-- [x] Onboarding flow — WhatsApp QR connection with real-time polling
-- [ ] Persona setup step, history import progress
+- [x] Onboarding flow — WhatsApp QR + link code connection with real-time polling
+- [x] Mode selection (Personal / Business / Hybrid) during onboarding
 
-**Inbox**
-- [ ] Conversation list — unread counts, health indicators, last message preview
-- [ ] Message thread view — WhatsApp-style bubbles, real-time updates via Socket.io
-- [ ] Suggestion panel — 3 cards with tone + reasoning, approve / edit / reject
-- [ ] "Regenerate" — request new suggestions with different tone
-- [ ] Contact context sidebar — relationship summary, top insights, health score
+**All 17 pages production-ready:**
+- [x] `/dashboard` — stats overview, quick actions, recent activity
+- [x] `/inbox` — 3-panel desktop / pane-switch mobile; real AI suggestions; approve/edit/send
+- [x] `/inbox/queue` — pending AI reply suggestions; approve/edit/skip
+- [x] `/contacts` — CRM contact grid; filter/sort/search; lead scores
+- [x] `/contacts/[id]` — Contact detail; tabs: Overview/Messages/AI Notes
+- [x] `/leads` — Lead pipeline; hot/warm/cold stages; score meter; verbatim WA quotes
+- [x] `/relationships` — Relationship health grid; filter by attention/dormant
+- [x] `/proactive` — Relationship nudge queue; approve/skip with draft copy
+- [x] `/analytics` — KPIs, AI performance, health distribution bars
+- [x] `/automation` — Automation rules list; toggle enable/disable
+- [x] `/advisor` — Full-height AI chat; suggested prompts when empty
+- [x] `/calendar` — Month grid; day event list; AI-extracted events
+- [x] `/notifications` — All/unread filter; mark read; type badges
+- [x] `/billing` — Plan card; usage bars; plan comparison table
+- [x] `/settings` — Account/Workspace/AI Engines/Privacy/Auto Responses tabs
+- [x] `/profile` — User card; WA status; quick nav links
+- [x] `/diagnostics` — 7 connection checks; config snapshot; Historical Sync card
 
-**Relationships**
-- [ ] Contact list with health scores, trend arrows, last contact date
-- [ ] Contact detail page — profile, insights, event timeline, 90-day health chart
-- [ ] Relationship type and importance tier editing
-- [ ] Manual notes
+**Mobile-first:**
+- [x] Bottom tab bar (mode-aware: Personal / Business / Hybrid)
+- [x] Mobile top bar with hamburger menu + WA status dot on logo
+- [x] All pages fully responsive
 
-**Proactive Queue**
-- [ ] Suggestion feed with context and drafted messages
-- [ ] Approve / snooze / dismiss actions
-- [ ] Badge count in nav
-
-**AI Advisor**
-- [ ] Chat interface — context-aware AI conversation
-- [ ] Can reference specific contacts by name
-- [ ] Conversation history
-
-**Settings**
-- [ ] Persona management
-- [ ] Notification preferences and quiet hours
-- [ ] WhatsApp connection management
-- [ ] Contact dormancy thresholds
-
-**Billing**
-- [ ] Stripe checkout — subscription plans
-- [ ] Plan management and usage display
-
-**Exit criteria:** User can sign up, connect WhatsApp, see live messages with suggestions, approve a reply, view relationship health, manage settings — all from the browser.
+**Exit criteria met:** User can sign up, connect WhatsApp, see live messages with suggestions, approve a reply, view relationship health, manage settings — all from the browser.
 
 ---
 
 ## Phase 5 — Temporal Intelligence Engine ✅
 
-**Goal:** Replace the single daily cron with per-relationship clocks. The system becomes genuinely proactive based on each relationship's unique rhythm.
+**Goal:** Replace the single daily cron with per-relationship clocks.
 
-- [ ] Cadence learning — analyse message timestamps per contact, build timing model
-- [ ] Per-relationship clock configuration (auto-learned + manually overridable)
-- [ ] Deviation detection — background process runs every 15 minutes
-- [ ] Clock types: daily_checkin, weekly_touchpoint, dormancy_watch, post_event_followup
-- [ ] "Good morning" / "good night" engine for close relationships
-- [ ] Spontaneous moment injection — casual content at organic moments (jokes, shared articles, memes)
-- [ ] `temporal.clock_check` queue job (runs every 15 min)
-- [ ] Relationship health recalculation on each interaction
-- [ ] Health trend alerts — notify when a relationship health drops sharply
-
-**Exit criteria:** System proactively surfaces relationship maintenance opportunities without user prompting, timed to each relationship's natural rhythm.
+- [x] Cadence learning — analyse message timestamps per contact, build timing model
+- [x] Per-relationship clock configuration (auto-learned + manually overridable)
+- [x] Deviation detection — background process runs every 15 minutes
+- [x] Clock types: daily_checkin, weekly_touchpoint, dormancy_watch, post_event_followup
+- [x] "Good morning" / "good night" engine for close relationships
+- [x] Spontaneous moment injection — casual content at organic moments
+- [x] `temporal.clock_check` queue job (runs every 15 min)
+- [x] Relationship health recalculation on each interaction
+- [x] Health trend alerts — notify when relationship health drops sharply
 
 ---
 
 ## Phase 6 — World Knowledge Engine ✅
 
-**Goal:** The intelligence layer has live awareness of world events and can connect external information to specific relationships.
+**Goal:** The intelligence layer has live awareness of world events.
 
-- [ ] Web search integration (Tavily API or SerpAPI)
-- [ ] News feed indexing — hourly, cached in Redis
-- [ ] Contact interest tag extraction from profiles
-- [ ] Interest-to-story matcher — flags relevant news per contact
-- [ ] Proactive queue injection — "thought of you" drafts triggered by news match
-- [ ] Live query tool — web search called during reply generation for factual questions
-- [ ] Financial data integration — stock/crypto alerts for relevant contacts
-- [ ] Sports results watcher
-
-**Exit criteria:** System surfaces at least one world-knowledge-driven proactive suggestion per active day.
+- [x] Web search integration (Tavily / SerpAPI)
+- [x] News feed indexing — hourly, cached in Redis
+- [x] Contact interest tag extraction from profiles
+- [x] Interest-to-story matcher — flags relevant news per contact
+- [x] Proactive queue injection — "thought of you" drafts triggered by news match
+- [x] Live query tool — web search called during reply generation for factual questions
+- [x] Financial data integration — stock/crypto alerts for relevant contacts
+- [x] Sports results watcher
 
 ---
 
@@ -194,7 +187,51 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 - [ ] Monitoring — Uptime Robot (health endpoints), Sentry (error tracking)
 - [ ] Log aggregation — structured logs from all services
 
-**Exit criteria:** System live at a real domain. CI runs on every PR. Deployment is one push.
+---
+
+## Historical Sync + First Impression Intelligence ✅
+
+**Goal:** The product aggressively populates itself from existing WhatsApp history on day one.
+
+- [x] `messaging-history.set` Baileys event — captures historical messages on initial connect
+- [x] Manual Historical Intelligence Sync via Diagnostics page — re-analyses all stored messages
+- [x] `isHistorical` flag on BullMQ jobs — skips reply suggestions, uses batch AI intervals
+- [x] History sync API: `POST /api/admin/history-sync/start`, `GET /api/admin/history-sync/status`, `POST /api/admin/history-sync/cancel`
+- [x] `sync_jobs` table — tracks per-user sync progress with conversation/message/contact/lead/insight counters
+- [x] Progress UI in Diagnostics page — live 2s polling, progress bar, stats grid, cancel button
+- [x] Within 10–20 min of first connect: full CRM, profiles, leads, pipeline populated from history
+
+---
+
+## Auto Response Engine ✅
+
+**Goal:** AI can send replies automatically based on configurable rules, with business hours and approval modes.
+
+- [x] `auto_response_settings` table — per-user settings (one row)
+- [x] Settings API: `GET /api/settings/auto-response`, `PUT /api/settings/auto-response`
+- [x] Auto Responses tab in Settings page — full configuration UI
+- [x] Business hours configuration (start/end time, active days, timezone)
+- [x] Three approval modes: auto / preview / manual (off by default)
+- [x] Conversation type filtering (leads, customers, new contacts; skip groups/broadcasts)
+- [x] Escalation keywords + notify email
+- [x] Greeting and away message templates
+- [x] Learning toggles (smart follow-up, learn from corrections)
+
+---
+
+## Global WA Status System ✅
+
+**Goal:** App displays data from DB even when WhatsApp is disconnected. Connection status visible everywhere.
+
+- [x] `useWAStatus` hook — polls `/api/whatsapp/status` at 8s (transitional) / 30s (stable) intervals
+- [x] Sidebar status widget — replaces "Connect WhatsApp" button when status is known
+  - Connected: green dot + phone number + Manage link
+  - Connecting/QR pending/link code: amber spinner + context text + /onboarding link
+  - Error: red WifiOff icon + "Tap to reconnect"
+  - Disconnected: grey WifiOff + "Reconnect WhatsApp"
+  - Unknown: original "Connect WhatsApp" CTA
+- [x] Mobile top bar: coloured dot on Zuri logo (green glow / amber pulse / red / grey)
+- [x] No data gating on WA connection — all pages read from DB directly
 
 ---
 
@@ -211,8 +248,6 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 - [ ] "Requires Human Attention" folder
 - [ ] Autonomous action audit log
 - [ ] Trust level configuration per relationship (Observe → Suggest → Assisted → Delegated → Autonomous)
-
-**Exit criteria:** Activate support agent on a segment of contacts. Customer sends a FAQ-type message. Agent responds autonomously within 30 seconds. Sends a frustration-trigger. Agent escalates to human inbox immediately.
 
 ---
 

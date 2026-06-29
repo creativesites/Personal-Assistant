@@ -38,7 +38,7 @@ Working title: **Zuri** (placeholder — rename before launch).
 ├── docs/
 │   ├── ARCHITECTURE.md     System design, service communication, deployment
 │   ├── ROADMAP.md          Phased build plan and current status
-│   ├── SCHEMA.md           Database schema reference (28 tables, 8 domains)
+│   ├── SCHEMA.md           Database schema reference (30 tables, 8 domains, 25 migrations)
 │   ├── PRODUCT_VISION.md   Full product spec — 12 engines, pricing, feature matrix
 │   └── NEXT_PHASE.md       Concrete implementation plan for the current sprint
 ├── CLAUDE.md           ← you are here
@@ -59,7 +59,7 @@ Working title: **Zuri** (placeholder — rename before launch).
 | Mobile app | React Native + Expo (bare workflow) |
 | Companion app | Kotlin (Android) |
 | API server | Node.js + Fastify |
-| WhatsApp ingestion | Node.js + @open-wa/wa-automate |
+| WhatsApp ingestion | Node.js + @whiskeysockets/baileys |
 | AI / intelligence | Python 3.12 + FastAPI + LiteLLM |
 | Message queue | Redis 7 + BullMQ |
 | Real-time push | Socket.io (API server → web/mobile) |
@@ -82,14 +82,15 @@ The only internet-facing service (via nginx on ECS). All client traffic goes her
 - WebSocket: same port via Socket.io
 - Key responsibilities: auth, user management, conversation CRUD, notification delivery, routing commands to whatsapp/intelligence services
 
-### `services/whatsapp` — whatsapp-web.js Session Manager
-One whatsapp-web.js (Puppeteer + Chromium) browser session per connected user.
+### `services/whatsapp` — Baileys Session Manager
+One @whiskeysockets/baileys WebSocket session per connected user.
 
 - Port: `3001` (dev, internal only)
-- Session credentials stored via `LocalAuth` in Docker volume `wa_sessions` (mounted at `/app/db/sessions`)
-- Memory: ~350–500MB per active session (Chromium) — monitor on ECS; requires `shm_size: 512mb`
-- On new message: normalise → write to DB → push `messages.incoming` to queue
-- On approved reply: consume `messages.send` → call whatsapp-web.js `sendMessage()`
+- Session credentials stored via `useMultiFileAuthState` in Docker volume `wa_sessions` (mounted at `/app/db/sessions`)
+- Memory: ~80–150MB per active session (no Chromium — Baileys uses WebSocket directly)
+- On initial connect: `messaging-history.set` event fires with historical messages (First Impression Mode)
+- On new message: normalise → write to DB → push `messages.incoming` to queue (with `isHistorical` flag for historical messages)
+- On approved reply: consume `messages.send` → call Baileys `sendMessage()`
 
 ### `services/intelligence` — Python AI Service
 All AI inference lives here. Houses all 12 intelligence engines in three layers.
@@ -272,13 +273,13 @@ Browser / Mobile App
     └──────────────────┘
 ```
 
-Message flow: WhatsApp → whatsapp-web.js → `messages.incoming` queue → Intelligence service (analysis + suggestions) → DB write → `messages.suggestion_ready` job → API server → WebSocket push to client.
+Message flow: WhatsApp → Baileys → `messages.incoming` queue → Intelligence service (analysis + suggestions) → DB write → `messages.suggestion_ready` job → API server → WebSocket push to client.
 
 ---
 
 ## Database
 
-PostgreSQL 16 with pgvector. 28 tables across 8 domains. See `docs/SCHEMA.md` for full reference.
+PostgreSQL 16 with pgvector. 30 tables across 8 domains + 2 system tables. 25 migrations applied. See `docs/SCHEMA.md` for full reference.
 
 **Domains:** Core · Contacts & Relationships · Conversations & Messages · AI Intelligence · Proactive System · Calendar · AI Advisor · Notifications
 
@@ -320,17 +321,20 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 
 ## Current Status
 
-**Active phases:** Phase 4 (Web Dashboard) + Phase 7 (Production — SSL + CD remaining)
+**Active focus:** Phase 7 remaining (SSL + GitHub Actions CD)
 
 | Phase | Status |
 |-------|--------|
 | 1 — Foundation | ✅ Complete |
 | 2 — WhatsApp Integration | ✅ Complete |
-| 3 — AI Intelligence Core | ✅ Complete (opportunity detection + learning engines remaining) |
-| 4 — Web Dashboard (full UI) | ✅ All Phase 3 pages complete — see Web Dashboard section below |
-| 5 — Temporal Intelligence Engine | ✅ Running |
-| 6 — World Knowledge Engine | ✅ Running |
+| 3 — AI Intelligence Core | ✅ Complete (audio transcription remaining) |
+| 4 — Web Dashboard (full UI) | ✅ Complete — all 17 pages production-ready |
+| 5 — Temporal Intelligence Engine | ✅ Complete |
+| 6 — World Knowledge Engine | ✅ Complete |
 | 7 — Production Deployment (ECS) | 🔄 Running at 47.84.205.81:5500; SSL + CD remaining |
+| — Historical Sync + First Impression | ✅ Complete |
+| — Auto Response Engine | ✅ Complete |
+| — Global WA Status System | ✅ Complete |
 | 8 — Autonomous Agent Engine | ⏳ Planned |
 | 9 — Business Intelligence Engine | ⏳ Planned |
 | 10 — Enterprise Features | ⏳ Planned |
@@ -339,12 +343,19 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 
 **What's been built:**
 - [x] Full monorepo scaffold (Turborepo + npm workspaces)
-- [x] Database: Supabase PostgreSQL, all migrations (0001–0011), pgvector
+- [x] Database: Supabase PostgreSQL, 25 migrations (0001–0025), pgvector, 30 tables
 - [x] API service: Fastify 5, JWT auth, Clerk-sync endpoint, all CRUD routes, Socket.io
-- [x] WhatsApp service: whatsapp-web.js (Puppeteer + Chromium), QR + link code, LocalAuth session persistence, message ingestion
+- [x] WhatsApp service: Baileys (@whiskeysockets/baileys), QR + link code, session persistence, message ingestion
+- [x] First Impression Mode: `messaging-history.set` event captures historical messages on initial connect
+- [x] Historical Intelligence Sync: API + Diagnostics UI, background worker, sync_jobs tracking
+- [x] Auto Response Engine: `auto_response_settings` table, settings API, full UI with 3 approval modes
 - [x] Intelligence service: message analyser, reply generator, contact profiler, voice builder, health calculator, cadence learner, temporal engine, world knowledge engine, all BullMQ workers
+- [x] `isHistorical` flag: historical messages skip reply generation, use batch AI intervals
 - [x] Redis pub/sub pipeline: intelligence → `suggestion:ready:{userId}` → API Socket.io → browser
-- [x] Next.js web app on Vercel: all Phase 3 pages built, mobile-first, polished UI
+- [x] Global WA status system: `useWAStatus` hook, sidebar widget (5 states), mobile logo dot
+- [x] Next.js web app on Vercel: all 17 pages built, mobile-first, polished UI
+- [x] Leads page: live pipeline with hot/warm/cold stages, real WA quotes, score meters
+- [x] CRM contacts: full CRM fields (company, job title, email, lead score, pipeline stage)
 - [x] Kotlin companion app (NotificationListenerService, API relay)
 - [x] React Native mobile scaffold (Expo, navigation, auth, typed API client)
 - [x] Production Docker Compose on ECS: api + whatsapp + intelligence + redis + nginx
@@ -383,9 +394,10 @@ All components in `apps/web/src/components/ui/` are production-ready. Key findin
 **Shared utilities:**
 - `src/lib/cn.ts` — `cn(...classes)` classname helper
 - `src/hooks/use-api.ts` — `useApi<T>(path, token)` → `{ data, loading, error, refetch }`
-- `src/lib/api.ts` — `apiClient<T>(path, opts)` + `ApiError`
+- `src/lib/api.ts` — `apiClient<T>(path, opts)` + `ApiError`; body must be `JSON.stringify(obj)` for objects
 - `src/lib/socket.ts` — singleton Socket.io client (`getSocket()`)
-- `src/hooks/use-zuri-session.ts` — Clerk sync + JWT + mode broadcaster
+- `src/hooks/use-zuri-session.ts` — Clerk sync + JWT + mode broadcaster; token is `session.data?.accessToken`
+- `src/hooks/use-wa-status.ts` — polls `/api/whatsapp/status`; 8s transitional / 30s stable; returns `WAStatus { status, connected, phone, lastConnectedAt }`
 
 **Design tokens (Tailwind):**
 - Primary: `indigo-600` (hover: `indigo-700`)
@@ -418,9 +430,9 @@ All pages are in `apps/web/src/app/(dashboard)/`:
 | `/calendar` | `calendar/page.tsx` | Month grid; day event list; AI-extracted events |
 | `/notifications` | `notifications/page.tsx` | All/unread filter; mark read; type badges |
 | `/billing` | `billing/page.tsx` | Plan card; usage bars; plan comparison table |
-| `/settings` | `settings/page.tsx` | Account/Workspace/AI Engines/Privacy tabs |
+| `/settings` | `settings/page.tsx` | Account/Workspace/AI Engines/Privacy/Auto Responses tabs |
 | `/profile` | `profile/page.tsx` | User card; WA status; quick nav links |
-| `/diagnostics` | `diagnostics/page.tsx` | 7 connection checks; config snapshot; expandable rows |
+| `/diagnostics` | `diagnostics/page.tsx` | 7 connection checks; Historical Sync card; config snapshot; expandable rows |
 
 ### Navigation Architecture
 

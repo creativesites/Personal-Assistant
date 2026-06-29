@@ -1,338 +1,178 @@
 # Next Phase — Implementation Plan
 
-## Current State (as of 2026-06-28)
+## Current State (as of 2026-06-29)
 
 ### What Exists and Works
+
 - ✅ Full monorepo, Vercel deployment live
-- ✅ PostgreSQL 28-table schema with pgvector (Supabase managed)
-- ✅ WhatsApp service: whatsapp-web.js (Puppeteer + Chromium), QR auth, session persistence via LocalAuth + Docker volume `wa_sessions`, message ingestion → DB + BullMQ queue
+- ✅ PostgreSQL 30-table schema with pgvector (Supabase managed, 25 migrations applied)
+- ✅ WhatsApp service: Baileys (@whiskeysockets/baileys), QR auth + link code, session persistence via `useMultiFileAuthState` + Docker volume `wa_sessions`, message ingestion → DB + BullMQ queue
+- ✅ First Impression Mode: `messaging-history.set` Baileys event captures historical messages on initial connect
 - ✅ Clerk authentication on web app (deployed and working)
-- ✅ Onboarding page: WhatsApp connection flow with real-time polling (2s interval), QR display, error recovery
-- ✅ Web dashboard: Inbox, Relationships, Proactive, Settings pages wired to live API
+- ✅ Onboarding page: WhatsApp connection flow with real-time polling (2s interval), QR display, link code option, error recovery
+- ✅ Web dashboard: all 17 pages production-ready, wired to live API, mobile-first
 - ✅ Intelligence service: full pipeline running — message analysis, reply generation (3 variants), contact profiler, voice builder, cadence learner, health calculator, temporal worker, world knowledge worker
+- ✅ `isHistorical` flag: historical messages skip reply generation and use wider AI batch intervals
 - ✅ End-to-end suggestion pipeline: `messages.incoming` → analysis → `suggested_replies` → `messages.suggestion_ready` → Socket.io push → browser
 - ✅ ECS production deployment: api + whatsapp + intelligence + redis + nginx at `47.84.205.81:5500`
+- ✅ Historical Intelligence Sync: Diagnostics page card with live progress, API endpoints, background sync worker
+- ✅ Auto Response Engine: full settings UI, `auto_response_settings` table, API routes, 3 approval modes
+- ✅ Global WA status system: `useWAStatus` hook, sidebar status widget, mobile logo dot
+- ✅ Leads page: live pipeline with hot/warm/cold stages, real WhatsApp quotes, score meters
 - ✅ Kotlin companion app: NotificationListenerService → API relay
 - ✅ React Native mobile scaffold: navigation, auth, typed API client
 
-### What Remains Before the Product Is Fully Polished
-The core intelligence pipeline is operational. The main remaining gaps are:
+### Remaining Before Product is Fully Polished
 
-**Web Dashboard:**
-- Contact detail page (full profile view, insights, health chart)
-- Inbox conversation thread view with suggestion panel
-- Proactive queue UI refinement
-
-**Production Infrastructure:**
+**Production Infrastructure (highest priority):**
 - SSL on ECS backend (currently HTTP only at port 5500)
-- GitHub Actions CD (currently deploying manually)
-- Database backups and monitoring
+- GitHub Actions CD (currently deploying manually via SSH)
+- Database backups (no automated backup yet)
+- Error monitoring (Sentry not set up)
 
 **Intelligence:**
-- Audio transcription (voice notes unhandled)
+- Audio transcription (voice notes stored but not transcribed — Whisper integration missing)
 - Opportunity detection engine (not implemented)
-- Learning & optimization engine (not implemented)
+- Learning & optimisation engine (not implemented)
+
+**Auto Response Execution (settings UI done, execution not hooked up):**
+- Intelligence service worker needs to check `auto_response_settings` before deciding whether to queue a reply for auto-send
+- Need a new BullMQ consumer path: when `approval_mode = 'auto'` and message meets criteria → send immediately vs. when `approval_mode = 'preview'` → surface in approval queue
 
 ---
 
-## Phase 3 — AI Intelligence Core
+## Priority 1 — SSL + GitHub Actions CD
 
-**Goal:** Every incoming WhatsApp message triggers analysis, a suggested reply appears in the web inbox within 10–15 seconds, and the contact's profile begins accumulating insights.
+The most impactful remaining infrastructure tasks. Currently the ECS backend runs plain HTTP, and deploys require manual SSH.
 
-This is the single highest-leverage phase. Everything the user sees in the dashboard depends on it.
+### SSL via Certbot
 
-### 3.1 — LiteLLM Setup & Model Configuration
+1. Point a domain (or subdomain) to `47.84.205.81`
+2. Install Certbot on the ECS host: `apt install certbot`
+3. Obtain certificate: `certbot certonly --standalone -d <domain>`
+4. Update `nginx.conf` to listen on 443 with the Let's Encrypt cert
+5. Add HTTP→HTTPS redirect on port 80
+6. Update `NEXT_PUBLIC_API_URL` in Vercel to use `https://`
+7. Set up auto-renewal cron: `certbot renew --pre-hook "docker compose stop nginx" --post-hook "docker compose start nginx"`
 
-- [ ] Install LiteLLM in `services/intelligence`
-- [ ] `config.py` — model routing: fast model (GPT-4o-mini / Haiku) for quick analysis, smart model (Claude Sonnet / GPT-4o) for reply generation
-- [ ] Environment-driven model selection (swap providers without code changes)
-- [ ] Cost tracking wrapper — log token usage per job to DB for billing/monitoring
-- [ ] Retry logic with exponential backoff on provider errors
+### GitHub Actions CD
 
-**Models to configure:**
-- Analysis (fast + cheap): `claude-haiku-4-5` or `gpt-4o-mini`
-- Reply generation (quality): `claude-sonnet-4-6` or `gpt-4o`
-- Embeddings: `text-embedding-3-small` (OpenAI) or `voyage-3` (Anthropic)
-- Audio transcription: `whisper-1` (OpenAI)
+Target workflow: push to `main` → build Docker images → push to registry → SSH deploy to ECS.
+
+```yaml
+# .github/workflows/deploy.yml
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH deploy
+        run: |
+          ssh ${{ secrets.ECS_HOST }} "cd /opt/zuri && git pull && docker compose -f docker-compose.prod.yml up -d --build"
+```
+
+Required GitHub secrets: `ECS_SSH_KEY`, `ECS_HOST`.
 
 ---
 
-### 3.2 — Message Analysis Pipeline
+## Priority 2 — Audio Transcription (Whisper)
 
-The `messages.incoming` queue consumer. Runs on every new message.
+Voice notes arrive with `message_type = 'audio'` and a media URL. Currently stored but transcription is skipped.
 
-- [ ] BullMQ consumer in Python (using `bullmq` Python client or a Redis-native approach)
-- [ ] **Sentiment analysis:** positive / negative / neutral + score (-1 to 1)
-- [ ] **Emotion detection:** joy, anger, sadness, fear, surprise, love, frustration (array with scores)
-- [ ] **Intent classification:** question, statement, request, complaint, compliment, update, farewell, greeting, buying_signal, objection
-- [ ] **Entity extraction:** names, dates, places, products, amounts, commitments made
-- [ ] **Importance scoring:** 0–10, factoring in relationship tier, urgency markers, time-sensitivity
-- [ ] **Requires response flag:** boolean + urgency (immediate / today / this week / no rush)
-- [ ] **Promises detection:** extract commitments made by either party
-- [ ] Write `message_analyses` row
-- [ ] Generate and store embedding for the message (pgvector)
+### Implementation
 
-**Pydantic schema for analysis output:**
+In `services/intelligence/app/workers/message_worker.py`:
+
 ```python
-class MessageAnalysis(BaseModel):
-    sentiment: str
-    sentiment_score: float
-    emotions: list[EmotionScore]
-    intent: list[str]
-    entities: dict
-    importance_score: int
-    requires_response: bool
-    response_urgency: str
-    promises_detected: list[Promise]
-    embedding: list[float]
+if job_data.get('messageType') == 'audio' and job_data.get('mediaUrl'):
+    transcription = await transcribe_audio(job_data['mediaUrl'])
+    # UPDATE messages SET transcription = $1 WHERE id = $2
+    await db.execute(
+        "UPDATE messages SET transcription = $1 WHERE id = $2",
+        transcription, message_id
+    )
+    body = transcription  # use transcription as message body for analysis
 ```
 
----
-
-### 3.3 — User Voice Model
-
-Before generating any suggested replies, the system must understand how the user writes.
-
-- [ ] `user_communication_profiles` population job
-- [ ] Analyse the user's outbound message history (last 200 messages minimum)
-- [ ] Extract: average message length, punctuation style, emoji frequency, vocabulary patterns, formality level, opener/closer patterns
-- [ ] Build a "voice profile" prompt fragment used in all reply generation
-- [ ] Trigger: run on first message ingestion for a new user; refresh weekly
+In `services/intelligence/app/engines/transcription.py` (new file):
+- Download audio from media URL
+- Call LiteLLM with Whisper model: `litellm.transcription(model="whisper-1", file=audio_bytes)`
+- Return transcription text
 
 ---
 
-### 3.4 — Contact Profile Bootstrapping
+## Priority 3 — Auto Response Execution
 
-- [ ] On first message from a contact, create initial `contact_profiles` row
-- [ ] Seed with: display name, relationship type, conversation history summary (last 50 messages)
-- [ ] Background job: `analysis.bootstrap_contact_profile` — deeper analysis after 10+ messages
-- [ ] Extract `contact_insights`: communication style, response patterns, known interests, recurring topics
-- [ ] Store insights as atomic rows in `contact_insights` table
+The settings are stored and the UI is complete. The execution path needs to be wired up.
 
----
+### What's Missing
 
-### 3.5 — Context Snapshot Management
+The intelligence service's `message_worker.py` currently generates suggestions but always writes them to `suggested_replies` with `status='pending'`. The auto-response logic needs to:
 
-Critical for token efficiency. Replaces raw message history in prompts.
+1. After generating a suggestion, check `auto_response_settings` for the user
+2. If `enabled = false` → do nothing extra (existing behaviour)
+3. If `enabled = true` and `approval_mode = 'auto'`:
+   - Check business hours, active days
+   - Check contact's `customer_status` against `respond_to_leads/customers/new_contacts`
+   - If conversation is a group and `skip_groups = true` → skip
+   - If message contains escalation keyword → skip, send escalation email notification
+   - Apply `send_delay_seconds` delay via BullMQ `delay` option
+   - Enqueue `messages.send` job directly (bypassing user approval)
+4. If `approval_mode = 'preview'` → surface to approval queue (existing suggested_replies flow)
+5. If `approval_mode = 'manual'` → do nothing extra (existing behaviour)
 
-- [ ] `context_snapshots` creation: when a conversation exceeds 50 messages, compress to a summary
-- [ ] Summary includes: key topics discussed, relationship dynamics observed, commitments made, emotional patterns, recent context
-- [ ] Generate embedding for the snapshot (for semantic retrieval)
-- [ ] Context retrieval function: given a new message, fetch the most relevant snapshots via pgvector cosine similarity
-- [ ] `analysis.trim_context` cron: runs nightly, compresses old message history
+### DB Query to Add
 
----
-
-### 3.6 — Persona Resolution
-
-- [ ] Default persona: "default" — mirrors the user's voice, casual tone
-- [ ] Persona selection hierarchy: contact-specific persona → relationship-type persona → default
-- [ ] Persona prompt: defines tone, formality, emoji usage, opening style, closing style
-- [ ] Store personas in `personas` table (already in schema)
-- [ ] Bootstrap with 3 default personas: Personal (casual), Professional (formal), Customer Service (warm + efficient)
-
----
-
-### 3.7 — Suggested Reply Generation
-
-The most visible output of the intelligence service.
-
-- [ ] Trigger: after `message_analyses` is written and `requires_response = true`
-- [ ] Context assembly: pull contact profile + latest context snapshot + recent 10 messages
-- [ ] Generate **3 reply variants** with distinct tones (e.g., warm / direct / playful)
-- [ ] Each variant includes: `suggestion_text`, `tone`, `reasoning` (brief explanation of why this response)
-- [ ] Voice matching: apply user communication profile to ensure replies sound like the user
-- [ ] Write 3 rows to `suggested_replies`
-- [ ] Push `messages.suggestion_ready` job to BullMQ
-- [ ] API server consumes `messages.suggestion_ready` → emits `suggestion:ready` Socket.io event to user's room
-
-**Prompt architecture:**
-```
-System: You are drafting a WhatsApp reply on behalf of [user_name].
-  Voice profile: [user_communication_profile.voice_summary]
-  
-Contact: [contact_name] — [relationship_type]
-  Profile: [contact_profile.personality_summary]
-  Current mood: [latest_message_analysis.sentiment] / [emotions]
-  
-Context: [most_relevant_context_snapshot.summary]
-
-Recent conversation:
-  [last_10_messages]
-
-Incoming message: "[message_body]"
-
-Draft 3 reply options. Each must sound exactly like [user_name] writes.
-Return JSON: [{text, tone, reasoning}]
-```
-
----
-
-### 3.8 — Phase 3 Exit Criteria
-
-1. Send a WhatsApp message to a connected number
-2. Within 15 seconds, 3 suggested replies appear in the web dashboard inbox
-3. `message_analyses` row exists with populated sentiment, intent, and entities
-4. `suggested_replies` table has 3 rows for the message
-5. `contact_profiles` row exists for the sender
-6. At least one `contact_insights` row exists for the sender
-
----
-
-## Phase 4 — Web Dashboard (Full UI)
-
-**Goal:** The shell becomes a real product. Users can see messages, review suggestions, approve replies, and browse their relationship health.
-
-This runs in parallel with Phase 3 — UI can be built against mock data first, then wired to live API once Phase 3 is complete.
-
-### 4.1 — Inbox (Core Loop)
-
-- [ ] API: `GET /api/conversations` — list with unread count, last message, health score
-- [ ] API: `GET /api/conversations/:id/messages` — message thread with analyses
-- [ ] API: `GET /api/conversations/:id/suggestions` — suggested replies for latest message
-- [ ] API: `POST /api/suggestions/:id/approve` — approve + send via WhatsApp
-- [ ] API: `POST /api/suggestions/:id/reject` — mark rejected
-- [ ] API: `POST /api/conversations/:id/regenerate` — request new suggestions with different tone
-
-**UI:**
-- [ ] Conversation list (left panel): sorted by last activity, unread badge, health indicator dot
-- [ ] Message thread (center): WhatsApp-style bubbles, timestamp, sender avatar
-- [ ] Suggestion panel (right): 3 cards with tone label + reasoning, approve/edit/reject buttons
-- [ ] Contact context sidebar: relationship summary, top insights, health score mini-chart
-- [ ] Real-time updates via Socket.io (new message arrives → thread updates without refresh)
-
-### 4.2 — Onboarding Flow
-
-- [ ] Step 1: Persona setup — 3 questions about communication style or paste example messages
-- [ ] Step 2: WhatsApp QR scan — display QR from `/api/whatsapp/connect`, listen for `whatsapp:connected` event
-- [ ] Step 3: History import — initiate import of existing conversations, show progress bar
-- [ ] Step 4: Done — redirect to inbox
-
-### 4.3 — Relationships Page
-
-- [ ] Contact grid/list with health scores, trend arrows, last contact date
-- [ ] Contact detail page: profile summary, insight tags, event timeline, health chart (30/90/365 day)
-- [ ] Relationship type and importance tier editor
-- [ ] Manual notes field
-
-### 4.4 — Proactive Queue
-
-- [ ] Feed of AI-generated suggestions (dormancy alerts, event acknowledgements, spontaneous moments)
-- [ ] Each card: contact name + reason + draft message + approve / snooze / dismiss
-- [ ] "Send now" → routes to WhatsApp service
-- [ ] Badge count in nav for pending items
-
-### 4.5 — Settings (Basic)
-
-- [ ] Persona management: create, edit, assign to contacts
-- [ ] Notification preferences: quiet hours, priority threshold
-- [ ] WhatsApp connection status + reconnect button
-
----
-
-## Phase 5 — Temporal Intelligence Engine
-
-**Goal:** Replace the single 8 AM cron with per-relationship clocks. The system becomes genuinely proactive and personal.
-
-- [ ] `RelationshipClock` model: stores cadence baseline per relationship (auto-learned from history)
-- [ ] Cadence learning: analyse message timestamps per contact, build distribution (mean, std dev, peak hours)
-- [ ] Deviation detection: background process checks each clock against current time
-- [ ] Clock types: daily_checkin, weekly_touchpoint, dormancy_watch, post_event_followup
-- [ ] Nudge generation: when clock fires → create `proactive_queue` item with personalized draft
-- [ ] Manual override: user can configure clock per contact from relationship settings page
-- [ ] "Good morning" engine: for close contacts, detect typical morning text window; if missed, prompt
-- [ ] Spontaneous moment injection: randomly draft casual content (joke, meme suggestion, shared article) based on contact's interests profile when timing feels natural
-
-**Queue additions:**
-- `temporal.clock_check` — runs every 15 minutes, evaluates all active clocks
-- `temporal.nudge_generated` — fires when a clock triggers a new proactive item
-
----
-
-## Phase 6 — World Knowledge Engine
-
-**Goal:** Give the intelligence layer eyes on the world. Suggestions become contextually aware of real-time events.
-
-- [ ] Tavily API integration (or SerpAPI) for web search
-- [ ] News feed indexing: hourly fetch of top stories, cached in Redis
-- [ ] Contact interest tags: extracted from profiles (`contact_insights` where `key = 'interests'`)
-- [ ] Interest-to-story matcher: background job matches fresh news against contact interest profiles
-- [ ] Opportunity injection: when a match is found, add to `proactive_queue` with drafted "thought of you" message
-- [ ] Live query tool: when AI generates a reply to a factual question, it can call the search tool mid-generation
-- [ ] Financial data: stock/crypto alerts for contacts with investment interests or business clients
-- [ ] Sports results watcher: match results against contact sport preferences
-
-**Tool definition for intelligence service:**
 ```python
-tools = [
-    {
-        "name": "web_search",
-        "description": "Search the web for current information",
-        "input_schema": {"query": str, "max_results": int}
-    },
-    {
-        "name": "get_stock_price",
-        "description": "Get current price for a stock or crypto symbol",
-        "input_schema": {"symbol": str}
-    }
-]
+async def get_auto_response_settings(user_id: str) -> dict | None:
+    row = await db.fetchrow(
+        "SELECT * FROM auto_response_settings WHERE user_id = $1",
+        user_id
+    )
+    return dict(row) if row else None
 ```
 
 ---
 
-## Phase 7 — Production Deployment (ECS)
+## Priority 4 — Opportunity Detection Engine
 
-**Goal:** Full backend running on Alibaba Cloud ECS, accessible at a real domain.
+The `proactive_queue` table and the `/proactive` page are both ready. The engine that populates it for business opportunities is not implemented.
 
-- [ ] `docker-compose.prod.yml` with production config (no volume mounts for code, proper restart policies)
-- [ ] Nginx config: SSL termination, routing (`/api/*` → API server, WebSocket upgrade headers)
-- [ ] Let's Encrypt certificate via Certbot
-- [ ] GitHub Actions CD: build images, push to Alibaba Container Registry, SSH deploy to ECS on push to `main`
-- [ ] Environment variable management on ECS (use Alibaba KMS or `.env` file on host, never in image)
-- [ ] Database backup: daily pg_dump to Alibaba OSS
-- [ ] Monitoring: Uptime Robot for health endpoints, Sentry for error tracking in both Node.js and Python services
-- [ ] Log aggregation: structured logs from all services, collected to a central location
+### What It Should Do
 
----
+Scan conversations for signals: interest in buying, budget mentions, decision-making language, follow-up needed. Write a `proactive_queue` row with `suggestion_type = 'opportunity'` when detected.
 
-## Phase 8 — Autonomous Agent Engine
+### Entry Point
 
-**Goal:** Users can toggle on AI agents that handle conversations automatically, escalating to human when needed.
+New engine file: `services/intelligence/engines/opportunity_detection.py`
 
-This is the Business tier differentiator.
-
-- [ ] Agent configuration UI: create agent, assign role, set permission boundaries, assign to contacts/segments
-- [ ] Sales Agent: qualification flow, objection handling library, meeting booking via Calendly webhook
-- [ ] Support Agent: FAQ matching against knowledge base, ticket creation, escalation rules
-- [ ] Community Manager Agent: group content scheduling, moderation flagging, discussion prompts
-- [ ] Escalation engine: detect frustration, explicit human requests, out-of-scope topics → pause agent → notify human
-- [ ] "Requires Human Attention" folder: conversations paused by agent, sorted by urgency
-- [ ] Agent activity log: every autonomous action logged with reasoning
+Triggered from `message_worker.py` after message analysis completes, when `analysis.intent` contains signals like `buying_signal`, `objection`, `request_for_info`, or `price_inquiry`.
 
 ---
 
-## Phase 9 — Business Intelligence Engine
+## Priority 5 — Database Backups
 
-- [ ] Analytics dashboard (new page in web app)
-- [ ] Conversation funnel visualization (stages, conversion rates, drop-off)
-- [ ] Agent performance metrics (if team inbox active)
-- [ ] Revenue attribution: link deal-closed events to conversation threads
-- [ ] Proactive impact report: automated monthly digest
-- [ ] AI suggestion acceptance rate tracking
-- [ ] Exportable reports (CSV / PDF)
+No automated backup currently. Risk: Supabase has its own backup but we don't control it.
+
+- [ ] Add a daily backup cron on ECS: `pg_dump $DATABASE_URL | gzip > backup-$(date +%Y%m%d).sql.gz`
+- [ ] Upload to Alibaba OSS via `ossutil`
+- [ ] Retain 30 days, delete older
 
 ---
 
 ## Build Order Summary
 
-| Priority | Phase | Est. Effort | Unlocks |
+| Priority | Task | Effort | Risk Without It |
 |---|---|---|---|
-| **NOW** | Phase 3 — AI Intelligence Core | 2–3 weeks | The entire product |
-| **NOW** | Phase 4 — Web Dashboard Full UI | 2–3 weeks (parallel) | Usable product |
-| **Next** | Phase 5 — Temporal Intelligence Engine | 1 week | Personal proactivity |
-| **Next** | Phase 6 — World Knowledge Engine | 1 week | Contextual awareness |
-| **Next** | Phase 7 — Production Deployment | 1 week | Live for real users |
-| **After** | Phase 8 — Autonomous Agent Engine | 3 weeks | Business tier |
-| **After** | Phase 9 — Business Intelligence | 2 weeks | Enterprise sales |
-
-**The critical path is Phase 3.** Nothing else matters until the AI pipeline produces its first suggestion.
+| **Now** | SSL (Certbot) | 2h | Browser mixed-content warnings; no HTTPS |
+| **Now** | GitHub Actions CD | 3h | Manual deploys are error-prone |
+| **Next** | Audio transcription | 4h | Voice notes silently ignored |
+| **Next** | Auto response execution | 1 day | Settings UI has no effect |
+| **After** | Opportunity detection | 2 days | Proactive queue under-populated |
+| **After** | Database backups | 2h | Data loss risk |
+| **After** | Sentry error monitoring | 2h | Silent failures in production |
+| **Future** | Autonomous agents (Phase 8) | 3 weeks | Business tier not unlocked |
+| **Future** | Business Intelligence (Phase 9) | 2 weeks | No analytics/reporting |
