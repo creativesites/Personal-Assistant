@@ -1114,8 +1114,8 @@ function EditSlideOver({ contact, token, onClose, onSaved }: {
 
 export default function ContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { session }  = useZuriSession()
-  const token        = session.data?.accessToken
+  const zuriSession  = useZuriSession()
+  const token        = zuriSession.data?.accessToken
   const router       = useRouter()
   const { addToast } = useToast()
 
@@ -1133,7 +1133,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const tabBarRef = useRef<HTMLDivElement>(null)
 
   const contact = contactData?.contact
-  const mode    = session.data?.mode ?? 'hybrid'
+  const mode    = zuriSession.data?.mode ?? 'hybrid'
 
   // sync local profile when data loads
   useEffect(() => {
@@ -1184,7 +1184,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   }
 
   // ── Loading state ──
-  if (session.status === 'loading' || loading) {
+  if (zuriSession.status === 'loading' || loading) {
     return (
       <div className="flex flex-col h-full">
         <div className="bg-white border-b border-gray-200 px-4 py-4 flex items-center gap-3">
