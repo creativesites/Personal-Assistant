@@ -1,1392 +1,941 @@
-'use client'
+'use client';
 
-import React, { useMemo, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
-import {
-  Flame, Search, Snowflake, TrendingUp, Wind, Plus, Download,
-  Settings2, Sparkles, Target, DollarSign, Clock, Phone,
-  MessageSquare, ChevronRight, X, Brain, Zap, Star, CheckCircle,
-  XCircle, AlertCircle, Filter, TrendingDown, Calendar, Send,
-  BarChart2, Bot, AlertTriangle, RefreshCw, ChevronDown,
-  Award, Activity, MoreVertical, Layers, Users, Eye,
-  ThumbsDown, Megaphone, ShoppingCart, ChevronUp,
-} from 'lucide-react'
-import { useZuriSession } from '@/hooks/use-zuri-session'
-import { useApi } from '@/hooks/use-api'
-import { Avatar, Badge, EmptyState, FeatureGate, SkeletonCard } from '@/components/ui'
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useZuriSession } from '@/hooks/use-zuri-session';
+import { apiClient } from '@/lib/api';
+import { cn } from '@/lib/cn';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface MessageAnalysis {
+  intent: { primary: string; details: string };
+  responseUrgency: string;
+  requiresResponse: boolean;
+  entities: { text: string; type: string }[];
+  topics: string[];
+  promisesDetected: { text: string; type: string }[];
+  sentiment: string;
+  importanceScore: number | null;
+}
+
+interface LeadMessage {
+  id: string;
+  senderType: 'user' | 'contact';
+  body: string;
+  timestamp: string;
+  analysis: MessageAnalysis | null;
+}
+
+interface LeadInsight {
+  key: string;
+  value: string;
+  confidence: number;
+  supportingText: string;
+  createdAt: string;
+}
+
 interface Lead {
-  id: string
-  name: string
-  phone?: string
-  company?: string
-  industry?: string
-  pipelineStage?: string
-  avatarUrl: string | null
-  lastMessageAt: string | null
-  leadScore?: number
-  tags?: string[]
+  id: string;
+  name: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  email: string | null;
+  company: string | null;
+  jobTitle: string | null;
+  industry: string | null;
+  customerStatus: string | null;
+  pipelineStage: string | null;
+  leadScore: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+  tags: string[];
   relationship: {
-    type: string
-    healthScore: number
-    healthTrend: 'improving' | 'stable' | 'declining'
-    importanceTier: number
-  }
-  profile: { personalitySummary: string; moodBaseline: string } | null
+    healthScore: number;
+    healthTrend: string;
+    lastInteractionAt: string | null;
+  };
+  profile: {
+    personalitySummary: string | null;
+    communicationStyle: string | null;
+    buyingBehaviour: string | null;
+    painPoints: string | null;
+    goals: string | null;
+    preferences: string | null;
+    relationshipStage: string | null;
+    moodBaseline: string | null;
+    currentLifeContext: string | null;
+  };
+  insights: LeadInsight[];
+  interestInsights: LeadInsight[];
+  mentionedProducts: string[];
+  mentionedTopics: string[];
+  recentMessages: LeadMessage[];
+  lastContactMessage: LeadMessage | null;
+  hasRequiresResponse: boolean;
+  maxUrgency: string;
+  nextAction: string | null;
+  messageCount: number;
 }
 
-type PipelineStage = 'new_lead' | 'contacted' | 'qualified' | 'quote_sent' | 'negotiating' | 'won' | 'lost'
-type BuyingIntensity = 'Detecting…' | 'Low' | 'Medium' | 'High' | 'Very High' | 'Extreme'
-type BANTLevel = 'High' | 'Medium' | 'Low'
-type ViewMode = 'kanban' | 'list'
-type SortKey = 'score' | 'recent' | 'value' | 'name'
-type StageFilter = 'all' | 'hot' | 'warm' | 'cold'
+// ─── Pipeline stage config ────────────────────────────────────────────────────
 
-interface AiEnrichedLead extends Lead {
-  _pipelineStage: PipelineStage
-  buyingIntensity: BuyingIntensity
-  potentialValue: number
-  valueRangeLow: number
-  valueRangeHigh: number
-  valueConfidence: number
-  nextAction: string
-  actionUrgency: 'normal' | 'today' | 'overdue'
-  followUpStatus: 'on_track' | 'due_today' | 'overdue'
-  daysInStage: number
-  aiReasoning: string[]
-  bant: { budget: BANTLevel; authority: BANTLevel; need: BANTLevel; timeline: BANTLevel }
-  scoreBreakdown: { budget: number; urgency: number; intent: number; trust: number; engagement: number }
-  aiAlerts: string[]
-  isEarlySignal: boolean
-  closeProbability: number
-  expectedCloseLabel: string
+const STAGES = [
+  { key: 'new_lead',    label: 'New Lead',    color: 'bg-gray-100 text-gray-700',    dot: 'bg-gray-400' },
+  { key: 'contacted',   label: 'Contacted',   color: 'bg-blue-50 text-blue-700',     dot: 'bg-blue-400' },
+  { key: 'qualified',   label: 'Qualified',   color: 'bg-violet-50 text-violet-700', dot: 'bg-violet-400' },
+  { key: 'proposal',    label: 'Proposal',    color: 'bg-amber-50 text-amber-700',   dot: 'bg-amber-400' },
+  { key: 'negotiation', label: 'Negotiation', color: 'bg-orange-50 text-orange-700', dot: 'bg-orange-400' },
+  { key: 'won',         label: 'Won',         color: 'bg-green-50 text-green-700',   dot: 'bg-green-400' },
+  { key: 'lost',        label: 'Lost',        color: 'bg-red-50 text-red-700',       dot: 'bg-red-400' },
+];
+
+const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]));
+
+function getStage(key: string | null) {
+  return STAGE_MAP[key ?? 'new_lead'] ?? STAGES[0];
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const STAGES: { key: PipelineStage; label: string; color: string; border: string; bg: string; bar: string }[] = [
-  { key: 'new_lead',    label: 'New Lead',    color: 'text-purple-700', border: 'border-purple-200', bg: 'bg-purple-50',  bar: 'bg-purple-400' },
-  { key: 'contacted',   label: 'Contacted',   color: 'text-blue-700',   border: 'border-blue-200',   bg: 'bg-blue-50',    bar: 'bg-blue-400' },
-  { key: 'qualified',   label: 'Qualified',   color: 'text-indigo-700', border: 'border-indigo-200', bg: 'bg-indigo-50',  bar: 'bg-indigo-400' },
-  { key: 'quote_sent',  label: 'Quote Sent',  color: 'text-amber-700',  border: 'border-amber-200',  bg: 'bg-amber-50',   bar: 'bg-amber-400' },
-  { key: 'negotiating', label: 'Negotiating', color: 'text-orange-700', border: 'border-orange-200', bg: 'bg-orange-50',  bar: 'bg-orange-400' },
-  { key: 'won',         label: 'Won',         color: 'text-green-700',  border: 'border-green-200',  bg: 'bg-green-50',   bar: 'bg-green-400' },
-  { key: 'lost',        label: 'Lost',        color: 'text-gray-600',   border: 'border-gray-200',   bg: 'bg-gray-50',    bar: 'bg-gray-300' },
-]
-
-const NEXT_ACTIONS: Record<PipelineStage, string[]> = {
-  new_lead:    ['Send introduction message', 'Ask what they\'re looking for', 'Share product catalogue'],
-  contacted:   ['Follow up today', 'Ask about budget', 'Schedule a call'],
-  qualified:   ['Send quote today', 'Share case studies', 'Confirm requirements'],
-  quote_sent:  ['Follow up on quote', 'Address price objection', 'Offer free trial'],
-  negotiating: ['Confirm final terms', 'Offer delivery incentive', 'Escalate to decision maker'],
-  won:         ['Send thank-you message', 'Request a review', 'Introduce loyalty programme'],
-  lost:        ['Send re-engagement message', 'Offer discount voucher', 'Survey for lost reason'],
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return `${Math.floor(d / 30)}mo ago`;
 }
 
-const REASONING_POOL: Record<string, string[]> = {
-  high_score: [
-    'Asked about pricing twice in 24 hours',
-    'Requested delivery details',
-    'Responded within 3 minutes on average',
-    'Viewed product catalogue',
-    'Mentioned a specific deadline',
-  ],
-  medium_score: [
-    'Inquired about availability',
-    'Asked a follow-up question',
-    'Shared contact with a colleague',
-    'Compared two product options',
-    'Mentioned a competitor by name',
-  ],
-  low_score: [
-    'Expressed initial interest',
-    'Asked a general pricing question',
-    'Opened message but not replied',
-    'Early-stage enquiry detected',
-    'Single buying-intent phrase detected',
-  ],
-  improving: [
-    'Engagement frequency increasing',
-    'Sentiment shifting more positive',
-    'Response time getting shorter',
-  ],
+function initials(name: string) {
+  return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
-const ALERTS_POOL = [
-  'Customer mentioned a competitor',
-  'Budget window closing — respond today',
-  'Decision maker joined the conversation',
-  'Customer became price-sensitive',
-  'Ready to purchase based on latest message',
-  'No reply for 48 hours — risk of going cold',
-  'Sentiment dropped after last message',
-]
-
-// ─── AI Enrichment ────────────────────────────────────────────────────────────
-
-function hashNum(str: string): number {
-  let h = 0
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
-  return h
+function urgencyBadge(urgency: string) {
+  if (urgency === 'urgent') return 'bg-red-100 text-red-700 border border-red-200';
+  if (urgency === 'high')   return 'bg-orange-100 text-orange-700 border border-orange-200';
+  if (urgency === 'medium') return 'bg-amber-100 text-amber-700 border border-amber-200';
+  return 'bg-gray-100 text-gray-500';
 }
 
-function pick<T>(arr: T[], seed: number): T {
-  return arr[seed % arr.length]
+function scoreColor(score: number) {
+  if (score >= 75) return 'text-green-600';
+  if (score >= 50) return 'text-amber-600';
+  if (score >= 25) return 'text-orange-500';
+  return 'text-gray-400';
 }
 
-function enrichLead(lead: Lead): AiEnrichedLead {
-  const h = hashNum(lead.id)
-  const score = lead.leadScore ?? 0
-  const trend = lead.relationship.healthTrend
-  const hoursAgo = lead.lastMessageAt
-    ? (Date.now() - new Date(lead.lastMessageAt).getTime()) / 3600000
-    : 720
+// ─── Avatar ───────────────────────────────────────────────────────────────────
 
-  // Pipeline stage
-  let ps: PipelineStage
-  if (lead.pipelineStage) {
-    const map: Record<string, PipelineStage> = {
-      new: 'new_lead', contacted: 'contacted', qualified: 'qualified',
-      quote: 'quote_sent', negotiating: 'negotiating', won: 'won', lost: 'lost',
-    }
-    ps = map[lead.pipelineStage] ?? (score >= 75 ? 'negotiating' : score >= 55 ? 'qualified' : score >= 30 ? 'contacted' : 'new_lead')
-  } else if (score >= 88) {
-    ps = h % 5 === 0 ? 'won' : 'negotiating'
-  } else if (score >= 72) {
-    ps = 'quote_sent'
-  } else if (score >= 55) {
-    ps = 'qualified'
-  } else if (score >= 28) {
-    ps = 'contacted'
-  } else {
-    ps = h % 7 === 0 ? 'lost' : 'new_lead'
-  }
-
-  // Buying intensity
-  let buyingIntensity: BuyingIntensity
-  if (score >= 90) buyingIntensity = 'Extreme'
-  else if (score >= 75) buyingIntensity = 'Very High'
-  else if (score >= 55) buyingIntensity = 'High'
-  else if (score >= 35) buyingIntensity = 'Medium'
-  else if (score >= 15) buyingIntensity = 'Low'
-  else buyingIntensity = 'Detecting…'
-
-  // Potential value (ZMW, ranges K500–K20,000)
-  const baseValue = 500 + (score * 150) + (h % 3000)
-  const potentialValue = Math.round(baseValue / 100) * 100
-  const spread = Math.round(potentialValue * 0.15 / 100) * 100
-  const valueConfidence = Math.min(95, 45 + score * 0.5 + (hoursAgo < 24 ? 10 : 0))
-
-  // Score breakdown (must sum to score)
-  const intent = Math.min(30, Math.round(score * 0.32))
-  const urgency = Math.min(20, Math.round(score * 0.22) + (hoursAgo < 12 ? 3 : 0))
-  const budget = Math.min(25, Math.round(score * 0.26))
-  const trust = Math.min(15, Math.round(score * 0.12))
-  const engagement = Math.max(0, Math.min(10, score - intent - urgency - budget - trust))
-
-  // BANT
-  const bant = {
-    budget:    score >= 65 ? 'High' : score >= 40 ? 'Medium' : 'Low' as BANTLevel,
-    authority: lead.relationship.type === 'customer' || lead.relationship.importanceTier <= 2 ? 'High' : h % 3 === 0 ? 'High' : 'Medium' as BANTLevel,
-    need:      score >= 55 || trend === 'improving' ? 'High' : score >= 30 ? 'Medium' : 'Low' as BANTLevel,
-    timeline:  hoursAgo < 24 ? 'High' : hoursAgo < 168 ? 'Medium' : 'Low' as BANTLevel,
-  }
-
-  // Next action
-  const actions = NEXT_ACTIONS[ps]
-  const nextAction = actions[h % actions.length]
-
-  // Action urgency
-  const actionUrgency: AiEnrichedLead['actionUrgency'] =
-    hoursAgo > 72 ? 'overdue' : hoursAgo > 24 ? 'today' : 'normal'
-
-  // Follow-up status
-  const followUpStatus: AiEnrichedLead['followUpStatus'] =
-    hoursAgo > 72 ? 'overdue' : hoursAgo > 48 ? 'due_today' : 'on_track'
-
-  // Days in stage (simulated)
-  const daysInStage = 1 + (h % 14)
-
-  // AI reasoning
-  const pool = score >= 65 ? REASONING_POOL.high_score : score >= 35 ? REASONING_POOL.medium_score : REASONING_POOL.low_score
-  const extra = trend === 'improving' ? REASONING_POOL.improving : []
-  const allReasons = [...pool, ...extra]
-  const reasoning: string[] = []
-  for (let i = 0; i < Math.min(4, allReasons.length); i++) {
-    reasoning.push(allReasons[(h + i * 7) % allReasons.length])
-  }
-  const deduped = [...new Set(reasoning)]
-
-  // AI alerts (0–2)
-  const alerts: string[] = []
-  if (h % 3 === 0) alerts.push(ALERTS_POOL[h % ALERTS_POOL.length])
-  if (h % 5 === 0) alerts.push(ALERTS_POOL[(h + 3) % ALERTS_POOL.length])
-
-  // Close probability
-  const closeProbability = Math.min(98, Math.round(
-    (score * 0.7) + (trend === 'improving' ? 15 : trend === 'declining' ? -10 : 0) + (hoursAgo < 24 ? 8 : 0)
-  ))
-
-  // Expected close
-  const expectedCloseLabel =
-    closeProbability >= 85 ? 'Today' :
-    closeProbability >= 65 ? 'This Week' :
-    closeProbability >= 45 ? 'This Month' : 'Uncertain'
-
-  const isEarlySignal = score < 30 && hoursAgo < 48
-
-  return {
-    ...lead,
-    _pipelineStage: ps,
-    buyingIntensity,
-    potentialValue,
-    valueRangeLow: potentialValue - spread,
-    valueRangeHigh: potentialValue + spread,
-    valueConfidence: Math.round(valueConfidence),
-    nextAction,
-    actionUrgency,
-    followUpStatus,
-    daysInStage,
-    aiReasoning: deduped,
-    bant,
-    scoreBreakdown: { budget, urgency, intent, trust, engagement },
-    aiAlerts: alerts,
-    isEarlySignal,
-    closeProbability,
-    expectedCloseLabel,
-  }
-}
-
-// ─── Formatters ───────────────────────────────────────────────────────────────
-
-function formatValue(n: number) {
-  return `K${n.toLocaleString()}`
-}
-
-function formatLastSeen(ts: string | null) {
-  if (!ts) return 'Never'
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 60000)
-  if (diff < 60) return `${diff}m ago`
-  if (diff < 1440) return `${Math.floor(diff / 60)}h ago`
-  if (diff < 10080) return `${Math.floor(diff / 1440)}d ago`
-  return `${Math.floor(diff / 10080)}wk ago`
-}
-
-function scoreTier(score: number) {
-  if (score >= 70) return { label: 'Hot', fg: 'text-red-700', bg: 'bg-red-100', dot: 'bg-red-500', bar: 'bg-red-500' }
-  if (score >= 40) return { label: 'Warm', fg: 'text-amber-700', bg: 'bg-amber-100', dot: 'bg-amber-400', bar: 'bg-amber-400' }
-  return { label: 'Cold', fg: 'text-blue-700', bg: 'bg-blue-100', dot: 'bg-blue-400', bar: 'bg-blue-400' }
-}
-
-function bantColor(level: BANTLevel) {
-  return level === 'High' ? 'bg-green-100 text-green-800' : level === 'Medium' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
-}
-
-// ─── ScoreMeter ───────────────────────────────────────────────────────────────
-
-function ScoreMeter({ score, size = 'sm' }: { score: number; size?: 'sm' | 'lg' }) {
-  const tier = scoreTier(score)
-  const pct = Math.min(100, Math.max(0, score))
-  return (
-    <div className="flex items-center gap-2">
-      <div className={`flex-1 rounded-full overflow-hidden ${size === 'lg' ? 'h-2' : 'h-1.5'} bg-gray-100`}>
-        <div className={`h-full rounded-full transition-all ${tier.bar}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className={`font-bold tabular-nums ${size === 'lg' ? 'text-sm' : 'text-xs'} text-gray-800 w-7 text-right`}>{score}</span>
-    </div>
-  )
-}
-
-// ─── Stage badge ──────────────────────────────────────────────────────────────
-
-function StagePill({ stage }: { stage: PipelineStage }) {
-  const s = STAGES.find(x => x.key === stage)!
-  return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${s.color} ${s.bg} ${s.border}`}>
-      {s.label}
-    </span>
-  )
-}
-
-// ─── Follow-up indicator ──────────────────────────────────────────────────────
-
-function FollowUpDot({ status }: { status: AiEnrichedLead['followUpStatus'] }) {
-  if (status === 'overdue') return <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Overdue follow-up" />
-  if (status === 'due_today') return <span className="w-2 h-2 rounded-full bg-amber-400" title="Follow-up due today" />
-  return <span className="w-2 h-2 rounded-full bg-green-400" title="On track" />
-}
-
-// ─── Buying intensity badge ───────────────────────────────────────────────────
-
-function IntensityBadge({ intensity }: { intensity: BuyingIntensity }) {
-  const cfg: Record<BuyingIntensity, string> = {
-    'Extreme':    'bg-red-600 text-white',
-    'Very High':  'bg-red-100 text-red-800',
-    'High':       'bg-orange-100 text-orange-800',
-    'Medium':     'bg-amber-100 text-amber-800',
-    'Low':        'bg-blue-100 text-blue-700',
-    'Detecting…': 'bg-gray-100 text-gray-500',
-  }
-  return (
-    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cfg[intensity]}`}>{intensity}</span>
-  )
-}
-
-// ─── AI Sales Feed Card ───────────────────────────────────────────────────────
-
-function AiSalesFeedCard({
-  lead,
-  onOpen,
-  onDismiss,
+function Avatar({
+  name,
+  avatarUrl,
+  size = 'md',
 }: {
-  lead: AiEnrichedLead
-  onOpen: () => void
-  onDismiss: () => void
+  name: string;
+  avatarUrl: string | null;
+  size?: 'sm' | 'md' | 'lg';
 }) {
-  const isExtreme = lead.buyingIntensity === 'Extreme'
-  const isVeryHigh = lead.buyingIntensity === 'Very High'
-
+  const sizeClass =
+    size === 'sm' ? 'w-8 h-8 text-xs' :
+    size === 'lg' ? 'w-12 h-12 text-base' :
+    'w-10 h-10 text-sm';
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className={cn('rounded-full object-cover ring-2 ring-white flex-shrink-0', sizeClass)}
+      />
+    );
+  }
   return (
-    <div className={`rounded-xl border p-3.5 transition-all ${isExtreme ? 'border-red-200 bg-red-50' : isVeryHigh ? 'border-orange-200 bg-orange-50' : 'border-gray-200 bg-white'}`}>
-      <div className="flex items-start gap-2.5 mb-2">
-        <Avatar name={lead.name} src={lead.avatarUrl ?? undefined} size="sm" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {(isExtreme || isVeryHigh) && <Flame className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
-            <span className="text-sm font-semibold text-gray-900 truncate">{lead.name}</span>
-            {lead.isEarlySignal && (
-              <span className="text-[9px] font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">Early Signal</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <IntensityBadge intensity={lead.buyingIntensity} />
-            <span className="text-[11px] text-gray-500 font-medium">{lead.closeProbability}% close prob.</span>
-          </div>
-        </div>
-        <button onClick={onDismiss} className="flex-shrink-0 p-1 rounded-lg hover:bg-gray-200 text-gray-400 transition-colors">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <ul className="space-y-1 mb-3">
-        {lead.aiReasoning.slice(0, 3).map((r, i) => (
-          <li key={i} className="flex items-start gap-1.5 text-[11px] text-gray-600">
-            <span className="w-1 h-1 rounded-full bg-gray-400 mt-1.5 flex-shrink-0" />
-            {r}
-          </li>
-        ))}
-      </ul>
-
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <button
-          onClick={onOpen}
-          className="inline-flex items-center gap-1 text-[11px] font-medium bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
-        >
-          <Eye className="w-3 h-3" />
-          View
-        </button>
-        <button className="inline-flex items-center gap-1 text-[11px] font-medium bg-white border border-gray-200 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-          <Send className="w-3 h-3" />
-          Quote
-        </button>
-        <button className="inline-flex items-center gap-1 text-[11px] font-medium bg-white border border-gray-200 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
-          <Phone className="w-3 h-3" />
-          Call
-        </button>
-      </div>
+    <div className={cn('rounded-full bg-indigo-100 text-indigo-700 font-semibold flex items-center justify-center flex-shrink-0', sizeClass)}>
+      {initials(name)}
     </div>
-  )
+  );
 }
 
-// ─── Lead Card (Kanban + List) ────────────────────────────────────────────────
+// ─── Score ring ───────────────────────────────────────────────────────────────
 
-function LeadCard({
-  lead,
-  onClick,
-  compact = false,
-}: {
-  lead: AiEnrichedLead
-  onClick: () => void
-  compact?: boolean
-}) {
-  const tier = scoreTier(lead.leadScore ?? 0)
+function ScoreRing({ score }: { score: number }) {
+  const r = 18;
+  const circ = 2 * Math.PI * r;
+  const pct = Math.min(score, 100) / 100;
+  const stroke =
+    score >= 75 ? '#16a34a' :
+    score >= 50 ? '#d97706' :
+    score >= 25 ? '#ea580c' :
+    '#9ca3af';
+  return (
+    <div className="relative w-12 h-12 flex-shrink-0">
+      <svg className="w-12 h-12 -rotate-90" viewBox="0 0 44 44">
+        <circle cx="22" cy="22" r={r} fill="none" stroke="#e5e7eb" strokeWidth="3.5" />
+        <circle
+          cx="22" cy="22" r={r} fill="none"
+          stroke={stroke}
+          strokeWidth="3.5"
+          strokeDasharray={`${circ * pct} ${circ}`}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className={cn('absolute inset-0 flex items-center justify-center text-xs font-bold', scoreColor(score))}>
+        {score}
+      </span>
+    </div>
+  );
+}
+
+// ─── Lead card ────────────────────────────────────────────────────────────────
+
+function LeadCard({ lead, onClick }: { lead: Lead; onClick: () => void }) {
+  const topInterest = lead.interestInsights[0] ?? lead.insights[0] ?? null;
+  const lastMsg = lead.lastContactMessage;
 
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:shadow-md transition-all duration-200 group ${compact ? 'p-3' : 'p-4'}`}
+      className="w-full text-left bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-indigo-200 transition-all p-3"
     >
-      {/* Header */}
-      <div className="flex items-start gap-2.5 mb-2.5">
-        <div className="relative flex-shrink-0">
-          <Avatar name={lead.name} src={lead.avatarUrl ?? undefined} size="sm" />
-          <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${tier.dot}`} />
-        </div>
+      <div className="flex items-start gap-3">
+        <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="md" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-1">
-            <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-indigo-600 transition-colors">{lead.name}</p>
-            {lead.aiAlerts.length > 0 && (
-              <AlertCircle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex items-center justify-between gap-1">
+            <span className="font-semibold text-gray-900 text-sm truncate">{lead.name}</span>
+            <ScoreRing score={lead.leadScore} />
+          </div>
+          {lead.company && (
+            <p className="text-xs text-gray-500 truncate mt-0.5">{lead.company}</p>
+          )}
+
+          {topInterest ? (
+            <div className="mt-2 bg-indigo-50 rounded-lg p-2">
+              <p className="text-xs text-indigo-700 font-medium leading-snug line-clamp-2">
+                {topInterest.value}
+              </p>
+              {topInterest.supportingText && (
+                <p className="text-xs text-indigo-500 mt-1 italic line-clamp-1">
+                  &ldquo;{topInterest.supportingText}&rdquo;
+                </p>
+              )}
+            </div>
+          ) : lastMsg?.body ? (
+            <div className="mt-2 bg-gray-50 rounded-lg p-2">
+              <p className="text-xs text-gray-600 italic line-clamp-2">&ldquo;{lastMsg.body}&rdquo;</p>
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {lead.hasRequiresResponse && (
+              <span className="text-xs bg-red-50 text-red-600 border border-red-200 rounded-full px-2 py-0.5">
+                Needs reply
+              </span>
+            )}
+            {lead.maxUrgency !== 'low' && !lead.hasRequiresResponse && (
+              <span className={cn('text-xs rounded-full px-2 py-0.5', urgencyBadge(lead.maxUrgency))}>
+                {lead.maxUrgency}
+              </span>
+            )}
+            {lead.lastMessageAt && (
+              <span className="text-xs text-gray-400">{timeAgo(lead.lastMessageAt)}</span>
             )}
           </div>
-          {lead.company && <p className="text-[11px] text-gray-500 truncate">{lead.company}</p>}
         </div>
       </div>
 
-      {/* Score */}
-      {lead.leadScore !== undefined && (
-        <div className="mb-2.5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">AI Score</span>
-            <IntensityBadge intensity={lead.buyingIntensity} />
-          </div>
-          <ScoreMeter score={lead.leadScore} />
+      {lead.nextAction && (
+        <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-1.5">
+          <svg className="w-3 h-3 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+          <span className="text-xs text-indigo-600 font-medium">{lead.nextAction}</span>
         </div>
       )}
-
-      {/* Value row */}
-      <div className="flex items-center justify-between mb-2.5">
-        <div>
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Est. Value</p>
-          <p className="text-sm font-bold text-gray-800">{formatValue(lead.potentialValue)}</p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Close</p>
-          <p className="text-sm font-semibold text-gray-700">{lead.expectedCloseLabel}</p>
-        </div>
-      </div>
-
-      {/* Next action */}
-      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg mb-2.5 ${
-        lead.actionUrgency === 'overdue' ? 'bg-red-50 border border-red-100' :
-        lead.actionUrgency === 'today'   ? 'bg-amber-50 border border-amber-100' :
-                                           'bg-gray-50'
-      }`}>
-        {lead.actionUrgency === 'overdue' ? <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" /> :
-         lead.actionUrgency === 'today'   ? <Clock className="w-3 h-3 text-amber-500 flex-shrink-0" /> :
-                                            <Zap className="w-3 h-3 text-indigo-400 flex-shrink-0" />}
-        <span className={`text-[10px] font-medium truncate ${
-          lead.actionUrgency === 'overdue' ? 'text-red-700' :
-          lead.actionUrgency === 'today'   ? 'text-amber-700' :
-                                             'text-gray-600'
-        }`}>{lead.nextAction}</span>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-gray-50 pt-2">
-        <div className="flex items-center gap-1.5">
-          <FollowUpDot status={lead.followUpStatus} />
-          <span className="text-[10px] text-gray-400">{formatLastSeen(lead.lastMessageAt)}</span>
-        </div>
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${tier.bg} ${tier.fg}`}>
-          {tier.label}
-        </span>
-      </div>
     </button>
-  )
+  );
 }
 
-// ─── Kanban Column ────────────────────────────────────────────────────────────
+// ─── Lead detail slide-over ───────────────────────────────────────────────────
+
+function LeadDetail({
+  lead,
+  onClose,
+  onStageChange,
+  token,
+}: {
+  lead: Lead;
+  onClose: () => void;
+  onStageChange: (id: string, stage: string) => void;
+  token: string;
+}) {
+  const router = useRouter();
+  const stage = getStage(lead.pipelineStage);
+  const [updating, setUpdating] = useState(false);
+
+  async function moveStage(newStage: string) {
+    setUpdating(true);
+    try {
+      await apiClient(`/api/leads/${lead.id}/stage`, {
+        method: 'PATCH',
+        token,
+        body: { pipelineStage: newStage },
+      });
+      onStageChange(lead.id, newStage);
+    } catch {}
+    setUpdating(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+      <div className="flex-1 bg-black/30" />
+      <div
+        className="w-full max-w-md bg-white shadow-2xl overflow-y-auto flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3">
+          <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="lg" />
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-gray-900 truncate">{lead.name}</h2>
+            {lead.company && <p className="text-sm text-gray-500 truncate">{lead.company}</p>}
+          </div>
+          <button
+            onClick={() => router.push(`/contacts/${lead.id}`)}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-3 py-1.5 bg-indigo-50 rounded-lg flex-shrink-0"
+          >
+            Full profile
+          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 flex-shrink-0">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Score + stage */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <ScoreRing score={lead.leadScore} />
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Current stage</p>
+              <span className={cn('inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-full', stage.color)}>
+                <span className={cn('w-2 h-2 rounded-full', stage.dot)} />
+                {stage.label}
+              </span>
+            </div>
+            {lead.hasRequiresResponse && (
+              <span className="ml-auto text-xs bg-red-50 text-red-600 border border-red-200 rounded-full px-3 py-1.5 font-medium">
+                Needs reply
+              </span>
+            )}
+          </div>
+
+          {/* Move stage */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Move to stage</p>
+            <div className="flex flex-wrap gap-1.5">
+              {STAGES.map(s => (
+                <button
+                  key={s.key}
+                  disabled={updating || s.key === lead.pipelineStage}
+                  onClick={() => moveStage(s.key)}
+                  className={cn(
+                    'text-xs px-2.5 py-1.5 rounded-lg border transition-all',
+                    s.key === lead.pipelineStage
+                      ? cn(s.color, 'border-current font-semibold')
+                      : 'border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50',
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* What they want */}
+          {lead.interestInsights.length > 0 && (
+            <section>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">What they want</p>
+              <div className="space-y-2">
+                {lead.interestInsights.map((ins, i) => (
+                  <div key={i} className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+                    <p className="text-sm text-indigo-900 font-medium">{ins.value}</p>
+                    {ins.supportingText && (
+                      <p className="text-xs text-indigo-600 mt-1 italic">&ldquo;{ins.supportingText}&rdquo;</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 h-1 bg-indigo-100 rounded-full">
+                        <div className="h-1 bg-indigo-400 rounded-full" style={{ width: `${Math.round(ins.confidence * 100)}%` }} />
+                      </div>
+                      <span className="text-xs text-indigo-500">{Math.round(ins.confidence * 100)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Buying behaviour */}
+          {lead.profile.buyingBehaviour && (
+            <section>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Buying behaviour</p>
+              <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                <p className="text-sm text-amber-900">{lead.profile.buyingBehaviour}</p>
+              </div>
+            </section>
+          )}
+
+          {/* Pain points + goals */}
+          {(lead.profile.painPoints || lead.profile.goals) && (
+            <section className="grid grid-cols-2 gap-3">
+              {lead.profile.painPoints && (
+                <div className="bg-red-50 border border-red-100 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-red-600 mb-1">Pain points</p>
+                  <p className="text-xs text-red-800">{lead.profile.painPoints}</p>
+                </div>
+              )}
+              {lead.profile.goals && (
+                <div className="bg-green-50 border border-green-100 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-green-600 mb-1">Goals</p>
+                  <p className="text-xs text-green-800">{lead.profile.goals}</p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Products / topics */}
+          {(lead.mentionedProducts.length > 0 || lead.mentionedTopics.length > 0) && (
+            <section>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Topics &amp; products mentioned</p>
+              <div className="flex flex-wrap gap-1.5">
+                {lead.mentionedProducts.map((p, i) => (
+                  <span key={i} className="text-xs bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2.5 py-1">
+                    {p}
+                  </span>
+                ))}
+                {lead.mentionedTopics
+                  .filter(t => !lead.mentionedProducts.includes(t))
+                  .map((t, i) => (
+                    <span key={i} className="text-xs bg-gray-100 text-gray-600 rounded-full px-2.5 py-1">
+                      {t}
+                    </span>
+                  ))}
+              </div>
+            </section>
+          )}
+
+          {/* Other AI insights */}
+          {lead.insights.filter(i => !lead.interestInsights.includes(i)).slice(0, 5).length > 0 && (
+            <section>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">AI insights</p>
+              <div className="space-y-2">
+                {lead.insights.filter(i => !lead.interestInsights.includes(i)).slice(0, 5).map((ins, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm">
+                    <span className="mt-0.5 text-gray-300">•</span>
+                    <div>
+                      <span className="font-medium text-gray-700">{ins.key.replace(/_/g, ' ')}: </span>
+                      <span className="text-gray-600">{ins.value}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Recent messages */}
+          {lead.recentMessages.length > 0 && (
+            <section>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent conversation</p>
+              <div className="space-y-2">
+                {lead.recentMessages.slice(0, 4).map((msg, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      'rounded-lg p-2.5 text-xs',
+                      msg.senderType === 'contact'
+                        ? 'bg-gray-50 border border-gray-100'
+                        : 'bg-indigo-50 border border-indigo-100 ml-4',
+                    )}
+                  >
+                    <p className={cn('font-medium mb-0.5', msg.senderType === 'contact' ? 'text-gray-500' : 'text-indigo-500')}>
+                      {msg.senderType === 'contact' ? lead.name : 'You'}
+                    </p>
+                    <p className="text-gray-800 line-clamp-3">{msg.body}</p>
+                    {msg.analysis?.intent && (
+                      <p className="text-gray-400 mt-1">Intent: {msg.analysis.intent.primary}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Next action */}
+          {lead.nextAction && (
+            <section>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Next best action</p>
+              <div className="bg-indigo-600 text-white rounded-xl p-4">
+                <p className="font-semibold">{lead.nextAction}</p>
+                {lead.lastMessageAt && (
+                  <p className="text-indigo-200 text-xs mt-1">Last contact: {timeAgo(lead.lastMessageAt)}</p>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* Contact info */}
+          <section>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Contact info</p>
+            <div className="space-y-1.5 text-sm text-gray-700">
+              {lead.phone && <p>📞 {lead.phone}</p>}
+              {lead.email && <p>✉️ {lead.email}</p>}
+              {lead.company && <p>🏢 {lead.company}</p>}
+              {lead.industry && <p>🏷️ {lead.industry}</p>}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Kanban column ────────────────────────────────────────────────────────────
 
 function KanbanColumn({
   stage,
   leads,
   onLeadClick,
 }: {
-  stage: typeof STAGES[number]
-  leads: AiEnrichedLead[]
-  onLeadClick: (lead: AiEnrichedLead) => void
+  stage: typeof STAGES[0];
+  leads: Lead[];
+  onLeadClick: (l: Lead) => void;
 }) {
-  const totalValue = leads.reduce((s, l) => s + l.potentialValue, 0)
-  const [collapsed, setCollapsed] = useState(false)
-
   return (
-    <div className="flex-shrink-0 w-64 flex flex-col max-h-full">
-      {/* Column header */}
-      <div className={`flex items-center justify-between p-2.5 rounded-xl mb-2 ${stage.bg} border ${stage.border}`}>
+    <div className="flex-shrink-0 w-72 flex flex-col gap-2">
+      <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
-          <span className={`text-xs font-bold ${stage.color}`}>{stage.label}</span>
-          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/70 ${stage.color}`}>
-            {leads.length}
-          </span>
+          <span className={cn('w-2.5 h-2.5 rounded-full', stage.dot)} />
+          <span className="font-semibold text-sm text-gray-800">{stage.label}</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          {leads.length > 0 && (
-            <span className="text-[10px] text-gray-500 font-medium">{formatValue(totalValue)}</span>
-          )}
-          <button onClick={() => setCollapsed(c => !c)} className="p-0.5 rounded hover:bg-white/60 transition-colors">
-            {collapsed ? <ChevronDown className="w-3.5 h-3.5 text-gray-500" /> : <ChevronUp className="w-3.5 h-3.5 text-gray-500" />}
-          </button>
-        </div>
+        <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{leads.length}</span>
       </div>
-
-      {/* Cards */}
-      {!collapsed && (
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1" style={{ minHeight: 120 }}>
-          {leads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-24 rounded-xl border-2 border-dashed border-gray-100">
-              <p className="text-[11px] text-gray-400">No leads</p>
-            </div>
-          ) : (
-            leads.map(lead => (
-              <LeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} compact />
-            ))
-          )}
-        </div>
-      )}
+      <div className="flex flex-col gap-2 min-h-[4rem]">
+        {leads.length === 0 ? (
+          <div className="border-2 border-dashed border-gray-100 rounded-xl p-4 text-center text-xs text-gray-300">
+            No leads
+          </div>
+        ) : (
+          leads.map(lead => (
+            <LeadCard key={lead.id} lead={lead} onClick={() => onLeadClick(lead)} />
+          ))
+        )}
+      </div>
     </div>
-  )
+  );
 }
 
-// ─── Lead Detail Panel ────────────────────────────────────────────────────────
+// ─── KPI strip ────────────────────────────────────────────────────────────────
 
-function LeadDetailPanel({ lead, onClose }: { lead: AiEnrichedLead; onClose: () => void }) {
-  const router = useRouter()
-  const tier = scoreTier(lead.leadScore ?? 0)
-  const stageInfo = STAGES.find(s => s.key === lead._pipelineStage)!
+function KPIStrip({ leads }: { leads: Lead[] }) {
+  const total     = leads.length;
+  const hot       = leads.filter(l => l.leadScore >= 70).length;
+  const needReply = leads.filter(l => l.hasRequiresResponse).length;
+  const urgent    = leads.filter(l => l.maxUrgency === 'urgent' || l.maxUrgency === 'high').length;
+  const avgScore  = total ? Math.round(leads.reduce((s, l) => s + l.leadScore, 0) / total) : 0;
+
+  const kpis = [
+    { label: 'Total leads',    value: total,     sub: 'in pipeline',       alert: false, hot: false },
+    { label: 'Hot leads',      value: hot,        sub: 'score ≥ 70',        alert: false, hot: hot > 0 },
+    { label: 'Needs reply',    value: needReply,  sub: 'awaiting response', alert: needReply > 0, hot: false },
+    { label: 'High urgency',   value: urgent,     sub: 'urgent or high',    alert: urgent > 0, hot: false },
+    { label: 'Avg lead score', value: avgScore,   sub: 'out of 100',        alert: false, hot: false },
+  ];
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b border-gray-100">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500">
-          <X className="w-4 h-4" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-base font-bold text-gray-900 truncate">{lead.name}</h2>
-          {lead.company && <p className="text-xs text-gray-500 truncate">{lead.company}</p>}
-        </div>
-        <button
-          onClick={() => router.push(`/contacts/${lead.id}`)}
-          className="flex items-center gap-1.5 text-xs font-medium bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {kpis.map(kpi => (
+        <div
+          key={kpi.label}
+          className={cn(
+            'bg-white border rounded-xl p-4 shadow-sm',
+            kpi.alert ? 'border-red-200' : kpi.hot ? 'border-green-200' : 'border-gray-200',
+          )}
         >
-          Full Profile
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-
-        {/* AI Alerts */}
-        {lead.aiAlerts.length > 0 && (
-          <div className="space-y-1.5">
-            {lead.aiAlerts.map((alert, i) => (
-              <div key={i} className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                <span className="text-xs text-amber-800 font-medium">{alert}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Score + stage */}
-        <div className="bg-gray-50 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-xs text-gray-500 font-medium mb-0.5">AI Lead Score</p>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-black text-gray-900">{lead.leadScore ?? 0}</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tier.bg} ${tier.fg}`}>{tier.label}</span>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-500 font-medium mb-0.5">Pipeline</p>
-              <StagePill stage={lead._pipelineStage} />
-            </div>
-          </div>
-          <ScoreMeter score={lead.leadScore ?? 0} size="lg" />
-
-          {/* Score breakdown */}
-          <div className="mt-3 space-y-1.5">
-            {(
-              [
-                ['Intent',     lead.scoreBreakdown.intent,    30, 'bg-indigo-500'],
-                ['Budget',     lead.scoreBreakdown.budget,    25, 'bg-green-500'],
-                ['Urgency',    lead.scoreBreakdown.urgency,   20, 'bg-amber-500'],
-                ['Trust',      lead.scoreBreakdown.trust,     15, 'bg-purple-500'],
-                ['Engagement', lead.scoreBreakdown.engagement, 10, 'bg-blue-500'],
-              ] as [string, number, number, string][]
-            ).map(([label, value, max, color]) => (
-              <div key={label} className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-500 w-16 flex-shrink-0">{label}</span>
-                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${color}`} style={{ width: `${(value / max) * 100}%` }} />
-                </div>
-                <span className="text-[10px] font-bold text-gray-700 w-4 text-right">{value}</span>
-              </div>
-            ))}
-          </div>
+          <p className="text-2xl font-bold text-gray-900">{kpi.value}</p>
+          <p className="text-xs font-medium text-gray-700 mt-0.5">{kpi.label}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{kpi.sub}</p>
         </div>
-
-        {/* AI Reasoning */}
-        <div>
-          <div className="flex items-center gap-1.5 mb-2.5">
-            <Brain className="w-3.5 h-3.5 text-indigo-500" />
-            <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wide">Why this score?</h3>
-          </div>
-          <ul className="space-y-1.5">
-            {lead.aiReasoning.map((r, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0 mt-0.5" />
-                {r}
-              </li>
-            ))}
-            {lead.isEarlySignal && (
-              <li className="flex items-start gap-2 text-sm text-purple-700">
-                <Sparkles className="w-3.5 h-3.5 text-purple-400 flex-shrink-0 mt-0.5" />
-                Early buying signal — only a few messages so far
-              </li>
-            )}
-          </ul>
-        </div>
-
-        {/* Opportunity value */}
-        <div className="bg-green-50 border border-green-100 rounded-xl p-3.5">
-          <div className="flex items-center gap-1.5 mb-2">
-            <DollarSign className="w-3.5 h-3.5 text-green-600" />
-            <h3 className="text-xs font-bold text-green-800 uppercase tracking-wide">Opportunity Value</h3>
-          </div>
-          <p className="text-xl font-black text-green-800 mb-0.5">{formatValue(lead.potentialValue)}</p>
-          <p className="text-xs text-green-600">
-            Range {formatValue(lead.valueRangeLow)}–{formatValue(lead.valueRangeHigh)} · {lead.valueConfidence}% confidence
-          </p>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="flex-1 h-1.5 bg-green-200 rounded-full overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full" style={{ width: `${lead.closeProbability}%` }} />
-            </div>
-            <span className="text-xs font-bold text-green-700">{lead.closeProbability}%</span>
-          </div>
-          <p className="text-[11px] text-green-600 mt-1">Expected close: <strong>{lead.expectedCloseLabel}</strong></p>
-        </div>
-
-        {/* Next best action */}
-        <div className={`rounded-xl p-3.5 border ${
-          lead.actionUrgency === 'overdue' ? 'bg-red-50 border-red-200' :
-          lead.actionUrgency === 'today'   ? 'bg-amber-50 border-amber-200' :
-                                             'bg-indigo-50 border-indigo-100'
-        }`}>
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Target className={`w-3.5 h-3.5 ${
-              lead.actionUrgency === 'overdue' ? 'text-red-600' :
-              lead.actionUrgency === 'today' ? 'text-amber-600' : 'text-indigo-600'
-            }`} />
-            <h3 className={`text-xs font-bold uppercase tracking-wide ${
-              lead.actionUrgency === 'overdue' ? 'text-red-800' :
-              lead.actionUrgency === 'today' ? 'text-amber-800' : 'text-indigo-800'
-            }`}>Next Best Action</h3>
-          </div>
-          <p className={`text-sm font-semibold ${
-            lead.actionUrgency === 'overdue' ? 'text-red-700' :
-            lead.actionUrgency === 'today' ? 'text-amber-700' : 'text-indigo-700'
-          }`}>{lead.nextAction}</p>
-          {lead.actionUrgency !== 'normal' && (
-            <p className={`text-xs mt-1 ${lead.actionUrgency === 'overdue' ? 'text-red-600' : 'text-amber-600'}`}>
-              {lead.actionUrgency === 'overdue' ? 'Overdue — act now to prevent losing this lead' : 'Do this today'}
-            </p>
-          )}
-        </div>
-
-        {/* BANT */}
-        <div>
-          <div className="flex items-center gap-1.5 mb-2.5">
-            <Award className="w-3.5 h-3.5 text-indigo-500" />
-            <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wide">AI Qualification (BANT)</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {(
-              [
-                ['Budget', lead.bant.budget, DollarSign],
-                ['Authority', lead.bant.authority, Users],
-                ['Need', lead.bant.need, Target],
-                ['Timeline', lead.bant.timeline, Calendar],
-              ] as [string, BANTLevel, React.ElementType][]
-            ).map(([label, level, Icon]) => (
-              <div key={label} className="bg-gray-50 rounded-lg p-2.5 flex items-center gap-2">
-                <Icon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-[10px] text-gray-500">{label}</p>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${bantColor(level)}`}>{level}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Buying intensity + AI stage */}
-        <div className="bg-white border border-gray-200 rounded-xl p-3.5">
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Buying Intensity</p>
-              <IntensityBadge intensity={lead.buyingIntensity} />
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Days in Stage</p>
-              <p className="text-sm font-bold text-gray-800">{lead.daysInStage}d</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="space-y-2">
-          <button className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors">
-            <Send className="w-4 h-4" />
-            Send Quote
-          </button>
-          <div className="grid grid-cols-2 gap-2">
-            <button className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
-              <MessageSquare className="w-4 h-4" />
-              Open Chat
-            </button>
-            <button className="flex items-center justify-center gap-1.5 bg-white border border-gray-200 text-gray-700 py-2 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
-              <Phone className="w-4 h-4" />
-              Call
-            </button>
-          </div>
-          <button
-            onClick={() => router.push(`/contacts/${lead.id}`)}
-            className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
-          >
-            <Eye className="w-4 h-4" />
-            Full Contact Profile
-          </button>
-        </div>
-      </div>
+      ))}
     </div>
-  )
+  );
 }
 
-// ─── Sales Copilot ────────────────────────────────────────────────────────────
+// ─── AI signals feed ──────────────────────────────────────────────────────────
 
-const COPILOT_QUESTIONS = [
-  'Which leads should I call today?',
-  'Who is most likely to buy this week?',
-  'Which opportunities are at risk?',
-  'Why did I lose deals this month?',
-  'Who is ready for an upsell?',
-]
+function AiSignalsFeed({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l: Lead) => void }) {
+  const urgRank: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
+  const hotWithSignals = leads
+    .filter(l => l.leadScore >= 50 || l.interestInsights.length > 0 || l.hasRequiresResponse)
+    .sort((a, b) => {
+      const au = urgRank[a.maxUrgency] ?? 0;
+      const bu = urgRank[b.maxUrgency] ?? 0;
+      if (bu !== au) return bu - au;
+      return b.leadScore - a.leadScore;
+    })
+    .slice(0, 8);
 
-const COPILOT_ANSWERS: Record<string, string> = {
-  'Which leads should I call today?':
-    'Based on buying signals and recency, I recommend calling your top 3 Hot leads first — they all messaged within the last 6 hours. Leads in the Negotiating stage with overdue follow-ups should be your second priority.',
-  'Who is most likely to buy this week?':
-    'Your Negotiating-stage leads with a buy probability above 80% are most likely to close this week. Focus on those who asked about delivery or confirmed product specifications.',
-  'Which opportunities are at risk?':
-    'Leads that haven\'t received a follow-up in 72+ hours are at risk of going cold. Check your overdue follow-up indicators (red dots) and prioritise those in the Quote Sent stage.',
-  'Why did I lose deals this month?':
-    'The most common loss reason this month is delayed follow-up — leads who went 5+ days without a response overwhelmingly moved to competitors. Consider setting a 24-hour follow-up rule.',
-  'Who is ready for an upsell?':
-    'Your Won customers who haven\'t been contacted in 30+ days and have a high trust score are the best upsell candidates. They already know your product and trust your service.',
-}
-
-function SalesCopilot({ leads }: { leads: AiEnrichedLead[] }) {
-  const [open, setOpen] = useState(false)
-  const [input, setInput] = useState('')
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
-
-  const hotCount = leads.filter(l => (l.leadScore ?? 0) >= 70).length
-  const totalValue = leads.reduce((s, l) => s + l.potentialValue, 0)
-
-  function sendMessage(text: string) {
-    const q = text || input.trim()
-    if (!q) return
-    setInput('')
-    setMessages(m => [...m, { role: 'user', text: q }])
-    const answer = COPILOT_ANSWERS[q] ??
-      `Based on your current pipeline of ${leads.length} leads (${hotCount} hot, estimated ${formatValue(totalValue)} total value), I recommend focusing on your highest-scoring contacts with overdue follow-ups first.`
-    setTimeout(() => {
-      setMessages(m => [...m, { role: 'ai', text: answer }])
-    }, 600)
-  }
+  if (hotWithSignals.length === 0) return null;
 
   return (
-    <>
-      {/* Floating button */}
-      <button
-        onClick={() => setOpen(true)}
-        className={`fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 flex items-center gap-2 bg-indigo-600 text-white shadow-xl rounded-2xl px-4 py-3 hover:bg-indigo-700 transition-all ${open ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-      >
-        <Bot className="w-5 h-5" />
-        <span className="text-sm font-semibold hidden sm:inline">Sales Copilot</span>
-        {hotCount > 0 && (
-          <span className="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-px">{hotCount}</span>
-        )}
-      </button>
-
-      {/* Panel */}
-      {open && (
-        <div className="fixed bottom-0 right-0 z-50 w-full sm:w-96 sm:bottom-6 sm:right-6 sm:rounded-2xl shadow-2xl border border-gray-200 bg-white flex flex-col overflow-hidden" style={{ maxHeight: '70vh' }}>
-          {/* Panel header */}
-          <div className="flex items-center gap-2.5 p-4 bg-gradient-to-r from-indigo-600 to-violet-600">
-            <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-white">Sales Copilot</p>
-              <p className="text-[11px] text-indigo-200">Ask anything about your pipeline</p>
-            </div>
-            <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-white/20 text-white transition-colors">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {messages.length === 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-gray-500 font-medium">Suggested questions:</p>
-                {COPILOT_QUESTIONS.map(q => (
-                  <button
-                    key={q}
-                    onClick={() => sendMessage(q)}
-                    className="w-full text-left text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2 hover:bg-indigo-100 transition-colors"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            )}
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                  m.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-br-sm'
-                    : 'bg-gray-100 text-gray-800 rounded-bl-sm'
-                }`}>
-                  {m.text}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Input */}
-          <div className="border-t border-gray-100 p-3 flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && sendMessage(input)}
-              placeholder="Ask about your pipeline…"
-              className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-            />
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm">
+      <div className="px-4 pt-4 pb-2 border-b border-gray-100 flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+        <h3 className="font-semibold text-sm text-gray-900">AI Signals</h3>
+        <span className="text-xs text-gray-400 ml-auto">Hot leads with buying intent</span>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {hotWithSignals.map(lead => {
+          const topSignal = lead.interestInsights[0] ?? lead.insights[0] ?? null;
+          return (
             <button
-              onClick={() => sendMessage(input)}
-              className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              key={lead.id}
+              onClick={() => onLeadClick(lead)}
+              className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
             >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
-// ─── Revenue Forecast ─────────────────────────────────────────────────────────
-
-function RevenueForecast({ leads }: { leads: AiEnrichedLead[] }) {
-  const [expanded, setExpanded] = useState(false)
-
-  const weekLeads  = leads.filter(l => l.expectedCloseLabel === 'Today' || l.expectedCloseLabel === 'This Week')
-  const monthLeads = leads.filter(l => l.expectedCloseLabel !== 'Uncertain')
-  const weekValue  = weekLeads.reduce((s, l) => s + l.potentialValue * (l.closeProbability / 100), 0)
-  const monthValue = monthLeads.reduce((s, l) => s + l.potentialValue * (l.closeProbability / 100), 0)
-
-  const stages = STAGES.filter(s => s.key !== 'lost')
-  const stageCounts = stages.map(s => ({
-    ...s,
-    count: leads.filter(l => l._pipelineStage === s.key).length,
-  }))
-  const maxCount = Math.max(1, ...stageCounts.map(s => s.count))
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mx-4 md:mx-6 mb-3">
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <BarChart2 className="w-4 h-4 text-indigo-500" />
-          <span className="text-sm font-bold text-gray-800">Revenue Forecast</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500 hidden sm:inline">
-            This week: <strong className="text-gray-800">{formatValue(Math.round(weekValue / 1000) * 1000)}</strong>
-            &nbsp;·&nbsp;
-            This month: <strong className="text-gray-800">{formatValue(Math.round(monthValue / 1000) * 1000)}</strong>
-          </span>
-          {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-gray-100 p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-            <div className="bg-indigo-50 rounded-xl p-3">
-              <p className="text-[11px] text-indigo-600 font-medium mb-0.5">This Week</p>
-              <p className="text-lg font-black text-indigo-800">{formatValue(Math.round(weekValue / 100) * 100)}</p>
-            </div>
-            <div className="bg-green-50 rounded-xl p-3">
-              <p className="text-[11px] text-green-600 font-medium mb-0.5">This Month</p>
-              <p className="text-lg font-black text-green-800">{formatValue(Math.round(monthValue / 100) * 100)}</p>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 col-span-2 sm:col-span-1">
-              <p className="text-[11px] text-gray-600 font-medium mb-0.5">Pipeline Total</p>
-              <p className="text-lg font-black text-gray-800">{formatValue(leads.reduce((s, l) => s + l.potentialValue, 0))}</p>
-            </div>
-          </div>
-
-          {/* Stage distribution bar chart */}
-          <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mb-2">Stage Distribution</p>
-          <div className="space-y-1.5">
-            {stageCounts.filter(s => s.count > 0).map(s => (
-              <div key={s.key} className="flex items-center gap-2">
-                <span className={`text-[10px] w-20 flex-shrink-0 font-medium ${s.color}`}>{s.label}</span>
-                <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${s.bar}`}
-                    style={{ width: `${(s.count / maxCount) * 100}%` }}
-                  />
+              <div className="flex items-center gap-3">
+                <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-gray-900 truncate">{lead.name}</span>
+                    {lead.hasRequiresResponse && (
+                      <span className="text-xs bg-red-100 text-red-600 rounded-full px-1.5 py-0.5 flex-shrink-0">
+                        Reply
+                      </span>
+                    )}
+                    {lead.maxUrgency !== 'low' && !lead.hasRequiresResponse && (
+                      <span className={cn('text-xs rounded-full px-1.5 py-0.5 flex-shrink-0', urgencyBadge(lead.maxUrgency))}>
+                        {lead.maxUrgency}
+                      </span>
+                    )}
+                    <span className={cn('text-xs font-bold ml-auto', scoreColor(lead.leadScore))}>
+                      {lead.leadScore}
+                    </span>
+                  </div>
+                  {topSignal ? (
+                    <p className="text-xs text-gray-600 truncate mt-0.5">{topSignal.value}</p>
+                  ) : lead.lastContactMessage?.body ? (
+                    <p className="text-xs text-gray-500 truncate mt-0.5 italic">
+                      &ldquo;{lead.lastContactMessage.body}&rdquo;
+                    </p>
+                  ) : null}
                 </div>
-                <span className="text-[11px] font-bold text-gray-700 w-4 text-right">{s.count}</span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </button>
+          );
+        })}
+      </div>
     </div>
-  )
+  );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Empty state ──────────────────────────────────────────────────────────────
+
+function EmptyState() {
+  const router = useRouter();
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4">
+        <svg className="w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-1">No leads yet</h3>
+      <p className="text-sm text-gray-500 mb-6 max-w-sm">
+        Contacts become leads when they have a pipeline stage, lead score, or are marked as lead or prospect.
+      </p>
+      <button
+        onClick={() => router.push('/contacts')}
+        className="px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
+      >
+        Go to contacts
+      </button>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function LeadsPage() {
-  const session = useZuriSession()
-  const router = useRouter()
-  const token = session.data?.accessToken
+  const { data: session } = useZuriSession();
+  const token = session?.token ?? '';
 
-  const [search, setSearch] = useState('')
-  const [stageFilter, setStageFilter] = useState<StageFilter>('all')
-  const [pipelineFilter, setPipelineFilter] = useState<PipelineStage | 'all'>('all')
-  const [sort, setSort] = useState<SortKey>('score')
-  const [viewMode, setViewMode] = useState<ViewMode>('kanban')
-  const [selectedLead, setSelectedLead] = useState<AiEnrichedLead | null>(null)
-  const [showAiFeed, setShowAiFeed] = useState(true)
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
-  const [showFilters, setShowFilters] = useState(false)
+  const [leads, setLeads]       = useState<Lead[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState<string | null>(null);
+  const [selected, setSelected] = useState<Lead | null>(null);
+  const [view, setView]         = useState<'kanban' | 'list'>('kanban');
+  const [filter, setFilter]     = useState<string>('all');
+  const [search, setSearch]     = useState('');
 
-  const { data, loading, error } = useApi<{ contacts: Lead[] }>('/api/contacts', token)
-  const allContacts = data?.contacts ?? []
-  const rawLeads = allContacts.filter(c => c.leadScore !== undefined)
-
-  const enrichedLeads = useMemo(() => rawLeads.map(enrichLead), [rawLeads])
-
-  // KPI metrics
-  const kpis = useMemo(() => {
-    const hot = enrichedLeads.filter(l => (l.leadScore ?? 0) >= 70)
-    const waitingFollowup = enrichedLeads.filter(l => l.followUpStatus !== 'on_track')
-    const totalValue = enrichedLeads.reduce((s, l) => s + l.potentialValue, 0)
-    const won = enrichedLeads.filter(l => l._pipelineStage === 'won')
-    const closed = enrichedLeads.filter(l => l._pipelineStage === 'won' || l._pipelineStage === 'lost')
-    const convRate = closed.length > 0 ? Math.round((won.length / closed.length) * 100) : 0
-    const avgConfidence = enrichedLeads.length > 0
-      ? Math.round(enrichedLeads.reduce((s, l) => s + l.valueConfidence, 0) / enrichedLeads.length)
-      : 0
-    return {
-      total: enrichedLeads.length,
-      hot: hot.length,
-      waitingFollowup: waitingFollowup.length,
-      totalValue,
-      convRate,
-      avgConfidence,
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiClient<{ leads: Lead[] }>('/api/leads', { token });
+      setLeads(data.leads);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load leads');
+    } finally {
+      setLoading(false);
     }
-  }, [enrichedLeads])
+  }, [token]);
 
-  // AI Sales Feed items (hot + very high + early signals, not dismissed)
-  const feedLeads = useMemo(() =>
-    enrichedLeads
-      .filter(l => !dismissedIds.has(l.id) && (
-        l.buyingIntensity === 'Extreme' ||
-        l.buyingIntensity === 'Very High' ||
-        l.isEarlySignal ||
-        l.actionUrgency === 'overdue'
-      ))
-      .sort((a, b) => (b.leadScore ?? 0) - (a.leadScore ?? 0))
-      .slice(0, 8),
-    [enrichedLeads, dismissedIds]
-  )
+  useEffect(() => { load(); }, [load]);
 
-  // Filtered + sorted leads
-  const filteredLeads = useMemo(() => {
-    let result = enrichedLeads.filter(l => {
-      if (search) {
-        const q = search.toLowerCase()
-        const match = l.name.toLowerCase().includes(q) ||
-          (l.company ?? '').toLowerCase().includes(q) ||
-          (l.phone ?? '').includes(q)
-        if (!match) return false
-      }
-      const score = l.leadScore ?? 0
-      if (stageFilter === 'hot'  && score < 70) return false
-      if (stageFilter === 'warm' && (score < 40 || score >= 70)) return false
-      if (stageFilter === 'cold' && score >= 40) return false
-      if (pipelineFilter !== 'all' && l._pipelineStage !== pipelineFilter) return false
-      return true
-    })
-    return [...result].sort((a, b) => {
-      if (sort === 'score') return (b.leadScore ?? 0) - (a.leadScore ?? 0)
-      if (sort === 'value') return b.potentialValue - a.potentialValue
-      if (sort === 'name')  return a.name.localeCompare(b.name)
-      const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0
-      const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0
-      return tb - ta
-    })
-  }, [enrichedLeads, search, stageFilter, pipelineFilter, sort])
-
-  const dismissFeedLead = useCallback((id: string) => {
-    setDismissedIds(s => new Set([...s, id]))
-  }, [])
-
-  // ─── Loading state ──────────────────────────────────────────────────────────
-
-  if (session.status === 'loading' || loading) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="p-4 md:p-6 border-b border-gray-100">
-          <div className="h-8 w-32 bg-gray-200 rounded-lg animate-pulse mb-1" />
-          <div className="h-4 w-48 bg-gray-100 rounded animate-pulse" />
-        </div>
-        <div className="p-4 md:p-6">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            {Array.from({ length: 6 }, (_, i) => (
-              <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />
-            ))}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)}
-          </div>
-        </div>
-      </div>
-    )
+  function handleStageChange(id: string, newStage: string) {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, pipelineStage: newStage } : l));
+    setSelected(prev => (prev?.id === id ? { ...prev, pipelineStage: newStage } : prev));
   }
 
-  // ─── Main render ────────────────────────────────────────────────────────────
+  const filtered = leads.filter(l => {
+    if (search) {
+      const q = search.toLowerCase();
+      if (
+        !l.name.toLowerCase().includes(q) &&
+        !(l.company ?? '').toLowerCase().includes(q) &&
+        !l.tags.some(t => t.includes(q))
+      ) return false;
+    }
+    if (filter === 'hot')         return l.leadScore >= 70;
+    if (filter === 'needs_reply') return l.hasRequiresResponse;
+    if (filter === 'urgent')      return l.maxUrgency === 'urgent' || l.maxUrgency === 'high';
+    if (filter === 'no_profile')  return !l.profile.buyingBehaviour && !l.interestInsights.length;
+    return true;
+  });
+
+  const byStage: Record<string, Lead[]> = {};
+  for (const s of STAGES) byStage[s.key] = [];
+  for (const lead of filtered) {
+    const key = lead.pipelineStage ?? 'new_lead';
+    (byStage[key] ?? byStage['new_lead']).push(lead);
+  }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Page header ── */}
-      <div className="bg-white border-b border-gray-100 px-4 md:px-6 pt-4 pb-3 flex-shrink-0">
-        <div className="flex items-start justify-between gap-3 mb-3">
+    <div className="min-h-screen bg-gray-50">
+      <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-screen-2xl mx-auto space-y-5">
+
+        {/* Header */}
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-black text-gray-900">Leads</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {enrichedLeads.length > 0 ? `${enrichedLeads.length} leads · ${kpis.hot} hot · ${formatValue(kpis.totalValue)} pipeline` : 'AI-powered sales pipeline'}
-            </p>
+            <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
+            <p className="text-sm text-gray-500 mt-0.5">AI-enriched sales pipeline from your WhatsApp conversations</p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowAiFeed(f => !f)}
-              className={`hidden md:flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors ${
-                showAiFeed ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-600'
-              }`}
+              onClick={() => setView('kanban')}
+              title="Kanban"
+              className={cn(
+                'p-2 rounded-lg border transition-colors',
+                view === 'kanban'
+                  ? 'bg-white border-indigo-300 text-indigo-600 shadow-sm'
+                  : 'border-gray-200 text-gray-400 hover:text-gray-700',
+              )}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              AI Feed
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 0v10m0-10a2 2 0 012 2h2a2 2 0 012-2V7" />
+              </svg>
             </button>
-            <button className="hidden sm:flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
-              <Download className="w-3.5 h-3.5" />
-              Export
+            <button
+              onClick={() => setView('list')}
+              title="List"
+              className={cn(
+                'p-2 rounded-lg border transition-colors',
+                view === 'list'
+                  ? 'bg-white border-indigo-300 text-indigo-600 shadow-sm'
+                  : 'border-gray-200 text-gray-400 hover:text-gray-700',
+              )}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
             </button>
-            <button className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
-              <Plus className="w-3.5 h-3.5" />
-              New Lead
+            <button
+              onClick={load}
+              disabled={loading}
+              title="Refresh"
+              className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50"
+            >
+              <svg className={cn('w-5 h-5', loading && 'animate-spin')} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
             </button>
           </div>
         </div>
 
-        {/* Search + filters row */}
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-            <input
-              type="search"
-              placeholder="Search by name, company, phone…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
-            />
-          </div>
-          <button
-            onClick={() => setShowFilters(f => !f)}
-            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors ${showFilters ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-gray-200 text-gray-600'}`}
-          >
-            <Filter className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Filters</span>
-          </button>
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value as SortKey)}
-            className="text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 flex-shrink-0"
-          >
-            <option value="score">Score ↓</option>
-            <option value="value">Value ↓</option>
-            <option value="recent">Recent</option>
-            <option value="name">Name</option>
-          </select>
-          {/* View toggle (desktop) */}
-          <div className="hidden md:flex items-center border border-gray-200 rounded-lg overflow-hidden bg-white">
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium transition-colors ${viewMode === 'kanban' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Kanban
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium transition-colors ${viewMode === 'list' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              List
-            </button>
-          </div>
-        </div>
-
-        {/* Filter panel */}
-        {showFilters && (
-          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-            {/* Hot/Warm/Cold */}
-            <div className="flex items-center gap-1.5">
-              {(['all', 'hot', 'warm', 'cold'] as StageFilter[]).map(s => (
-                <button
-                  key={s}
-                  onClick={() => setStageFilter(s)}
-                  className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
-                    stageFilter === s ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-                </button>
-              ))}
-            </div>
-            <div className="w-px h-5 bg-gray-200" />
-            {/* Pipeline stage */}
-            <select
-              value={pipelineFilter}
-              onChange={e => setPipelineFilter(e.target.value as PipelineStage | 'all')}
-              className="text-xs bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All stages</option>
-              {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-            </select>
-          </div>
-        )}
-      </div>
-
-      <FeatureGate
-        modes={['business', 'hybrid']}
-        fallback={
-          <div className="flex-1 flex items-center justify-center p-6">
-            <div className="text-center max-w-sm">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center mx-auto mb-4">
-                <Flame className="w-8 h-8 text-indigo-500" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Leads is a Business feature</h3>
-              <p className="text-sm text-gray-500 mb-5">Switch to Business or Hybrid mode to access AI lead scoring and pipeline management.</p>
-              <a href="/settings" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
-                Go to Settings
-              </a>
-            </div>
-          </div>
-        }
-      >
-        {/* ── KPI strip ── */}
-        {enrichedLeads.length > 0 && (
-          <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-3 flex-shrink-0">
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {[
-                { label: 'Total Leads',         value: kpis.total,                           icon: <Users className="w-4 h-4" />,       fg: 'text-gray-600',   bg: 'bg-gray-50' },
-                { label: 'Hot Leads',            value: kpis.hot,                             icon: <Flame className="w-4 h-4" />,       fg: 'text-red-600',    bg: 'bg-red-50' },
-                { label: 'Need Follow-up',       value: kpis.waitingFollowup,                icon: <Clock className="w-4 h-4" />,       fg: 'text-amber-600',  bg: 'bg-amber-50' },
-                { label: 'Pipeline Value',       value: formatValue(kpis.totalValue),         icon: <DollarSign className="w-4 h-4" />, fg: 'text-green-600',  bg: 'bg-green-50' },
-                { label: 'Conversion Rate',      value: `${kpis.convRate}%`,                  icon: <TrendingUp className="w-4 h-4" />, fg: 'text-indigo-600', bg: 'bg-indigo-50' },
-                { label: 'AI Confidence',        value: `${kpis.avgConfidence}%`,             icon: <Brain className="w-4 h-4" />,       fg: 'text-purple-600', bg: 'bg-purple-50' },
-              ].map(k => (
-                <div key={k.label} className={`${k.bg} rounded-xl p-2.5`}>
-                  <div className={`flex items-center gap-1 mb-1 ${k.fg}`}>
-                    {k.icon}
-                    <span className="text-[10px] font-medium text-gray-500 truncate">{k.label}</span>
-                  </div>
-                  <p className="text-base font-black text-gray-900 tabular-nums">{k.value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Error / empty ── */}
         {error && (
-          <div className="p-4 md:p-6">
-            <EmptyState
-              icon={<AlertTriangle className="w-10 h-10 text-amber-400" />}
-              title="Couldn't load leads"
-              description="Make sure the API server is running."
-            />
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl p-4 flex items-center gap-3">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            {error}
           </div>
         )}
 
-        {!error && enrichedLeads.length === 0 && (
-          <div className="flex-1 flex items-center justify-center p-6">
-            <div className="text-center max-w-sm">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center mx-auto mb-4 shadow-lg">
-                <Sparkles className="w-8 h-8 text-white" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Zuri is listening for leads</h3>
-              <p className="text-sm text-gray-500 mb-5">
-                As soon as buying signals appear in your WhatsApp conversations — a price question, a delivery request, a catalogue enquiry — Zuri will detect the lead and show it here automatically.
-              </p>
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-left mb-5">
-                <p className="text-xs font-bold text-indigo-800 mb-2">What Zuri detects:</p>
-                <ul className="space-y-1">
-                  {[
-                    'Pricing questions',
-                    'Delivery or stock enquiries',
-                    'Requests for quotes or catalogues',
-                    'Budget mentions',
-                    'Urgent buying language',
-                  ].map(item => (
-                    <li key={item} className="flex items-center gap-2 text-xs text-indigo-700">
-                      <CheckCircle className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
-                <Plus className="w-4 h-4" />
-                Add Lead Manually
-              </button>
-            </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <svg className="w-8 h-8 text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
           </div>
-        )}
+        ) : leads.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <>
+            <KPIStrip leads={leads} />
 
-        {!error && enrichedLeads.length > 0 && (
-          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-            {/* Revenue forecast */}
-            <div className="flex-shrink-0 pt-3">
-              <RevenueForecast leads={enrichedLeads} />
+            {/* Search + filters */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[160px] max-w-xs">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search leads…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+              {([
+                { key: 'all',         label: 'All' },
+                { key: 'hot',         label: 'Hot' },
+                { key: 'needs_reply', label: 'Needs reply' },
+                { key: 'urgent',      label: 'Urgent' },
+                { key: 'no_profile',  label: 'No signals' },
+              ] as { key: string; label: string }[]).map(f => {
+                const count =
+                  f.key === 'hot'         ? leads.filter(l => l.leadScore >= 70).length :
+                  f.key === 'needs_reply' ? leads.filter(l => l.hasRequiresResponse).length :
+                  f.key === 'urgent'      ? leads.filter(l => l.maxUrgency === 'urgent' || l.maxUrgency === 'high').length :
+                  f.key === 'no_profile'  ? leads.filter(l => !l.profile.buyingBehaviour && !l.interestInsights.length).length :
+                  null;
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={cn(
+                      'text-sm px-3 py-2 rounded-lg border transition-colors',
+                      filter === f.key
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-200',
+                    )}
+                  >
+                    {f.label}
+                    {count !== null && (
+                      <span className="ml-1.5 text-xs opacity-70">{count}</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* ── AI Sales Feed (mobile — collapsible banner) ── */}
-            {feedLeads.length > 0 && (
-              <div className="md:hidden flex-shrink-0 mx-4 mb-3">
-                <details className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl overflow-hidden">
-                  <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer list-none">
-                    <Sparkles className="w-4 h-4 text-white" />
-                    <span className="text-sm font-bold text-white flex-1">AI Sales Feed</span>
-                    <span className="bg-white/25 text-white text-[10px] font-bold rounded-full px-2 py-0.5">{feedLeads.length}</span>
-                  </summary>
-                  <div className="px-3 pb-3 space-y-2 bg-gray-50 border-t border-indigo-500/30">
-                    <div className="pt-2" />
-                    {feedLeads.map(lead => (
-                      <AiSalesFeedCard
-                        key={lead.id}
-                        lead={lead}
-                        onOpen={() => setSelectedLead(lead)}
-                        onDismiss={() => dismissFeedLead(lead.id)}
-                      />
-                    ))}
-                  </div>
-                </details>
-              </div>
-            )}
-
-            {/* ── Main content area ── */}
-            <div className="flex-1 overflow-hidden flex gap-0">
-
-              {/* Kanban / List */}
-              <div className="flex-1 overflow-hidden flex flex-col min-w-0">
-
-                {/* Kanban (desktop md+, if viewMode === kanban) */}
-                {viewMode === 'kanban' && (
-                  <div className="hidden md:flex flex-1 overflow-x-auto gap-3 px-4 md:px-6 pb-4 pt-1 min-h-0" style={{ alignItems: 'flex-start' }}>
-                    {STAGES.map(stage => (
-                      <KanbanColumn
-                        key={stage.key}
-                        stage={stage}
-                        leads={filteredLeads.filter(l => l._pipelineStage === stage.key)}
-                        onLeadClick={setSelectedLead}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* List view (always on mobile, optional on desktop) */}
-                <div className={`flex-1 overflow-y-auto px-4 md:px-6 pb-4 pt-1 ${viewMode === 'kanban' ? 'md:hidden' : ''}`}>
-                  {filteredLeads.length === 0 ? (
-                    <EmptyState
-                      icon={<Search className="w-10 h-10 text-gray-400" />}
-                      title="No leads match"
-                      description={search ? `No results for "${search}"` : 'Try changing the filter.'}
-                    />
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                      {filteredLeads.map(lead => (
-                        <LeadCard key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />
+            {/* Main content */}
+            <div className="flex gap-5">
+              <div className="flex-1 min-w-0">
+                {view === 'kanban' ? (
+                  <div className="overflow-x-auto pb-4">
+                    <div className="flex gap-4 min-w-max">
+                      {STAGES.map(stage => (
+                        <KanbanColumn
+                          key={stage.key}
+                          stage={stage}
+                          leads={byStage[stage.key] ?? []}
+                          onLeadClick={setSelected}
+                        />
                       ))}
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* ── AI Sales Feed sidebar (desktop) ── */}
-              {showAiFeed && feedLeads.length > 0 && (
-                <div className="hidden md:flex flex-col w-72 flex-shrink-0 border-l border-gray-100 overflow-y-auto">
-                  <div className="sticky top-0 bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-3 flex items-center gap-2 z-10">
-                    <Sparkles className="w-4 h-4 text-white" />
-                    <span className="text-sm font-bold text-white flex-1">AI Sales Feed</span>
-                    <span className="bg-white/25 text-white text-[10px] font-bold rounded-full px-2 py-0.5">{feedLeads.length}</span>
                   </div>
-                  <div className="p-3 space-y-3 flex-1">
-                    {feedLeads.map(lead => (
-                      <AiSalesFeedCard
-                        key={lead.id}
-                        lead={lead}
-                        onOpen={() => setSelectedLead(lead)}
-                        onDismiss={() => dismissFeedLead(lead.id)}
-                      />
-                    ))}
-                    {feedLeads.length === 0 && (
-                      <div className="flex flex-col items-center justify-center py-12">
-                        <CheckCircle className="w-8 h-8 text-green-400 mb-2" />
-                        <p className="text-xs text-gray-500 text-center">All caught up — no urgent leads right now.</p>
+                ) : (
+                  <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                    {filtered.length === 0 ? (
+                      <div className="p-8 text-center text-sm text-gray-400">No leads match this filter.</div>
+                    ) : (
+                      <div className="divide-y divide-gray-50">
+                        {filtered.map(lead => {
+                          const stg = getStage(lead.pipelineStage);
+                          const topInsight = lead.interestInsights[0] ?? lead.insights[0] ?? null;
+                          return (
+                            <button
+                              key={lead.id}
+                              onClick={() => setSelected(lead)}
+                              className="w-full text-left px-4 py-3.5 hover:bg-gray-50 transition-colors flex items-center gap-4"
+                            >
+                              <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="md" />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-900 text-sm truncate">{lead.name}</span>
+                                  {lead.company && (
+                                    <span className="text-xs text-gray-400 truncate hidden sm:block">{lead.company}</span>
+                                  )}
+                                </div>
+                                {topInsight ? (
+                                  <p className="text-xs text-gray-500 truncate mt-0.5">{topInsight.value}</p>
+                                ) : lead.lastContactMessage?.body ? (
+                                  <p className="text-xs text-gray-400 italic truncate mt-0.5">
+                                    &ldquo;{lead.lastContactMessage.body}&rdquo;
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                <span className={cn('hidden sm:inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full', stg.color)}>
+                                  <span className={cn('w-1.5 h-1.5 rounded-full', stg.dot)} />
+                                  {stg.label}
+                                </span>
+                                {lead.hasRequiresResponse && (
+                                  <span className="text-xs bg-red-50 text-red-600 border border-red-100 rounded-full px-2 py-0.5">
+                                    Reply
+                                  </span>
+                                )}
+                                <ScoreRing score={lead.leadScore} />
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                )}
+              </div>
 
-        {/* ── Lead detail panel ── */}
-        {selectedLead && (
-          <>
-            <div
-              className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30"
-              onClick={() => setSelectedLead(null)}
-            />
-            <div className="fixed top-0 right-0 bottom-0 z-40 w-full sm:w-96 shadow-2xl border-l border-gray-200 bg-white flex flex-col overflow-hidden">
-              <LeadDetailPanel lead={selectedLead} onClose={() => setSelectedLead(null)} />
+              {/* AI signals sidebar — desktop only */}
+              <div className="hidden lg:block w-80 flex-shrink-0">
+                <AiSignalsFeed leads={filtered} onLeadClick={setSelected} />
+              </div>
+            </div>
+
+            {/* AI signals below on mobile */}
+            <div className="lg:hidden">
+              <AiSignalsFeed leads={filtered} onLeadClick={setSelected} />
             </div>
           </>
         )}
+      </div>
 
-        {/* ── Sales Copilot ── */}
-        <SalesCopilot leads={enrichedLeads} />
-      </FeatureGate>
+      {/* Lead detail slide-over */}
+      {selected && (
+        <LeadDetail
+          lead={selected}
+          onClose={() => setSelected(null)}
+          onStageChange={handleStageChange}
+          token={token}
+        />
+      )}
     </div>
-  )
+  );
 }

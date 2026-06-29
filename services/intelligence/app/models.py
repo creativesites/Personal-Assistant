@@ -74,3 +74,8 @@ class ContactProfileUpdate(BaseModel):
     known_triggers: list[str]
     current_life_context: str
     mood_baseline: str
+    buying_behaviour: str = ''
+    pain_points: str = ''
+    goals: str = ''
+    preferences: str = ''
+    relationship_stage: str = ''

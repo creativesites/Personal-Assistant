@@ -101,17 +101,38 @@ class ContactProfiler:
                 INSERT INTO contact_profiles (
                     contact_id, user_id, personality_summary, communication_style,
                     emotional_patterns, known_triggers, current_life_context,
-                    mood_baseline, last_analyzed_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    mood_baseline, buying_behaviour, pain_points, goals,
+                    preferences, relationship_stage, last_analyzed_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
                 ON CONFLICT (contact_id) DO UPDATE SET
-                    personality_summary = EXCLUDED.personality_summary,
-                    communication_style = EXCLUDED.communication_style,
-                    emotional_patterns = EXCLUDED.emotional_patterns,
-                    known_triggers = EXCLUDED.known_triggers,
+                    personality_summary  = EXCLUDED.personality_summary,
+                    communication_style  = EXCLUDED.communication_style,
+                    emotional_patterns   = EXCLUDED.emotional_patterns,
+                    known_triggers       = EXCLUDED.known_triggers,
                     current_life_context = EXCLUDED.current_life_context,
-                    mood_baseline = EXCLUDED.mood_baseline,
-                    last_analyzed_at = NOW(),
-                    updated_at = NOW()
+                    mood_baseline        = EXCLUDED.mood_baseline,
+                    buying_behaviour     = CASE
+                        WHEN $9 != '' THEN EXCLUDED.buying_behaviour
+                        ELSE contact_profiles.buying_behaviour
+                    END,
+                    pain_points          = CASE
+                        WHEN $10 != '' THEN EXCLUDED.pain_points
+                        ELSE contact_profiles.pain_points
+                    END,
+                    goals                = CASE
+                        WHEN $11 != '' THEN EXCLUDED.goals
+                        ELSE contact_profiles.goals
+                    END,
+                    preferences          = CASE
+                        WHEN $12 != '' THEN EXCLUDED.preferences
+                        ELSE contact_profiles.preferences
+                    END,
+                    relationship_stage   = CASE
+                        WHEN $13 != '' THEN EXCLUDED.relationship_stage
+                        ELSE contact_profiles.relationship_stage
+                    END,
+                    last_analyzed_at     = NOW(),
+                    updated_at           = NOW()
                 """,
                 contact_id,
                 user_id,
@@ -121,6 +142,11 @@ class ContactProfiler:
                 profile_model.known_triggers,
                 profile_model.current_life_context,
                 profile_model.mood_baseline,
+                profile_model.buying_behaviour or '',
+                profile_model.pain_points or '',
+                profile_model.goals or '',
+                profile_model.preferences or '',
+                profile_model.relationship_stage or '',
             )
 
             # Retire old insights, write fresh batch
@@ -133,13 +159,14 @@ class ContactProfiler:
             for insight in insights_model.insights:
                 await conn.execute(
                     'INSERT INTO contact_insights'
-                    ' (contact_id, user_id, insight_key, insight_value, confidence)'
-                    ' VALUES ($1, $2, $3, $4, $5)',
+                    ' (contact_id, user_id, insight_key, insight_value, confidence, supporting_text)'
+                    ' VALUES ($1, $2, $3, $4, $5, $6)',
                     contact_id,
                     user_id,
                     insight.key,
                     insight.value,
                     insight.confidence,
+                    insight.supporting_text or None,
                 )
 
         log.info('contact_profiled', contact_id=contact_id, insights=len(insights_model.insights))

@@ -51,29 +51,40 @@ Return ONLY valid JSON:
 """
 
 EXTRACT_CONTACT_INSIGHTS = """\
-Based on these recent WhatsApp messages from {contact_name} to {user_name}, extract psychological and behavioral insights about {contact_name}.
+Based on these recent WhatsApp messages from {contact_name} to {user_name}, extract specific, evidence-based insights about {contact_name}.
 
 Messages:
 {messages_text}
 
-Extract specific, evidence-based insights. Return ONLY valid JSON:
+Extract insights covering BOTH personal/behavioral AND commercial/business signals. Return ONLY valid JSON:
 {{
   "insights": [
     {{
       "key": "snake_case_key",
-      "value": "specific observation",
+      "value": "specific, concrete observation",
       "confidence": 0.0,
-      "supporting_text": "direct quote from messages"
+      "supporting_text": "exact direct quote from messages that supports this insight"
     }}
   ]
 }}
 
-Focus on: communication patterns, emotional tendencies, values, interests, relationship dynamics, behavioral patterns.
-Only include insights with confidence > 0.5. Maximum 10 insights.
+Focus on:
+- Products, services, or items they have asked about or expressed interest in
+- Budget, price, or payment mentions (e.g. "how much", "can you do K5000")
+- Delivery, timeline, or urgency signals (e.g. "I need it by Friday")
+- Quantity or volume requests (e.g. "15 pieces", "bulk order")
+- Comparisons or competitor mentions
+- Decision-making signals (hesitation, confirmed interest, ready to buy)
+- Communication patterns and preferred style
+- Personal interests, hobbies, values
+- Emotional tendencies and relationship dynamics
+
+Only include insights with confidence > 0.5. Maximum 12 insights.
+The supporting_text MUST be a verbatim quote from the messages — never paraphrase.
 """
 
 BUILD_CONTACT_PROFILE = """\
-Synthesize a psychological profile of {contact_name} based on their WhatsApp communication patterns with {user_name}.
+Synthesize a comprehensive profile of {contact_name} based on their WhatsApp communication with {user_name}.
 
 Messages analyzed: {message_count}
 Time range: {date_range}
@@ -84,12 +95,17 @@ Sample messages:
 
 Return ONLY valid JSON:
 {{
-  "personality_summary": "2-3 sentence personality overview",
-  "communication_style": "how they communicate (direct/indirect, formal/casual, verbose/terse, etc.)",
+  "personality_summary": "2-3 sentence overview of who this person is based on how they communicate",
+  "communication_style": "how they communicate (direct/indirect, formal/casual, verbose/terse, response speed, emoji use)",
   "emotional_patterns": {{"primary_emotions": [], "emotional_triggers": [], "coping_style": ""}},
-  "known_triggers": ["list of things that upset or energize them"],
-  "current_life_context": "what's going on in their life based on recent messages",
-  "mood_baseline": "generally positive|neutral|negative|variable"
+  "known_triggers": ["things that upset, energize, or strongly motivate them"],
+  "current_life_context": "what appears to be going on in their life or business right now",
+  "mood_baseline": "positive|neutral|negative|variable",
+  "buying_behaviour": "describe their purchase patterns — impulsive or deliberate, price-sensitive or value-focused, decision speed, what motivates them to buy. Leave empty string if no commercial signals found.",
+  "pain_points": "key problems, frustrations, or unmet needs evident from their messages. Leave empty string if unclear.",
+  "goals": "what they appear to be trying to achieve — business, personal, or both. Leave empty string if unclear.",
+  "preferences": "communication preferences, product preferences, scheduling preferences, etc. Leave empty string if unclear.",
+  "relationship_stage": "how far along the relationship is: new_contact|building_rapport|established|trusted_partner|at_risk|dormant"
 }}
 """
 
