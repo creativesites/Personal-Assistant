@@ -41,6 +41,9 @@ interface Contact {
   phone?: string
   email?: string
   company?: string
+  jobTitle?: string
+  industry?: string
+  notes?: string
   customerStatus?: string
   pipelineStage?: string
   avatarUrl: string | null
@@ -57,6 +60,23 @@ interface Contact {
   leadScore: number
   insightCount: number
   pendingActions: number
+}
+
+function calcCompleteness(c: Contact): number {
+  const fields = [!!c.phone, !!c.email, !!c.company, !!c.jobTitle, !!c.industry, !!c.notes, c.tags.length > 0, !!c.profile?.personalitySummary]
+  return Math.round((fields.filter(Boolean).length / fields.length) * 100)
+}
+
+function CompletenessChip({ pct }: { pct: number }) {
+  const cls = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-400' : 'bg-gray-300'
+  return (
+    <div className="flex items-center gap-1.5" title={`Profile ${pct}% complete`}>
+      <div className="w-12 h-1.5 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
+        <div className={`h-full rounded-full transition-all ${cls}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] text-gray-400 font-medium tabular-nums">{pct}%</span>
+    </div>
+  )
 }
 
 type SortKey = 'health' | 'recent' | 'name' | 'lead'
@@ -614,6 +634,7 @@ export default function ContactsPage() {
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Relationship</th>
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">AI</th>
+                    <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden xl:table-cell">Profile</th>
                     {mode !== 'personal' && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Lead</th>}
                     <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Last active</th>
                     <th className="w-16 px-3 py-3" />
@@ -675,6 +696,9 @@ export default function ContactsPage() {
                               </span>
                             )}
                           </div>
+                        </td>
+                        <td className="px-3 py-3.5 hidden xl:table-cell">
+                          <CompletenessChip pct={calcCompleteness(contact)} />
                         </td>
                         {mode !== 'personal' && (
                           <td className="px-3 py-3.5">
@@ -756,6 +780,10 @@ export default function ContactsPage() {
                           <Zap size={9} /> {contact.pendingActions} action{contact.pendingActions > 1 ? 's' : ''}
                         </span>
                       )}
+                    </div>
+                    {/* Completeness bar */}
+                    <div className="pt-2">
+                      <CompletenessChip pct={calcCompleteness(contact)} />
                     </div>
                   </button>
                 )

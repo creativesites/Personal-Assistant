@@ -16,6 +16,9 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         co.avatar_url,
         co.email,
         co.company,
+        co.job_title,
+        co.industry,
+        co.notes,
         co.customer_status,
         co.pipeline_stage,
         co.lead_score,
@@ -55,6 +58,9 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         phone: r.phone_number,
         email: r.email,
         company: r.company,
+        jobTitle: r.job_title,
+        industry: r.industry,
+        notes: r.notes,
         avatarUrl: r.avatar_url,
         customerStatus: r.customer_status,
         pipelineStage: r.pipeline_stage,
@@ -454,5 +460,195 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (!rowCount) return reply.code(404).send({ error: 'Clock not found' });
     return reply.send({ ok: true });
+  });
+
+  // ── Tasks — list ──────────────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/tasks', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, title, description, due_date, completed_at, created_by, sort_order, created_at
+       FROM contact_tasks
+       WHERE contact_id = $1 AND user_id = $2
+       ORDER BY completed_at IS NOT NULL ASC, due_date ASC NULLS LAST, sort_order ASC, created_at ASC`,
+      [id, userId],
+    );
+
+    return reply.send({ tasks: rows.map((r: any) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      dueDate: r.due_date,
+      completedAt: r.completed_at,
+      createdBy: r.created_by,
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+    })) });
+  });
+
+  // ── Tasks — create ────────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/tasks', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { title?: string; description?: string; dueDate?: string };
+
+    if (!body.title?.trim()) return reply.code(400).send({ error: 'title is required' });
+
+    const { rows: [task] } = await db.query(
+      `INSERT INTO contact_tasks (user_id, contact_id, title, description, due_date)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, title, description, due_date, completed_at, created_by, created_at`,
+      [userId, id, body.title.trim(), body.description ?? null, body.dueDate ?? null],
+    );
+
+    return reply.code(201).send({ task: {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      dueDate: task.due_date,
+      completedAt: task.completed_at,
+      createdBy: task.created_by,
+      createdAt: task.created_at,
+    } });
+  });
+
+  // ── Tasks — update ────────────────────────────────────────────────────────
+  fastify.patch('/api/contacts/:id/tasks/:taskId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, taskId } = request.params as { id: string; taskId: string };
+    const body = request.body as { title?: string; description?: string; dueDate?: string; completed?: boolean };
+
+    const sets: string[] = [];
+    const values: unknown[] = [taskId, userId, id];
+    let idx = 4;
+
+    if (body.title !== undefined)       { sets.push(`title = $${idx++}`);       values.push(body.title.trim()); }
+    if (body.description !== undefined) { sets.push(`description = $${idx++}`); values.push(body.description || null); }
+    if (body.dueDate !== undefined)     { sets.push(`due_date = $${idx++}`);    values.push(body.dueDate || null); }
+    if (body.completed !== undefined)   {
+      sets.push(`completed_at = $${idx++}`);
+      values.push(body.completed ? new Date().toISOString() : null);
+    }
+
+    if (sets.length === 0) return reply.code(400).send({ error: 'Nothing to update' });
+    sets.push('updated_at = NOW()');
+
+    const { rowCount } = await db.query(
+      `UPDATE contact_tasks SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2 AND contact_id = $3`,
+      values,
+    );
+
+    if (!rowCount) return reply.code(404).send({ error: 'Task not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Tasks — delete ────────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/tasks/:taskId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, taskId } = request.params as { id: string; taskId: string };
+
+    await db.query(
+      'DELETE FROM contact_tasks WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [taskId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Context pins — list ───────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/context', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, content, sort_order, created_at
+       FROM contact_context_pins
+       WHERE contact_id = $1 AND user_id = $2
+       ORDER BY sort_order ASC, created_at ASC`,
+      [id, userId],
+    );
+
+    return reply.send({ pins: rows.map((r: any) => ({ id: r.id, content: r.content, createdAt: r.created_at })) });
+  });
+
+  // ── Context pins — create ─────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/context', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { content?: string };
+
+    if (!body.content?.trim()) return reply.code(400).send({ error: 'content is required' });
+
+    const { rows: [pin] } = await db.query(
+      `INSERT INTO contact_context_pins (user_id, contact_id, content)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (contact_id, user_id, content) DO UPDATE SET updated_at = NOW()
+       RETURNING id, content, created_at`,
+      [userId, id, body.content.trim()],
+    );
+
+    return reply.code(201).send({ pin: { id: pin.id, content: pin.content, createdAt: pin.created_at } });
+  });
+
+  // ── Context pins — delete ─────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/context/:pinId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, pinId } = request.params as { id: string; pinId: string };
+
+    await db.query(
+      'DELETE FROM contact_context_pins WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [pinId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Contact messages ──────────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/messages', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT id FROM conversations WHERE contact_id = $1 AND user_id = $2 LIMIT 1',
+      [id, userId],
+    );
+
+    if (!conv) return reply.send({ messages: [], conversationId: null });
+
+    const { rows } = await db.query(
+      `SELECT
+        m.id,
+        m.sender_type,
+        m.message_type,
+        m.body,
+        m.whatsapp_timestamp,
+        m.media_url,
+        m.media_mime_type,
+        m.transcription,
+        m.quoted_message_id,
+        (SELECT COUNT(*) FROM suggested_replies sr WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
+       FROM messages m
+       WHERE m.conversation_id = $1 AND m.is_deleted = false
+       ORDER BY m.whatsapp_timestamp ASC
+       LIMIT 100`,
+      [conv.id],
+    );
+
+    return reply.send({
+      conversationId: conv.id,
+      messages: rows.map((m: any) => ({
+        id: m.id,
+        senderType: m.sender_type,
+        messageType: m.message_type,
+        body: m.body,
+        timestamp: m.whatsapp_timestamp,
+        mediaUrl: m.media_url,
+        mediaMimeType: m.media_mime_type,
+        transcription: m.transcription,
+        quotedMessageId: m.quoted_message_id,
+        pendingSuggestions: parseInt(m.pending_suggestions, 10),
+      })),
+    });
   });
 }

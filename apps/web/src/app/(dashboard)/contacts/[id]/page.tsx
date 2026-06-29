@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -37,11 +37,30 @@ import {
   Plane,
   PartyPopper,
   Bell,
+  CheckSquare,
+  Square,
+  Plus,
+  Pin,
+  PinOff,
+  Target,
+  TrendingUp as Upsell,
+  RefreshCw,
+  ShoppingCart,
+  MapPin,
+  Download,
+  Music,
+  Film,
+  Image,
+  Mic,
+  FileText,
+  Send,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { Avatar, Badge, HealthBar, SkeletonCard, useToast } from '@/components/ui'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +139,35 @@ interface ContactDetail {
   }>
 }
 
+interface Task {
+  id: string
+  title: string
+  description: string | null
+  dueDate: string | null
+  completedAt: string | null
+  createdBy: 'user' | 'ai'
+  createdAt: string
+}
+
+interface ContextPin {
+  id: string
+  content: string
+  createdAt: string
+}
+
+interface Message {
+  id: string
+  senderType: 'user' | 'contact'
+  messageType?: string
+  body: string | null
+  timestamp: string
+  mediaUrl?: string | null
+  mediaMimeType?: string | null
+  transcription?: string | null
+  quotedMessageId?: string | null
+  pendingSuggestions: number
+}
+
 interface EditForm {
   name: string
   phoneNumber: string
@@ -161,6 +209,19 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   celebration: <PartyPopper size={13} className="text-amber-500" />,
   appointment: <Calendar size={13} className="text-indigo-500" />,
   deadline:    <Bell size={13} className="text-orange-500" />,
+}
+
+const OPPORTUNITY_KEYS = ['buying_signal', 'purchase_intent', 'interest', 'opportunity', 'upsell', 'cross_sell', 'renewal', 'churn_risk']
+
+const OPPORTUNITY_CONFIG: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
+  upsell:         { label: 'Upsell',      cls: 'bg-green-50 text-green-700 border-green-200',  Icon: Upsell },
+  cross_sell:     { label: 'Cross-sell',  cls: 'bg-blue-50 text-blue-700 border-blue-200',     Icon: ShoppingCart },
+  renewal:        { label: 'Renewal',     cls: 'bg-indigo-50 text-indigo-700 border-indigo-200', Icon: RefreshCw },
+  buying_signal:  { label: 'Buying',      cls: 'bg-amber-50 text-amber-700 border-amber-200',  Icon: Zap },
+  purchase_intent:{ label: 'Intent',      cls: 'bg-amber-50 text-amber-700 border-amber-200',  Icon: Target },
+  interest:       { label: 'Interest',    cls: 'bg-purple-50 text-purple-700 border-purple-200', Icon: Sparkles },
+  opportunity:    { label: 'Opportunity', cls: 'bg-teal-50 text-teal-700 border-teal-200',     Icon: Target },
+  churn_risk:     { label: 'Churn Risk',  cls: 'bg-red-50 text-red-700 border-red-200',        Icon: Bell },
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -222,16 +283,117 @@ function moodColor(mood: string | null) {
   return 'bg-blue-50 text-blue-700 border-blue-200'
 }
 
+function calcCompleteness(contact: ContactDetail): number {
+  const fields = [
+    !!contact.phoneNumber,
+    !!contact.email,
+    !!contact.company,
+    !!contact.jobTitle,
+    !!contact.industry,
+    !!contact.notes,
+    contact.tags.length > 0,
+    !!contact.profile?.personalitySummary,
+  ]
+  const filled = fields.filter(Boolean).length
+  return Math.round((filled / fields.length) * 100)
+}
+
+function mediaHref(url: string | null | undefined, token: string | undefined): string {
+  if (!url) return ''
+  const base = url.startsWith('http') ? url : `${API_BASE}${url}`
+  return token ? `${base}?token=${token}` : base
+}
+
+// ─── MessageContent ───────────────────────────────────────────────────────────
+
+function MessageContent({ msg, token }: { msg: Message; token?: string }) {
+  const href = mediaHref(msg.mediaUrl, token)
+  const mt = msg.messageType ?? 'text'
+
+  if (mt === 'deleted') return <p className="text-xs italic text-gray-400">This message was deleted</p>
+
+  if (mt === 'location') {
+    try {
+      const loc = JSON.parse(msg.body ?? '{}')
+      return (
+        <a href={`https://maps.google.com/?q=${loc.lat},${loc.lng}`} target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-sm text-indigo-600 hover:underline">
+          <MapPin size={13} /> {loc.name ?? `${loc.lat}, ${loc.lng}`}
+        </a>
+      )
+    } catch { return <p className="text-sm text-gray-700">📍 Location</p> }
+  }
+
+  if (mt === 'contact_card') return (
+    <p className="flex items-center gap-1.5 text-sm text-gray-700">
+      <Phone size={12} className="text-gray-400" /> {msg.body ?? 'Contact'}
+    </p>
+  )
+
+  if (mt === 'image' || mt === 'sticker') {
+    return (
+      <div className="space-y-1">
+        {href ? (
+          <img src={href} alt="" className="rounded-lg max-w-[200px] max-h-[200px] object-cover" />
+        ) : (
+          <div className="flex items-center gap-1.5 text-sm text-gray-400"><Image size={13} /> Photo</div>
+        )}
+        {msg.body && <p className="text-xs text-gray-600">{msg.body}</p>}
+      </div>
+    )
+  }
+
+  if (mt === 'video') {
+    return (
+      <div className="space-y-1">
+        {href ? (
+          <video src={href} controls className="rounded-lg max-w-[200px]" style={{ maxHeight: 160 }} />
+        ) : (
+          <div className="flex items-center gap-1.5 text-sm text-gray-400"><Film size={13} /> Video</div>
+        )}
+        {msg.body && <p className="text-xs text-gray-600">{msg.body}</p>}
+      </div>
+    )
+  }
+
+  if (mt === 'audio') {
+    return (
+      <div className="space-y-1">
+        {href ? (
+          <audio src={href} controls className="max-w-[220px]" />
+        ) : (
+          <div className="flex items-center gap-1.5 text-sm text-gray-400"><Mic size={13} /> Voice message</div>
+        )}
+        {msg.transcription && <p className="text-xs text-gray-500 italic">"{msg.transcription}"</p>}
+      </div>
+    )
+  }
+
+  if (mt === 'document') {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-gray-100 transition-colors">
+        <FileText size={14} className="text-gray-400" />
+        <span className="truncate max-w-[160px]">{msg.body ?? 'Document'}</span>
+        <Download size={12} className="text-gray-400 flex-shrink-0" />
+      </a>
+    )
+  }
+
+  return <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.body ?? ''}</p>
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SectionCard({ title, icon, children, className, accent }: {
-  title: string; icon?: React.ReactNode; children: React.ReactNode; className?: string; accent?: boolean
+function SectionCard({ title, icon, children, className, accent, action }: {
+  title: string; icon?: React.ReactNode; children: React.ReactNode; className?: string; accent?: boolean; action?: React.ReactNode
 }) {
   return (
     <div className={`bg-white rounded-xl border overflow-hidden ${accent ? 'border-indigo-100' : 'border-gray-200'} ${className ?? ''}`}>
       <div className={`flex items-center gap-2 px-5 py-3.5 border-b ${accent ? 'border-indigo-50 bg-indigo-50/30' : 'border-gray-100'}`}>
         {icon && <span className={accent ? 'text-indigo-500' : 'text-gray-400'}>{icon}</span>}
         <p className={`text-xs font-semibold uppercase tracking-wide ${accent ? 'text-indigo-700' : 'text-gray-500'}`}>{title}</p>
+        {action && <div className="ml-auto">{action}</div>}
       </div>
       <div className="p-5">{children}</div>
     </div>
@@ -263,6 +425,18 @@ function HealthRing({ score }: { score: number }) {
   )
 }
 
+function CompletenessBar({ pct }: { pct: number }) {
+  const color = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-400' : 'bg-gray-300'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] text-gray-400 font-medium flex-shrink-0">{pct}%</span>
+    </div>
+  )
+}
+
 function InfoRow({ icon, label, value, href }: {
   icon: React.ReactNode; label: string; value: string | null | undefined; href?: string
 }) {
@@ -278,6 +452,318 @@ function InfoRow({ icon, label, value, href }: {
         ) : (
           <p className="text-sm text-gray-800 break-words">{value}</p>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Tasks panel ─────────────────────────────────────────────────────────────
+
+function TasksPanel({ contactId, token }: { contactId: string; token: string }) {
+  const { addToast } = useToast()
+  const { data, refetch } = useApi<{ tasks: Task[] }>(`/api/contacts/${contactId}/tasks`, token)
+  const tasks = data?.tasks ?? []
+  const [adding, setAdding] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newDue, setNewDue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
+
+  const addTask = async () => {
+    if (!newTitle.trim()) return
+    setSaving(true)
+    try {
+      await apiClient(`/api/contacts/${contactId}/tasks`, {
+        method: 'POST', token,
+        body: JSON.stringify({ title: newTitle.trim(), dueDate: newDue || undefined }),
+      })
+      setNewTitle(''); setNewDue(''); setAdding(false)
+      refetch()
+    } catch { addToast({ variant: 'error', title: 'Failed to add task' }) }
+    finally { setSaving(false) }
+  }
+
+  const toggleTask = async (task: Task) => {
+    try {
+      await apiClient(`/api/contacts/${contactId}/tasks/${task.id}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({ completed: !task.completedAt }),
+      })
+      refetch()
+    } catch { addToast({ variant: 'error', title: 'Failed to update task' }) }
+  }
+
+  const deleteTask = async (taskId: string) => {
+    try {
+      await apiClient(`/api/contacts/${contactId}/tasks/${taskId}`, { method: 'DELETE', token })
+      refetch()
+    } catch { addToast({ variant: 'error', title: 'Failed to delete task' }) }
+  }
+
+  const open = tasks.filter(t => !t.completedAt)
+  const done = tasks.filter(t => t.completedAt)
+
+  return (
+    <div className="space-y-2">
+      {tasks.length === 0 && !adding && (
+        <p className="text-sm text-gray-400 py-1">No tasks yet.</p>
+      )}
+
+      {open.map(task => (
+        <div key={task.id} className="flex items-start gap-3 group py-1.5">
+          <button onClick={() => toggleTask(task)} className="mt-0.5 flex-shrink-0 text-gray-300 hover:text-indigo-500 transition-colors">
+            <Square size={16} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-gray-800 leading-snug">{task.title}</p>
+            {task.dueDate && (
+              <p className={`text-[11px] mt-0.5 font-medium ${
+                new Date(task.dueDate) < new Date() ? 'text-red-500' : 'text-gray-400'
+              }`}>Due {formatDate(task.dueDate)}</p>
+            )}
+          </div>
+          {task.createdBy === 'ai' && (
+            <span className="text-[10px] bg-indigo-50 text-indigo-500 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">AI</span>
+          )}
+          <button onClick={() => deleteTask(task.id)}
+            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all flex-shrink-0">
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+
+      {adding && (
+        <div className="flex items-start gap-2 pt-1">
+          <div className="flex-1 space-y-2">
+            <input
+              ref={inputRef}
+              value={newTitle}
+              onChange={e => setNewTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addTask(); if (e.key === 'Escape') { setAdding(false); setNewTitle('') } }}
+              placeholder="Task description…"
+              className="w-full text-sm border border-indigo-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <input
+              type="date"
+              value={newDue}
+              onChange={e => setNewDue(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-600"
+            />
+            <div className="flex items-center gap-2">
+              <button onClick={addTask} disabled={!newTitle.trim() || saving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                Add task
+              </button>
+              <button onClick={() => { setAdding(false); setNewTitle(''); setNewDue('') }}
+                className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!adding && (
+        <button onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium mt-1 transition-colors">
+          <Plus size={12} /> Add task
+        </button>
+      )}
+
+      {done.length > 0 && (
+        <details className="mt-3">
+          <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+            {done.length} completed task{done.length > 1 ? 's' : ''}
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {done.map(task => (
+              <div key={task.id} className="flex items-start gap-3 group py-1 opacity-60">
+                <button onClick={() => toggleTask(task)} className="mt-0.5 flex-shrink-0 text-indigo-400 hover:text-gray-300 transition-colors">
+                  <CheckSquare size={16} />
+                </button>
+                <p className="text-sm text-gray-500 line-through flex-1">{task.title}</p>
+                <button onClick={() => deleteTask(task.id)}
+                  className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all">
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+// ─── Context Pins panel ───────────────────────────────────────────────────────
+
+function ContextPinsPanel({ contactId, token }: { contactId: string; token: string }) {
+  const { addToast } = useToast()
+  const { data, refetch } = useApi<{ pins: ContextPin[] }>(`/api/contacts/${contactId}/context`, token)
+  const pins = data?.pins ?? []
+  const [adding, setAdding] = useState(false)
+  const [newContent, setNewContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
+
+  const addPin = async () => {
+    if (!newContent.trim()) return
+    setSaving(true)
+    try {
+      await apiClient(`/api/contacts/${contactId}/context`, {
+        method: 'POST', token, body: JSON.stringify({ content: newContent.trim() }),
+      })
+      setNewContent(''); setAdding(false)
+      refetch()
+    } catch { addToast({ variant: 'error', title: 'Failed to save' }) }
+    finally { setSaving(false) }
+  }
+
+  const deletePin = async (pinId: string) => {
+    try {
+      await apiClient(`/api/contacts/${contactId}/context/${pinId}`, { method: 'DELETE', token })
+      refetch()
+    } catch { addToast({ variant: 'error', title: 'Failed to delete' }) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-gray-400 leading-relaxed">
+        Pinned facts injected into every AI response for this contact.
+      </p>
+
+      {pins.length === 0 && !adding && (
+        <p className="text-sm text-gray-400 py-1">No context pins yet.</p>
+      )}
+
+      {pins.map(pin => (
+        <div key={pin.id} className="flex items-start gap-2.5 group py-1.5 px-3 bg-amber-50 border border-amber-100 rounded-lg">
+          <Pin size={11} className="text-amber-400 flex-shrink-0 mt-1" />
+          <p className="flex-1 text-sm text-amber-900 leading-snug">{pin.content}</p>
+          <button onClick={() => deletePin(pin.id)}
+            className="opacity-0 group-hover:opacity-100 text-amber-300 hover:text-red-400 transition-all flex-shrink-0">
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="space-y-2 pt-1">
+          <textarea
+            ref={inputRef}
+            value={newContent}
+            onChange={e => setNewContent(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) addPin() }}
+            placeholder="e.g. Allergic to peanuts · Prefers morning calls · Budget approved Q3"
+            rows={2}
+            className="w-full text-sm border border-amber-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none bg-amber-50/50"
+          />
+          <div className="flex items-center gap-2">
+            <button onClick={addPin} disabled={!newContent.trim() || saving}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-amber-500 rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors">
+              {saving ? <Loader2 size={11} className="animate-spin" /> : <Pin size={11} />}
+              Pin it
+            </button>
+            <button onClick={() => { setAdding(false); setNewContent('') }}
+              className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-800 font-medium mt-1 transition-colors">
+          <Pin size={12} /> Add context
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─── Messages tab ─────────────────────────────────────────────────────────────
+
+function MessagesTab({ contactId, token }: { contactId: string; token: string }) {
+  const { data, loading } = useApi<{ messages: Message[]; conversationId: string | null }>(
+    `/api/contacts/${contactId}/messages`, token,
+  )
+  const messages = data?.messages ?? []
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length])
+
+  if (loading) return (
+    <div className="space-y-3 p-2">
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'}`}>
+          <div className="h-8 w-48 bg-gray-200 rounded-2xl animate-pulse" />
+        </div>
+      ))}
+    </div>
+  )
+
+  if (messages.length === 0) return (
+    <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+      <MessageSquare size={32} className="text-gray-300 mx-auto mb-3" />
+      <p className="text-sm font-medium text-gray-700">No messages yet</p>
+      <p className="text-xs text-gray-400 mt-1">Start a conversation in the Inbox.</p>
+      <Link href="/inbox"
+        className="inline-flex items-center gap-1.5 px-4 py-2 mt-4 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+        <MessageSquare size={14} /> Open Inbox
+      </Link>
+    </div>
+  )
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          {messages.length} messages
+        </p>
+        {data?.conversationId && (
+          <Link href="/inbox" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
+            Open in inbox <ChevronRight size={11} />
+          </Link>
+        )}
+      </div>
+      <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto">
+        {messages.map((msg, idx) => {
+          const isUser = msg.senderType === 'user'
+          const prevMsg = idx > 0 ? messages[idx - 1] : null
+          const showDate = !prevMsg || new Date(msg.timestamp).toDateString() !== new Date(prevMsg.timestamp).toDateString()
+          return (
+            <div key={msg.id}>
+              {showDate && (
+                <div className="flex items-center justify-center my-3">
+                  <span className="text-[10px] text-gray-400 bg-gray-50 px-3 py-1 rounded-full border border-gray-100">
+                    {new Date(msg.timestamp).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+              )}
+              <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] rounded-2xl px-3.5 py-2.5 ${
+                  isUser
+                    ? 'bg-indigo-600 text-white rounded-br-sm'
+                    : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+                }`}>
+                  <div className={isUser ? '[&_p]:text-white [&_a]:text-indigo-200' : ''}>
+                    <MessageContent msg={msg} token={token} />
+                  </div>
+                  <p className={`text-[10px] mt-1 text-right ${isUser ? 'text-indigo-300' : 'text-gray-400'}`}>
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        <div ref={bottomRef} />
       </div>
     </div>
   )
@@ -360,26 +846,18 @@ function EditSlideOver({
             <div className="space-y-3">
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Display Name</span>
-                <input
-                  value={form.name} onChange={set('name')}
-                  placeholder={contact.displayName ?? contact.phoneNumber ?? ''}
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input value={form.name} onChange={set('name')} placeholder={contact.displayName ?? contact.phoneNumber ?? ''}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Phone Number</span>
-                <input
-                  type="tel" value={form.phoneNumber} onChange={set('phoneNumber')}
-                  placeholder="+260971234567"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input type="tel" value={form.phoneNumber} onChange={set('phoneNumber')} placeholder="+260971234567"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Status</span>
-                <select
-                  value={form.customerStatus} onChange={set('customerStatus')}
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
+                <select value={form.customerStatus} onChange={set('customerStatus')}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   {CUSTOMER_STATUS_OPTIONS.map(s => (
                     <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                   ))}
@@ -393,19 +871,13 @@ function EditSlideOver({
             <div className="space-y-3">
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Email</span>
-                <input
-                  type="email" value={form.email} onChange={set('email')}
-                  placeholder="email@example.com"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input type="email" value={form.email} onChange={set('email')} placeholder="email@example.com"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Website</span>
-                <input
-                  type="url" value={form.website} onChange={set('website')}
-                  placeholder="https://"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input type="url" value={form.website} onChange={set('website')} placeholder="https://"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
             </div>
           </div>
@@ -415,27 +887,18 @@ function EditSlideOver({
             <div className="space-y-3">
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Company</span>
-                <input
-                  value={form.company} onChange={set('company')}
-                  placeholder="Company name"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input value={form.company} onChange={set('company')} placeholder="Company name"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Job Title</span>
-                <input
-                  value={form.jobTitle} onChange={set('jobTitle')}
-                  placeholder="e.g. Owner, Manager"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input value={form.jobTitle} onChange={set('jobTitle')} placeholder="e.g. Owner, Manager"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Industry</span>
-                <input
-                  value={form.industry} onChange={set('industry')}
-                  placeholder="e.g. Retail, Construction"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input value={form.industry} onChange={set('industry')} placeholder="e.g. Retail, Construction"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
             </div>
           </div>
@@ -445,47 +908,33 @@ function EditSlideOver({
             <div className="space-y-3">
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Stage</span>
-                <select
-                  value={form.pipelineStage} onChange={set('pipelineStage')}
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
+                <select value={form.pipelineStage} onChange={set('pipelineStage')}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s || 'None'}</option>)}
                 </select>
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 block mb-1">Lead Score (0–100)</span>
-                <input
-                  type="number" min={0} max={100}
-                  value={form.leadScore} onChange={set('leadScore')}
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+                <input type="number" min={0} max={100} value={form.leadScore} onChange={set('leadScore')}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
             </div>
           </div>
 
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Notes</p>
-            <textarea
-              value={form.notes} onChange={set('notes')}
-              rows={5}
+            <textarea value={form.notes} onChange={set('notes')} rows={5}
               placeholder="Private notes about this contact…"
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-            />
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
             Cancel
           </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-          >
+          <button onClick={save} disabled={saving}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
@@ -555,11 +1004,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
   const contact = contactData?.contact
 
-  const tabs: { id: TabId; label: string; show?: boolean }[] = [
-    { id: 'overview',     label: 'Overview'                              },
-    { id: 'intelligence', label: 'AI Intelligence'                       },
-    { id: 'timeline',     label: 'Health History'                        },
-    { id: 'messages',     label: 'Messages'                              },
+  const tabs: { id: TabId; label: string }[] = [
+    { id: 'overview',     label: 'Overview'       },
+    { id: 'intelligence', label: 'AI Intelligence' },
+    { id: 'timeline',     label: 'Health History'  },
+    { id: 'messages',     label: 'Messages'        },
   ]
 
   if (session.status === 'loading' || loading) {
@@ -602,12 +1051,14 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const TrendIcon= trend.Icon
   const TierIcon = TIER_ICON[contact.relationship.importanceTier] ?? User
   const tierLabel= TIER_LABEL[contact.relationship.importanceTier] ?? 'Contact'
+  const completeness = calcCompleteness(contact)
 
   const responseRatio = contact.stats.totalMessages > 0
     ? Math.round((contact.stats.received / contact.stats.totalMessages) * 100)
     : 0
 
   const buyingSignals      = contact.insights.filter(i => ['buying_signal','purchase_intent','interest','opportunity'].includes(i.key))
+  const opportunityFlags   = contact.insights.filter(i => OPPORTUNITY_KEYS.includes(i.key))
   const personalityInsights= contact.insights.filter(i => ['personality','communication_style','preference','behavior'].includes(i.key))
   const otherInsights      = contact.insights.filter(i =>
     !buyingSignals.find(b => b.key === i.key) && !personalityInsights.find(p => p.key === i.key)
@@ -687,7 +1138,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         {contact.pipelineStage}
                       </span>
                     )}
-                    {/* AI badges in hero */}
                     {hasAiProfile && (
                       <span className="inline-flex items-center gap-1 text-xs bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded-full">
                         <Brain size={9} /> AI profiled
@@ -701,11 +1151,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                     {contact.tags.map(tag => (
                       <span key={tag} className="inline-flex items-center gap-1 text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 pl-2 pr-1 py-0.5 rounded-full">
                         <Tag size={9} />{tag}
-                        <button
-                          onClick={() => removeTag(tag)}
-                          className="text-indigo-300 hover:text-indigo-600 transition-colors ml-0.5"
-                          title={`Remove tag "${tag}"`}
-                        >
+                        <button onClick={() => removeTag(tag)}
+                          className="text-indigo-300 hover:text-indigo-600 transition-colors ml-0.5" title={`Remove tag "${tag}"`}>
                           <X size={10} />
                         </button>
                       </span>
@@ -713,9 +1160,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                     {showTagInput ? (
                       <span className="inline-flex items-center gap-1">
                         <input
-                          autoFocus
-                          value={tagInput}
-                          onChange={e => setTagInput(e.target.value)}
+                          autoFocus value={tagInput} onChange={e => setTagInput(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Enter') addTag(); if (e.key === 'Escape') { setShowTagInput(false); setTagInput('') } }}
                           placeholder="tag name"
                           className="text-xs border border-indigo-300 rounded-full px-2 py-0.5 w-24 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
@@ -728,10 +1173,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         </button>
                       </span>
                     ) : (
-                      <button
-                        onClick={() => setShowTagInput(true)}
-                        className="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-indigo-600 border border-dashed border-gray-200 hover:border-indigo-300 px-2 py-0.5 rounded-full transition-colors"
-                      >
+                      <button onClick={() => setShowTagInput(true)}
+                        className="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-indigo-600 border border-dashed border-gray-200 hover:border-indigo-300 px-2 py-0.5 rounded-full transition-colors">
                         <Tag size={9} /> + tag
                       </button>
                     )}
@@ -745,6 +1188,17 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${trend.bg} ${trend.cls}`}>
                   <TrendIcon size={11} /> {trend.label}
                 </span>
+              </div>
+
+              {/* Completeness */}
+              <div className="mt-3 max-w-xs">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Profile completeness</p>
+                  {completeness < 100 && (
+                    <button onClick={() => setShowEdit(true)} className="text-[10px] text-indigo-500 hover:underline">Fill in →</button>
+                  )}
+                </div>
+                <CompletenessBar pct={completeness} />
               </div>
 
               <div className="mt-3 flex items-center gap-4 flex-wrap">
@@ -795,7 +1249,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
         {/* ── Tabs ── */}
         <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 md:px-6 overflow-x-auto">
           <div className="max-w-3xl mx-auto flex gap-0">
-            {tabs.filter(t => t.show !== false).map(tab => (
+            {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -811,6 +1265,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                     {aiInsightCount}
                   </span>
                 )}
+                {tab.id === 'messages' && contact.stats.totalMessages > 0 && (
+                  <span className="ml-1.5 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-bold">
+                    {contact.stats.totalMessages}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -823,7 +1282,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {/* ══ OVERVIEW ══ */}
             {activeTab === 'overview' && (
               <>
-                {/* 1. AI INTELLIGENCE HUB — always first */}
+                {/* 1. AI INTELLIGENCE HUB */}
                 <div className={`rounded-xl border p-5 ${
                   hasAiProfile
                     ? 'bg-gradient-to-br from-indigo-50 via-purple-50 to-violet-50 border-indigo-100'
@@ -844,7 +1303,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   {hasAiProfile ? (
                     <>
                       <p className="text-sm text-indigo-900 leading-relaxed">{contact.profile!.personalitySummary}</p>
-
                       <div className="mt-3 flex flex-wrap gap-2">
                         {contact.profile!.moodBaseline && (
                           <span className={`inline-flex items-center gap-1 text-xs border px-2.5 py-1 rounded-full font-medium ${moodColor(contact.profile!.moodBaseline)}`}>
@@ -857,36 +1315,16 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                           </span>
                         )}
                         {aiInsightCount > 0 && (
-                          <button
-                            onClick={() => setActiveTab('intelligence')}
-                            className="inline-flex items-center gap-1 text-xs bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-50 transition-colors"
-                          >
+                          <button onClick={() => setActiveTab('intelligence')}
+                            className="inline-flex items-center gap-1 text-xs bg-white text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-50 transition-colors">
                             <Sparkles size={10} /> {aiInsightCount} insights
                           </button>
                         )}
                       </div>
-
                       {contact.profile!.currentLifeContext && (
                         <div className="mt-3 pt-3 border-t border-indigo-100">
                           <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Current Context</p>
                           <p className="text-sm text-indigo-800 leading-relaxed">{contact.profile!.currentLifeContext}</p>
-                        </div>
-                      )}
-
-                      {(contact.profile!.emotionalPatterns || contact.profile!.knownTriggers) && (
-                        <div className="mt-3 pt-3 border-t border-indigo-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {contact.profile!.emotionalPatterns && (
-                            <div>
-                              <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Emotional Patterns</p>
-                              <p className="text-xs text-indigo-800 leading-relaxed">{contact.profile!.emotionalPatterns}</p>
-                            </div>
-                          )}
-                          {contact.profile!.knownTriggers && (
-                            <div>
-                              <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mb-1">Known Triggers</p>
-                              <p className="text-xs text-indigo-800 leading-relaxed">{contact.profile!.knownTriggers}</p>
-                            </div>
-                          )}
                         </div>
                       )}
                     </>
@@ -905,7 +1343,33 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   )}
                 </div>
 
-                {/* 2. NEXT BEST ACTION — proactive suggestion */}
+                {/* 2. OPPORTUNITY FLAGS */}
+                {opportunityFlags.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Opportunity Flags</p>
+                    <div className="flex flex-wrap gap-2">
+                      {opportunityFlags.map((insight, i) => {
+                        const cfg = OPPORTUNITY_CONFIG[insight.key] ?? OPPORTUNITY_CONFIG.opportunity
+                        const Icon = cfg.Icon
+                        return (
+                          <div key={i} title={insight.value}
+                            className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border ${cfg.cls} cursor-default`}>
+                            <Icon size={11} />
+                            {cfg.label}
+                            <span className="text-[10px] opacity-70 ml-0.5">{Math.round(insight.confidence * 100)}%</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {opportunityFlags.length > 0 && (
+                      <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+                        {opportunityFlags[0].value}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* 3. NEXT BEST ACTION */}
                 {topSuggestion && (
                   <div className="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden">
                     <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-100 bg-amber-100/50">
@@ -925,10 +1389,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         </div>
                       )}
                       <div className="mt-3 flex items-center justify-between">
-                        <Link
-                          href="/proactive"
-                          className="text-xs text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium"
-                        >
+                        <Link href="/proactive"
+                          className="text-xs text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium">
                           View all in Proactive Queue <ChevronRight size={11} />
                         </Link>
                         {contact.proactiveSuggestions.length > 1 && (
@@ -941,7 +1403,25 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                 )}
 
-                {/* 3. BUYING SIGNALS — if any exist */}
+                {/* 4. TASKS */}
+                {token && (
+                  <SectionCard title="Tasks" icon={<CheckSquare size={14} />}
+                    action={
+                      <span className="text-[10px] text-gray-400">track follow-ups</span>
+                    }>
+                    <TasksPanel contactId={id} token={token} />
+                  </SectionCard>
+                )}
+
+                {/* 5. IMPORTANT CONTEXT */}
+                {token && (
+                  <SectionCard title="Important Context" icon={<Pin size={14} />}
+                    action={<span className="text-[10px] text-amber-500 font-medium">injected into AI</span>}>
+                    <ContextPinsPanel contactId={id} token={token} />
+                  </SectionCard>
+                )}
+
+                {/* 6. BUYING SIGNALS */}
                 {buyingSignals.length > 0 && (
                   <SectionCard title="Buying Signals" icon={<Zap size={14} />} accent>
                     <div className="space-y-3">
@@ -966,7 +1446,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </SectionCard>
                 )}
 
-                {/* 4. UPCOMING EVENTS — AI-extracted */}
+                {/* 7. UPCOMING EVENTS */}
                 {contact.upcomingEvents.length > 0 && (
                   <SectionCard title="Upcoming Events" icon={<Calendar size={14} />} accent>
                     <div className="space-y-0">
@@ -989,7 +1469,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </SectionCard>
                 )}
 
-                {/* 5. AI MEMORY PREVIEW — top insights */}
+                {/* 8. AI MEMORY PREVIEW */}
                 {contact.insights.length > 0 && (
                   <SectionCard title="AI Memory" icon={<Brain size={14} />} accent>
                     <div className="space-y-3">
@@ -1011,10 +1491,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                         </div>
                       ))}
                       {contact.insights.length > 6 && (
-                        <button
-                          onClick={() => setActiveTab('intelligence')}
-                          className="text-xs text-indigo-600 hover:underline flex items-center gap-1 mt-1 font-medium"
-                        >
+                        <button onClick={() => setActiveTab('intelligence')}
+                          className="text-xs text-indigo-600 hover:underline flex items-center gap-1 mt-1 font-medium">
                           View all {contact.insights.length} insights <ChevronRight size={12} />
                         </button>
                       )}
@@ -1022,7 +1500,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </SectionCard>
                 )}
 
-                {/* 6. CONTACT INFORMATION */}
+                {/* 9. CONTACT INFORMATION */}
                 <SectionCard title="Contact Information" icon={<User size={14} />}>
                   <InfoRow icon={<Phone size={14} />}    label="Phone"    value={formatPhone(contact.phoneNumber)} href={contact.phoneNumber ? `tel:${formatPhone(contact.phoneNumber)}` : undefined} />
                   <InfoRow icon={<Mail size={14} />}     label="Email"    value={contact.email}       href={contact.email ? `mailto:${contact.email}` : undefined} />
@@ -1042,7 +1520,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   )}
                 </SectionCard>
 
-                {/* 7. NOTES */}
+                {/* 10. NOTES */}
                 {contact.notes && (
                   <SectionCard title="Notes" icon={<Lightbulb size={14} />}>
                     <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{contact.notes}</p>
@@ -1054,7 +1532,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {/* ══ AI INTELLIGENCE ══ */}
             {activeTab === 'intelligence' && (
               <>
-                {/* Profile deep-dive */}
                 {contact.profile && (
                   <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-violet-50 rounded-xl border border-indigo-100 p-5">
                     <div className="flex items-center gap-2 mb-3">
@@ -1104,7 +1581,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </div>
                 )}
 
-                {/* Buying signals */}
                 {buyingSignals.length > 0 && (
                   <SectionCard title="Buying Signals & Opportunities" icon={<Zap size={14} />} accent>
                     <div className="space-y-3">
@@ -1129,7 +1605,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </SectionCard>
                 )}
 
-                {/* Personality insights */}
                 {personalityInsights.length > 0 && (
                   <SectionCard title="Personality & Behaviour" icon={<User size={14} />} accent>
                     <div className="space-y-3">
@@ -1152,7 +1627,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   </SectionCard>
                 )}
 
-                {/* Other insights */}
                 {otherInsights.length > 0 && (
                   <SectionCard title={`All Insights (${contact.insights.length})`} icon={<Sparkles size={14} />} accent>
                     <div className="space-y-3">
@@ -1227,22 +1701,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             )}
 
             {/* ══ MESSAGES ══ */}
-            {activeTab === 'messages' && (
-              <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                <MessageSquare size={32} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-sm font-medium text-gray-700">Open the conversation in Inbox</p>
-                <p className="text-xs text-gray-400 mt-1 mb-4">
-                  {contact.stats.totalMessages > 0
-                    ? `${contact.stats.totalMessages.toLocaleString()} messages · ${contact.stats.sent.toLocaleString()} sent · ${contact.stats.received.toLocaleString()} received`
-                    : 'No messages yet'}
-                </p>
-                <Link
-                  href="/inbox"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  <MessageSquare size={14} /> Open Inbox
-                </Link>
-              </div>
+            {activeTab === 'messages' && token && (
+              <MessagesTab contactId={id} token={token} />
             )}
 
           </div>
