@@ -10,6 +10,7 @@ export interface IncomingMessageJob {
   body?: string;
   transcription?: string;
   whatsappTimestamp: string;
+  isHistorical?: boolean;
 }
 
 export interface AnalyzeMessageJob {

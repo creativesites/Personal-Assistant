@@ -35,10 +35,11 @@ export type TransportStatus = 'idle' | 'connecting' | 'connected';
  * SessionManager only talks to this interface.
  *
  * Events emitted:
- *   'qr'          (dataUrl: string)                — QR code ready to display
- *   'connected'   (phoneNumber: string)            — session is live
- *   'disconnected'(reason: TransportDisconnectReason) — session ended (terminal)
- *   'message'     (msg: NormalisedMessage)         — inbound message
+ *   'qr'                 (dataUrl: string)                — QR code ready to display
+ *   'connected'          (phoneNumber: string)            — session is live
+ *   'disconnected'       (reason: TransportDisconnectReason) — session ended (terminal)
+ *   'message'            (msg: NormalisedMessage)         — inbound message
+ *   'historical_message' (msg: NormalisedMessage)         — historical message from initial sync
  */
 export abstract class WhatsAppTransport extends EventEmitter {
   abstract readonly userId: string;
@@ -59,6 +60,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
   protected emitConnected(phoneNumber: string): void { this.emit('connected', phoneNumber); }
   protected emitDisconnected(reason: TransportDisconnectReason): void { this.emit('disconnected', reason); }
   protected emitMessage(msg: NormalisedMessage): void { this.emit('message', msg); }
+  protected emitHistoricalMessage(msg: NormalisedMessage): void { this.emit('historical_message', msg); }
 }
 
 export type TransportFactory = (userId: string) => WhatsAppTransport;

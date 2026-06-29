@@ -4,6 +4,7 @@ import { db } from '../lib/db'
 import { queues } from '../lib/queue'
 import { authenticate } from '../plugins/authenticate'
 import { authenticateAdmin } from '../plugins/authenticateAdmin'
+import { startHistorySync, cancelHistorySync } from '../lib/history-sync'
 
 const patchUserBody = z.object({
   suspend: z.boolean().optional(),
@@ -446,6 +447,88 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({ ok: true })
     },
   )
+
+  // ─── History sync ─────────────────────────────────────────────────────────
+
+  fastify.post(
+    '/api/admin/history-sync/start',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const syncJobId = await startHistorySync(userId);
+      return reply.send({ ok: true, syncJobId });
+    },
+  );
+
+  fastify.get(
+    '/api/admin/history-sync/status',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { rows: [job] } = await db.query<{
+        id: string; status: string;
+        total_conversations: number; processed_conversations: number;
+        total_messages: number; processed_messages: number;
+        contacts_created: number; leads_generated: number; insights_extracted: number;
+        current_chat_name: string | null; error_message: string | null;
+        started_at: string | null; completed_at: string | null;
+      }>(
+        `SELECT id, status, total_conversations, processed_conversations,
+                total_messages, processed_messages,
+                contacts_created, leads_generated, insights_extracted,
+                current_chat_name, error_message, started_at, completed_at
+         FROM sync_jobs
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId],
+      );
+
+      if (!job) return reply.send({ status: 'never_run' });
+
+      const pct = job.total_conversations > 0
+        ? Math.round((job.processed_conversations / job.total_conversations) * 100)
+        : 0;
+
+      return reply.send({
+        id: job.id,
+        status: job.status,
+        progress: {
+          conversations: { done: job.processed_conversations, total: job.total_conversations },
+          messages: { done: job.processed_messages, total: job.total_messages },
+          percent: pct,
+        },
+        stats: {
+          contactsCreated: job.contacts_created,
+          leadsGenerated: job.leads_generated,
+          insightsExtracted: job.insights_extracted,
+        },
+        currentChatName: job.current_chat_name,
+        errorMessage: job.error_message,
+        startedAt: job.started_at,
+        completedAt: job.completed_at,
+      });
+    },
+  );
+
+  fastify.post(
+    '/api/admin/history-sync/cancel',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { rows: [job] } = await db.query<{ id: string }>(
+        `SELECT id FROM sync_jobs WHERE user_id = $1 AND status = 'running' LIMIT 1`,
+        [userId],
+      );
+      if (!job) return reply.code(404).send({ error: 'No running sync' });
+      cancelHistorySync(job.id);
+      await db.query(
+        `UPDATE sync_jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [job.id],
+      );
+      return reply.send({ ok: true });
+    },
+  );
 
   // ─── Audit log ────────────────────────────────────────────────────────────
 

@@ -95,6 +95,14 @@ export class SessionManager {
       }
     });
 
+    transport.on('historical_message', async (msg: NormalisedMessage) => {
+      try {
+        await this.handler.handleMessage(userId, msg, true);
+      } catch (err) {
+        console.error(`[session] historical handleMessage failed userId=${userId}:`, err);
+      }
+    });
+
     await transport.start();
   }
 

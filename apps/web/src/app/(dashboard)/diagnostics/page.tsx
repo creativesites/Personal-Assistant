@@ -90,6 +90,23 @@ interface ServerConfig {
   match: boolean | null
 }
 
+interface SyncProgress {
+  conversations: { done: number; total: number }
+  messages: { done: number; total: number }
+  percent: number
+}
+
+interface SyncStatus {
+  id?: string
+  status: 'never_run' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress?: SyncProgress
+  stats?: { contactsCreated: number; leadsGenerated: number; insightsExtracted: number }
+  currentChatName?: string | null
+  errorMessage?: string | null
+  startedAt?: string | null
+  completedAt?: string | null
+}
+
 export default function DiagnosticsPage() {
   const { isSignedIn, isLoaded: authLoaded } = useAuth()
   const { user } = useUser()
@@ -99,6 +116,63 @@ export default function DiagnosticsPage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastRun, setLastRun] = useState<Date | null>(null)
   const isRunning = useRef(false)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchSyncStatus = useCallback(async (currentToken?: string) => {
+    const t = currentToken || token
+    if (!t) return
+    try {
+      const r = await fetch(`${API_URL}/api/admin/history-sync/status`, {
+        headers: { Authorization: `Bearer ${t}` },
+      })
+      if (r.ok) setSyncStatus(await r.json())
+    } catch { /* ignore */ }
+  }, [token])
+
+  // Poll sync status while running
+  useEffect(() => {
+    if (syncStatus?.status === 'running') {
+      syncPollRef.current = setInterval(() => fetchSyncStatus(), 2000)
+    } else if (syncPollRef.current) {
+      clearInterval(syncPollRef.current)
+      syncPollRef.current = null
+    }
+    return () => {
+      if (syncPollRef.current) clearInterval(syncPollRef.current)
+    }
+  }, [syncStatus?.status, fetchSyncStatus])
+
+  useEffect(() => {
+    if (token) fetchSyncStatus()
+  }, [token, fetchSyncStatus])
+
+  async function startSync() {
+    if (!token || syncLoading) return
+    setSyncLoading(true)
+    try {
+      const r = await fetch(`${API_URL}/api/admin/history-sync/start`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (r.ok) await fetchSyncStatus()
+    } catch { /* ignore */ }
+    setSyncLoading(false)
+  }
+
+  async function cancelSync() {
+    if (!token || syncLoading) return
+    setSyncLoading(true)
+    try {
+      await fetch(`${API_URL}/api/admin/history-sync/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      await fetchSyncStatus()
+    } catch { /* ignore */ }
+    setSyncLoading(false)
+  }
 
   useEffect(() => {
     fetch('/api/diagnostics/config')
@@ -398,6 +472,123 @@ export default function DiagnosticsPage() {
               {checks.filter(c => ['contacts'].includes(c.id)).map(check => (
                 <CheckRow key={check.id} check={check} />
               ))}
+            </div>
+          </div>
+
+          {/* Historical Intelligence Sync */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Historical Intelligence Sync</p>
+            <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">Analyse conversation history</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Re-processes all stored messages through Zuri&apos;s AI to build contact profiles, lead scores, insights, and calendar events from day one.
+                  </p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  {syncStatus?.status === 'running' ? (
+                    <button
+                      onClick={cancelSync}
+                      disabled={syncLoading}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      onClick={startSync}
+                      disabled={syncLoading || !token}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 font-medium"
+                    >
+                      {syncStatus?.status === 'completed' || syncStatus?.status === 'cancelled' || syncStatus?.status === 'failed'
+                        ? 'Re-run sync'
+                        : 'Run historical sync'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {syncStatus && syncStatus.status !== 'never_run' && (
+                <div className="space-y-3">
+                  {/* Status badge */}
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+                      syncStatus.status === 'running'   ? 'bg-blue-100 text-blue-700' :
+                      syncStatus.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      syncStatus.status === 'failed'    ? 'bg-red-100 text-red-700' :
+                      syncStatus.status === 'cancelled' ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {syncStatus.status === 'running' && (
+                        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                      )}
+                      {{
+                        running: 'Analysing…',
+                        completed: 'Complete',
+                        failed: 'Failed',
+                        cancelled: 'Cancelled',
+                        pending: 'Queued',
+                      }[syncStatus.status] ?? syncStatus.status}
+                    </span>
+                    {syncStatus.currentChatName && syncStatus.status === 'running' && (
+                      <span className="text-xs text-gray-400 truncate">— {syncStatus.currentChatName}</span>
+                    )}
+                  </div>
+
+                  {/* Progress bar */}
+                  {syncStatus.progress && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Conversations: {syncStatus.progress.conversations.done} / {syncStatus.progress.conversations.total}</span>
+                        <span className="font-medium tabular-nums">{syncStatus.progress.percent}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                          style={{ width: `${syncStatus.progress.percent}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-400 tabular-nums">
+                        {syncStatus.progress.messages.done.toLocaleString()} / {syncStatus.progress.messages.total.toLocaleString()} messages queued
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Stats */}
+                  {syncStatus.stats && (syncStatus.stats.contactsCreated + syncStatus.stats.leadsGenerated + syncStatus.stats.insightsExtracted) > 0 && (
+                    <div className="grid grid-cols-3 gap-3 pt-1">
+                      {[
+                        { label: 'Contacts', val: syncStatus.stats.contactsCreated },
+                        { label: 'Leads', val: syncStatus.stats.leadsGenerated },
+                        { label: 'Insights', val: syncStatus.stats.insightsExtracted },
+                      ].map(({ label, val }) => (
+                        <div key={label} className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                          <p className="text-base font-semibold text-gray-900 tabular-nums">{val.toLocaleString()}</p>
+                          <p className="text-xs text-gray-500">{label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {syncStatus.errorMessage && (
+                    <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{syncStatus.errorMessage}</p>
+                  )}
+
+                  {syncStatus.completedAt && (
+                    <p className="text-xs text-gray-400">
+                      Finished {new Date(syncStatus.completedAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!token && (
+                <p className="text-xs text-amber-600">Sign in and sync your JWT first to run the historical sync.</p>
+              )}
             </div>
           </div>
 

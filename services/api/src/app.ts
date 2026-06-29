@@ -18,6 +18,7 @@ import { broadcastsRoutes } from './routes/broadcasts';
 import { enterpriseRoutes } from './routes/enterprise';
 import { mediaRoutes } from './routes/media';
 import { leadsRoutes } from './routes/leads';
+import { settingsRoutes } from './routes/settings';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -56,6 +57,7 @@ export async function buildApp() {
   await fastify.register(enterpriseRoutes);
   await fastify.register(mediaRoutes);
   await fastify.register(leadsRoutes);
+  await fastify.register(settingsRoutes);
 
   return fastify;
 }

@@ -37,7 +37,7 @@ export class MessageHandler {
     });
   }
 
-  async handleMessage(userId: string, msg: NormalisedMessage): Promise<void> {
+  async handleMessage(userId: string, msg: NormalisedMessage, isHistorical = false): Promise<void> {
     const senderType = msg.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
     const timestamp = new Date(msg.timestampMs);
 
@@ -83,19 +83,23 @@ export class MessageHandler {
         messageType: msg.messageType,
         body: msg.body ?? undefined,
         whatsappTimestamp: timestamp.toISOString(),
+        isHistorical,
       },
       { removeOnComplete: { count: 100 } },
     );
 
-    await this.redis.publish(
-      `message:new:${userId}`,
-      JSON.stringify({
-        messageId, conversationId, contactId,
-        senderType, messageType: msg.messageType, body: msg.body,
-        mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
-        timestamp,
-      }),
-    );
+    // Skip real-time push for historical messages — they're bulk-processed in background
+    if (!isHistorical) {
+      await this.redis.publish(
+        `message:new:${userId}`,
+        JSON.stringify({
+          messageId, conversationId, contactId,
+          senderType, messageType: msg.messageType, body: msg.body,
+          mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
+          timestamp,
+        }),
+      );
+    }
   }
 
   private async resolveQuotedMessageId(

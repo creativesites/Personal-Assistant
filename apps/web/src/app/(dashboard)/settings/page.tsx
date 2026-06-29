@@ -232,19 +232,82 @@ export default function SettingsPage() {
     } finally { setSavingByok(false) }
   }
 
+  interface AutoResponseSettings {
+    enabled: boolean
+    businessHoursStart: string
+    businessHoursEnd: string
+    timezone: string
+    activeDays: number[]
+    sendDelaySeconds: number
+    approvalMode: 'auto' | 'preview' | 'manual'
+    respondToLeads: boolean
+    respondToCustomers: boolean
+    respondToNewContacts: boolean
+    skipGroups: boolean
+    skipBroadcasts: boolean
+    escalationKeywords: string[]
+    escalationNotifyEmail: string | null
+    greetingMessage: string | null
+    awayMessage: string | null
+    smartFollowupEnabled: boolean
+    learnFromCorrections: boolean
+  }
+
+  const DEFAULT_AUTO_RESPONSE: AutoResponseSettings = {
+    enabled: false, businessHoursStart: '09:00', businessHoursEnd: '18:00',
+    timezone: 'UTC', activeDays: [1, 2, 3, 4, 5], sendDelaySeconds: 30,
+    approvalMode: 'preview', respondToLeads: true, respondToCustomers: true,
+    respondToNewContacts: false, skipGroups: true, skipBroadcasts: true,
+    escalationKeywords: [], escalationNotifyEmail: null, greetingMessage: null,
+    awayMessage: null, smartFollowupEnabled: false, learnFromCorrections: true,
+  }
+
+  const [autoResponse, setAutoResponse] = useState<AutoResponseSettings>(DEFAULT_AUTO_RESPONSE)
+  const [autoResponseLoaded, setAutoResponseLoaded] = useState(false)
+  const [savingAutoResponse, setSavingAutoResponse] = useState(false)
+  const [escalationKwInput, setEscalationKwInput] = useState('')
+
+  const loadAutoResponse = async () => {
+    if (!token || autoResponseLoaded) return
+    setAutoResponseLoaded(true)
+    try {
+      const data = await apiClient<AutoResponseSettings>('/api/settings/auto-response', { token })
+      setAutoResponse(data as AutoResponseSettings)
+    } catch { /* ignore */ }
+  }
+
+  const saveAutoResponse = async () => {
+    if (!token) return
+    setSavingAutoResponse(true)
+    try {
+      await apiClient('/api/settings/auto-response', {
+        method: 'PUT',
+        token,
+        body: JSON.stringify(autoResponse),
+      })
+      addToast({ variant: 'success', title: 'Auto-response settings saved' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to save', description: 'Please try again.' })
+    } finally {
+      setSavingAutoResponse(false)
+    }
+  }
+
   const [activeTab, setActiveTab] = useState('account')
 
   const handleTabChange = (id: string) => {
     setActiveTab(id)
     if (id === 'enterprise' && !enterpriseLoaded) loadEnterprise()
+    if (id === 'auto_responses' && !autoResponseLoaded) loadAutoResponse()
   }
 
   const tabs = [
-    { id: 'account',      label: 'Account' },
-    { id: 'workspace',    label: 'Workspace' },
-    { id: 'intelligence', label: 'AI Engines' },
-    { id: 'privacy',      label: 'Privacy' },
-    { id: 'enterprise',   label: 'Enterprise' },
+    { id: 'account',        label: 'Account' },
+    { id: 'workspace',      label: 'Workspace' },
+    { id: 'intelligence',   label: 'AI Engines' },
+    { id: 'auto_responses', label: 'Auto Responses' },
+    { id: 'privacy',        label: 'Privacy' },
+    { id: 'enterprise',     label: 'Enterprise' },
   ]
 
   return (
@@ -450,6 +513,263 @@ export default function SettingsPage() {
                     <p className="text-xs text-gray-400 px-1">
                       Engine configuration managed by your subscription plan. Granular controls available on Pro.
                     </p>
+                  </div>
+                )}
+
+                {/* ── Auto Responses tab ── */}
+                {currentTab === 'auto_responses' && (
+                  <div className="space-y-4 pt-2">
+                    {/* Master toggle */}
+                    <div className="bg-white rounded-xl border border-gray-200 p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">AI Auto Responses</p>
+                          <p className="text-xs text-gray-400 mt-1">
+                            Zuri will automatically draft and send replies on your behalf during your business hours. Off by default — you stay in control.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setAutoResponse(s => ({ ...s, enabled: !s.enabled }))}
+                          role="switch"
+                          aria-checked={autoResponse.enabled}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${autoResponse.enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                        >
+                          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${autoResponse.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+
+                      {autoResponse.enabled && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <label className="block text-xs font-medium text-gray-500 mb-2">Approval mode</label>
+                          <div className="grid grid-cols-3 gap-2">
+                            {([
+                              { value: 'auto',    label: 'Auto-send',  desc: 'Sends without review' },
+                              { value: 'preview', label: 'Preview',    desc: 'Shows draft for 30s' },
+                              { value: 'manual',  label: 'Manual',     desc: 'Always ask for approval' },
+                            ] as const).map(opt => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => setAutoResponse(s => ({ ...s, approvalMode: opt.value }))}
+                                className={`text-left rounded-lg border-2 px-3 py-2.5 transition-all ${
+                                  autoResponse.approvalMode === opt.value
+                                    ? 'border-indigo-600 bg-indigo-50'
+                                    : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                <p className="text-xs font-medium text-gray-900">{opt.label}</p>
+                                <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Business hours */}
+                    <Section title="Business Hours">
+                      <div className="px-5 py-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Start time</label>
+                            <input
+                              type="time"
+                              value={autoResponse.businessHoursStart}
+                              onChange={e => setAutoResponse(s => ({ ...s, businessHoursStart: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">End time</label>
+                            <input
+                              type="time"
+                              value={autoResponse.businessHoursEnd}
+                              onChange={e => setAutoResponse(s => ({ ...s, businessHoursEnd: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-2">Active days</label>
+                          <div className="flex gap-1.5 flex-wrap">
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => {
+                              const active = autoResponse.activeDays.includes(i)
+                              return (
+                                <button
+                                  key={day}
+                                  type="button"
+                                  onClick={() => setAutoResponse(s => ({
+                                    ...s,
+                                    activeDays: active
+                                      ? s.activeDays.filter(d => d !== i)
+                                      : [...s.activeDays, i].sort(),
+                                  }))}
+                                  className={`w-10 h-10 rounded-full text-xs font-medium transition-colors ${
+                                    active ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  {day}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Send delay (seconds)</label>
+                          <p className="text-xs text-gray-400 mb-2">Simulates natural typing time before sending</p>
+                          <select
+                            value={autoResponse.sendDelaySeconds}
+                            onChange={e => setAutoResponse(s => ({ ...s, sendDelaySeconds: Number(e.target.value) }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value={10}>10 seconds</option>
+                            <option value={30}>30 seconds</option>
+                            <option value={60}>1 minute</option>
+                            <option value={120}>2 minutes</option>
+                            <option value={300}>5 minutes</option>
+                          </select>
+                        </div>
+                      </div>
+                    </Section>
+
+                    {/* Conversation types */}
+                    <Section title="Who to respond to">
+                      {[
+                        { key: 'respondToLeads',       label: 'Leads & prospects',    desc: 'Contacts in your sales pipeline' },
+                        { key: 'respondToCustomers',   label: 'Existing customers',   desc: 'Contacts with customer status' },
+                        { key: 'respondToNewContacts', label: 'New contacts',         desc: 'First-time messages from unknown contacts' },
+                        { key: 'skipGroups',           label: 'Skip group chats',     desc: 'Never auto-respond in group conversations', invert: true },
+                        { key: 'skipBroadcasts',       label: 'Skip broadcasts',      desc: 'Never auto-respond to broadcast lists', invert: true },
+                      ].map(row => {
+                        const val = autoResponse[row.key as keyof AutoResponseSettings] as boolean
+                        const displayed = row.invert ? !val : val
+                        return (
+                          <div key={row.key} className="flex items-center justify-between px-5 py-3 gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-gray-900">{row.label}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">{row.desc}</p>
+                            </div>
+                            <button
+                              onClick={() => setAutoResponse(s => ({ ...s, [row.key]: !val }))}
+                              role="switch"
+                              aria-checked={displayed}
+                              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${displayed ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                            >
+                              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${displayed ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </Section>
+
+                    {/* Escalation */}
+                    <Section title="Escalation rules">
+                      <div className="px-5 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Escalation keywords</label>
+                          <p className="text-xs text-gray-400 mb-2">If a message contains these words, stop auto-responding and alert you</p>
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {autoResponse.escalationKeywords.map(kw => (
+                              <span key={kw} className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full">
+                                {kw}
+                                <button onClick={() => setAutoResponse(s => ({ ...s, escalationKeywords: s.escalationKeywords.filter(k => k !== kw) }))} className="hover:text-red-900">×</button>
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              value={escalationKwInput}
+                              onChange={e => setEscalationKwInput(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && escalationKwInput.trim()) {
+                                  setAutoResponse(s => ({ ...s, escalationKeywords: [...s.escalationKeywords, escalationKwInput.trim()] }))
+                                  setEscalationKwInput('')
+                                }
+                              }}
+                              placeholder="e.g. refund, lawsuit, cancel (press Enter)"
+                              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Notify email (optional)</label>
+                          <input
+                            type="email"
+                            value={autoResponse.escalationNotifyEmail ?? ''}
+                            onChange={e => setAutoResponse(s => ({ ...s, escalationNotifyEmail: e.target.value || null }))}
+                            placeholder="you@example.com"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    </Section>
+
+                    {/* Messages */}
+                    <Section title="Message templates">
+                      <div className="px-5 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Greeting message</label>
+                          <p className="text-xs text-gray-400 mb-2">Sent to new contacts before the AI reply</p>
+                          <textarea
+                            value={autoResponse.greetingMessage ?? ''}
+                            onChange={e => setAutoResponse(s => ({ ...s, greetingMessage: e.target.value || null }))}
+                            placeholder="Hi! Thanks for reaching out. I'll get back to you shortly."
+                            rows={2}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Away message</label>
+                          <p className="text-xs text-gray-400 mb-2">Sent when a message arrives outside business hours</p>
+                          <textarea
+                            value={autoResponse.awayMessage ?? ''}
+                            onChange={e => setAutoResponse(s => ({ ...s, awayMessage: e.target.value || null }))}
+                            placeholder="Thanks for your message! I'll respond during business hours (Mon–Fri, 9am–6pm)."
+                            rows={2}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                          />
+                        </div>
+                      </div>
+                    </Section>
+
+                    {/* Learning */}
+                    <Section title="Learning & improvement">
+                      {[
+                        { key: 'learnFromCorrections',  label: 'Learn from corrections',    desc: 'When you edit an auto-reply, Zuri learns your style' },
+                        { key: 'smartFollowupEnabled',  label: 'Smart follow-ups',          desc: 'Auto-schedule follow-up messages if no reply in 48h' },
+                      ].map(row => {
+                        const val = autoResponse[row.key as keyof AutoResponseSettings] as boolean
+                        return (
+                          <div key={row.key} className="flex items-center justify-between px-5 py-3 gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-gray-900">{row.label}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">{row.desc}</p>
+                            </div>
+                            <button
+                              onClick={() => setAutoResponse(s => ({ ...s, [row.key]: !val }))}
+                              role="switch"
+                              aria-checked={val}
+                              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${val ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                            >
+                              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${val ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </Section>
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={saveAutoResponse}
+                        disabled={savingAutoResponse || !token}
+                        className="px-6 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingAutoResponse ? 'Saving…' : 'Save settings'}
+                      </button>
+                    </div>
                   </div>
                 )}
 

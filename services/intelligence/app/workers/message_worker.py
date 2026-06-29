@@ -30,8 +30,9 @@ async def _process(job, token: str):
     conversation_id = data.get('conversationId')
     contact_id = data.get('contactId')
     sender_type = data.get('senderType', 'contact')
+    is_historical = data.get('isHistorical', False)
 
-    log.info('processing_message', message_id=message_id)
+    log.info('processing_message', message_id=message_id, is_historical=is_historical)
 
     analysis = await _analyser.analyse(
         message_id=message_id,
@@ -43,7 +44,8 @@ async def _process(job, token: str):
     # Extract calendar events from analysis
     await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
 
-    if analysis.requires_response:
+    # Never generate reply suggestions for historical messages — they're already read
+    if not is_historical and analysis.requires_response:
         pool = await get_pool()
         async with pool.acquire() as conn:
             msg = await conn.fetchrow('SELECT body FROM messages WHERE id = $1', message_id)
@@ -62,26 +64,31 @@ async def _process(job, token: str):
     count = _msg_counter.get(key, 0) + 1
     _msg_counter[key] = count
 
-    # Recalculate health every 5 messages per contact
-    if count % 5 == 0:
+    # Recalculate health — for historical, run every 20 messages to avoid overload
+    health_interval = 20 if is_historical else 5
+    if count % health_interval == 0:
         await _health_svc.recalculate(contact_id, user_id)
 
-    # Update cadence model on every message (learning improves with each interaction)
-    if count % 5 == 0 or count == 1:
+    # Update cadence model
+    cadence_interval = 20 if is_historical else 5
+    if count % cadence_interval == 0 or count == 1:
         await _cadence.learn(contact_id, user_id)
 
-    # Trigger contact profile rebuild: first message and every 10 thereafter
-    if count == 1 or count % 10 == 0:
+    # Trigger contact profile rebuild — more aggressive for historical to populate product fast
+    profile_interval = 25 if is_historical else 10
+    if count == 1 or count % profile_interval == 0:
         await _profile_queue.add('profile', {'contactId': contact_id, 'userId': user_id})
 
-    # Trigger user voice profile rebuild on outbound messages every 20
+    # Trigger user voice profile rebuild on outbound messages
     if sender_type == 'user':
         ucount = _user_msg_counter.get(user_id, 0) + 1
         _user_msg_counter[user_id] = ucount
-        if ucount == 1 or ucount % 20 == 0:
+        voice_interval = 50 if is_historical else 20
+        if ucount == 1 or ucount % voice_interval == 0:
             await _voice_queue.add('voice', {'userId': user_id})
 
-    log.info('message_processed', message_id=message_id, requires_response=analysis.requires_response)
+    log.info('message_processed', message_id=message_id, requires_response=analysis.requires_response,
+             is_historical=is_historical)
     return {'ok': True}
 
 
