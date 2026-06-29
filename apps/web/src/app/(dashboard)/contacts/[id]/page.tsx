@@ -1726,7 +1726,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
             {/* ══ MESSAGES TAB ══ */}
             {activeTab === 'messages' && (
-              <MessagesTab contactId={contact.id} token={token} />
+              <MessagesTab contactId={contact.id} token={token!} />
             )}
 
           </div>
@@ -1742,7 +1742,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       </div>
 
       {showEdit && token && (
-        <EditSlideOver contact={contact} token={token} onClose={() => setShowEdit(false)} onSaved={refetch} />
+        <EditSlideOver contact={contact} token={token!} onClose={() => setShowEdit(false)} onSaved={refetch} />
       )}
     </>
   )
