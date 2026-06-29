@@ -312,6 +312,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     const fieldMap: Record<string, string> = {
       name:           'custom_name',
       customName:     'custom_name',
+      phoneNumber:    'phone_number',
       email:          'email',
       company:        'company',
       jobTitle:       'job_title',
@@ -397,6 +398,37 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         nudgeCount:             r.nudge_count,
       })),
     });
+  });
+
+  // ── Add tag ────────────────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/tags', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { tag } = (request.body ?? {}) as { tag?: string };
+
+    if (!tag?.trim()) return reply.code(400).send({ error: 'tag is required' });
+
+    await db.query(
+      `INSERT INTO contact_tags (user_id, contact_id, tag)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, contact_id, tag) DO NOTHING`,
+      [userId, id, tag.trim().toLowerCase()],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Remove tag ─────────────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/tags/:tag', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, tag } = request.params as { id: string; tag: string };
+
+    await db.query(
+      'DELETE FROM contact_tags WHERE user_id = $1 AND contact_id = $2 AND tag = $3',
+      [userId, id, tag],
+    );
+
+    return reply.send({ ok: true });
   });
 
   // ── Relationship clock — update ────────────────────────────────────────────

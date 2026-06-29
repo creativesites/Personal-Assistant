@@ -78,6 +78,13 @@ function formatLastSeen(ts: string | null) {
   return `${Math.floor(diff / 365)}y ago`
 }
 
+function formatPhone(phone: string | null | undefined): string {
+  if (!phone) return ''
+  const digits = phone.replace(/\D/g, '')
+  if (!digits) return phone
+  return phone.startsWith('+') ? phone : `+${digits}`
+}
+
 function getActivityBucket(ts: string | null): ActivityFilter {
   if (!ts) return 'dormant'
   const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000)
@@ -218,12 +225,72 @@ function FilterRow({ active, onClick, children, count }: { active: boolean; onCl
   )
 }
 
+function AddTagModal({ token, selectedIds, onClose, onDone }: {
+  token: string; selectedIds: string[]; onClose: () => void; onDone: () => void
+}) {
+  const { addToast } = useToast()
+  const [tag, setTag] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const add = async () => {
+    const trimmed = tag.trim().toLowerCase()
+    if (!trimmed) return
+    setSaving(true)
+    try {
+      await Promise.all(selectedIds.map(id =>
+        apiClient(`/api/contacts/${id}/tags`, { method: 'POST', token, body: JSON.stringify({ tag: trimmed }) })
+      ))
+      addToast({ variant: 'success', title: `Tag added to ${selectedIds.length} contact${selectedIds.length > 1 ? 's' : ''}` })
+      onDone()
+      onClose()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to add tag' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-xs bg-white rounded-xl shadow-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-900">
+            Add tag to {selectedIds.length} contact{selectedIds.length > 1 ? 's' : ''}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-0.5 rounded-lg hover:bg-gray-100">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            value={tag}
+            onChange={e => setTag(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && add()}
+            placeholder="e.g. premium, vip, follow-up"
+            className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            onClick={add}
+            disabled={!tag.trim() || saving}
+            className="px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? '…' : 'Add'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ContactsPage() {
   const session = useZuriSession()
   const router = useRouter()
   const token = session.data?.accessToken
   const mode = session.data?.mode ?? 'hybrid'
 
+  const { addToast } = useToast()
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('recent')
   const [viewMode, setViewMode] = useState<ViewMode>('table')
@@ -235,6 +302,7 @@ export default function ContactsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [showAddContact, setShowAddContact] = useState(false)
+  const [showAddTag, setShowAddTag] = useState(false)
 
   const { data, loading, error, refetch } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
   const contacts = data?.contacts ?? []
@@ -322,6 +390,21 @@ export default function ContactsPage() {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   }
   const clearSelection = () => setSelected(new Set())
+
+  const archiveSelected = async () => {
+    if (!token || selected.size === 0) return
+    const ids = Array.from(selected)
+    try {
+      await Promise.all(ids.map(contactId =>
+        apiClient(`/api/contacts/${contactId}`, { method: 'DELETE', token })
+      ))
+      addToast({ variant: 'success', title: `${ids.length} contact${ids.length > 1 ? 's' : ''} archived` })
+    } catch {
+      addToast({ variant: 'error', title: 'Some contacts could not be archived' })
+    }
+    clearSelection()
+    refetch()
+  }
 
   const Sidebar = () => (
     <aside className="w-full md:w-56 flex-shrink-0 space-y-1">
@@ -468,10 +551,16 @@ export default function ContactsPage() {
         <div className="flex-shrink-0 bg-indigo-600 px-4 md:px-6 py-2.5 flex items-center gap-3">
           <span className="text-sm text-white font-medium">{selected.size} selected</span>
           <div className="flex items-center gap-2 ml-auto">
-            <button className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors">
+            <button
+              onClick={() => setShowAddTag(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors"
+            >
               <Tag size={12} /> Add tag
             </button>
-            <button className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors">
+            <button
+              onClick={archiveSelected}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors"
+            >
               <Trash2 size={12} /> Archive
             </button>
             <button onClick={clearSelection} className="ml-1 text-white/70 hover:text-white transition-colors">
@@ -553,7 +642,7 @@ export default function ContactsPage() {
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-indigo-600 transition-colors">{contact.name}</p>
                               <p className="text-xs text-gray-400 truncate">
-                                {contact.company ?? contact.phone ?? ''}
+                                {contact.company ?? formatPhone(contact.phone) ?? ''}
                               </p>
                             </div>
                           </div>
@@ -643,7 +732,7 @@ export default function ContactsPage() {
                         </span>
                       )}
                     </div>
-                    {contact.phone && <p className="text-xs text-gray-400 mb-3 truncate">{contact.phone}</p>}
+                    {contact.phone && <p className="text-xs text-gray-400 mb-3 truncate">{formatPhone(contact.phone)}</p>}
                     <HealthBar score={contact.relationship.healthScore} size="sm" className="mb-2" />
                     <div className="flex items-center justify-between mb-2">
                       <span className={`text-xs font-medium flex items-center gap-1 ${trend.cls}`}>
@@ -700,6 +789,16 @@ export default function ContactsPage() {
           token={token}
           onClose={() => setShowAddContact(false)}
           onCreated={refetch}
+        />
+      )}
+
+      {/* Add Tag modal */}
+      {showAddTag && token && (
+        <AddTagModal
+          token={token}
+          selectedIds={Array.from(selected)}
+          onClose={() => setShowAddTag(false)}
+          onDone={refetch}
         />
       )}
     </div>

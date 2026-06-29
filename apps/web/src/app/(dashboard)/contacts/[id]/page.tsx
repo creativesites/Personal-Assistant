@@ -27,6 +27,7 @@ import {
   Sparkles,
   Edit3,
   Tag,
+  Trash2,
   X,
   Check,
   Loader2,
@@ -121,6 +122,7 @@ interface ContactDetail {
 
 interface EditForm {
   name: string
+  phoneNumber: string
   email: string
   company: string
   jobTitle: string
@@ -162,6 +164,13 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatPhone(phone: string | null | undefined): string {
+  if (!phone) return ''
+  const digits = phone.replace(/\D/g, '')
+  if (!digits) return phone
+  return phone.startsWith('+') ? phone : `+${digits}`
+}
 
 function formatDate(ts: string | null) {
   if (!ts) return 'Never'
@@ -288,6 +297,7 @@ function EditSlideOver({
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<EditForm>({
     name:           contact.customName ?? contact.displayName ?? '',
+    phoneNumber:    formatPhone(contact.phoneNumber),
     email:          contact.email ?? '',
     company:        contact.company ?? '',
     jobTitle:       contact.jobTitle ?? '',
@@ -311,6 +321,7 @@ function EditSlideOver({
         token,
         body: JSON.stringify({
           name:           form.name          || null,
+          phoneNumber:    form.phoneNumber ? form.phoneNumber.replace(/\D/g, '') : null,
           email:          form.email         || null,
           company:        form.company       || null,
           jobTitle:       form.jobTitle      || null,
@@ -352,6 +363,14 @@ function EditSlideOver({
                 <input
                   value={form.name} onChange={set('name')}
                   placeholder={contact.displayName ?? contact.phoneNumber ?? ''}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 block mb-1">Phone Number</span>
+                <input
+                  type="tel" value={form.phoneNumber} onChange={set('phoneNumber')}
+                  placeholder="+260971234567"
                   className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </label>
@@ -486,11 +505,53 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const mode    = session.data?.mode ?? 'hybrid'
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [showEdit,  setShowEdit]  = useState(false)
+  const [showTagInput, setShowTagInput] = useState(false)
+  const [tagInput, setTagInput] = useState('')
+  const [tagSaving, setTagSaving] = useState(false)
+
+  const { addToast } = useToast()
 
   const { data: contactData, loading, refetch } = useApi<{ contact: ContactDetail }>(
     `/api/contacts/${id}`,
     token,
   )
+
+  const addTag = async () => {
+    const trimmed = tagInput.trim().toLowerCase()
+    if (!trimmed || !token) return
+    setTagSaving(true)
+    try {
+      await apiClient(`/api/contacts/${id}/tags`, { method: 'POST', token, body: JSON.stringify({ tag: trimmed }) })
+      setTagInput('')
+      setShowTagInput(false)
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to add tag' })
+    } finally {
+      setTagSaving(false)
+    }
+  }
+
+  const removeTag = async (tag: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/contacts/${id}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE', token })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to remove tag' })
+    }
+  }
+
+  const archiveContact = async () => {
+    if (!token) return
+    try {
+      await apiClient(`/api/contacts/${id}`, { method: 'DELETE', token })
+      addToast({ variant: 'success', title: 'Contact archived' })
+      router.push('/contacts')
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to archive contact' })
+    }
+  }
 
   const contact = contactData?.contact
 
@@ -576,11 +637,18 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               <Edit3 size={14} /> Edit
             </button>
             {contact.phoneNumber && (
-              <a href={`tel:${contact.phoneNumber}`}
+              <a href={`tel:${formatPhone(contact.phoneNumber)}`}
                 className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                 <Phone size={14} /> Call
               </a>
             )}
+            <button
+              onClick={archiveContact}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+              title="Archive contact"
+            >
+              <Trash2 size={14} /> Archive
+            </button>
             <Link href="/inbox"
               className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
               <MessageSquare size={14} /> Message
@@ -604,7 +672,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                     </p>
                   )}
                   {contact.phoneNumber && (
-                    <p className="text-sm text-gray-500 mt-0.5">{contact.phoneNumber}</p>
+                    <p className="text-sm text-gray-500 mt-0.5">{formatPhone(contact.phoneNumber)}</p>
                   )}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <Badge variant={statusBadgeVariant(contact.customerStatus)} className="capitalize">
@@ -631,10 +699,42 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                       </span>
                     )}
                     {contact.tags.map(tag => (
-                      <span key={tag} className="inline-flex items-center gap-0.5 text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                      <span key={tag} className="inline-flex items-center gap-1 text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 pl-2 pr-1 py-0.5 rounded-full">
                         <Tag size={9} />{tag}
+                        <button
+                          onClick={() => removeTag(tag)}
+                          className="text-indigo-300 hover:text-indigo-600 transition-colors ml-0.5"
+                          title={`Remove tag "${tag}"`}
+                        >
+                          <X size={10} />
+                        </button>
                       </span>
                     ))}
+                    {showTagInput ? (
+                      <span className="inline-flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={tagInput}
+                          onChange={e => setTagInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') addTag(); if (e.key === 'Escape') { setShowTagInput(false); setTagInput('') } }}
+                          placeholder="tag name"
+                          className="text-xs border border-indigo-300 rounded-full px-2 py-0.5 w-24 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                        />
+                        <button onClick={addTag} disabled={tagSaving || !tagInput.trim()} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-40">
+                          {tagSaving ? '…' : 'Add'}
+                        </button>
+                        <button onClick={() => { setShowTagInput(false); setTagInput('') }} className="text-gray-400 hover:text-gray-600">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setShowTagInput(true)}
+                        className="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-indigo-600 border border-dashed border-gray-200 hover:border-indigo-300 px-2 py-0.5 rounded-full transition-colors"
+                      >
+                        <Tag size={9} /> + tag
+                      </button>
+                    )}
                   </div>
                 </div>
                 <HealthRing score={contact.relationship.healthScore} />
@@ -924,7 +1024,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
                 {/* 6. CONTACT INFORMATION */}
                 <SectionCard title="Contact Information" icon={<User size={14} />}>
-                  <InfoRow icon={<Phone size={14} />}    label="Phone"    value={contact.phoneNumber} href={contact.phoneNumber ? `tel:${contact.phoneNumber}` : undefined} />
+                  <InfoRow icon={<Phone size={14} />}    label="Phone"    value={formatPhone(contact.phoneNumber)} href={contact.phoneNumber ? `tel:${formatPhone(contact.phoneNumber)}` : undefined} />
                   <InfoRow icon={<Mail size={14} />}     label="Email"    value={contact.email}       href={contact.email ? `mailto:${contact.email}` : undefined} />
                   <InfoRow icon={<Building2 size={14} />}label="Company"  value={contact.company} />
                   <InfoRow icon={<Briefcase size={14} />}label="Job Title"value={contact.jobTitle} />
