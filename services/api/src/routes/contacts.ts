@@ -3,6 +3,87 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 
 export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
+
+  // ── List contacts ──────────────────────────────────────────────────────────
+  fastify.get('/api/contacts', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const { rows } = await db.query(
+      `SELECT
+        co.id,
+        COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS name,
+        co.phone_number,
+        co.avatar_url,
+        co.email,
+        co.company,
+        co.job_title,
+        co.industry,
+        co.notes,
+        co.customer_status,
+        co.pipeline_stage,
+        co.lead_score,
+        co.last_message_at,
+        r.id AS relationship_id,
+        COALESCE(r.relationship_type, 'acquaintance') AS relationship_type,
+        COALESCE(r.importance_tier, 3) AS importance_tier,
+        COALESCE(r.health_score, 70) AS health_score,
+        COALESCE(r.health_trend, 'stable') AS health_trend,
+        r.last_interaction_at,
+        cp.personality_summary,
+        cp.mood_baseline,
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT ct.tag ORDER BY ct.tag), NULL) AS tags,
+        COALESCE((
+          SELECT COUNT(*) FROM contact_insights ci
+          WHERE ci.contact_id = co.id AND ci.user_id = $1 AND ci.is_active = TRUE
+        ), 0)::int AS insight_count,
+        COALESCE((
+          SELECT COUNT(*) FROM proactive_queue pq
+          WHERE pq.contact_id = co.id AND pq.user_id = $1 AND pq.status = 'pending'
+        ), 0)::int AS pending_actions
+      FROM contacts co
+      LEFT JOIN relationships r        ON r.contact_id  = co.id AND r.user_id  = $1
+      LEFT JOIN contact_profiles cp    ON cp.contact_id = co.id AND cp.user_id = $1
+      LEFT JOIN contact_tags ct        ON ct.contact_id = co.id AND ct.user_id = $1
+      WHERE co.user_id = $1 AND co.is_group = false AND co.archived_at IS NULL
+      GROUP BY co.id, r.id, cp.id
+      ORDER BY r.importance_tier ASC NULLS LAST, co.last_message_at DESC NULLS LAST
+      LIMIT 500`,
+      [userId],
+    );
+
+    return reply.send({
+      contacts: rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        phone: r.phone_number,
+        email: r.email,
+        company: r.company,
+        jobTitle: r.job_title,
+        industry: r.industry,
+        notes: r.notes,
+        avatarUrl: r.avatar_url,
+        customerStatus: r.customer_status,
+        pipelineStage: r.pipeline_stage,
+        leadScore: r.lead_score,
+        lastMessageAt: r.last_message_at,
+        tags: r.tags ?? [],
+        relationship: {
+          type: r.relationship_type,
+          importanceTier: r.importance_tier,
+          healthScore: r.health_score,
+          healthTrend: r.health_trend,
+          lastInteractionAt: r.last_interaction_at,
+        },
+        profile: r.personality_summary
+          ? { personalitySummary: r.personality_summary, moodBaseline: r.mood_baseline }
+          : null,
+        insightCount: r.insight_count,
+        pendingActions: r.pending_actions,
+      })),
+    });
+  });
+
+  // ── Get single contact ─────────────────────────────────────────────────────
   fastify.get('/api/contacts/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
@@ -13,6 +94,15 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS name,
         co.avatar_url,
         co.phone_number,
+        co.email,
+        co.company,
+        co.job_title,
+        co.industry,
+        co.website,
+        co.notes,
+        co.customer_status,
+        co.pipeline_stage,
+        co.lead_score,
         co.last_message_at,
         r.id AS relationship_id,
         COALESCE(r.relationship_type, 'acquaintance') AS relationship_type,
@@ -20,18 +110,21 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         COALESCE(r.health_score, 70) AS health_score,
         COALESCE(r.health_trend, 'stable') AS health_trend,
         r.last_interaction_at,
-        r.notes,
+        r.notes AS relationship_notes,
         cp.personality_summary,
         cp.communication_style,
         cp.emotional_patterns,
         cp.known_triggers,
         cp.current_life_context,
         cp.mood_baseline,
-        cp.updated_at AS profile_updated_at
+        cp.updated_at AS profile_updated_at,
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT ct.tag ORDER BY ct.tag), NULL) AS tags
       FROM contacts co
-      LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = $2
+      LEFT JOIN relationships r  ON r.contact_id  = co.id AND r.user_id  = $2
       LEFT JOIN contact_profiles cp ON cp.contact_id = co.id AND cp.user_id = $2
-      WHERE co.id = $1 AND co.user_id = $2`,
+      LEFT JOIN contact_tags ct  ON ct.contact_id = co.id AND ct.user_id  = $2
+      WHERE co.id = $1 AND co.user_id = $2
+      GROUP BY co.id, r.id, cp.id`,
       [id, userId],
     );
 
@@ -69,20 +162,39 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       [id, userId],
     );
 
+    const { rows: proactive } = await db.query(
+      `SELECT content, action_type, created_at
+       FROM proactive_queue
+       WHERE contact_id = $1 AND user_id = $2 AND status = 'pending'
+       ORDER BY created_at DESC
+       LIMIT 3`,
+      [id, userId],
+    );
+
     return reply.send({
       contact: {
         id: contact.id,
         name: contact.name,
         avatarUrl: contact.avatar_url,
         phoneNumber: contact.phone_number,
+        email: contact.email,
+        company: contact.company,
+        jobTitle: contact.job_title,
+        industry: contact.industry,
+        website: contact.website,
+        notes: contact.notes,
+        customerStatus: contact.customer_status,
+        pipelineStage: contact.pipeline_stage,
+        leadScore: contact.lead_score,
         lastMessageAt: contact.last_message_at,
+        tags: contact.tags ?? [],
         relationship: {
           type: contact.relationship_type,
           importanceTier: contact.importance_tier,
           healthScore: contact.health_score,
           healthTrend: contact.health_trend,
           lastInteractionAt: contact.last_interaction_at,
-          notes: contact.notes,
+          notes: contact.relationship_notes,
         },
         profile: contact.personality_summary ? {
           personalitySummary: contact.personality_summary,
@@ -112,59 +224,334 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           sent: parseInt(msgStats?.sent || '0'),
           received: parseInt(msgStats?.received || '0'),
         },
+        proactiveActions: proactive.map((p: any) => ({
+          content: p.content,
+          actionType: p.action_type,
+          createdAt: p.created_at,
+        })),
       },
     });
   });
 
-  fastify.get('/api/contacts', { preHandler: authenticate }, async (request, reply) => {
+  // ── Create contact ─────────────────────────────────────────────────────────
+  fastify.post('/api/contacts', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
+    const body = request.body as {
+      name?: string;
+      phoneNumber?: string;
+      email?: string;
+      company?: string;
+      customerStatus?: string;
+    };
+
+    if (!body.name && !body.phoneNumber) {
+      return reply.code(400).send({ error: 'name or phoneNumber is required' });
+    }
+
+    const { rows: [contact] } = await db.query(
+      `INSERT INTO contacts (user_id, display_name, custom_name, phone_number, email, company, customer_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        userId,
+        body.name ?? body.phoneNumber,
+        body.name ?? null,
+        body.phoneNumber ?? null,
+        body.email ?? null,
+        body.company ?? null,
+        body.customerStatus ?? 'contact',
+      ],
+    );
+
+    await db.query(
+      `INSERT INTO relationships (user_id, contact_id, relationship_type, health_score, importance_tier)
+       VALUES ($1, $2, 'acquaintance', 70, 3)
+       ON CONFLICT DO NOTHING`,
+      [userId, contact.id],
+    );
+
+    return reply.code(201).send({ contact: { id: contact.id } });
+  });
+
+  // ── Update contact ─────────────────────────────────────────────────────────
+  fastify.patch('/api/contacts/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as Record<string, unknown>;
+
+    const fieldMap: Record<string, string> = {
+      name: 'custom_name',
+      phoneNumber: 'phone_number',
+      email: 'email',
+      company: 'company',
+      jobTitle: 'job_title',
+      industry: 'industry',
+      website: 'website',
+      notes: 'notes',
+      customerStatus: 'customer_status',
+      pipelineStage: 'pipeline_stage',
+      leadScore: 'lead_score',
+    };
+
+    const sets: string[] = [];
+    const values: unknown[] = [id, userId];
+    let idx = 3;
+
+    for (const [key, col] of Object.entries(fieldMap)) {
+      if (key in body) {
+        sets.push(`${col} = $${idx++}`);
+        values.push(body[key] ?? null);
+      }
+    }
+
+    if (sets.length === 0) return reply.code(400).send({ error: 'Nothing to update' });
+    sets.push('updated_at = NOW()');
+
+    const { rowCount } = await db.query(
+      `UPDATE contacts SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2`,
+      values,
+    );
+
+    if (!rowCount) return reply.code(404).send({ error: 'Contact not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Archive contact ────────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    await db.query(
+      `UPDATE contacts SET archived_at = NOW() WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Add tag ────────────────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/tags', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { tag } = (request.body ?? {}) as { tag?: string };
+
+    if (!tag?.trim()) return reply.code(400).send({ error: 'tag is required' });
+
+    await db.query(
+      `INSERT INTO contact_tags (user_id, contact_id, tag)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, contact_id, tag) DO NOTHING`,
+      [userId, id, tag.trim().toLowerCase()],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Remove tag ─────────────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/tags/:tag', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, tag } = request.params as { id: string; tag: string };
+
+    await db.query(
+      'DELETE FROM contact_tags WHERE user_id = $1 AND contact_id = $2 AND tag = $3',
+      [userId, id, tag],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Tasks — list ──────────────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/tasks', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, title, description, due_date, completed_at, created_by, sort_order, created_at
+       FROM contact_tasks
+       WHERE contact_id = $1 AND user_id = $2
+       ORDER BY completed_at IS NOT NULL ASC, due_date ASC NULLS LAST, sort_order ASC, created_at ASC`,
+      [id, userId],
+    );
+
+    return reply.send({ tasks: rows.map((r: any) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      dueDate: r.due_date,
+      completedAt: r.completed_at,
+      createdBy: r.created_by,
+      sortOrder: r.sort_order,
+      createdAt: r.created_at,
+    })) });
+  });
+
+  // ── Tasks — create ────────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/tasks', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { title?: string; description?: string; dueDate?: string };
+
+    if (!body.title?.trim()) return reply.code(400).send({ error: 'title is required' });
+
+    const { rows: [task] } = await db.query(
+      `INSERT INTO contact_tasks (user_id, contact_id, title, description, due_date)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, title, description, due_date, completed_at, created_by, created_at`,
+      [userId, id, body.title.trim(), body.description ?? null, body.dueDate ?? null],
+    );
+
+    return reply.code(201).send({ task: {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      dueDate: task.due_date,
+      completedAt: task.completed_at,
+      createdBy: task.created_by,
+      createdAt: task.created_at,
+    } });
+  });
+
+  // ── Tasks — update (complete / edit) ─────────────────────────────────────
+  fastify.patch('/api/contacts/:id/tasks/:taskId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, taskId } = request.params as { id: string; taskId: string };
+    const body = request.body as { title?: string; description?: string; dueDate?: string; completed?: boolean };
+
+    const sets: string[] = [];
+    const values: unknown[] = [taskId, userId, id];
+    let idx = 4;
+
+    if (body.title !== undefined) { sets.push(`title = $${idx++}`); values.push(body.title.trim()); }
+    if (body.description !== undefined) { sets.push(`description = $${idx++}`); values.push(body.description || null); }
+    if (body.dueDate !== undefined) { sets.push(`due_date = $${idx++}`); values.push(body.dueDate || null); }
+    if (body.completed !== undefined) {
+      sets.push(`completed_at = $${idx++}`);
+      values.push(body.completed ? new Date().toISOString() : null);
+    }
+
+    if (sets.length === 0) return reply.code(400).send({ error: 'Nothing to update' });
+    sets.push('updated_at = NOW()');
+
+    const { rowCount } = await db.query(
+      `UPDATE contact_tasks SET ${sets.join(', ')}
+       WHERE id = $1 AND user_id = $2 AND contact_id = $3`,
+      values,
+    );
+
+    if (!rowCount) return reply.code(404).send({ error: 'Task not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Tasks — delete ────────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/tasks/:taskId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, taskId } = request.params as { id: string; taskId: string };
+
+    await db.query(
+      'DELETE FROM contact_tasks WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [taskId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Context pins — list ───────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/context', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, content, sort_order, created_at
+       FROM contact_context_pins
+       WHERE contact_id = $1 AND user_id = $2
+       ORDER BY sort_order ASC, created_at ASC`,
+      [id, userId],
+    );
+
+    return reply.send({ pins: rows.map((r: any) => ({ id: r.id, content: r.content, createdAt: r.created_at })) });
+  });
+
+  // ── Context pins — create ─────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/context', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { content?: string };
+
+    if (!body.content?.trim()) return reply.code(400).send({ error: 'content is required' });
+
+    const { rows: [pin] } = await db.query(
+      `INSERT INTO contact_context_pins (user_id, contact_id, content)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (contact_id, user_id, content) DO UPDATE SET updated_at = NOW()
+       RETURNING id, content, created_at`,
+      [userId, id, body.content.trim()],
+    );
+
+    return reply.code(201).send({ pin: { id: pin.id, content: pin.content, createdAt: pin.created_at } });
+  });
+
+  // ── Context pins — delete ─────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/context/:pinId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, pinId } = request.params as { id: string; pinId: string };
+
+    await db.query(
+      'DELETE FROM contact_context_pins WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [pinId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Contact messages ──────────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/messages', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT id FROM conversations WHERE contact_id = $1 AND user_id = $2 LIMIT 1',
+      [id, userId],
+    );
+
+    if (!conv) return reply.send({ messages: [], conversationId: null });
 
     const { rows } = await db.query(
       `SELECT
-        co.id,
-        COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS name,
-        co.avatar_url,
-        co.last_message_at,
-        r.id AS relationship_id,
-        COALESCE(r.relationship_type, 'acquaintance') AS relationship_type,
-        COALESCE(r.importance_tier, 3) AS importance_tier,
-        COALESCE(r.health_score, 70) AS health_score,
-        COALESCE(r.health_trend, 'stable') AS health_trend,
-        r.last_interaction_at,
-        cp.personality_summary,
-        cp.mood_baseline
-      FROM contacts co
-      LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = $1
-      LEFT JOIN contact_profiles cp ON cp.contact_id = co.id AND cp.user_id = $1
-      WHERE co.user_id = $1 AND co.is_group = false
-      ORDER BY r.importance_tier ASC NULLS LAST, co.last_message_at DESC NULLS LAST
-      LIMIT 200`,
-      [userId],
+        m.id,
+        m.sender_type,
+        m.message_type,
+        m.body,
+        m.whatsapp_timestamp,
+        m.media_url,
+        m.media_mime_type,
+        m.transcription,
+        m.quoted_message_id,
+        (SELECT COUNT(*) FROM suggested_replies sr WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
+       FROM messages m
+       WHERE m.conversation_id = $1 AND m.is_deleted = false
+       ORDER BY m.whatsapp_timestamp ASC
+       LIMIT 100`,
+      [conv.id],
     );
 
     return reply.send({
-      contacts: rows.map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        avatarUrl: r.avatar_url,
-        lastMessageAt: r.last_message_at,
-        relationship: {
-          type: r.relationship_type,
-          importanceTier: r.importance_tier,
-          healthScore: r.health_score,
-          healthTrend: r.health_trend,
-          lastInteractionAt: r.last_interaction_at,
-        },
-        profile: r.personality_summary
-          ? {
-              personalitySummary: r.personality_summary,
-              moodBaseline: r.mood_baseline,
-            }
-          : null,
+      conversationId: conv.id,
+      messages: rows.map((m: any) => ({
+        id: m.id,
+        senderType: m.sender_type,
+        messageType: m.message_type,
+        body: m.body,
+        timestamp: m.whatsapp_timestamp,
+        mediaUrl: m.media_url,
+        mediaMimeType: m.media_mime_type,
+        transcription: m.transcription,
+        quotedMessageId: m.quoted_message_id,
+        pendingSuggestions: parseInt(m.pending_suggestions, 10),
       })),
     });
   });
 
+  // ── Relationship clock — get ───────────────────────────────────────────────
   fastify.get('/api/contacts/:id/clock', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
@@ -200,6 +587,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     });
   });
 
+  // ── Relationship clock — update ────────────────────────────────────────────
   fastify.put('/api/contacts/:id/clock/:clockType', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id, clockType } = request.params as { id: string; clockType: string };
