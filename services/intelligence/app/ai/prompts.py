@@ -1,6 +1,7 @@
 ANALYSE_MESSAGE = """\
 Analyze this WhatsApp message and return structured JSON.
 
+Today's date: {today}
 Sender: {sender_type} ({sender_name})
 Relationship type: {relationship_type}
 Recent conversation (last few messages for context):
@@ -23,6 +24,12 @@ Return ONLY valid JSON in exactly this format:
   "promises_detected": [{{"text": "", "type": "commitment|deadline|offer|plan"}}],
   "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}]
 }}
+
+Important for events_detected:
+- If the sender mentions it is their birthday today or tomorrow, add a birthday event with is_recurring=true and set date to the actual calendar date (use today's date above to resolve "today"/"tomorrow").
+- Resolve all relative dates ("tomorrow", "next Friday", "in 3 days") to absolute YYYY-MM-DD dates using today's date above.
+- If a date cannot be determined, set date to null.
+- Birthdays and anniversaries should always have is_recurring=true.
 """
 
 GENERATE_REPLIES = """\

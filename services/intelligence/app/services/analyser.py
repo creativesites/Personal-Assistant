@@ -1,4 +1,5 @@
 import structlog
+from datetime import date
 from ..ai.client import get_ai_client
 from ..ai.embeddings import embed_text
 from ..ai.prompts import ANALYSE_MESSAGE
@@ -64,6 +65,7 @@ class MessageAnalyser:
         ) or '(no prior context)'
 
         prompt = ANALYSE_MESSAGE.format(
+            today=date.today().isoformat(),
             sender_type=sender_type,
             sender_name=contact_name if sender_type == 'contact' else user_name,
             relationship_type=relationship_type,

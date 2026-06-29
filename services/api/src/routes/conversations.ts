@@ -46,7 +46,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           m.conversation_id,
           m.id           AS message_id,
           m.whatsapp_timestamp,
-          ma.intent,
+          (ma.intent->>'primary') AS intent,
           ma.response_urgency,
           ma.sentiment,
           ma.requires_response,

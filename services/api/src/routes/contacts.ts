@@ -182,7 +182,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         [id, userId],
       ),
       db.query(
-        `SELECT id, event_type, title, event_date, is_recurring, confidence_score
+        `SELECT id, event_type, title, event_date::text AS event_date, is_recurring, confidence_score
          FROM events
          WHERE contact_id = $1 AND user_id = $2 AND event_date >= CURRENT_DATE
          ORDER BY event_date ASC
@@ -780,7 +780,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: [event] } = await db.query(
       `INSERT INTO events (user_id, contact_id, event_type, title, description, event_date, is_recurring, source, is_confirmed)
        VALUES ($1, $2, $3::event_type, $4, $5, $6, $7, 'user_input', true)
-       RETURNING id, event_type, title, event_date, is_recurring`,
+       RETURNING id, event_type, title, event_date::text AS event_date, is_recurring`,
       [userId, id, eventType, body.title.trim(), body.description ?? null, body.eventDate, body.isRecurring ?? false],
     );
 

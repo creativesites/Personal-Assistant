@@ -477,7 +477,7 @@ export default function AutomationPage() {
     try {
       await apiClient(`/api/agents/${agent.id}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        token,
         body: JSON.stringify({ is_active: !agent.isActive }),
       })
     } catch {
@@ -503,13 +503,13 @@ export default function AutomationPage() {
     if (editingAgent) {
       await apiClient(`/api/agents/${editingAgent.id}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        token,
         body: JSON.stringify(payload),
       })
     } else {
       await apiClient('/api/agents', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        token,
         body: JSON.stringify(payload),
       })
     }
@@ -524,7 +524,7 @@ export default function AutomationPage() {
     try {
       await apiClient(`/api/escalations/${id}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        token,
         body: JSON.stringify({ status: 'resolved' }),
       })
       await refetchEsc()
