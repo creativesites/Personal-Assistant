@@ -122,6 +122,13 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         cp.known_triggers,
         cp.current_life_context,
         cp.mood_baseline,
+        cp.preferences,
+        cp.goals,
+        cp.pain_points,
+        cp.buying_behaviour,
+        cp.relationship_stage,
+        COALESCE(cp.locked_fields, '{}')      AS locked_fields,
+        COALESCE(cp.user_edited_fields, '{}') AS user_edited_fields,
         cp.updated_at AS profile_updated_at
       FROM contacts co
       LEFT JOIN relationships r     ON r.contact_id  = co.id AND r.user_id  = $2
@@ -214,15 +221,37 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           lastInteractionAt: contact.last_interaction_at,
           notes:             contact.relationship_notes,
         },
-        profile: contact.personality_summary ? {
+        profile: (contact.personality_summary || contact.preferences || contact.goals || contact.relationship_stage) ? {
           personalitySummary: contact.personality_summary,
           communicationStyle: contact.communication_style,
           emotionalPatterns:  contact.emotional_patterns,
           knownTriggers:      contact.known_triggers,
           currentLifeContext: contact.current_life_context,
           moodBaseline:       contact.mood_baseline,
+          preferences:        contact.preferences,
+          goals:              contact.goals,
+          painPoints:         contact.pain_points,
+          buyingBehaviour:    contact.buying_behaviour,
+          relationshipStage:  contact.relationship_stage,
+          lockedFields:       contact.locked_fields ?? [],
+          userEditedFields:   contact.user_edited_fields ?? [],
           updatedAt:          contact.profile_updated_at,
-        } : null,
+        } : {
+          personalitySummary: null,
+          communicationStyle: null,
+          emotionalPatterns:  null,
+          knownTriggers:      null,
+          currentLifeContext: null,
+          moodBaseline:       null,
+          preferences:        null,
+          goals:              null,
+          painPoints:         null,
+          buyingBehaviour:    null,
+          relationshipStage:  null,
+          lockedFields:       contact.locked_fields ?? [],
+          userEditedFields:   contact.user_edited_fields ?? [],
+          updatedAt:          null,
+        },
         insights: insights.rows.map((i: any) => ({
           key:           i.insight_key,
           value:         i.insight_value,
@@ -599,6 +628,176 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     await db.query(
       'DELETE FROM contact_context_pins WHERE id = $1 AND user_id = $2 AND contact_id = $3',
       [pinId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Profile field update (AI-generated with lock tracking) ──────────────
+  fastify.patch('/api/contacts/:id/profile', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      field: string;
+      value: string | null;
+      lockAction?: 'lock' | 'unlock' | 'none';
+    };
+
+    const fieldMap: Record<string, string> = {
+      personalitySummary: 'personality_summary',
+      communicationStyle: 'communication_style',
+      currentLifeContext: 'current_life_context',
+      moodBaseline:       'mood_baseline',
+      preferences:        'preferences',
+      goals:              'goals',
+      painPoints:         'pain_points',
+      buyingBehaviour:    'buying_behaviour',
+      relationshipStage:  'relationship_stage',
+    };
+
+    const sqlField = fieldMap[body.field];
+    if (!sqlField) return reply.code(400).send({ error: 'Invalid field' });
+
+    // Ensure a profile row exists for this contact
+    await db.query(
+      `INSERT INTO contact_profiles (user_id, contact_id) VALUES ($1, $2) ON CONFLICT (contact_id) DO NOTHING`,
+      [userId, id],
+    );
+
+    const fieldKey = `$4::text`;
+    const sets: string[] = [`${sqlField} = $3`, 'updated_at = NOW()'];
+    const values: unknown[] = [id, userId, body.value, body.field];
+
+    const action = body.lockAction ?? 'none';
+    if (action === 'lock') {
+      sets.push(`locked_fields      = array_append(array_remove(locked_fields, ${fieldKey}), ${fieldKey})`);
+      sets.push(`user_edited_fields = array_append(array_remove(user_edited_fields, ${fieldKey}), ${fieldKey})`);
+    } else if (action === 'unlock') {
+      sets.push(`locked_fields      = array_remove(locked_fields, ${fieldKey})`);
+      sets.push(`user_edited_fields = array_append(array_remove(user_edited_fields, ${fieldKey}), ${fieldKey})`);
+    } else {
+      // no lock change — just mark as user-edited
+      sets.push(`user_edited_fields = array_append(array_remove(user_edited_fields, ${fieldKey}), ${fieldKey})`);
+    }
+
+    const { rowCount } = await db.query(
+      `UPDATE contact_profiles SET ${sets.join(', ')} WHERE contact_id = $1 AND user_id = $2`,
+      values,
+    );
+
+    if (!rowCount) return reply.code(404).send({ error: 'Profile not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Documents — list ─────────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/documents', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, file_name, file_type, file_size, storage_url, doc_category, notes, uploaded_at
+       FROM contact_documents
+       WHERE contact_id = $1 AND user_id = $2
+       ORDER BY uploaded_at DESC`,
+      [id, userId],
+    );
+
+    return reply.send({ documents: rows.map((r: any) => ({
+      id:          r.id,
+      fileName:    r.file_name,
+      fileType:    r.file_type,
+      fileSize:    r.file_size,
+      storageUrl:  r.storage_url,
+      docCategory: r.doc_category,
+      notes:       r.notes,
+      uploadedAt:  r.uploaded_at,
+    })) });
+  });
+
+  // ── Documents — create ───────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/documents', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      fileName?: string;
+      storageUrl?: string;
+      docCategory?: string;
+      notes?: string;
+      fileType?: string;
+    };
+
+    if (!body.fileName?.trim()) return reply.code(400).send({ error: 'fileName is required' });
+    if (!body.storageUrl?.trim()) return reply.code(400).send({ error: 'storageUrl is required' });
+
+    const validCategories = ['invoice','contract','receipt','image','pdf','vehicle_photo','other'];
+    const category = validCategories.includes(body.docCategory ?? '') ? body.docCategory : 'other';
+
+    const { rows: [doc] } = await db.query(
+      `INSERT INTO contact_documents (user_id, contact_id, file_name, storage_url, doc_category, notes, file_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, file_name, file_type, storage_url, doc_category, notes, uploaded_at`,
+      [userId, id, body.fileName.trim(), body.storageUrl.trim(), category, body.notes ?? null, body.fileType ?? null],
+    );
+
+    return reply.code(201).send({ document: {
+      id: doc.id, fileName: doc.file_name, fileType: doc.file_type,
+      storageUrl: doc.storage_url, docCategory: doc.doc_category,
+      notes: doc.notes, uploadedAt: doc.uploaded_at,
+    } });
+  });
+
+  // ── Documents — delete ───────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/documents/:docId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, docId } = request.params as { id: string; docId: string };
+
+    await db.query(
+      'DELETE FROM contact_documents WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [docId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── Events — create manual event ─────────────────────────────────────────
+  fastify.post('/api/contacts/:id/events', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      eventType?: string;
+      title?: string;
+      description?: string;
+      eventDate?: string;
+      isRecurring?: boolean;
+    };
+
+    if (!body.title?.trim()) return reply.code(400).send({ error: 'title is required' });
+    if (!body.eventDate) return reply.code(400).send({ error: 'eventDate is required' });
+
+    const validTypes = ['birthday','anniversary','job_change','life_event','travel','appointment','deadline','celebration','loss','other','meeting','payment','delivery','service_reminder'];
+    const eventType = validTypes.includes(body.eventType ?? '') ? body.eventType : 'other';
+
+    const { rows: [event] } = await db.query(
+      `INSERT INTO events (user_id, contact_id, event_type, title, description, event_date, is_recurring, source, is_confirmed)
+       VALUES ($1, $2, $3::event_type, $4, $5, $6, $7, 'user_input', true)
+       RETURNING id, event_type, title, event_date, is_recurring`,
+      [userId, id, eventType, body.title.trim(), body.description ?? null, body.eventDate, body.isRecurring ?? false],
+    );
+
+    return reply.code(201).send({ event: {
+      id: event.id, eventType: event.event_type, title: event.title,
+      eventDate: event.event_date, isRecurring: event.is_recurring,
+    } });
+  });
+
+  // ── Events — delete ──────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/events/:eventId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, eventId } = request.params as { id: string; eventId: string };
+
+    await db.query(
+      'DELETE FROM events WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [eventId, userId, id],
     );
 
     return reply.send({ ok: true });
