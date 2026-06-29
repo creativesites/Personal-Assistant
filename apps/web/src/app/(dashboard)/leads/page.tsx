@@ -281,7 +281,7 @@ function LeadDetail({
       await apiClient(`/api/leads/${lead.id}/stage`, {
         method: 'PATCH',
         token,
-        body: { pipelineStage: newStage },
+        body: JSON.stringify({ pipelineStage: newStage }),
       });
       onStageChange(lead.id, newStage);
     } catch {}
