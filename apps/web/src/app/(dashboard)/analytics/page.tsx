@@ -1,427 +1,705 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { BarChart3 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { useApi } from '@/hooks/use-api'
-import { EmptyState, PageHeader, SkeletonCard, StatCard } from '@/components/ui'
+import { apiClient } from '@/lib/api'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 
-type Range = '7d' | '30d' | '90d'
+// ---------------------------------------------------------------------------
+// Sub-nav
+// ---------------------------------------------------------------------------
 
-interface OverviewData {
-  suggestion_acceptance_rate: number
-  avg_response_time_seconds: number | null
-  proactive_items_approved: number
-  ai_drafted_vs_manual: { ai_drafted: number; manual: number }
-  period: string
-}
+const SUB_NAV = [
+  { href: '/analytics', label: 'Executive' },
+  { href: '/analytics/sales', label: 'Sales' },
+  { href: '/analytics/customers', label: 'Customers' },
+  { href: '/analytics/conversations', label: 'Conversations' },
+  { href: '/analytics/operations', label: 'Operations' },
+  { href: '/analytics/opportunities', label: 'Opportunities' },
+  { href: '/analytics/predictions', label: 'Predictions' },
+  { href: '/analytics/health', label: 'Health Score' },
+  { href: '/analytics/roi', label: 'ROI' },
+  { href: '/analytics/timeline', label: 'Timeline' },
+  { href: '/analytics/reports', label: 'Reports' },
+]
 
-interface FunnelStage {
-  stage: string
-  count: number
-  avg_days_in_stage: number | null
-  conversion_rate_to_next: number | null
-}
-
-interface RevenueData {
-  total_attributed_cents: number
-  deal_count: number
-  avg_deal_cents: number | null
-  by_month: Array<{ month: string; amount_cents: number; count: number }>
-}
-
-interface AnalyticsData {
-  messagesSent: number
-  messagesReceived: number
-  activeConversations: number
-  avgResponseTimeMin: number
-  avgHealthScore: number
-  suggestionsGenerated: number
-  suggestionsApproved: number
-  contactsTracked: number
-  topContacts: Array<{ id: string; name: string; messageCount: number; avatarUrl: string | null }>
-  healthDistribution: { critical: number; low: number; medium: number; high: number; excellent: number }
-  dailyMessages: Array<{ date: string; sent: number; received: number }>
-}
-
-interface ConversationContact {
-  id: string
-  name: string
-  avatarUrl: string | null
-}
-
-interface Conversation {
-  id: string
-  contact: ConversationContact
-  unreadCount: number
-  lastMessageAt: string | null
-}
-
-interface Contact {
-  id: string
-  name: string
-  avatarUrl: string | null
-  lastMessageAt: string | null
-  relationship: { healthScore: number; healthTrend: string }
-}
-
-function MiniBar({ pct, color }: { pct: number; color: string }) {
+function AnalyticsSubNav() {
+  const pathname = usePathname()
   return (
-    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-      <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${Math.max(2, pct)}%` }} />
-    </div>
-  )
-}
-
-function HealthDistBar({ label, count, total, color, bg }: { label: string; count: number; total: number; color: string; bg: string }) {
-  const pct = total > 0 ? Math.round((count / total) * 100) : 0
-  return (
-    <div className="flex items-center gap-3">
-      <span className={`text-[10px] font-semibold w-16 shrink-0 ${color}`}>{label}</span>
-      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${bg} transition-all duration-500`} style={{ width: `${pct}%` }} />
+    <div className="overflow-x-auto border-b border-gray-200 bg-white">
+      <div className="flex min-w-max px-4 md:px-6">
+        {SUB_NAV.map(item => {
+          const active =
+            item.href === '/analytics'
+              ? pathname === '/analytics'
+              : pathname.startsWith(item.href)
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                active
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {item.label}
+            </Link>
+          )
+        })}
       </div>
-      <span className="text-xs text-gray-500 w-8 text-right tabular-nums">{count}</span>
     </div>
   )
 }
 
-export default function AnalyticsPage() {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface KpiData {
+  totalConversations30d: number
+  totalConversationsTrend: number
+  aiMessagesSent: number
+  aiAutomationRate: number
+  activeContacts: number
+  atRiskContacts: number
+  avgResponseTimeMinutes: number
+  avgResponseTimeTrend: number
+}
+
+interface HealthComponent {
+  label: string
+  score: number
+}
+
+interface HealthData {
+  score: number
+  trend: number
+  components: HealthComponent[]
+}
+
+interface Opportunity {
+  id: string
+  contactName: string
+  reason: string
+  estimatedValue: string
+  urgency: 'high' | 'medium' | 'low'
+}
+
+interface Alert {
+  id: string
+  severity: 'high' | 'medium' | 'low'
+  message: string
+  timestamp: string
+}
+
+interface ExecutiveData {
+  kpis: KpiData
+  health: HealthData
+  opportunities: Opportunity[]
+  alerts: Alert[]
+  aiRepliesSent: number
+  generatedAt: string
+}
+
+// ---------------------------------------------------------------------------
+// Helpers: skeleton
+// ---------------------------------------------------------------------------
+
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
+}
+
+function KpiSkeleton() {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-6">
+      <Skeleton className="h-3 w-24 mb-3" />
+      <Skeleton className="h-8 w-20 mb-2" />
+      <Skeleton className="h-3 w-32" />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Health ring (SVG — no external deps)
+// ---------------------------------------------------------------------------
+
+function gradeFromScore(score: number): { letter: string; color: string; textColor: string; bg: string; border: string } {
+  if (score >= 90) return { letter: 'A', color: '#10b981', textColor: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' }
+  if (score >= 80) return { letter: 'B', color: '#6366f1', textColor: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200' }
+  if (score >= 70) return { letter: 'C', color: '#f59e0b', textColor: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' }
+  if (score >= 60) return { letter: 'D', color: '#f97316', textColor: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' }
+  return { letter: 'F', color: '#ef4444', textColor: 'text-rose-700', bg: 'bg-rose-50', border: 'border-rose-200' }
+}
+
+function HealthRing({ score }: { score: number }) {
+  const r = 52
+  const circ = 2 * Math.PI * r
+  const filled = (score / 100) * circ
+  const { color } = gradeFromScore(score)
+
+  return (
+    <svg width="128" height="128" viewBox="0 0 128 128" aria-hidden="true" role="img">
+      <circle cx="64" cy="64" r={r} fill="none" stroke="#f3f4f6" strokeWidth="10" />
+      <circle
+        cx="64"
+        cy="64"
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth="10"
+        strokeLinecap="round"
+        strokeDasharray={`${filled} ${circ - filled}`}
+        transform="rotate(-90 64 64)"
+        style={{ transition: 'stroke-dasharray 0.7s ease' }}
+      />
+      <text
+        x="64" y="58"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize="28"
+        fontWeight="700"
+        fill="#111827"
+        fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+      >
+        {score}
+      </text>
+      <text
+        x="64" y="79"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fontSize="11"
+        fill="#9ca3af"
+        fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+      >
+        out of 100
+      </text>
+    </svg>
+  )
+}
+
+function GradePill({ score }: { score: number }) {
+  const { letter, textColor, bg, border } = gradeFromScore(score)
+  return (
+    <span
+      className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold border ${bg} ${textColor} ${border}`}
+      aria-label={`Grade ${letter}`}
+    >
+      {letter}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Trend indicator
+// ---------------------------------------------------------------------------
+
+function TrendBadge({ value, unit = '%', invertColor = false }: { value: number; unit?: string; invertColor?: boolean }) {
+  const isGood = invertColor ? value <= 0 : value >= 0
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-xs font-semibold ${isGood ? 'text-emerald-600' : 'text-rose-600'}`}
+      style={{ fontVariantNumeric: 'tabular-nums' }}
+    >
+      <span aria-hidden="true">{value >= 0 ? '↑' : '↓'}</span>
+      {Math.abs(value)}{unit}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// KPI card
+// ---------------------------------------------------------------------------
+
+function KpiCard({
+  label,
+  value,
+  sub,
+  trend,
+  trendUnit = '%',
+  invertTrendColor = false,
+}: {
+  label: string
+  value: string | number
+  sub?: string
+  trend?: number
+  trendUnit?: string
+  invertTrendColor?: boolean
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-6">
+      <p
+        className="text-xs font-semibold text-gray-500 uppercase mb-2"
+        style={{ letterSpacing: '0.07em' }}
+      >
+        {label}
+      </p>
+      <p
+        className="text-3xl font-bold text-gray-900 mb-1.5"
+        style={{ fontVariantNumeric: 'tabular-nums' }}
+      >
+        {value}
+      </p>
+      <div className="flex items-center gap-2 flex-wrap">
+        {trend !== undefined && (
+          <TrendBadge value={trend} unit={trendUnit} invertColor={invertTrendColor} />
+        )}
+        {sub && <span className="text-xs text-gray-500">{sub}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Component progress bar (health breakdown)
+// ---------------------------------------------------------------------------
+
+function ComponentBar({ label, score }: { label: string; score: number }) {
+  const barColor =
+    score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500'
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-600">{label}</span>
+        <span
+          className="text-xs font-semibold text-gray-800"
+          style={{ fontVariantNumeric: 'tabular-nums' }}
+        >
+          {score}
+        </span>
+      </div>
+      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${barColor}`}
+          style={{ width: `${score}%`, transition: 'width 0.6s ease' }}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Urgency chip
+// ---------------------------------------------------------------------------
+
+function UrgencyChip({ urgency }: { urgency: 'high' | 'medium' | 'low' }) {
+  const styles = {
+    high:   'bg-rose-50 text-rose-700 border-rose-200',
+    medium: 'bg-amber-50 text-amber-700 border-amber-200',
+    low:    'bg-blue-50 text-blue-700 border-blue-200',
+  }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${styles[urgency]}`}>
+      {urgency.charAt(0).toUpperCase() + urgency.slice(1)}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Alert item — left border severity stripe
+// ---------------------------------------------------------------------------
+
+function AlertItem({ alert }: { alert: Alert }) {
+  const styles = {
+    high:   { wrap: 'border-l-rose-500 bg-rose-50',   label: 'Critical', labelColor: 'text-rose-600',  text: 'text-rose-900' },
+    medium: { wrap: 'border-l-amber-500 bg-amber-50', label: 'Warning',  labelColor: 'text-amber-600', text: 'text-amber-900' },
+    low:    { wrap: 'border-l-blue-500 bg-blue-50',   label: 'Info',     labelColor: 'text-blue-600',  text: 'text-blue-900' },
+  }
+  const s = styles[alert.severity]
+  return (
+    <div className={`border-l-4 rounded-r-lg px-4 py-3 ${s.wrap}`}>
+      <div className="flex items-center gap-2 mb-0.5">
+        <span className={`text-xs font-semibold uppercase tracking-wide ${s.labelColor}`} style={{ letterSpacing: '0.06em' }}>
+          {s.label}
+        </span>
+        <span className="text-xs text-gray-400">{alert.timestamp}</span>
+      </div>
+      <p className={`text-sm ${s.text}`}>{alert.message}</p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Empty state — first-time user
+// ---------------------------------------------------------------------------
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-center gap-3 px-4">
+      <span className="text-5xl select-none" aria-hidden="true">📊</span>
+      <h2 className="text-lg font-semibold text-gray-800">No data yet</h2>
+      <p className="text-sm text-gray-500 max-w-sm">
+        Connect WhatsApp and start conversations — your executive dashboard
+        populates automatically within 24 hours.
+      </p>
+      <Link
+        href="/settings"
+        className="mt-2 inline-flex items-center justify-center h-11 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+      >
+        Connect WhatsApp
+      </Link>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Build safe mock/empty data so rendering never crashes
+// ---------------------------------------------------------------------------
+
+function emptyData(): ExecutiveData {
+  return {
+    kpis: {
+      totalConversations30d: 0,
+      totalConversationsTrend: 0,
+      aiMessagesSent: 0,
+      aiAutomationRate: 0,
+      activeContacts: 0,
+      atRiskContacts: 0,
+      avgResponseTimeMinutes: 0,
+      avgResponseTimeTrend: 0,
+    },
+    health: { score: 0, trend: 0, components: [] },
+    opportunities: [],
+    alerts: [],
+    aiRepliesSent: 0,
+    generatedAt: new Date().toISOString(),
+  }
+}
+
+function isDataEmpty(d: ExecutiveData): boolean {
+  return (
+    d.kpis.totalConversations30d === 0 &&
+    d.kpis.activeContacts === 0 &&
+    d.kpis.aiMessagesSent === 0
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function AnalyticsExecutivePage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
-  const mode = session.data?.mode ?? 'business'
-  const [range, setRange] = useState<Range>('30d')
 
-  const { data: convData, loading: loadingConv } = useApi<{ conversations: Conversation[] }>('/api/conversations', token)
-  const { data: contactData, loading: loadingContacts } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
-  const { data: analyticsData, loading: loadingAnalytics } = useApi<AnalyticsData>('/api/analytics', token)
-  const { data: overviewData } = useApi<OverviewData>('/api/analytics/overview', token)
-  const { data: funnelData } = useApi<FunnelStage[]>('/api/analytics/funnel', token)
-  const { data: revenueData } = useApi<RevenueData>('/api/analytics/revenue', token)
+  const [data, setData] = useState<ExecutiveData | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const loading = loadingConv || loadingContacts || loadingAnalytics
+  const todayLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 
-  const contacts = contactData?.contacts ?? []
-  const conversations = convData?.conversations ?? []
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
 
-  const stats = useMemo(() => {
-    if (!contacts.length && !conversations.length && !analyticsData) return null
-
-    const healthDist = { critical: 0, low: 0, medium: 0, high: 0, excellent: 0 }
-    contacts.forEach(c => {
-      const s = c.relationship.healthScore
-      if (s < 20)      healthDist.critical++
-      else if (s < 40) healthDist.low++
-      else if (s < 60) healthDist.medium++
-      else if (s < 80) healthDist.high++
-      else             healthDist.excellent++
-    })
-
-    const avgHealth = contacts.length > 0
-      ? Math.round(contacts.reduce((s, c) => s + c.relationship.healthScore, 0) / contacts.length)
-      : analyticsData?.avgHealthScore ?? 0
-
-    return {
-      messagesSent:     analyticsData?.messagesSent ?? 0,
-      messagesReceived: analyticsData?.messagesReceived ?? 0,
-      suggestionsApproved: analyticsData?.suggestionsApproved ?? 0,
-      suggestionsGenerated: analyticsData?.suggestionsGenerated ?? 0,
-      activeConversations: conversations.length || analyticsData?.activeConversations || 0,
-      contactsTracked: contacts.length || analyticsData?.contactsTracked || 0,
-      avgHealth,
-      avgResponseTimeMin: analyticsData?.avgResponseTimeMin ?? 0,
-      healthDist,
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await apiClient('/api/analytics/executive', { token: token ?? undefined })
+        if (!cancelled) setData((res as ExecutiveData) ?? emptyData())
+      } catch {
+        if (!cancelled) setData(emptyData())
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  }, [contacts, conversations, analyticsData])
 
-  const RANGES: { key: Range; label: string }[] = [
-    { key: '7d',  label: '7 days' },
-    { key: '30d', label: '30 days' },
-    { key: '90d', label: '90 days' },
-  ]
+    load()
+    return () => { cancelled = true }
+  }, [token])
 
-  if (session.status === 'loading' || loading) {
-    return (
-      <div className="flex flex-col h-full">
-        <PageHeader title="Analytics" />
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 max-w-4xl mx-auto w-full">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} />)}
-          </div>
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      </div>
-    )
-  }
-
-  const healthTotal = stats ? Object.values(stats.healthDist).reduce((s, v) => s + v, 0) : 0
+  const d = data
+  const isEmpty = !loading && (!d || isDataEmpty(d))
 
   return (
-    <div className="flex flex-col h-full">
-      <PageHeader
-        title="Analytics"
-        action={
-          <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
-            {RANGES.map(r => (
-              <button
-                key={r.key}
-                onClick={() => setRange(r.key)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  range === r.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        }
-      />
+    <div className="flex flex-col min-h-0">
+      <AnalyticsSubNav />
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="max-w-4xl mx-auto space-y-4">
+      <div className="flex-1 bg-gray-50 min-h-screen">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 flex flex-col gap-6">
 
-          {!stats ? (
-            <EmptyState
-              icon={<BarChart3 className="w-10 h-10 text-indigo-400" />}
-              title="No analytics yet"
-              description="Analytics appear once you start using Zuri with WhatsApp connected."
-            />
-          ) : (
-            <>
-              {/* KPI grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <StatCard
-                  label="Messages sent"
-                  value={stats.messagesSent.toLocaleString()}
-                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
-                />
-                <StatCard
-                  label="Conversations"
-                  value={stats.activeConversations.toLocaleString()}
-                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
-                />
-                <StatCard
-                  label="Contacts tracked"
-                  value={stats.contactsTracked.toLocaleString()}
-                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-                />
-                <StatCard
-                  label="Avg health"
-                  value={`${stats.avgHealth}/100`}
-                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>}
-                />
-              </div>
+          {/* ── Page header ─────────────────────────────────────────── */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Executive Dashboard</h1>
+              <p className="text-sm text-gray-500 mt-0.5">{todayLabel}</p>
+            </div>
 
-              {/* AI stats */}
-              {(stats.suggestionsGenerated > 0 || mode !== 'personal') && (
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">AI Performance</p>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Suggestions generated</span>
-                      <span className="text-sm font-semibold text-gray-900 tabular-nums">{stats.suggestionsGenerated}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Suggestions approved</span>
-                      <span className="text-sm font-semibold text-gray-900 tabular-nums">{stats.suggestionsApproved}</span>
-                    </div>
-                    {stats.suggestionsGenerated > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-sm text-gray-600">Approval rate</span>
-                          <span className="text-sm font-semibold text-indigo-600 tabular-nums">
-                            {Math.round((stats.suggestionsApproved / stats.suggestionsGenerated) * 100)}%
-                          </span>
-                        </div>
-                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                            style={{ width: `${Math.round((stats.suggestionsApproved / stats.suggestionsGenerated) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Message activity */}
-              <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Message Activity</p>
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-gray-600">Sent</span>
-                      <span className="text-sm font-semibold text-indigo-600 tabular-nums">{stats.messagesSent}</span>
-                    </div>
-                    <MiniBar pct={stats.messagesSent + stats.messagesReceived > 0 ? (stats.messagesSent / (stats.messagesSent + stats.messagesReceived)) * 100 : 0} color="bg-indigo-500" />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-gray-600">Received</span>
-                      <span className="text-sm font-semibold text-gray-700 tabular-nums">{stats.messagesReceived}</span>
-                    </div>
-                    <MiniBar pct={stats.messagesSent + stats.messagesReceived > 0 ? (stats.messagesReceived / (stats.messagesSent + stats.messagesReceived)) * 100 : 0} color="bg-gray-400" />
-                  </div>
-                  {stats.avgResponseTimeMin > 0 && (
-                    <div className="pt-2 border-t border-gray-50 flex items-center justify-between">
-                      <span className="text-sm text-gray-500">Avg response time</span>
-                      <span className="text-sm font-semibold text-gray-900 tabular-nums">
-                        {stats.avgResponseTimeMin < 60
-                          ? `${stats.avgResponseTimeMin}m`
-                          : `${Math.round(stats.avgResponseTimeMin / 60)}h`}
+            {/* Health score badge in header — only when loaded and not empty */}
+            {!loading && d && !isEmpty && (
+              <div className="flex items-center gap-2.5 bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm self-start sm:self-auto">
+                <GradePill score={d.health.score} />
+                <div>
+                  <p className="text-xs text-gray-500 leading-none mb-0.5">Business Health</p>
+                  <p className="text-base font-bold text-gray-900 leading-tight" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {d.health.score}
+                    <span className="text-gray-400 font-normal text-sm">/100</span>
+                    {d.health.trend !== 0 && (
+                      <span className="ml-2 align-middle">
+                        <TrendBadge value={d.health.trend} unit=" pts" />
                       </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {loading && <Skeleton className="h-14 w-44" />}
+          </div>
+
+          {/* ── Empty state ─────────────────────────────────────────── */}
+          {isEmpty && <EmptyState />}
+
+          {/* ── KPI grid ────────────────────────────────────────────── */}
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[0, 1, 2, 3].map(i => <KpiSkeleton key={i} />)}
+            </div>
+          ) : !isEmpty && d ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <KpiCard
+                label="Total Conversations (30d)"
+                value={d.kpis.totalConversations30d.toLocaleString()}
+                trend={d.kpis.totalConversationsTrend}
+                trendUnit="%"
+                sub="vs prior 30 days"
+              />
+              <KpiCard
+                label="Messages Sent by AI"
+                value={d.kpis.aiMessagesSent.toLocaleString()}
+                sub={`${d.kpis.aiAutomationRate}% automation rate`}
+              />
+              <KpiCard
+                label="Active Contacts"
+                value={d.kpis.activeContacts.toLocaleString()}
+                sub={d.kpis.atRiskContacts > 0 ? `${d.kpis.atRiskContacts} at risk` : 'None at risk'}
+              />
+              <KpiCard
+                label="Avg Response Time"
+                value={`${d.kpis.avgResponseTimeMinutes}m`}
+                trend={d.kpis.avgResponseTimeTrend}
+                trendUnit="%"
+                invertTrendColor
+                sub="last 30 days"
+              />
+            </div>
+          ) : null}
+
+          {/* ── Health score + AI automation (2-col on lg) ──────────── */}
+          {loading ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <Skeleton className="h-3.5 w-40 mb-6" />
+                <div className="flex items-start gap-6">
+                  <Skeleton className="h-32 w-32 rounded-full flex-shrink-0" />
+                  <div className="flex-1 flex flex-col gap-3 pt-2">
+                    {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-3 w-full" />)}
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <Skeleton className="h-3.5 w-36 mb-6" />
+                <Skeleton className="h-14 w-28 mb-3" />
+                <Skeleton className="h-2 w-full mb-5" />
+                <Skeleton className="h-3 w-48 mb-1" />
+                <Skeleton className="h-3 w-36" />
+              </div>
+            </div>
+          ) : !isEmpty && d ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+              {/* Health score card */}
+              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-5">
+                  <h2
+                    className="text-xs font-semibold text-gray-500 uppercase"
+                    style={{ letterSpacing: '0.07em' }}
+                  >
+                    Business Health Score
+                  </h2>
+                  <GradePill score={d.health.score} />
+                </div>
+
+                <div className="flex items-start gap-6 flex-wrap">
+                  <div className="flex-shrink-0 flex flex-col items-center">
+                    <HealthRing score={d.health.score} />
+                    {d.health.trend !== 0 && (
+                      <div className="mt-1.5">
+                        <TrendBadge value={d.health.trend} unit=" pts this week" />
+                      </div>
+                    )}
+                  </div>
+
+                  {d.health.components.length > 0 && (
+                    <div className="flex-1 min-w-0 flex flex-col gap-3 justify-center">
+                      {d.health.components.map(c => (
+                        <ComponentBar key={c.label} label={c.label} score={c.score} />
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Health distribution */}
-              {healthTotal > 0 && (
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Relationship Health Distribution</p>
-                  <div className="space-y-2.5">
-                    <HealthDistBar label="Excellent" count={stats.healthDist.excellent} total={healthTotal} color="text-green-600"  bg="bg-green-500" />
-                    <HealthDistBar label="High"      count={stats.healthDist.high}      total={healthTotal} color="text-lime-600"   bg="bg-lime-400" />
-                    <HealthDistBar label="Medium"    count={stats.healthDist.medium}    total={healthTotal} color="text-amber-600"  bg="bg-amber-400" />
-                    <HealthDistBar label="Low"       count={stats.healthDist.low}       total={healthTotal} color="text-orange-600" bg="bg-orange-400" />
-                    <HealthDistBar label="Critical"  count={stats.healthDist.critical}  total={healthTotal} color="text-red-600"    bg="bg-red-500" />
+              {/* AI automation panel */}
+              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                <h2
+                  className="text-xs font-semibold text-gray-500 uppercase mb-5"
+                  style={{ letterSpacing: '0.07em' }}
+                >
+                  AI Automation
+                </h2>
+
+                <div className="flex items-end gap-1 mb-1.5">
+                  <span
+                    className="text-5xl font-bold text-gray-900"
+                    style={{ fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {d.kpis.aiAutomationRate}
+                  </span>
+                  <span className="text-2xl font-semibold text-gray-400 mb-1">%</span>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">
+                  of replies handled autonomously by Zuri in the last 30 days.
+                </p>
+
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-5">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full"
+                    style={{ width: `${d.kpis.aiAutomationRate}%`, transition: 'width 0.6s ease' }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between border-t border-gray-100 pt-4">
+                  <div>
+                    <p
+                      className="text-xl font-bold text-gray-900"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {(d.aiRepliesSent ?? 0).toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500">AI replies sent</p>
+                  </div>
+                  <div className="text-right">
+                    <p
+                      className="text-xl font-bold text-gray-900"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {d.kpis.aiMessagesSent.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500">total AI messages</p>
                   </div>
                 </div>
-              )}
+              </div>
+            </div>
+          ) : null}
 
-              {/* AI Performance (Phase 9) */}
-              {overviewData && mode !== 'personal' && (
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">AI Agent Performance</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-indigo-600 tabular-nums">
-                        {Math.round(overviewData.suggestion_acceptance_rate * 100)}%
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">Suggestion acceptance</p>
+          {/* ── Top Opportunities ────────────────────────────────────── */}
+          {loading ? (
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <Skeleton className="h-3.5 w-36 mb-5" />
+              <div className="flex flex-col divide-y divide-gray-100">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="flex items-center gap-4 py-4">
+                    <Skeleton className="h-9 w-9 rounded-full flex-shrink-0" />
+                    <div className="flex-1">
+                      <Skeleton className="h-3.5 w-28 mb-2" />
+                      <Skeleton className="h-3 w-52" />
                     </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-gray-900 tabular-nums">
-                        {overviewData.proactive_items_approved}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">Proactive approved</p>
-                    </div>
-                    {overviewData.avg_response_time_seconds && (
-                      <div className="text-center col-span-2">
-                        <p className="text-2xl font-bold text-gray-900 tabular-nums">
-                          {overviewData.avg_response_time_seconds < 60
-                            ? `${Math.round(overviewData.avg_response_time_seconds)}s`
-                            : `${Math.round(overviewData.avg_response_time_seconds / 60)}m`}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">Avg decision time</p>
-                      </div>
-                    )}
+                    <Skeleton className="h-5 w-14 rounded-full" />
                   </div>
-                  {(overviewData.ai_drafted_vs_manual.ai_drafted + overviewData.ai_drafted_vs_manual.manual) > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-50">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs text-gray-500">AI-drafted replies</span>
-                        <span className="text-xs font-semibold text-indigo-600">
-                          {Math.round((overviewData.ai_drafted_vs_manual.ai_drafted /
-                            (overviewData.ai_drafted_vs_manual.ai_drafted + overviewData.ai_drafted_vs_manual.manual)) * 100)}%
-                        </span>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.round((overviewData.ai_drafted_vs_manual.ai_drafted /
-                            (overviewData.ai_drafted_vs_manual.ai_drafted + overviewData.ai_drafted_vs_manual.manual)) * 100)}%` }} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                ))}
+              </div>
+            </div>
+          ) : !isEmpty && d && d.opportunities.length > 0 ? (
+            <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h2
+                  className="text-xs font-semibold text-gray-500 uppercase"
+                  style={{ letterSpacing: '0.07em' }}
+                >
+                  Top Opportunities
+                </h2>
+                <Link
+                  href="/analytics/opportunities"
+                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  View all →
+                </Link>
+              </div>
 
-              {/* Conversion Funnel (Phase 9) */}
-              {funnelData && funnelData.length > 0 && mode !== 'personal' && (
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Conversion Funnel</p>
-                  <div className="space-y-2">
-                    {funnelData.map((stage, i) => {
-                      const maxCount = Math.max(...funnelData.map(s => s.count), 1)
-                      const pct = Math.round((stage.count / maxCount) * 100)
-                      const STAGE_COLORS: Record<string, string> = {
-                        lead: 'bg-blue-400', qualified: 'bg-indigo-400', opportunity: 'bg-violet-400',
-                        proposal: 'bg-purple-400', closed_won: 'bg-green-500', closed_lost: 'bg-red-400', churned: 'bg-gray-400',
-                      }
-                      return (
-                        <div key={stage.stage} className="flex items-center gap-3">
-                          <span className="text-xs text-gray-500 w-24 flex-shrink-0 capitalize">{stage.stage.replace('_', ' ')}</span>
-                          <div className="flex-1 h-6 bg-gray-100 rounded overflow-hidden flex items-center">
-                            <div className={`h-full ${STAGE_COLORS[stage.stage] ?? 'bg-indigo-400'} rounded transition-all duration-500 flex items-center justify-end pr-2`}
-                              style={{ width: `${Math.max(pct, 4)}%` }}>
-                              {pct > 15 && <span className="text-white text-xs font-semibold">{stage.count}</span>}
-                            </div>
-                          </div>
-                          {pct <= 15 && <span className="text-xs text-gray-600 w-8 tabular-nums">{stage.count}</span>}
-                          {stage.conversion_rate_to_next !== null && i < funnelData.length - 1 && (
-                            <span className="text-xs text-gray-400 w-10 text-right tabular-nums flex-shrink-0">
-                              {Math.round(stage.conversion_rate_to_next * 100)}%→
-                            </span>
-                          )}
+              <div className="flex flex-col divide-y divide-gray-100">
+                {d.opportunities.slice(0, 5).map(opp => {
+                  const initials = opp.contactName
+                    .split(' ')
+                    .slice(0, 2)
+                    .map(n => n[0] ?? '')
+                    .join('')
+                    .toUpperCase()
+                  return (
+                    <div key={opp.id} className="flex items-start gap-4 py-3.5">
+                      <div
+                        className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold select-none"
+                        aria-hidden="true"
+                      >
+                        {initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {opp.contactName}
+                          </span>
+                          <UrgencyChip urgency={opp.urgency} />
                         </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Revenue Attribution (Phase 9) */}
-              {revenueData && revenueData.deal_count > 0 && mode !== 'personal' && (
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">AI-Attributed Revenue</p>
-                  <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div className="text-center">
-                      <p className="text-xl font-bold text-green-600 tabular-nums">
-                        ${(revenueData.total_attributed_cents / 100).toLocaleString()}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">Total</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xl font-bold text-gray-900 tabular-nums">{revenueData.deal_count}</p>
-                      <p className="text-xs text-gray-500 mt-1">Deals</p>
-                    </div>
-                    {revenueData.avg_deal_cents && (
-                      <div className="text-center">
-                        <p className="text-xl font-bold text-gray-900 tabular-nums">
-                          ${(revenueData.avg_deal_cents / 100).toLocaleString()}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">Avg deal</p>
+                        <p className="text-sm text-gray-600 mt-0.5 truncate">{opp.reason}</p>
                       </div>
-                    )}
-                  </div>
-                  {revenueData.by_month.slice(0, 6).length > 0 && (
-                    <div className="space-y-1.5">
-                      {revenueData.by_month.slice(0, 6).map(m => {
-                        const maxAmt = Math.max(...revenueData.by_month.slice(0, 6).map(x => x.amount_cents), 1)
-                        const pct = Math.round((m.amount_cents / maxAmt) * 100)
-                        return (
-                          <div key={m.month} className="flex items-center gap-3">
-                            <span className="text-xs text-gray-400 w-16 flex-shrink-0">{m.month}</span>
-                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-green-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="text-xs text-gray-600 w-20 text-right tabular-nums">${(m.amount_cents / 100).toLocaleString()}</span>
-                          </div>
-                        )
-                      })}
+                      {opp.estimatedValue && (
+                        <span
+                          className="flex-shrink-0 text-sm font-semibold text-gray-800"
+                          style={{ fontVariantNumeric: 'tabular-nums' }}
+                        >
+                          {opp.estimatedValue}
+                        </span>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
 
-              {/* Note on data freshness */}
-              <p className="text-xs text-gray-400 text-center pb-2">
-                Analytics update in real-time as Zuri processes your conversations.
-              </p>
-            </>
+          {/* ── Alerts ──────────────────────────────────────────────── */}
+          {!loading && !isEmpty && d && d.alerts.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <h2
+                className="text-xs font-semibold text-gray-500 uppercase mb-4"
+                style={{ letterSpacing: '0.07em' }}
+              >
+                Alerts
+              </h2>
+              <div className="flex flex-col gap-2.5">
+                {d.alerts.map(alert => (
+                  <AlertItem key={alert.id} alert={alert} />
+                ))}
+              </div>
+            </div>
           )}
+
+          {/* ── Footer timestamp ─────────────────────────────────────── */}
+          {!loading && d?.generatedAt && !isEmpty && (
+            <p className="text-xs text-gray-400 text-center pb-2">
+              Last updated{' '}
+              {new Date(d.generatedAt).toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </p>
+          )}
+
         </div>
       </div>
     </div>

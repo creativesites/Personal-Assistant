@@ -8,7 +8,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
 import {
-  LayoutDashboard, MessageSquare, Zap, Users, Flame, BarChart3,
+  LayoutDashboard, MessageSquare, Zap, Users, Flame, TrendingUp,
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, UserCheck,
@@ -45,7 +45,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/inbox/queue', label: 'AI Queue',    icon: Zap },
       { href: '/contacts',    label: 'Contacts',    icon: Users },
       { href: '/leads',       label: 'Leads',       icon: Flame },
-      { href: '/analytics',   label: 'Analytics',   icon: BarChart3 },
+      { href: '/analytics',   label: 'Intelligence', icon: TrendingUp },
       { href: '/broadcasts',  label: 'Broadcasts',  icon: Radio },
     ],
   },
