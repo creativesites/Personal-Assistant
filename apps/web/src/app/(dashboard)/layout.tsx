@@ -46,17 +46,16 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/contacts',    label: 'Contacts',    icon: Users },
       { href: '/leads',       label: 'Leads',       icon: Flame },
       { href: '/analytics',   label: 'Analytics',   icon: BarChart3 },
-      { href: '/automation',  label: 'Automation',  icon: Settings2 },
       { href: '/broadcasts',  label: 'Broadcasts',  icon: Radio },
     ],
   },
   {
-    label: 'AI Agents',
+    label: 'AI Workforce',
     showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/agents',         label: 'Agents',        icon: Bot },
-      { href: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
-      { href: '/escalations',    label: 'Escalations',   icon: AlertTriangle, badge: true },
+      { href: '/automation',     label: 'Agents & Rules',  icon: Bot },
+      { href: '/knowledge-base', label: 'Knowledge Base',  icon: BookOpen },
+      { href: '/escalations',    label: 'Escalations',     icon: AlertTriangle, badge: true },
     ],
   },
   {

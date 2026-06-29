@@ -4,7 +4,7 @@ import { db } from '../lib/db'
 import { queues } from '../lib/queue'
 import { authenticate } from '../plugins/authenticate'
 import { authenticateAdmin } from '../plugins/authenticateAdmin'
-import { startHistorySync, cancelHistorySync } from '../lib/history-sync'
+import { startHistorySync, cancelHistorySync, resumeHistorySync } from '../lib/history-sync'
 
 const patchUserBody = z.object({
   suspend: z.boolean().optional(),
@@ -527,6 +527,20 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         [job.id],
       );
       return reply.send({ ok: true });
+    },
+  );
+
+  fastify.post(
+    '/api/admin/history-sync/resume',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      try {
+        const syncJobId = await resumeHistorySync(userId);
+        return reply.send({ ok: true, syncJobId });
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
     },
   );
 

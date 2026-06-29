@@ -21,8 +21,7 @@ import {
 } from './types';
 
 const QR_TIMEOUT_MS = 3 * 60 * 1000;
-const MAX_RECONNECTS = 5;
-const RECONNECT_DELAY_MS = 3000;
+const MAX_RECONNECTS = 20;
 const DEFAULT_MEDIA_DIR = '/app/media';
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -157,9 +156,10 @@ export class BaileysTransport extends WhatsAppTransport {
         if (this._stopping) return;
 
         if (this._reconnectCount < MAX_RECONNECTS) {
+          const delay = Math.min(30000, 1000 * Math.pow(2, this._reconnectCount));
           this._reconnectCount++;
-          console.log(`[baileys:${this.userId}] reconnecting (${this._reconnectCount}/${MAX_RECONNECTS})...`);
-          setTimeout(() => { if (!this._stopping) this._boot().catch(console.error); }, RECONNECT_DELAY_MS);
+          console.log(`[baileys:${this.userId}] reconnecting (${this._reconnectCount}/${MAX_RECONNECTS}) in ${delay}ms...`);
+          setTimeout(() => { if (!this._stopping) this._boot().catch(console.error); }, delay);
         } else {
           this._clearQrTimer();
           this._status = 'idle';

@@ -174,6 +174,19 @@ export default function DiagnosticsPage() {
     setSyncLoading(false)
   }
 
+  async function resumeSync() {
+    if (!token || syncLoading) return
+    setSyncLoading(true)
+    try {
+      const r = await fetch(`${API_URL}/api/admin/history-sync/resume`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (r.ok) await fetchSyncStatus()
+    } catch { /* ignore */ }
+    setSyncLoading(false)
+  }
+
   useEffect(() => {
     fetch('/api/diagnostics/config')
       .then(r => r.json())
@@ -486,7 +499,7 @@ export default function DiagnosticsPage() {
                     Re-processes all stored messages through Zuri&apos;s AI to build contact profiles, lead scores, insights, and calendar events from day one.
                   </p>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
+                <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
                   {syncStatus?.status === 'running' ? (
                     <button
                       onClick={cancelSync}
@@ -496,15 +509,27 @@ export default function DiagnosticsPage() {
                       Cancel
                     </button>
                   ) : (
-                    <button
-                      onClick={startSync}
-                      disabled={syncLoading || !token}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 font-medium"
-                    >
-                      {syncStatus?.status === 'completed' || syncStatus?.status === 'cancelled' || syncStatus?.status === 'failed'
-                        ? 'Re-run sync'
-                        : 'Run historical sync'}
-                    </button>
+                    <>
+                      {(syncStatus?.status === 'failed' || syncStatus?.status === 'cancelled') &&
+                       (syncStatus.progress?.conversations.done ?? 0) > 0 && (
+                        <button
+                          onClick={resumeSync}
+                          disabled={syncLoading || !token}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 font-medium"
+                        >
+                          Resume
+                        </button>
+                      )}
+                      <button
+                        onClick={startSync}
+                        disabled={syncLoading || !token}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 font-medium"
+                      >
+                        {syncStatus?.status === 'completed' || syncStatus?.status === 'cancelled' || syncStatus?.status === 'failed'
+                          ? 'Re-run sync'
+                          : 'Run historical sync'}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

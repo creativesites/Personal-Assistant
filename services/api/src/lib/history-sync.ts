@@ -56,7 +56,7 @@ export async function startHistorySync(userId: string): Promise<string> {
   return syncJobId;
 }
 
-async function runSync(job: SyncJob): Promise<void> {
+async function runSync(job: SyncJob, resumeFrom = 0, resumeMessages = 0): Promise<void> {
   const { id: syncJobId, userId } = job;
 
   const { rows: conversations } = await db.query<{
@@ -65,12 +65,13 @@ async function runSync(job: SyncJob): Promise<void> {
     `SELECT c.id, c.whatsapp_chat_id, c.contact_id, c.last_message_at
      FROM conversations c
      WHERE c.user_id = $1
-     ORDER BY c.last_message_at DESC NULLS LAST`,
-    [userId],
+     ORDER BY c.last_message_at DESC NULLS LAST
+     OFFSET $2`,
+    [userId, resumeFrom],
   );
 
-  let processedConversations = 0;
-  let processedMessages = 0;
+  let localConvs = 0;
+  let processedMessages = resumeMessages;
   let contactsCreated = 0;
   let leadsGenerated = 0;
   let insightsExtracted = 0;
@@ -129,10 +130,10 @@ async function runSync(job: SyncJob): Promise<void> {
       processedMessages++;
     }
 
-    processedConversations++;
+    localConvs++;
 
     // Snapshot counts from DB periodically (avoid per-message DB writes)
-    if (processedConversations % 5 === 0) {
+    if ((resumeFrom + localConvs) % 5 === 0) {
       // Count newly-created contacts and leads since sync started
       const { rows: [fresh] } = await db.query<{
         new_contacts: string; new_leads: string; new_insights: string
@@ -160,15 +161,14 @@ async function runSync(job: SyncJob): Promise<void> {
            insights_extracted = $5,
            updated_at = NOW()
          WHERE id = $6`,
-        [processedConversations, processedMessages, contactsCreated, leadsGenerated, insightsExtracted, syncJobId],
+        [resumeFrom + localConvs, processedMessages, contactsCreated, leadsGenerated, insightsExtracted, syncJobId],
       );
     }
   }
 
   cancelSignals.delete(syncJobId);
 
-  const wasCancelled = conversations.length > 0 &&
-    processedConversations < conversations.length;
+  const wasCancelled = conversations.length > 0 && localConvs < conversations.length;
 
   await db.query(
     `UPDATE sync_jobs SET
@@ -184,7 +184,7 @@ async function runSync(job: SyncJob): Promise<void> {
      WHERE id = $7`,
     [
       wasCancelled ? 'cancelled' : 'completed',
-      processedConversations,
+      resumeFrom + localConvs,
       processedMessages,
       contactsCreated,
       leadsGenerated,
@@ -196,4 +196,41 @@ async function runSync(job: SyncJob): Promise<void> {
 
 export function cancelHistorySync(syncJobId: string): void {
   cancelSignals.set(syncJobId, true);
+}
+
+export async function resumeHistorySync(userId: string): Promise<string> {
+  const { rows: [job] } = await db.query<{
+    id: string; processed_conversations: number; processed_messages: number
+  }>(
+    `SELECT id, processed_conversations, processed_messages
+     FROM sync_jobs
+     WHERE user_id = $1
+       AND processed_conversations > 0
+       AND (
+         status IN ('failed', 'cancelled')
+         OR (status = 'running' AND updated_at < NOW() - INTERVAL '5 minutes')
+       )
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId],
+  );
+
+  if (!job) throw new Error('No resumable sync job found');
+
+  cancelSignals.delete(job.id);
+
+  await db.query(
+    `UPDATE sync_jobs SET status = 'running', completed_at = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
+    [job.id],
+  );
+
+  runSync({ id: job.id, userId }, job.processed_conversations, job.processed_messages).catch((err) => {
+    console.error(`[history-sync] fatal error resuming for user ${userId}:`, err);
+    db.query(
+      `UPDATE sync_jobs SET status = 'failed', error_message = $1, updated_at = NOW() WHERE id = $2`,
+      [String(err), job.id],
+    ).catch(() => { /* ignore */ });
+  });
+
+  return job.id;
 }
