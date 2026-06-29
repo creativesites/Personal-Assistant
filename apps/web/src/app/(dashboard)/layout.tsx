@@ -5,13 +5,14 @@ import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useClerk } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
 import {
   LayoutDashboard, MessageSquare, Zap, Users, Flame, BarChart3,
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
-  Wrench, LogOut, Smartphone, Menu, X, TrendingUp, UserCheck,
-  ChevronRight,
+  Wrench, LogOut, Smartphone, Menu, X, UserCheck,
+  WifiOff, Loader2,
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -141,16 +142,108 @@ function NavLink({
   )
 }
 
+function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
+  if (wa.status === 'connected') {
+    return (
+      <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-gray-800/40 gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0 shadow-[0_0_6px_rgba(34,197,94,0.7)]" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-green-400 leading-tight">Connected</p>
+            {wa.phone && (
+              <p className="text-[10px] text-gray-500 truncate leading-tight mt-0.5">+{wa.phone}</p>
+            )}
+          </div>
+        </div>
+        <Link
+          href="/settings"
+          onClick={onNav}
+          className="text-[10px] text-gray-600 hover:text-gray-400 flex-shrink-0 transition-colors"
+        >
+          Manage
+        </Link>
+      </div>
+    )
+  }
+
+  if (wa.status === 'connecting' || wa.status === 'qr_pending' || wa.status === 'link_code_pending') {
+    return (
+      <Link
+        href="/onboarding"
+        onClick={onNav}
+        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-amber-900/20 hover:bg-amber-900/30 transition-colors"
+      >
+        <Loader2 className="w-4 h-4 text-amber-400 flex-shrink-0 animate-spin" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-amber-400 leading-tight">
+            {wa.status === 'qr_pending' ? 'Scan QR code' : wa.status === 'link_code_pending' ? 'Enter link code' : 'Connecting…'}
+          </p>
+          <p className="text-[10px] text-gray-600 leading-tight mt-0.5">Tap to continue setup</p>
+        </div>
+      </Link>
+    )
+  }
+
+  if (wa.status === 'error') {
+    return (
+      <Link
+        href="/onboarding"
+        onClick={onNav}
+        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-red-900/20 hover:bg-red-900/30 transition-colors"
+      >
+        <WifiOff className="w-4 h-4 text-red-400 flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-red-400 leading-tight">Connection error</p>
+          <p className="text-[10px] text-gray-600 leading-tight mt-0.5">Tap to reconnect</p>
+        </div>
+      </Link>
+    )
+  }
+
+  if (wa.status === 'disconnected') {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-2 px-3 py-1.5">
+          <WifiOff className="w-3.5 h-3.5 text-gray-600 flex-shrink-0" />
+          <p className="text-xs text-gray-600 truncate">WhatsApp disconnected</p>
+        </div>
+        <Link
+          href="/onboarding"
+          onClick={onNav}
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/60 transition-colors"
+        >
+          <Smartphone className="w-4 h-4 flex-shrink-0" />
+          <span>Reconnect WhatsApp</span>
+        </Link>
+      </div>
+    )
+  }
+
+  // unknown / never connected
+  return (
+    <Link
+      href="/onboarding"
+      onClick={onNav}
+      className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/60 transition-colors"
+    >
+      <Smartphone className="w-4 h-4 flex-shrink-0" />
+      <span>Connect WhatsApp</span>
+    </Link>
+  )
+}
+
 function SidebarContents({
   pathname,
   email,
   mode,
+  wa,
   onNav,
   onSignOut,
 }: {
   pathname: string
   email: string | undefined
   mode: WorkspaceMode
+  wa: WAStatus
   onNav: () => void
   onSignOut: () => void
 }) {
@@ -196,14 +289,7 @@ function SidebarContents({
 
       {/* Footer */}
       <div className="p-3 border-t border-gray-800/80 space-y-1 flex-shrink-0">
-        <Link
-          href="/onboarding"
-          onClick={onNav}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/60 transition-colors"
-        >
-          <Smartphone className="w-4 h-4 flex-shrink-0" />
-          <span>Connect WhatsApp</span>
-        </Link>
+        <WAStatusWidget wa={wa} onNav={onNav} />
         <button
           onClick={onSignOut}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 hover:text-gray-300 hover:bg-gray-800/60 transition-colors text-left"
@@ -255,6 +341,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const { signOut } = useClerk()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const wa = useWAStatus(session.data?.accessToken)
 
   if (session.status === 'loading') {
     return (
@@ -275,6 +362,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleSignOut = () => signOut({ redirectUrl: '/login' })
   const closeSidebar = () => setSidebarOpen(false)
 
+  const waStatusDot =
+    wa.status === 'connected'                                              ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]' :
+    wa.status === 'connecting' || wa.status === 'qr_pending' || wa.status === 'link_code_pending' ? 'bg-amber-400 animate-pulse' :
+    wa.status === 'error'                                                  ? 'bg-red-500' :
+    wa.status === 'disconnected'                                           ? 'bg-gray-600' :
+    'bg-transparent'
+
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
       {/* Mobile top bar */}
@@ -287,8 +381,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Menu className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-[10px] font-bold">Z</span>
+          <div className="relative">
+            <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-[10px] font-bold">Z</span>
+            </div>
+            {wa.status !== 'unknown' && (
+              <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-gray-900 ${waStatusDot}`} />
+            )}
           </div>
           <span className="text-white font-semibold text-sm">Zuri</span>
         </div>
@@ -334,6 +433,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           pathname={pathname}
           email={session.data?.user.email}
           mode={mode}
+          wa={wa}
           onNav={closeSidebar}
           onSignOut={handleSignOut}
         />
