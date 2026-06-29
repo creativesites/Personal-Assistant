@@ -670,7 +670,7 @@ function EmptyState() {
 
 export default function LeadsPage() {
   const { data: session } = useZuriSession();
-  const token = session?.token ?? '';
+  const token = session?.accessToken ?? '';
 
   const [leads, setLeads]       = useState<Lead[]>([]);
   const [loading, setLoading]   = useState(true);
