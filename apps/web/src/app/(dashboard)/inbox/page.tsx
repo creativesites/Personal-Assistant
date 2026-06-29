@@ -8,7 +8,8 @@ import {
   AlertTriangle, Calendar, DollarSign, CheckCircle, XCircle,
   Sparkles, Brain, Bell, Tag, Edit3, Copy, UserPlus, CreditCard,
   UserCheck, FileText, WifiOff, Info, Lightbulb, Activity,
-  ShoppingCart, MessageCircle,
+  ShoppingCart, MessageCircle, MapPin, Download, Music, Film,
+  Image, Sticker, Phone, Mic,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -63,9 +64,14 @@ interface Conversation {
 interface Message {
   id: string
   senderType: 'user' | 'contact'
+  messageType?: string
   body: string | null
   timestamp: string
   pendingSuggestions: number
+  mediaUrl?: string | null
+  mediaMimeType?: string | null
+  transcription?: string | null
+  quotedMessageId?: string | null
   deliveryStatus?: 'sent' | 'delivered' | 'read'
 }
 
@@ -178,6 +184,154 @@ const MOCK_TIMELINE: TimelineEvent[] = [
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
+
+function mediaHref(path: string, token?: string | null): string {
+  const base = `${API_BASE}${path}`
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+function MessageContent({ msg, token, isUser }: { msg: Message; token?: string | null; isUser: boolean }) {
+  const mType = msg.messageType ?? 'text'
+  const textClass = `leading-relaxed whitespace-pre-wrap ${isUser ? 'text-white' : 'text-gray-900'}`
+  const metaClass = `text-xs mt-1 ${isUser ? 'text-indigo-200' : 'text-gray-500'}`
+
+  if (mType === 'deleted') {
+    return (
+      <p className={`italic opacity-60 text-sm ${isUser ? 'text-indigo-200' : 'text-gray-400'}`}>
+        This message was deleted
+      </p>
+    )
+  }
+
+  if (mType === 'location' && msg.body) {
+    try {
+      const loc = JSON.parse(msg.body) as { lat: number; lng: number; name?: string; address?: string }
+      const mapsUrl = `https://maps.google.com/?q=${loc.lat},${loc.lng}`
+      return (
+        <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
+          className={`flex items-center gap-2 text-sm underline-offset-2 hover:underline ${isUser ? 'text-indigo-100' : 'text-indigo-600'}`}>
+          <MapPin size={14} className="flex-shrink-0" />
+          <span>{loc.name ?? loc.address ?? `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`}</span>
+          <ExternalLink size={10} className="flex-shrink-0 opacity-60" />
+        </a>
+      )
+    } catch {
+      return <p className={textClass}>{msg.body}</p>
+    }
+  }
+
+  if (mType === 'contact_card') {
+    return (
+      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-700'}`}>
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-indigo-500' : 'bg-gray-100'}`}>
+          <Phone size={13} className={isUser ? 'text-white' : 'text-gray-500'} />
+        </div>
+        <span>{msg.body ?? 'Contact card'}</span>
+      </div>
+    )
+  }
+
+  if (mType === 'image' || mType === 'sticker') {
+    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
+    if (href) {
+      return (
+        <div className="space-y-1">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={href}
+            alt={msg.body ?? 'Image'}
+            className="max-w-[220px] rounded-lg object-cover"
+            style={{ maxHeight: 220 }}
+          />
+          {msg.body && <p className={textClass}>{msg.body}</p>}
+        </div>
+      )
+    }
+    return (
+      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
+        <Image size={14} />
+        <span>{msg.body ?? (mType === 'sticker' ? 'Sticker' : 'Photo')}</span>
+      </div>
+    )
+  }
+
+  if (mType === 'video') {
+    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
+    if (href) {
+      return (
+        <div className="space-y-1">
+          <video
+            src={href}
+            controls
+            className="max-w-[220px] rounded-lg"
+            style={{ maxHeight: 180 }}
+          />
+          {msg.body && <p className={textClass}>{msg.body}</p>}
+        </div>
+      )
+    }
+    return (
+      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
+        <Film size={14} />
+        <span>{msg.body ?? 'Video'}</span>
+      </div>
+    )
+  }
+
+  if (mType === 'audio') {
+    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
+    if (href) {
+      return (
+        <div className="space-y-1.5">
+          <audio controls src={href} className="max-w-full h-9" style={{ minWidth: 180 }} />
+          {msg.transcription && (
+            <p className={`text-xs italic ${isUser ? 'text-indigo-200' : 'text-gray-500'}`}>
+              "{msg.transcription}"
+            </p>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
+        <Mic size={14} />
+        <span>Voice message</span>
+      </div>
+    )
+  }
+
+  if (mType === 'document') {
+    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
+    const fileName = msg.body ?? msg.mediaMimeType?.split('/')[1] ?? 'Document'
+    if (href) {
+      return (
+        <a href={href} download target="_blank" rel="noopener noreferrer"
+          className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition-colors ${
+            isUser
+              ? 'bg-indigo-500 border-indigo-400 text-white hover:bg-indigo-400'
+              : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+          }`}>
+          <FileText size={14} className="flex-shrink-0" />
+          <span className="truncate max-w-[160px]">{fileName}</span>
+          <Download size={12} className="flex-shrink-0 ml-auto opacity-70" />
+        </a>
+      )
+    }
+    return (
+      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
+        <FileText size={14} />
+        <span>{fileName}</span>
+      </div>
+    )
+  }
+
+  // Default: text
+  return (
+    <p className={textClass}>{msg.body ?? ''}</p>
+  )
+}
 
 function formatTime(ts: string | null) {
   if (!ts) return ''
@@ -951,7 +1105,11 @@ export default function InboxPage() {
                             } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-2 ring-amber-300' : ''}
                               ${selectedMsgId === msg.id ? 'ring-2 ring-indigo-400' : ''}`}
                             >
-                              <p className="leading-relaxed whitespace-pre-wrap">{msg.body || '(media)'}</p>
+                              <MessageContent
+                                msg={msg}
+                                token={token}
+                                isUser={msg.senderType === 'user'}
+                              />
                               <div className="flex items-center justify-between gap-2 mt-0.5">
                                 <span className={`text-[10px] ${msg.senderType === 'user' ? 'text-indigo-200' : 'text-gray-400'}`}>
                                   {formatTime(msg.timestamp)}

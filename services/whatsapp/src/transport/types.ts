@@ -14,6 +14,11 @@ export interface NormalisedMessage {
   messageType: MessageType;
   body: string | null;
   timestampMs: number;
+  /** Local API path for the downloaded media file: /api/media/<filename> */
+  mediaUrl: string | null;
+  mediaMimeType: string | null;
+  /** WhatsApp message ID of the quoted/replied-to message */
+  quotedWaMessageId: string | null;
 }
 
 export type TransportDisconnectReason =

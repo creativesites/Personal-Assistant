@@ -2,6 +2,7 @@ import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -9,6 +10,7 @@ import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import P from 'pino';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import { MessageType } from '@zuri/types';
 import {
@@ -18,9 +20,31 @@ import {
   type TransportStatus,
 } from './types';
 
-const QR_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+const QR_TIMEOUT_MS = 3 * 60 * 1000;
 const MAX_RECONNECTS = 5;
 const RECONNECT_DELAY_MS = 3000;
+const DEFAULT_MEDIA_DIR = '/app/media';
+
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'audio/ogg; codecs=opus': 'ogg',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/mpeg': 'mp3',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'image/svg+xml': 'svg',
+};
+
+function mimeToExt(mime: string): string {
+  return MIME_TO_EXT[mime] ?? MIME_TO_EXT[mime.split(';')[0].trim()] ?? 'bin';
+}
 
 export class BaileysTransport extends WhatsAppTransport {
   readonly userId: string;
@@ -30,11 +54,21 @@ export class BaileysTransport extends WhatsAppTransport {
   private _reconnectCount = 0;
   private _qrTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly authPath: string;
+  private readonly mediaDir: string;
 
   constructor(userId: string, private readonly sessionsDir: string) {
     super();
     this.userId = userId;
     this.authPath = path.join(sessionsDir, userId);
+    this.mediaDir = process.env.MEDIA_DIR ?? DEFAULT_MEDIA_DIR;
+    // Ensure media directory exists
+    try {
+      if (!fsSync.existsSync(this.mediaDir)) {
+        fsSync.mkdirSync(this.mediaDir, { recursive: true });
+      }
+    } catch (err) {
+      console.error(`[baileys:${this.userId}] could not create media dir:`, err);
+    }
   }
 
   getStatus(): TransportStatus {
@@ -134,47 +168,141 @@ export class BaileysTransport extends WhatsAppTransport {
       }
     });
 
-    sock.ev.on('messages.upsert', ({ messages, type }) => {
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const msg of messages) {
-        const normalised = this._normalise(msg);
-        if (normalised) this.emitMessage(normalised);
+        try {
+          const normalised = await this._normalise(msg);
+          if (normalised) this.emitMessage(normalised);
+        } catch (err) {
+          console.error(`[baileys:${this.userId}] normalise error:`, err);
+        }
       }
     });
   }
 
-  private _normalise(msg: WAMessage): NormalisedMessage | null {
+  private async _normalise(msg: WAMessage): Promise<NormalisedMessage | null> {
     const jid = msg.key.remoteJid;
     if (!jid) return null;
 
     const content = msg.message;
     if (!content) return null;
 
-    // Skip protocol / delivery receipt messages
-    if (
-      content.protocolMessage ||
-      content.senderKeyDistributionMessage ||
-      content.reactionMessage
-    ) return null;
+    // Skip pure protocol messages (delivery receipts etc.)
+    if (content.protocolMessage || content.senderKeyDistributionMessage) return null;
+    // Skip reactions — they attach to messages, not form their own chat bubbles
+    if (content.reactionMessage) return null;
 
-    const body =
-      content.conversation ??
-      content.extendedTextMessage?.text ??
+    const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
+    const base = {
+      waMessageId: msg.key.id ?? '',
+      jid,
+      fromMe: msg.key.fromMe ?? false,
+      displayName: msg.pushName ?? null,
+      timestampMs,
+    };
+
+    // ── Location ──────────────────────────────────────────────────────────────
+    if (content.locationMessage) {
+      const loc = content.locationMessage;
+      return {
+        ...base,
+        messageType: MessageType.LOCATION,
+        body: JSON.stringify({
+          lat: loc.degreesLatitude,
+          lng: loc.degreesLongitude,
+          name: loc.name ?? null,
+          address: loc.address ?? null,
+        }),
+        mediaUrl: null,
+        mediaMimeType: null,
+        quotedWaMessageId: null,
+      };
+    }
+
+    // ── Contact card ──────────────────────────────────────────────────────────
+    if (content.contactMessage || content.contactsArrayMessage) {
+      const name =
+        content.contactMessage?.displayName ??
+        content.contactsArrayMessage?.contacts?.[0]?.displayName ?? null;
+      return {
+        ...base,
+        messageType: MessageType.CONTACT_CARD,
+        body: name,
+        mediaUrl: null,
+        mediaMimeType: null,
+        quotedWaMessageId: null,
+      };
+    }
+
+    // ── Text ─────────────────────────────────────────────────────────────────
+    const textBody = content.conversation ?? content.extendedTextMessage?.text ?? null;
+    if (textBody !== null && !content.imageMessage && !content.videoMessage &&
+        !content.audioMessage && !content.documentMessage && !content.stickerMessage) {
+      const quotedWaMessageId =
+        content.extendedTextMessage?.contextInfo?.stanzaId ?? null;
+      return {
+        ...base,
+        messageType: MessageType.TEXT,
+        body: textBody,
+        mediaUrl: null,
+        mediaMimeType: null,
+        quotedWaMessageId: quotedWaMessageId ?? null,
+      };
+    }
+
+    // ── Media messages ────────────────────────────────────────────────────────
+    const messageType = this._detectType(content);
+    const captionBody =
       content.imageMessage?.caption ??
       content.videoMessage?.caption ??
       content.documentMessage?.caption ??
       null;
 
-    const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
+    // Quoted message ID from any media type's context info
+    const quotedWaMessageId =
+      (content.imageMessage as any)?.contextInfo?.stanzaId ??
+      (content.videoMessage as any)?.contextInfo?.stanzaId ??
+      (content.audioMessage as any)?.contextInfo?.stanzaId ??
+      (content.documentMessage as any)?.contextInfo?.stanzaId ??
+      (content.stickerMessage as any)?.contextInfo?.stanzaId ??
+      null;
+
+    // Mime type from the media sub-message
+    const mediaMsg: any =
+      content.imageMessage ??
+      content.videoMessage ??
+      content.audioMessage ??
+      content.documentMessage ??
+      content.stickerMessage ??
+      null;
+
+    const mediaMimeType: string | null = mediaMsg?.mimetype ?? null;
+
+    let mediaUrl: string | null = null;
+
+    if (mediaMsg) {
+      try {
+        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+        const ext = mimeToExt(mediaMimeType ?? '');
+        // Sanitise message ID for use as filename
+        const safeId = (msg.key.id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const fileName = `${safeId}.${ext}`;
+        const filePath = path.join(this.mediaDir, fileName);
+        await fs.writeFile(filePath, buffer as Buffer);
+        mediaUrl = `/api/media/${fileName}`;
+      } catch (err) {
+        console.error(`[baileys:${this.userId}] media download failed for ${msg.key.id}:`, err);
+      }
+    }
 
     return {
-      waMessageId: msg.key.id ?? '',
-      jid,
-      fromMe: msg.key.fromMe ?? false,
-      displayName: msg.pushName ?? null,
-      messageType: this._detectType(content),
-      body,
-      timestampMs,
+      ...base,
+      messageType,
+      body: captionBody,
+      mediaUrl,
+      mediaMimeType,
+      quotedWaMessageId: quotedWaMessageId ?? null,
     };
   }
 

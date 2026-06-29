@@ -14,6 +14,16 @@ function parseRedisUrl(url: string) {
   };
 }
 
+const MEDIA_PREVIEW: Record<string, string> = {
+  image: '📷 Photo',
+  audio: '🎵 Voice message',
+  video: '🎬 Video',
+  document: '📄 Document',
+  sticker: '🎨 Sticker',
+  location: '📍 Location',
+  contact_card: '👤 Contact',
+};
+
 export class MessageHandler {
   private readonly incomingQueue: Queue;
 
@@ -32,11 +42,32 @@ export class MessageHandler {
     const timestamp = new Date(msg.timestampMs);
 
     const contactId = await this.upsertContact(userId, msg.jid, msg.displayName);
+
+    // Preview text for conversation list
+    const previewText =
+      msg.body?.slice(0, 200) ??
+      MEDIA_PREVIEW[msg.messageType] ??
+      null;
+
     const conversationId = await this.upsertConversation(
-      userId, contactId, msg.jid, msg.body, timestamp,
+      userId, contactId, msg.jid, previewText, timestamp,
     );
+
+    // Resolve quoted message UUID if we have the WhatsApp message ID
+    const quotedMessageId = msg.quotedWaMessageId
+      ? await this.resolveQuotedMessageId(conversationId, msg.quotedWaMessageId)
+      : null;
+
     const messageId = await this.insertMessage(
-      conversationId, msg.waMessageId, senderType, msg.messageType, msg.body, timestamp,
+      conversationId,
+      msg.waMessageId,
+      senderType,
+      msg.messageType,
+      msg.body,
+      timestamp,
+      msg.mediaUrl ?? null,
+      msg.mediaMimeType ?? null,
+      quotedMessageId,
     );
 
     if (!messageId) return; // duplicate
@@ -60,9 +91,22 @@ export class MessageHandler {
       `message:new:${userId}`,
       JSON.stringify({
         messageId, conversationId, contactId,
-        senderType, messageType: msg.messageType, body: msg.body, timestamp,
+        senderType, messageType: msg.messageType, body: msg.body,
+        mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
+        timestamp,
       }),
     );
+  }
+
+  private async resolveQuotedMessageId(
+    conversationId: string,
+    quotedWaMessageId: string,
+  ): Promise<string | null> {
+    const { rows } = await this.db.query<{ id: string }>(
+      `SELECT id FROM messages WHERE conversation_id = $1 AND whatsapp_message_id = $2 LIMIT 1`,
+      [conversationId, quotedWaMessageId],
+    );
+    return rows[0]?.id ?? null;
   }
 
   private async upsertContact(
@@ -146,14 +190,19 @@ export class MessageHandler {
     messageType: import('@zuri/types').MessageType,
     body: string | null,
     timestamp: Date,
+    mediaUrl: string | null,
+    mediaMimeType: string | null,
+    quotedMessageId: string | null,
   ): Promise<string | null> {
     const { rows: [row] } = await this.db.query<{ id: string }>(
       `INSERT INTO messages
-         (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (conversation_id, whatsapp_message_id, sender_type, message_type, body,
+          media_url, media_mime_type, quoted_message_id, whatsapp_timestamp)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (conversation_id, whatsapp_message_id) DO NOTHING
        RETURNING id`,
-      [conversationId, waMessageId, senderType, messageType, body, timestamp],
+      [conversationId, waMessageId, senderType, messageType, body,
+       mediaUrl, mediaMimeType, quotedMessageId, timestamp],
     );
     return row?.id ?? null;
   }

@@ -149,6 +149,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           m.whatsapp_timestamp,
           m.is_deleted,
           m.media_url,
+          m.media_mime_type,
+          m.transcription,
+          m.quoted_message_id,
           ma.sentiment,
           ma.sentiment_score,
           ma.requires_response,
@@ -189,6 +192,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         body: m.body,
         timestamp: m.whatsapp_timestamp,
         mediaUrl: m.media_url,
+        mediaMimeType: m.media_mime_type,
+        transcription: m.transcription,
+        quotedMessageId: m.quoted_message_id,
         analysis: m.sentiment
           ? {
               sentiment: m.sentiment,
