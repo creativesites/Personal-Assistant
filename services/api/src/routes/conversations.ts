@@ -60,7 +60,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         SELECT ci.contact_id, MAX(ci.confidence * 100) AS lead_score
         FROM contact_insights ci
         WHERE ci.user_id = $1 AND ci.is_active = true
-          AND ci.insight_key ILIKE '%lead%' OR ci.insight_key ILIKE '%score%' OR ci.insight_key ILIKE '%intent%'
+          AND (ci.insight_key ILIKE '%lead%' OR ci.insight_key ILIKE '%score%' OR ci.insight_key ILIKE '%intent%')
         GROUP BY ci.contact_id
       )
       SELECT
