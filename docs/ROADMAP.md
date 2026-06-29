@@ -271,11 +271,19 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 
 ---
 
-## Phase 10 — Production Polish 🔄
+## Phase 10 — Production Polish & Knowledge Base AI Brain 🔄
 
-**Goal:** Harden everything that exists. No new features — fix gaps, wire up incomplete flows, add reliability.
+**Goal:** Harden everything that exists, complete the Knowledge Base transformation into Zuri's central intelligence layer, and build the AI Knowledge Discovery Engine.
 
-See `docs/NEXT_PHASE.md` for the full task list.
+Key deliverables:
+- SSL + GitHub Actions CD
+- Auto Response execution wiring
+- Audio transcription (Whisper)
+- Knowledge Base as AI Brain: PDF/Excel upload, chat interface, search, KB-powered replies
+- AI Knowledge Discovery Engine: continuous learning from conversations
+- Sentry monitoring, database backups, performance polish
+
+See `docs/NEXT_PHASE.md` for the full task list and implementation details.
 
 ---
 

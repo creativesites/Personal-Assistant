@@ -20,6 +20,7 @@ import { mediaRoutes } from './routes/media';
 import { leadsRoutes } from './routes/leads';
 import { settingsRoutes } from './routes/settings';
 import { calendarRoutes } from './routes/calendar';
+import { knowledgeRoutes } from './routes/knowledge';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -60,6 +61,7 @@ export async function buildApp() {
   await fastify.register(leadsRoutes);
   await fastify.register(settingsRoutes);
   await fastify.register(calendarRoutes);
+  await fastify.register(knowledgeRoutes);
 
   return fastify;
 }

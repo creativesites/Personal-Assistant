@@ -301,3 +301,111 @@ async def retrieve_relevant_chunks(
     )
 
     return results
+
+
+async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[dict]:
+    """Search the knowledge base and return matching chunks with document metadata."""
+    if not query.strip():
+        return []
+
+    from ..ai.client import get_ai_client
+    client = get_ai_client()
+
+    try:
+        query_embedding = await client.embed(query[:2000])
+    except Exception as exc:
+        log.warning('kb_search_embed_failed', error=str(exc))
+        return []
+
+    if query_embedding is None:
+        return []
+
+    query_vec = __import__('numpy').array(
+        query_embedding if isinstance(query_embedding, list) else list(query_embedding),
+        dtype=__import__('numpy').float32,
+    )
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT kc.content,
+                   1 - (kc.embedding <-> $1) AS score,
+                   kd.id AS document_id,
+                   kd.title AS document_title,
+                   kd.source_type,
+                   kd.category
+            FROM kb_chunks kc
+            JOIN kb_documents kd ON kd.id = kc.document_id
+            WHERE kc.user_id = $2
+              AND kc.embedding IS NOT NULL
+              AND kd.status = 'ready'
+            ORDER BY kc.embedding <-> $1
+            LIMIT $3
+            """,
+            query_vec,
+            user_id,
+            limit,
+        )
+        if rows:
+            doc_ids = list({row['document_id'] for row in rows})
+            for doc_id in doc_ids:
+                await conn.execute(
+                    "UPDATE kb_documents SET used_count = used_count + 1, last_used_at = NOW() WHERE id = $1",
+                    doc_id,
+                )
+
+    return [
+        {
+            'content': row['content'],
+            'score': float(row['score']),
+            'document_id': str(row['document_id']),
+            'document_title': row['document_title'],
+            'source_type': row['source_type'],
+            'category': row['category'],
+        }
+        for row in rows
+    ]
+
+
+async def chat_with_knowledge(user_id: str, question: str) -> dict:
+    """Answer a question using the knowledge base as context."""
+    chunks = await retrieve_relevant_chunks(user_id, None, question, limit=5)
+
+    if not chunks:
+        return {
+            'answer': "I don't have information about that in my knowledge base. Try adding relevant documents first.",
+            'sources': [],
+        }
+
+    context_parts = [f"[Source {i+1}]: {c['content']}" for i, c in enumerate(chunks)]
+    context = '\n\n'.join(context_parts)
+
+    prompt = f"""You are an AI assistant answering questions from a business knowledge base.
+
+Question: {question}
+
+Knowledge Base Content:
+{context}
+
+Answer the question accurately and concisely based only on the knowledge base content above.
+If the information is not in the knowledge base, say so clearly.
+Do not make up information."""
+
+    from ..ai.client import get_ai_client
+    client = get_ai_client()
+    try:
+        answer = await client.complete_text([{'role': 'user', 'content': prompt}])
+    except Exception as exc:
+        log.error('kb_chat_failed', error=str(exc))
+        answer = 'Sorry, I was unable to generate an answer. Please try again.'
+
+    sources = [
+        {
+            'content': c['content'][:300] + ('...' if len(c['content']) > 300 else ''),
+            'score': round(c['score'], 3),
+        }
+        for c in chunks[:3]
+    ]
+
+    return {'answer': answer or '', 'sources': sources}

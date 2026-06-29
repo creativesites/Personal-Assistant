@@ -6,6 +6,7 @@ import structlog
 from .database import get_pool, close_pool
 from .queue import close_redis_publisher
 from .routes.health import router as health_router
+from .routes.knowledge import router as knowledge_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
 from .workers.daily_worker import create_proactive_worker, run_daily_scheduler, run_temporal_scheduler, run_world_knowledge_scheduler
@@ -67,3 +68,4 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(knowledge_router)

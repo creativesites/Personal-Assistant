@@ -6,6 +6,7 @@ from ..database import get_pool
 from ..models import MessageAnalysis, ReplySuggestions
 from ..queue import publish_event
 from .web_search import get_web_search
+from .knowledge_retriever import retrieve_relevant_chunks
 
 log = structlog.get_logger()
 
@@ -107,6 +108,21 @@ class ReplyGenerator:
                 except Exception as exc:
                     log.warning('live_search_context_failed', error=str(exc))
 
+        # Knowledge base retrieval — inject business-specific knowledge
+        kb_context = ''
+        try:
+            kb_chunks = await retrieve_relevant_chunks(
+                user_id=user_id,
+                agent_id=None,
+                query=body[:500],
+                limit=3,
+            )
+            if kb_chunks:
+                kb_text = '\n'.join(f"- {c['content'][:400]}" for c in kb_chunks)
+                kb_context = f'\n\nRelevant knowledge base context:\n{kb_text}'
+        except Exception as exc:
+            log.warning('kb_retrieval_failed_in_reply_gen', error=str(exc))
+
         prompt = GENERATE_REPLIES.format(
             user_name=user_name,
             contact_name=contact_name,
@@ -117,7 +133,7 @@ class ReplyGenerator:
             body=body,
             sentiment=analysis.sentiment,
             intent=analysis.intent.primary,
-        ) + search_context
+        ) + search_context + kb_context
 
         raw = await client.complete_json([{'role': 'user', 'content': prompt}])
         suggestions_model = ReplySuggestions(**raw)

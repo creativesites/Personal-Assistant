@@ -231,6 +231,163 @@ Smaller items that improve the shipped experience:
 
 ---
 
+## Priority 8 — Knowledge Base: AI Brain (in progress)
+
+**Impact:** The KB page already exists with document storage, chunking, and agent injection. The current work (workflow `wf_125e4a2b-83c`) adds PDF/Excel upload, a chat interface, KB search, and wires KB retrieval into every reply suggestion.
+
+Completed in the running workflow:
+- [x] Migration 0026: `category`, `tags`, `word_count`, `file_size_bytes`, `used_count`, `last_used_at`, `summary` on `kb_documents`
+- [x] `pdfplumber` + `openpyxl` in requirements
+- [ ] `search_knowledge()` + `chat_with_knowledge()` in knowledge_retriever.py
+- [ ] `/internal/knowledge/search` + `/internal/knowledge/chat` FastAPI endpoints
+- [ ] KB retrieval injected into reply_gen.py (powers all reply suggestions)
+- [ ] `POST /api/knowledge/upload` multipart endpoint (PDF/Excel/CSV)
+- [ ] Full page overhaul: stats, Ask Your KB chat, search, rich document table, upload modal
+
+---
+
+## Priority 9 — AI Knowledge Discovery Engine
+
+**This is one of Zuri's biggest product differentiators.** Most AI systems only *consume* a knowledge base. Zuri continuously *builds* one by observing conversations — just like a new employee would.
+
+### Vision
+
+Instead of requiring businesses to manually document everything, the AI proactively extracts valuable facts from conversations and proposes them as structured knowledge entries. A jersey price mentioned 73 times across conversations becomes a Knowledge Candidate with 98% confidence. When the owner corrects a delivery fee in chat, Zuri detects the change and proposes an update.
+
+### Architecture
+
+```
+WhatsApp Messages
+       │
+       ▼
+AI Intelligence Pipeline
+       │
+       ▼
+Knowledge Discovery Engine ← extractors run after every message analysis
+       │
+       ▼
+Knowledge Candidates (pending approval)
+       │
+  (Auto or User Approval, configurable)
+       ▼
+Knowledge Base (structured, versioned)
+       │
+       ▼
+AI Replies · Agents · Planning · CRM · Automation · BI
+       │
+       ▼
+New Conversations → loop continues
+```
+
+### Extractors
+
+Each extractor runs as a lightweight post-processor after `message_worker.py` completes analysis. Results go into a `knowledge_candidates` table.
+
+| Extractor | Detects |
+|-----------|---------|
+| Pricing | Product prices, delivery fees, service charges |
+| Policy | Return/refund/warranty/exchange rules |
+| FAQ | Repeated Q&A patterns across conversations |
+| Business Hours | Opening times, holidays, exceptions |
+| Location | Delivery areas, store locations, service zones |
+| Product | Products, SKUs, descriptions, availability |
+| Service | Services offered, turnaround times |
+| Process | How the business handles orders, bookings, repairs |
+| Promotion | Active discounts, deals, offers |
+| Sales Script | Common objection handling and closing techniques |
+| Objection | Customer hesitations and how they were resolved |
+
+### Confidence Engine
+
+Scores a candidate from 0-100 based on:
+- Number of observations (1×=35%, 2×=48%, 12×=81%, 54×=97%)
+- Source quality (owner conversation → +20%, historical chats → +5% per occurrence)
+- Owner confirmation → 100%
+- Contradicting evidence → penalty proportional to conflict count
+- Recency (older observations decay slowly)
+
+### Knowledge Candidates Page (`/knowledge-base/candidates`)
+
+New sub-page inside Knowledge Base.
+
+Columns: Suggestion | Category | Confidence | Source | Times Observed | Status | Actions
+
+Actions per candidate: Approve / Edit & Approve / Reject / Merge (with existing entry)
+
+Clicking opens a detail panel with:
+- Full suggested knowledge entry
+- Supporting evidence (links to source conversations)
+- Current KB entry (if conflict/update)
+- Version comparison (old vs proposed)
+
+### Approval Modes (settings)
+
+Three modes per user (stored in `knowledge_discovery_settings` or similar):
+- **Manual Approval** — everything requires review (recommended default)
+- **Auto-approve High Confidence** — confidence ≥ 95% auto-promotes, user notified
+- **Fully Automatic** — all candidates auto-promote; user can undo
+
+### Knowledge Evolution & Versioning
+
+Knowledge entries don't get overwritten — they get versioned.
+
+When a candidate conflicts with an existing entry:
+```
+Jan: Delivery Fee = K50 (KB entry, v1)
+Mar: AI detects K80 in 5 conversations (candidate, 92% confidence)
+     → Proposed: KB entry v2 = K80 (v1 archived as historical)
+```
+
+### Contradiction Detection
+
+When multiple sources disagree, flag a warning:
+- Website says K450, conversations say K500, PDF says K480
+- Warning shown in KB health panel with source breakdown
+- User can resolve by selecting the authoritative source
+
+### Database Schema (new tables needed)
+
+```sql
+CREATE TABLE knowledge_candidates (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category        VARCHAR(100),
+  title           VARCHAR(255) NOT NULL,
+  proposed_value  TEXT NOT NULL,           -- structured as JSON or plain text
+  source_type     VARCHAR(50) NOT NULL,    -- 'historical_conversation' | 'live_conversation' | 'owner_chat' | 'document'
+  source_refs     TEXT[],                  -- conversation IDs, message IDs, document IDs
+  observation_count INT NOT NULL DEFAULT 1,
+  confidence      NUMERIC(5,2) NOT NULL DEFAULT 0,
+  status          VARCHAR(30) NOT NULL DEFAULT 'pending', -- pending | approved | rejected | merged
+  existing_kb_id  UUID REFERENCES kb_documents(id) ON DELETE SET NULL, -- if this updates an existing entry
+  first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE kb_document_versions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id     UUID NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
+  version_number  INT NOT NULL,
+  content_snapshot TEXT NOT NULL,
+  change_summary  TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### Implementation Plan
+
+1. **Migration** — `0027_knowledge_discovery.sql` adds `knowledge_candidates` and `kb_document_versions` tables
+2. **Extractor base class** — `services/intelligence/engines/knowledge_extractors/base.py` — defines `extract(message, analysis, contact) → list[CandidateFact]`
+3. **Individual extractors** — one file per extractor type (pricing.py, policy.py, faq.py, etc.)
+4. **Discovery worker** — runs after message analysis in `message_worker.py`, fans out to all extractors, deduplicates against existing candidates, writes to `knowledge_candidates`
+5. **Confidence calculator** — `engines/knowledge_extractors/confidence.py`
+6. **API routes** — `GET/POST/PATCH /api/knowledge/candidates` endpoints
+7. **Candidates page** — `/knowledge-base/candidates` with the review UI
+
+---
+
 ## Build Order Summary
 
 | Priority | Task | Effort | Risk Without It |
@@ -242,3 +399,5 @@ Smaller items that improve the shipped experience:
 | **5** | Database backups | 2h | Data loss risk |
 | **6** | Opportunity detection engine | 2 days | Proactive queue under-populated |
 | **7** | Performance & UX polish | 3 days | Rough edges in production |
+| **8** | KB AI Brain (upload + chat + search) | 🔄 in progress | KB is passive document storage |
+| **9** | AI Knowledge Discovery Engine | 2 weeks | Business never builds institutional memory |
