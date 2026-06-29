@@ -53,9 +53,25 @@ You are an AI assistant acting as {agent_name} ({agent_type}).
 == Latest message ==
 {latest_message}
 
-Compose a single, natural reply. Be concise. Stay within your defined role.
+== Available tools ==
+You may optionally call one or more tools alongside your reply:
+{available_tools}
+
+Compose a single, natural reply and optionally call tools. Be concise. Stay within your defined role.
 Do not mention that you are an AI unless the contact asks directly.
 Respond in the same language as the latest message.
+
+Respond ONLY with a JSON object — no markdown, no extra text:
+{{
+  "reply": "your reply text here",
+  "confidence": 0.0-1.0,
+  "tools": [
+    {{"name": "tool_name", "params": {{"key": "value"}}}}
+  ],
+  "reasoning": "one sentence explaining your reply"
+}}
+
+If no tools are needed, set "tools" to [].
 """
 
 
@@ -77,10 +93,11 @@ async def handle_agent_message(
     async with pool.acquire() as conn:
         agent = await conn.fetchrow(
             """
-            SELECT id, name, agent_type, description, system_prompt, trust_level,
+            SELECT id, name, agent_type, role_title, description, system_prompt, trust_level,
+                   tone, goals, capabilities,
                    can_send_links, can_share_pricing, can_book_meetings,
                    escalate_on_frustration, escalate_on_explicit_human_request,
-                   escalate_on_out_of_scope
+                   escalate_on_out_of_scope, max_messages_per_day
             FROM agents
             WHERE id = $1 AND user_id = $2 AND is_active = true
             """,
@@ -252,6 +269,10 @@ async def handle_agent_message(
 
     agent_system_prompt = agent['system_prompt'] or f"You are a helpful {agent['agent_type']} assistant."
 
+    # Build tool list based on agent capabilities
+    capabilities = agent['capabilities'] or {}
+    available_tools = _build_tool_list(capabilities, agent)
+
     prompt = _AGENT_RESPONSE_PROMPT.format(
         agent_name=agent['name'],
         agent_type=agent['agent_type'],
@@ -260,11 +281,8 @@ async def handle_agent_message(
         kb_context=kb_context,
         conversation_history=conversation_history,
         latest_message=message_body,
+        available_tools=available_tools,
     )
-
-    client = get_ai_client()
-    reply_text = await client.complete_text([{'role': 'user', 'content': prompt}])
-    reply_text = reply_text.strip()
 
     if not contact_id:
         async with pool.acquire() as conn:
@@ -273,14 +291,50 @@ async def handle_agent_message(
             )
             contact_id = conv_row['contact_id'] if conv_row else None
 
+    client = get_ai_client()
+    try:
+        reply_data = await client.complete_json([{'role': 'user', 'content': prompt}])
+        reply_text = str(reply_data.get('reply', '')).strip()
+        confidence = float(reply_data.get('confidence', 0.8))
+        tools_to_run = reply_data.get('tools', []) or []
+        reasoning = str(reply_data.get('reasoning', ''))
+    except Exception as exc:
+        log.warning('agent_json_parse_failed', error=str(exc), agent_id=agent_id)
+        # Fallback to plain text generation
+        reply_text = await client.complete_text([{'role': 'user', 'content': prompt}])
+        reply_text = reply_text.strip()
+        confidence = 0.7
+        tools_to_run = []
+        reasoning = 'fallback plain text generation'
+
+    if not reply_text:
+        log.warning('agent_empty_reply', agent_id=agent_id)
+        return {'action': 'skipped', 'reason': 'empty_reply'}
+
+    # Execute tools (non-blocking — tool failures don't abort the reply)
+    executed_tools = []
+    for tool_call in tools_to_run:
+        tool_name = tool_call.get('name', '')
+        tool_params = tool_call.get('params', {})
+        result = await execute_tool(
+            tool_name=tool_name,
+            params=tool_params,
+            contact_id=contact_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+        executed_tools.append({'name': tool_name, 'params': tool_params, 'result': result})
+        log.info('agent_tool_executed', tool=tool_name, result=result, agent_id=agent_id)
+
     # Record the agent action
     async with pool.acquire() as conn:
         action_id = await conn.fetchval(
             """
             INSERT INTO agent_actions
                 (agent_id, conversation_id, contact_id, action_type,
-                 input_message, output_message, reasoning, was_escalated)
-            VALUES ($1, $2, $3, 'send_message', $4, $5, $6, false)
+                 input_message, output_message, reasoning, was_escalated,
+                 confidence, tools_used)
+            VALUES ($1, $2, $3, 'send_message', $4, $5, $6, false, $7, $8)
             RETURNING id
             """,
             agent_id,
@@ -288,7 +342,9 @@ async def handle_agent_message(
             contact_id,
             message_body,
             reply_text,
-            f'KB chunks used: {len(kb_chunks)}. Trust level: {trust_level}.',
+            reasoning or f'KB chunks: {len(kb_chunks)}. Trust: {trust_level}.',
+            confidence,
+            json.dumps(executed_tools),
         )
 
     log.info(
@@ -296,6 +352,8 @@ async def handle_agent_message(
         agent_id=agent_id,
         action_id=str(action_id),
         trust_level=trust_level,
+        confidence=confidence,
+        tools_executed=len(executed_tools),
         message_length=len(reply_text),
     )
 
@@ -322,8 +380,140 @@ async def handle_agent_message(
     return {
         'action': 'responded',
         'message': reply_text,
+        'confidence': confidence,
+        'tools_executed': len(executed_tools),
         'escalated': False,
     }
+
+
+def _build_tool_list(capabilities: dict, agent: dict) -> str:
+    """Build a human-readable list of tools the agent may call based on capabilities."""
+    tools = []
+
+    # Core CRM tools — always available
+    tools.append('- update_contact_status(status: "contact"|"lead"|"customer"|"churned") — change CRM status')
+    tools.append('- update_pipeline_stage(stage: string) — move contact to a pipeline stage')
+    tools.append('- update_lead_score(score: 0-100) — update the lead score')
+    tools.append('- add_note(text: string) — append a CRM note to the contact record')
+    tools.append('- create_task(title: string, description: string, due_date: "YYYY-MM-DD") — create a follow-up task')
+    tools.append('- schedule_followup(title: string, body: string, days_from_now: 1-30) — schedule a proactive follow-up suggestion')
+
+    if not tools:
+        return '(no tools available)'
+    return '\n'.join(tools)
+
+
+async def execute_tool(
+    tool_name: str,
+    params: dict,
+    contact_id: str | None,
+    user_id: str,
+    conversation_id: str,
+) -> str:
+    """Execute a single tool call server-side. Returns a status string."""
+    if not contact_id:
+        return 'skipped: no contact_id'
+
+    pool = await get_pool()
+    try:
+        if tool_name == 'update_contact_status':
+            status = params.get('status', '')
+            valid = ('contact', 'lead', 'customer', 'churned')
+            if status not in valid:
+                return f'error: invalid status "{status}"'
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    'UPDATE contacts SET customer_status = $1 WHERE id = $2 AND user_id = $3',
+                    status, contact_id, user_id,
+                )
+            return f'ok: status → {status}'
+
+        elif tool_name == 'update_pipeline_stage':
+            stage = str(params.get('stage', '')).strip()
+            if not stage:
+                return 'error: missing stage'
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    'UPDATE contacts SET pipeline_stage = $1 WHERE id = $2 AND user_id = $3',
+                    stage, contact_id, user_id,
+                )
+            return f'ok: pipeline_stage → {stage}'
+
+        elif tool_name == 'update_lead_score':
+            try:
+                score = max(0, min(100, int(params.get('score', 0))))
+            except (TypeError, ValueError):
+                return 'error: score must be 0-100'
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    'UPDATE contacts SET lead_score = $1 WHERE id = $2 AND user_id = $3',
+                    score, contact_id, user_id,
+                )
+            return f'ok: lead_score → {score}'
+
+        elif tool_name == 'add_note':
+            text = str(params.get('text', '')).strip()
+            if not text:
+                return 'error: empty note'
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE contacts
+                    SET notes = CASE
+                        WHEN notes IS NULL OR notes = '' THEN $1
+                        ELSE notes || E'\n\n' || $1
+                    END
+                    WHERE id = $2 AND user_id = $3
+                    """,
+                    text, contact_id, user_id,
+                )
+            return 'ok: note appended'
+
+        elif tool_name == 'create_task':
+            title = str(params.get('title', '')).strip()
+            description = str(params.get('description', '')).strip() or None
+            due_date_raw = params.get('due_date')
+            if not title:
+                return 'error: missing title'
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO contact_tasks
+                        (user_id, contact_id, title, description, due_date, created_by)
+                    VALUES ($1, $2, $3, $4, $5::date, 'ai')
+                    """,
+                    user_id, contact_id, title, description, due_date_raw,
+                )
+            return f'ok: task created "{title}"'
+
+        elif tool_name == 'schedule_followup':
+            title = str(params.get('title', '')).strip()
+            body = str(params.get('body', '')).strip()
+            try:
+                days = max(1, min(30, int(params.get('days_from_now', 1))))
+            except (TypeError, ValueError):
+                days = 1
+            if not title:
+                return 'error: missing title'
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO proactive_queue
+                        (user_id, contact_id, suggestion_type, title, body,
+                         priority, status, suggested_for_date)
+                    VALUES ($1, $2, 'agent_followup', $3, $4, 5, 'pending',
+                            CURRENT_DATE + $5 * INTERVAL '1 day')
+                    """,
+                    user_id, contact_id, title, body, days,
+                )
+            return f'ok: followup scheduled in {days} day(s)'
+
+        else:
+            return f'error: unknown tool "{tool_name}"'
+
+    except Exception as exc:
+        log.warning('tool_execution_failed', tool=tool_name, error=str(exc))
+        return f'error: {exc}'
 
 
 async def check_escalation_triggers(

@@ -12,7 +12,37 @@ const createAgentBody = z.object({
   name: z.string().min(1).max(100),
   agent_type: z.enum(['sales', 'support', 'community_manager', 'custom']),
   description: z.string().optional(),
+  role_title: z.string().max(100).optional(),
+  avatar_emoji: z.string().max(10).optional(),
+  tone: z.string().max(50).optional(),
+  goals: z.string().optional(),
+  capabilities: z.record(z.unknown()).optional(),
+  greeting_message: z.string().optional(),
+  out_of_hours_message: z.string().optional(),
   trust_level: z.enum(['observe', 'suggest', 'assisted', 'delegated', 'autonomous']).optional(),
+  system_prompt: z.string().optional(),
+  can_send_links: z.boolean().optional(),
+  can_share_pricing: z.boolean().optional(),
+  can_book_meetings: z.boolean().optional(),
+  max_messages_per_day: z.number().int().positive().optional(),
+  escalate_on_frustration: z.boolean().optional(),
+  escalate_on_explicit_human_request: z.boolean().optional(),
+  escalate_on_out_of_scope: z.boolean().optional(),
+  is_default: z.boolean().optional(),
+})
+
+const patchAgentBody = z.object({
+  name: z.string().min(1).max(100).optional(),
+  role_title: z.string().max(100).optional(),
+  avatar_emoji: z.string().max(10).optional(),
+  tone: z.string().max(50).optional(),
+  goals: z.string().optional(),
+  capabilities: z.record(z.unknown()).optional(),
+  greeting_message: z.string().optional(),
+  out_of_hours_message: z.string().optional(),
+  trust_level: z.enum(['observe', 'suggest', 'assisted', 'delegated', 'autonomous']).optional(),
+  is_active: z.boolean().optional(),
+  is_default: z.boolean().optional(),
   system_prompt: z.string().optional(),
   can_send_links: z.boolean().optional(),
   can_share_pricing: z.boolean().optional(),
@@ -23,18 +53,12 @@ const createAgentBody = z.object({
   escalate_on_out_of_scope: z.boolean().optional(),
 })
 
-const patchAgentBody = z.object({
-  name: z.string().min(1).max(100).optional(),
-  trust_level: z.enum(['observe', 'suggest', 'assisted', 'delegated', 'autonomous']).optional(),
-  is_active: z.boolean().optional(),
-  system_prompt: z.string().optional(),
-  can_send_links: z.boolean().optional(),
-  can_share_pricing: z.boolean().optional(),
-  can_book_meetings: z.boolean().optional(),
-  max_messages_per_day: z.number().int().positive().optional(),
-  escalate_on_frustration: z.boolean().optional(),
-  escalate_on_explicit_human_request: z.boolean().optional(),
-  escalate_on_out_of_scope: z.boolean().optional(),
+const createCorrectionBody = z.object({
+  agent_action_id: z.string().uuid().optional(),
+  original_message: z.string().min(1),
+  corrected_message: z.string().min(1),
+  correction_reason: z.string().optional(),
+  contact_id: z.string().uuid().optional(),
 })
 
 const createAssignmentBody = z.object({
@@ -92,19 +116,26 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
         id: string
         name: string
         agent_type: string
+        role_title: string | null
+        avatar_emoji: string | null
         description: string | null
         trust_level: string
         is_active: boolean
+        is_default: boolean
         created_at: string
         updated_at: string
         assignment_count: string
+        messages_today: string
       }>(
         `SELECT
-           a.id, a.name, a.agent_type, a.description, a.trust_level,
-           a.is_active, a.created_at, a.updated_at,
-           COUNT(aa.id) AS assignment_count
+           a.id, a.name, a.agent_type, a.role_title, a.avatar_emoji,
+           a.description, a.trust_level, a.is_active, a.is_default,
+           a.created_at, a.updated_at,
+           COUNT(DISTINCT aa.id) AS assignment_count,
+           COUNT(DISTINCT CASE WHEN act.created_at >= NOW() - INTERVAL '1 day' THEN act.id END) AS messages_today
          FROM agents a
          LEFT JOIN agent_assignments aa ON aa.agent_id = a.id
+         LEFT JOIN agent_actions act ON act.agent_id = a.id
          WHERE a.user_id = $1
          GROUP BY a.id
          ORDER BY a.created_at DESC`,
@@ -116,10 +147,14 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           id: r.id,
           name: r.name,
           agentType: r.agent_type,
+          roleTitle: r.role_title,
+          avatarEmoji: r.avatar_emoji ?? '🤖',
           description: r.description,
           trustLevel: r.trust_level,
           isActive: r.is_active,
+          isDefault: r.is_default,
           assignmentCount: parseInt(r.assignment_count, 10),
+          messagesToday: parseInt(r.messages_today, 10),
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         })),
@@ -144,16 +179,26 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { rows: [agent] } = await db.query<{ id: string; created_at: string }>(
         `INSERT INTO agents (
-           user_id, name, agent_type, description, trust_level, system_prompt,
+           user_id, name, agent_type, description, role_title, avatar_emoji,
+           tone, goals, capabilities, greeting_message, out_of_hours_message,
+           trust_level, system_prompt,
            can_send_links, can_share_pricing, can_book_meetings, max_messages_per_day,
-           escalate_on_frustration, escalate_on_explicit_human_request, escalate_on_out_of_scope
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           escalate_on_frustration, escalate_on_explicit_human_request,
+           escalate_on_out_of_scope, is_default
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
          RETURNING id, created_at`,
         [
           userId,
           body.name,
           body.agent_type,
           body.description ?? null,
+          body.role_title ?? null,
+          body.avatar_emoji ?? '🤖',
+          body.tone ?? 'professional',
+          body.goals ?? null,
+          JSON.stringify(body.capabilities ?? {}),
+          body.greeting_message ?? null,
+          body.out_of_hours_message ?? null,
           body.trust_level ?? 'suggest',
           body.system_prompt ?? null,
           body.can_send_links ?? false,
@@ -163,6 +208,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           body.escalate_on_frustration ?? true,
           body.escalate_on_explicit_human_request ?? true,
           body.escalate_on_out_of_scope ?? true,
+          body.is_default ?? false,
         ],
       )
 
@@ -180,15 +226,20 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string }
 
       const { rows: [agent] } = await db.query<{
-        id: string; name: string; agent_type: string; description: string | null
-        system_prompt: string | null; trust_level: string; is_active: boolean
+        id: string; name: string; agent_type: string; role_title: string | null
+        avatar_emoji: string | null; description: string | null; tone: string | null
+        goals: string | null; capabilities: unknown; greeting_message: string | null
+        out_of_hours_message: string | null; system_prompt: string | null
+        trust_level: string; is_active: boolean; is_default: boolean
         can_send_links: boolean; can_share_pricing: boolean; can_book_meetings: boolean
         max_messages_per_day: number; escalate_on_frustration: boolean
         escalate_on_explicit_human_request: boolean; escalate_on_out_of_scope: boolean
         created_at: string; updated_at: string
       }>(
-        `SELECT id, name, agent_type, description, system_prompt, trust_level,
-           is_active, can_send_links, can_share_pricing, can_book_meetings,
+        `SELECT id, name, agent_type, role_title, avatar_emoji, description,
+           tone, goals, capabilities, greeting_message, out_of_hours_message,
+           system_prompt, trust_level, is_active, is_default,
+           can_send_links, can_share_pricing, can_book_meetings,
            max_messages_per_day, escalate_on_frustration,
            escalate_on_explicit_human_request, escalate_on_out_of_scope,
            created_at, updated_at
@@ -201,10 +252,11 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       const { rows: actions } = await db.query<{
         id: string; action_type: string; input_message: string | null
         output_message: string | null; reasoning: string | null
+        confidence: number | null; tools_used: unknown
         was_escalated: boolean; escalation_reason: string | null; created_at: string
       }>(
         `SELECT id, action_type, input_message, output_message, reasoning,
-           was_escalated, escalation_reason, created_at
+           confidence, tools_used, was_escalated, escalation_reason, created_at
          FROM agent_actions WHERE agent_id = $1
          ORDER BY created_at DESC LIMIT 20`,
         [id],
@@ -220,10 +272,18 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           id: agent.id,
           name: agent.name,
           agentType: agent.agent_type,
+          roleTitle: agent.role_title,
+          avatarEmoji: agent.avatar_emoji ?? '🤖',
           description: agent.description,
+          tone: agent.tone,
+          goals: agent.goals,
+          capabilities: agent.capabilities ?? {},
+          greetingMessage: agent.greeting_message,
+          outOfHoursMessage: agent.out_of_hours_message,
           systemPrompt: agent.system_prompt,
           trustLevel: agent.trust_level,
           isActive: agent.is_active,
+          isDefault: agent.is_default,
           permissions: {
             canSendLinks: agent.can_send_links,
             canSharePricing: agent.can_share_pricing,
@@ -245,6 +305,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           inputMessage: a.input_message,
           outputMessage: a.output_message,
           reasoning: a.reasoning,
+          confidence: a.confidence,
+          toolsUsed: a.tools_used ?? [],
           wasEscalated: a.was_escalated,
           escalationReason: a.escalation_reason,
           createdAt: a.created_at,
@@ -281,8 +343,15 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
       const fieldMap: Record<string, string> = {
         name: 'name',
+        role_title: 'role_title',
+        avatar_emoji: 'avatar_emoji',
+        tone: 'tone',
+        goals: 'goals',
+        greeting_message: 'greeting_message',
+        out_of_hours_message: 'out_of_hours_message',
         trust_level: 'trust_level',
         is_active: 'is_active',
+        is_default: 'is_default',
         system_prompt: 'system_prompt',
         can_send_links: 'can_send_links',
         can_share_pricing: 'can_share_pricing',
@@ -291,6 +360,12 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
         escalate_on_frustration: 'escalate_on_frustration',
         escalate_on_explicit_human_request: 'escalate_on_explicit_human_request',
         escalate_on_out_of_scope: 'escalate_on_out_of_scope',
+      }
+
+      // capabilities is JSONB — handle separately
+      if (body.capabilities !== undefined) {
+        updates.push(`capabilities = $${idx++}`)
+        values.push(JSON.stringify(body.capabilities))
       }
 
       for (const [key, col] of Object.entries(fieldMap)) {
@@ -728,6 +803,127 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           resolvedAt: r.resolved_at,
           createdAt: r.created_at,
         })),
+      })
+    },
+  )
+
+  // ── GET /api/agents/:id/performance ─────────────────────────────────────
+
+  fastify.get(
+    '/api/agents/:id/performance',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows: [existing] } = await db.query<{ id: string }>(
+        'SELECT id FROM agents WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Agent not found' })
+
+      // Last 30 days of daily stats
+      const { rows: daily } = await db.query<{
+        date: string; messages_handled: number; escalations: number
+        auto_sent: number; suggested: number; human_overrides: number
+        avg_confidence: number | null
+      }>(
+        `SELECT date, messages_handled, escalations, auto_sent, suggested,
+           human_overrides, avg_confidence
+         FROM agent_performance_daily
+         WHERE agent_id = $1
+         ORDER BY date DESC
+         LIMIT 30`,
+        [id],
+      )
+
+      // Aggregate totals from agent_actions
+      const { rows: [totals] } = await db.query<{
+        total_messages: string; total_escalations: string; avg_confidence: string | null
+      }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE action_type = 'send_message') AS total_messages,
+           COUNT(*) FILTER (WHERE action_type = 'escalate') AS total_escalations,
+           AVG(confidence) FILTER (WHERE confidence IS NOT NULL) AS avg_confidence
+         FROM agent_actions WHERE agent_id = $1`,
+        [id],
+      )
+
+      // Recent corrections count
+      const { rows: [{ count: correctionCount }] } = await db.query<{ count: string }>(
+        'SELECT COUNT(*) AS count FROM agent_corrections WHERE agent_id = $1',
+        [id],
+      )
+
+      return reply.send({
+        daily: daily.map((d) => ({
+          date: d.date,
+          messagesHandled: d.messages_handled,
+          escalations: d.escalations,
+          autoSent: d.auto_sent,
+          suggested: d.suggested,
+          humanOverrides: d.human_overrides,
+          avgConfidence: d.avg_confidence,
+        })),
+        totals: {
+          totalMessages: parseInt(totals.total_messages, 10),
+          totalEscalations: parseInt(totals.total_escalations, 10),
+          avgConfidence: totals.avg_confidence ? parseFloat(totals.avg_confidence) : null,
+          correctionCount: parseInt(correctionCount, 10),
+        },
+      })
+    },
+  )
+
+  // ── POST /api/agents/:id/corrections ─────────────────────────────────────
+
+  fastify.post(
+    '/api/agents/:id/corrections',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      let body: z.infer<typeof createCorrectionBody>
+      try {
+        body = createCorrectionBody.parse(request.body)
+      } catch (err: any) {
+        return reply.code(400).send({ error: 'Invalid body', detail: err.message })
+      }
+
+      const { rows: [existing] } = await db.query<{ id: string }>(
+        'SELECT id FROM agents WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Agent not found' })
+
+      const { rows: [correction] } = await db.query<{ id: string; created_at: string }>(
+        `INSERT INTO agent_corrections
+           (agent_id, user_id, agent_action_id, original_message, corrected_message,
+            correction_reason, contact_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, created_at`,
+        [
+          id,
+          userId,
+          body.agent_action_id ?? null,
+          body.original_message,
+          body.corrected_message,
+          body.correction_reason ?? null,
+          body.contact_id ?? null,
+        ],
+      )
+
+      // Count corrections for this agent to surface learning milestones
+      const { rows: [{ count }] } = await db.query<{ count: string }>(
+        'SELECT COUNT(*) AS count FROM agent_corrections WHERE agent_id = $1',
+        [id],
+      )
+
+      return reply.code(201).send({
+        id: correction.id,
+        createdAt: correction.created_at,
+        totalCorrections: parseInt(count, 10),
       })
     },
   )
