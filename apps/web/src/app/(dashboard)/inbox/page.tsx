@@ -10,6 +10,10 @@ import {
   UserCheck, FileText, WifiOff, Lightbulb, Activity,
   ShoppingCart, MessageCircle, MapPin, Download, Film,
   Image, Phone, Mic, Target, Hash, BarChart2, Bot, BookOpen,
+  MoreHorizontal, ListChecks, Shield, ShieldOff, VolumeX, Volume2,
+  BarChart3, Wand2, FileSignature, MessagesSquare, ClipboardList,
+  CircleCheck, HandshakeIcon, Timer, TrendingDown, Layers,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -150,6 +154,48 @@ interface ConvContext {
 interface AIInsight {
   type: 'opportunity' | 'alert' | 'entity'
   text: string
+}
+
+interface Task {
+  id: string
+  title: string
+  description?: string
+  dueDate?: string | null
+  completedAt?: string | null
+  createdBy: 'user' | 'ai'
+  createdAt: string
+}
+
+interface ContactPromise {
+  id: string
+  body: string
+  madeBy: 'user' | 'contact'
+  fulfilledAt?: string | null
+  dueDate?: string | null
+  source: 'ai' | 'manual'
+  createdAt: string
+}
+
+interface ConvAnalytics {
+  totalMessages: number
+  sent: number
+  received: number
+  avgResponseTimeSeconds: number | null
+  longestSilenceSeconds: number | null
+  avgSentiment: number | null
+  avgReplyLengthWords: number | null
+}
+
+interface DraftSuggestion {
+  type: string
+  original: string
+  improved: string
+  reason: string
+}
+
+interface AIActionResult {
+  action: string
+  data: Record<string, unknown>
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -516,6 +562,83 @@ function SuggestionChip({
   )
 }
 
+// ─── AIActionsMenu ────────────────────────────────────────────────────────────
+
+const AI_ACTIONS = [
+  { id: 'summarize',          label: 'Summarize',         icon: MessagesSquare,  desc: 'Get a conversation summary' },
+  { id: 'follow-up',          label: 'Follow-up',         icon: Bell,            desc: 'Generate a follow-up message' },
+  { id: 'extract-tasks',      label: 'Extract Tasks',     icon: ListChecks,      desc: 'Pull out action items' },
+  { id: 'extract-promises',   label: 'Extract Promises',  icon: HandshakeIcon,   desc: 'Find commitments made' },
+  { id: 'generate-proposal',  label: 'Proposal',          icon: FileSignature,   desc: 'Draft a business proposal' },
+  { id: 'generate-quote',     label: 'Quote',             icon: DollarSign,      desc: 'Generate a price quote' },
+  { id: 'crm-notes',          label: 'CRM Notes',         icon: ClipboardList,   desc: 'Log notes to CRM' },
+  { id: 'add-to-kb',          label: 'Add to KB',         icon: BookOpen,        desc: 'Save to knowledge base' },
+  { id: 'create-automation',  label: 'Automation',        icon: Bot,             desc: 'Set up automation rule' },
+  { id: 'ask-ai',             label: 'Ask AI',            icon: Sparkles,        desc: 'Ask a question about this chat' },
+] as const
+
+function AIActionsMenu({ onAction, loading, disabled }: {
+  onAction: (action: string) => void
+  loading: string | null
+  disabled: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        disabled={disabled}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50"
+        style={{
+          background: open ? '#EEEDFD' : '#F4F3F1',
+          color: open ? '#4F46E5' : '#6B6870',
+        }}
+      >
+        <Wand2 size={12} />
+        AI Actions
+        <ChevronDown size={10} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full left-0 mb-2 w-60 rounded-2xl shadow-xl z-50 py-1.5 overflow-hidden"
+          style={{ background: 'white', border: '1px solid #E8E6E3' }}>
+          {AI_ACTIONS.map(action => {
+            const Icon = action.icon
+            const isLoading = loading === action.id
+            return (
+              <button
+                key={action.id}
+                onClick={() => { onAction(action.id); setOpen(false) }}
+                disabled={isLoading || !!loading}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors hover:bg-gray-50 disabled:opacity-50"
+              >
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: '#EEEDFD' }}>
+                  <Icon size={11} style={{ color: '#4F46E5' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] font-semibold" style={{ color: '#1C1B1F' }}>{action.label}</p>
+                  <p className="text-[10.5px]" style={{ color: '#9A97A0' }}>{action.desc}</p>
+                </div>
+                {isLoading && <div className="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin flex-shrink-0" />}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── ConvRow ──────────────────────────────────────────────────────────────────
 
 function ConvRow({ conv, active, onClick, mode }: { conv: Conversation; active: boolean; onClick: () => void; mode: string }) {
@@ -623,16 +746,27 @@ interface IntelPanelProps {
   documents: ContactDocument[]
   documentsLoading: boolean
   contactAgents: AgentInfo[]
+  tasks: Task[]
+  promises: ContactPromise[]
+  convAnalytics: ConvAnalytics | null
+  contactMuted: boolean
+  contactBlocked: boolean
   onTabChange: (t: AITab) => void
   onAddNote: () => void
   onNoteChange: (v: string) => void
   onClose: () => void
+  onMuteToggle: () => void
+  onBlockToggle: () => void
+  onCompleteTask: (id: string) => void
+  onFulfillPromise: (id: string) => void
 }
 
 function IntelPanel({
   contact, contactDetail, selectedConv, contextData, contextLoading,
   mode, notes, newNote, aiTab, documents, documentsLoading, contactAgents,
+  tasks, promises, convAnalytics, contactMuted, contactBlocked,
   onTabChange, onAddNote, onNoteChange, onClose,
+  onMuteToggle, onBlockToggle, onCompleteTask, onFulfillPromise,
 }: IntelPanelProps) {
   const TABS: { id: AITab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -856,6 +990,34 @@ function IntelPanel({
               </section>
             )}
 
+            {/* Quick Actions */}
+            {contact && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Quick Actions</SectionTitle>
+                <div className="flex flex-wrap gap-2">
+                  <a href={`/contacts/${contact.id}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
+                    style={{ background: '#EEEDFD', color: '#4F46E5' }}>
+                    <ExternalLink size={11} /> View Profile
+                  </a>
+                  <button
+                    onClick={onMuteToggle}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
+                    style={{ background: contactMuted ? '#FBF3E3' : '#F4F3F1', color: contactMuted ? '#B7791F' : '#6B6870' }}>
+                    {contactMuted ? <Volume2 size={11} /> : <VolumeX size={11} />}
+                    {contactMuted ? 'Unmute' : 'Mute'}
+                  </button>
+                  <button
+                    onClick={onBlockToggle}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors"
+                    style={{ background: contactBlocked ? '#FEF2F2' : '#F4F3F1', color: contactBlocked ? '#B91C4A' : '#6B6870' }}>
+                    {contactBlocked ? <Shield size={11} /> : <ShieldOff size={11} />}
+                    {contactBlocked ? 'Unblock' : 'Block'}
+                  </button>
+                </div>
+              </section>
+            )}
+
             {/* Automation */}
             {contactAgents.length > 0 && (
               <section className="px-4 py-3.5">
@@ -1037,6 +1199,156 @@ function IntelPanel({
         {/* ── ACTIVITY ────────────────────────────────────────────────────── */}
         {aiTab === 'activity' && (
           <div className="divide-y" style={{ borderColor: '#E8E6E3' }}>
+
+            {/* Conversation Analytics */}
+            {convAnalytics && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Conversation Analytics</SectionTitle>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Messages', value: convAnalytics.totalMessages.toString(), icon: '💬' },
+                    { label: 'Sent / Recv', value: `${convAnalytics.sent} / ${convAnalytics.received}`, icon: '↕️' },
+                    ...(convAnalytics.avgResponseTimeSeconds != null ? [{
+                      label: 'Avg Response',
+                      value: convAnalytics.avgResponseTimeSeconds < 3600
+                        ? `${Math.round(convAnalytics.avgResponseTimeSeconds / 60)}m`
+                        : `${Math.round(convAnalytics.avgResponseTimeSeconds / 3600)}h`,
+                      icon: '⏱️',
+                    }] : []),
+                    ...(convAnalytics.longestSilenceSeconds != null ? [{
+                      label: 'Longest Gap',
+                      value: convAnalytics.longestSilenceSeconds < 86400
+                        ? `${Math.round(convAnalytics.longestSilenceSeconds / 3600)}h`
+                        : `${Math.round(convAnalytics.longestSilenceSeconds / 86400)}d`,
+                      icon: '🔇',
+                    }] : []),
+                    ...(convAnalytics.avgSentiment != null ? [{
+                      label: 'Avg Sentiment',
+                      value: convAnalytics.avgSentiment > 0.2 ? 'Positive' : convAnalytics.avgSentiment < -0.2 ? 'Negative' : 'Neutral',
+                      icon: convAnalytics.avgSentiment > 0.2 ? '😊' : convAnalytics.avgSentiment < -0.2 ? '😟' : '😐',
+                    }] : []),
+                    ...(convAnalytics.avgReplyLengthWords != null ? [{
+                      label: 'Avg Length',
+                      value: `${Math.round(convAnalytics.avgReplyLengthWords)} words`,
+                      icon: '📝',
+                    }] : []),
+                  ].map(s => (
+                    <div key={s.label} className="rounded-lg p-2.5" style={{ background: '#F4F3F1' }}>
+                      <p className="text-base leading-none mb-1">{s.icon}</p>
+                      <p className="text-[13px] font-bold leading-none" style={{ color: '#1C1B1F' }}>{s.value}</p>
+                      <p className="text-[10px] mt-1" style={{ color: '#9A97A0' }}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Tasks */}
+            <section className="px-4 py-3.5">
+              <div className="flex items-center justify-between mb-2.5">
+                <SectionTitle>Tasks</SectionTitle>
+                {tasks.length > 0 && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                    style={{ background: '#EEEDFD', color: '#4F46E5' }}>
+                    {tasks.filter(t => !t.completedAt).length} open
+                  </span>
+                )}
+              </div>
+              {tasks.length === 0 ? (
+                <div className="text-center py-4">
+                  <ListChecks size={20} className="mx-auto mb-1.5" style={{ color: '#EDEBE8' }} />
+                  <p className="text-[12px]" style={{ color: '#9A97A0' }}>No tasks yet — use AI Actions to extract</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {tasks.slice(0, 8).map(task => (
+                    <div key={task.id} className="flex items-start gap-2.5 group">
+                      <button
+                        onClick={() => !task.completedAt && onCompleteTask(task.id)}
+                        className="mt-0.5 flex-shrink-0 transition-colors"
+                      >
+                        {task.completedAt
+                          ? <CircleCheck size={16} style={{ color: '#15803D' }} />
+                          : <div className="w-4 h-4 rounded-full border-2 flex-shrink-0 group-hover:border-indigo-400 transition-colors" style={{ borderColor: '#D1D0CE' }} />
+                        }
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-[12.5px] font-medium leading-tight ${task.completedAt ? 'line-through' : ''}`}
+                          style={{ color: task.completedAt ? '#9A97A0' : '#1C1B1F' }}>
+                          {task.title}
+                        </p>
+                        {task.dueDate && !task.completedAt && (
+                          <p className="text-[10px] mt-0.5 flex items-center gap-1" style={{ color: new Date(task.dueDate) < new Date() ? '#B91C4A' : '#9A97A0' }}>
+                            <Timer size={9} />
+                            Due {new Date(task.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                          </p>
+                        )}
+                      </div>
+                      {task.createdBy === 'ai' && (
+                        <Sparkles size={10} className="flex-shrink-0 mt-1" style={{ color: '#8B85F7' }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Promises */}
+            <section className="px-4 py-3.5">
+              <div className="flex items-center justify-between mb-2.5">
+                <SectionTitle>Promises</SectionTitle>
+                {promises.length > 0 && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                    style={{ background: '#FBF3E3', color: '#B7791F' }}>
+                    {promises.filter(p => !p.fulfilledAt).length} open
+                  </span>
+                )}
+              </div>
+              {promises.length === 0 ? (
+                <div className="text-center py-4">
+                  <HandshakeIcon size={20} className="mx-auto mb-1.5" style={{ color: '#EDEBE8' }} />
+                  <p className="text-[12px]" style={{ color: '#9A97A0' }}>No promises tracked — use Extract Promises</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {promises.slice(0, 6).map(promise => (
+                    <div key={promise.id} className="rounded-xl p-3 flex items-start gap-2.5"
+                      style={{
+                        background: promise.fulfilledAt ? '#F0FAF4' : '#FBF3E3',
+                        border: `1px solid ${promise.fulfilledAt ? '#C6E8CF' : '#F0DDB0'}`,
+                      }}>
+                      <button
+                        onClick={() => !promise.fulfilledAt && onFulfillPromise(promise.id)}
+                        disabled={!!promise.fulfilledAt}
+                        className="flex-shrink-0 mt-0.5 transition-colors"
+                      >
+                        {promise.fulfilledAt
+                          ? <CircleCheck size={15} style={{ color: '#15803D' }} />
+                          : <div className="w-3.5 h-3.5 rounded-full border-2 hover:border-amber-500 transition-colors" style={{ borderColor: '#D97706' }} />
+                        }
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-[12px] leading-relaxed ${promise.fulfilledAt ? 'line-through' : ''}`}
+                          style={{ color: promise.fulfilledAt ? '#6B6870' : '#1C1B1F' }}>
+                          {promise.body}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] font-medium capitalize"
+                            style={{ color: promise.madeBy === 'user' ? '#4F46E5' : '#B7791F' }}>
+                            {promise.madeBy === 'user' ? 'You' : contact?.name?.split(' ')[0] ?? 'Contact'} promised
+                          </span>
+                          {promise.dueDate && (
+                            <span className="text-[10px]" style={{ color: '#9A97A0' }}>
+                              · Due {new Date(promise.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
             {/* Stats */}
             {contactDetail?.stats && (
@@ -1224,10 +1536,28 @@ export default function InboxPage() {
   const [notes, setNotes] = useState<InternalNote[]>([])
   const [isOnline, setIsOnline] = useState(true)
 
+  // New feature state
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [promises, setPromises] = useState<ContactPromise[]>([])
+  const [convAnalytics, setConvAnalytics] = useState<ConvAnalytics | null>(null)
+  const [contactMuted, setContactMuted] = useState(false)
+  const [contactBlocked, setContactBlocked] = useState(false)
+  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null)
+  const [aiActionResult, setAiActionResult] = useState<AIActionResult | null>(null)
+  const [showAIResult, setShowAIResult] = useState(false)
+  const [convSearchQuery, setConvSearchQuery] = useState('')
+  const [convSearchResults, setConvSearchResults] = useState<Array<{ message_id: string; body: string; sent_at: string; score: number }>>([])
+  const [convSearchLoading, setConvSearchLoading] = useState(false)
+  const [showConvSearch, setShowConvSearch] = useState(false)
+  const [draftSuggestions, setDraftSuggestions] = useState<DraftSuggestion[]>([])
+  const [draftAnalysisLoading, setDraftAnalysisLoading] = useState(false)
+  const [askAiQuestion, setAskAiQuestion] = useState('')
+
   const selectedIdRef = useRef<string | null>(null)
   const selectedMsgIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
+  const draftAnalysisTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -1331,22 +1661,40 @@ export default function InboxPage() {
     setContactDetail(null); setLoadingMsgs(true); setMobileView('thread')
     setDraft(''); setAiTab('overview'); setContextData(null)
     setDocuments([]); setDocumentsLoading(false)
+    setTasks([]); setPromises([]); setConvAnalytics(null)
+    setContactMuted(false); setContactBlocked(false)
+    setAiActionResult(null); setShowAIResult(false)
+    setConvSearchQuery(''); setConvSearchResults([]); setShowConvSearch(false)
+    setDraftSuggestions([])
     if (!token) return
     const data = await apiClient<{ messages: Message[]; contact: Contact }>(
       `/api/conversations/${convId}/messages`, { token }
     )
     setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
     if (data.contact?.id) {
+      const cid = data.contact.id
       // Load full contact detail
-      apiClient<{ contact: ContactDetail }>(`/api/contacts/${data.contact.id}`, { token })
-        .then(d => setContactDetail(d.contact)).catch(() => {})
+      apiClient<{ contact: ContactDetail }>(`/api/contacts/${cid}`, { token })
+        .then(d => {
+          setContactDetail(d.contact)
+          // Check muted/blocked status from contact data if available
+        }).catch(() => {})
       // Load documents
       setDocumentsLoading(true)
-      apiClient<{ documents: ContactDocument[] }>(`/api/contacts/${data.contact.id}/documents`, { token })
+      apiClient<{ documents: ContactDocument[] }>(`/api/contacts/${cid}/documents`, { token })
         .then(d => setDocuments(d.documents ?? []))
         .catch(() => setDocuments([]))
         .finally(() => setDocumentsLoading(false))
+      // Load tasks
+      apiClient<{ tasks: Task[] }>(`/api/contacts/${cid}/tasks`, { token })
+        .then(d => setTasks(d.tasks ?? [])).catch(() => {})
+      // Load promises
+      apiClient<{ promises: ContactPromise[] }>(`/api/contacts/${cid}/promises`, { token })
+        .then(d => setPromises(d.promises ?? [])).catch(() => {})
     }
+    // Load conversation analytics
+    apiClient<ConvAnalytics>(`/api/conversations/${convId}/analytics`, { token })
+      .then(d => setConvAnalytics(d)).catch(() => {})
     loadContext(convId)
     const last = [...data.messages].reverse().find(m => m.pendingSuggestions > 0)
     if (last) {
@@ -1405,6 +1753,149 @@ export default function InboxPage() {
     setNewNote('')
   }
 
+  const muteToggle = async () => {
+    if (!token || !contact) return
+    const newMuted = !contactMuted
+    setContactMuted(newMuted)
+    try {
+      await apiClient(`/api/contacts/${contact.id}/mute`, {
+        method: newMuted ? 'POST' : 'DELETE', token,
+      })
+    } catch { setContactMuted(!newMuted) }
+  }
+
+  const blockToggle = async () => {
+    if (!token || !contact) return
+    const newBlocked = !contactBlocked
+    setContactBlocked(newBlocked)
+    try {
+      await apiClient(`/api/contacts/${contact.id}/block`, {
+        method: newBlocked ? 'POST' : 'DELETE', token,
+      })
+    } catch { setContactBlocked(!newBlocked) }
+  }
+
+  const completeTask = async (taskId: string) => {
+    if (!token || !contact) return
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completedAt: new Date().toISOString() } : t))
+    try {
+      await apiClient(`/api/contacts/${contact.id}/tasks/${taskId}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({ completedAt: new Date().toISOString() }),
+      })
+    } catch {
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completedAt: null } : t))
+    }
+  }
+
+  const fulfillPromise = async (promiseId: string) => {
+    if (!token || !contact) return
+    setPromises(prev => prev.map(p => p.id === promiseId ? { ...p, fulfilledAt: new Date().toISOString() } : p))
+    try {
+      await apiClient(`/api/contacts/${contact.id}/promises/${promiseId}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({ fulfilledAt: new Date().toISOString() }),
+      })
+    } catch {
+      setPromises(prev => prev.map(p => p.id === promiseId ? { ...p, fulfilledAt: null } : p))
+    }
+  }
+
+  const runAiAction = async (action: string) => {
+    if (!token || !selectedId) return
+    if (action === 'ask-ai') {
+      setShowAIResult(true)
+      setAiActionResult({ action: 'ask-ai', data: { asking: true } })
+      return
+    }
+    setAiActionLoading(action)
+    try {
+      let result: Record<string, unknown>
+      if (action === 'extract-tasks') {
+        const data = await apiClient<{ tasks: Task[] }>(`/api/conversations/${selectedId}/extract-tasks`, { method: 'POST', token })
+        setTasks(prev => {
+          const existingIds = new Set(prev.map(t => t.id))
+          const newTasks = (data.tasks ?? []).filter(t => !existingIds.has(t.id))
+          return [...prev, ...newTasks]
+        })
+        setAiTab('activity')
+        result = data
+      } else if (action === 'extract-promises') {
+        const data = await apiClient<{ promises: ContactPromise[] }>(`/api/conversations/${selectedId}/extract-promises`, { method: 'POST', token })
+        setPromises(prev => {
+          const existingIds = new Set(prev.map(p => p.id))
+          const newP = (data.promises ?? []).filter(p => !existingIds.has(p.id))
+          return [...prev, ...newP]
+        })
+        setAiTab('activity')
+        result = data
+      } else if (action === 'crm-notes') {
+        result = await apiClient(`/api/conversations/${selectedId}/crm-notes`, { method: 'POST', token })
+      } else {
+        result = await apiClient(`/api/conversations/${selectedId}/${action}`, { method: 'POST', token })
+      }
+      setAiActionResult({ action, data: result as Record<string, unknown> })
+      setShowAIResult(true)
+    } catch {
+      setAiActionResult({ action, data: { error: 'Failed to run action' } })
+      setShowAIResult(true)
+    } finally {
+      setAiActionLoading(null)
+    }
+  }
+
+  const submitAskAi = async (question: string) => {
+    if (!token || !selectedId || !question.trim()) return
+    setAiActionLoading('ask-ai')
+    try {
+      const data = await apiClient<{ answer: string; sources: string[] }>(`/api/conversations/${selectedId}/ask-ai`, {
+        method: 'POST', token,
+        body: JSON.stringify({ question }),
+      })
+      setAiActionResult({ action: 'ask-ai', data: data as unknown as Record<string, unknown> })
+    } catch {
+      setAiActionResult({ action: 'ask-ai', data: { error: 'Failed to get answer' } })
+    } finally {
+      setAiActionLoading(null)
+    }
+  }
+
+  const searchConversation = async (query: string) => {
+    if (!token || !selectedId || !query.trim()) { setConvSearchResults([]); return }
+    setConvSearchLoading(true)
+    try {
+      const data = await apiClient<{ results: Array<{ message_id: string; body: string; sent_at: string; score: number }> }>(
+        `/api/conversations/${selectedId}/search`,
+        { method: 'POST', token, body: JSON.stringify({ query }) }
+      )
+      setConvSearchResults(data.results ?? [])
+    } catch {
+      setConvSearchResults([])
+    } finally {
+      setConvSearchLoading(false)
+    }
+  }
+
+  const analyseDraftDebounced = (text: string) => {
+    if (draftAnalysisTimer.current) clearTimeout(draftAnalysisTimer.current)
+    if (!text.trim() || text.length < 15) { setDraftSuggestions([]); return }
+    draftAnalysisTimer.current = setTimeout(async () => {
+      if (!token || !selectedId) return
+      setDraftAnalysisLoading(true)
+      try {
+        const data = await apiClient<{ suggestions: DraftSuggestion[] }>(
+          '/api/writing/analyse-draft',
+          { method: 'POST', token, body: JSON.stringify({ text, conversationId: selectedId, contactId: contact?.id }) }
+        )
+        setDraftSuggestions(data.suggestions ?? [])
+      } catch {
+        setDraftSuggestions([])
+      } finally {
+        setDraftAnalysisLoading(false)
+      }
+    }, 1200)
+  }
+
   // ── Filtering ────────────────────────────────────────────────────────────────
 
   const filtered = conversations.filter(c => {
@@ -1441,8 +1932,13 @@ export default function InboxPage() {
   const intelPanelProps: IntelPanelProps = {
     contact, contactDetail, selectedConv, contextData, contextLoading: loadingContext,
     mode, notes, newNote, aiTab, documents, documentsLoading, contactAgents,
+    tasks, promises, convAnalytics, contactMuted, contactBlocked,
     onTabChange: setAiTab, onAddNote: addNote, onNoteChange: setNewNote,
     onClose: () => setShowAIPanel(false),
+    onMuteToggle: muteToggle,
+    onBlockToggle: blockToggle,
+    onCompleteTask: completeTask,
+    onFulfillPromise: fulfillPromise,
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -1619,6 +2115,15 @@ export default function InboxPage() {
                 </p>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0">
+                {/* In-conversation search */}
+                <button
+                  onClick={() => { setShowConvSearch(v => !v); setConvSearchQuery(''); setConvSearchResults([]) }}
+                  className="p-2 rounded-lg transition-colors hover:bg-gray-100"
+                  style={{ color: showConvSearch ? '#4F46E5' : '#9A97A0', background: showConvSearch ? '#EEEDFD' : 'transparent' }}
+                  title="Search in conversation (⌘F)"
+                >
+                  <Search size={16} />
+                </button>
                 <button className="p-2 rounded-lg transition-colors hover:bg-gray-100" title="Add note"
                   style={{ color: '#9A97A0' }}
                   onClick={() => { setShowAIPanel(true); setAiTab('memory') }}>
@@ -1657,6 +2162,50 @@ export default function InboxPage() {
             <div className="flex flex-1 min-h-0">
               {/* Message area */}
               <div className="flex flex-col flex-1 min-w-0" style={{ background: '#FAFAF9' }}>
+
+                {/* In-conversation search panel */}
+                {showConvSearch && (
+                  <div className="flex-shrink-0 px-4 py-2.5" style={{ background: '#FFFFFF', borderBottom: '1px solid #E8E6E3' }}>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 relative">
+                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#9A97A0' }} />
+                        <input
+                          autoFocus
+                          type="search"
+                          value={convSearchQuery}
+                          onChange={e => {
+                            setConvSearchQuery(e.target.value)
+                            searchConversation(e.target.value)
+                          }}
+                          placeholder="Search this conversation…"
+                          className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          style={{ background: '#F4F3F1', border: '1px solid #E8E6E3', color: '#1C1B1F' }}
+                        />
+                        {convSearchLoading && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                        )}
+                      </div>
+                      <button onClick={() => { setShowConvSearch(false); setConvSearchQuery(''); setConvSearchResults([]) }}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" style={{ color: '#9A97A0' }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                    {convSearchResults.length > 0 && (
+                      <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                        {convSearchResults.map(r => (
+                          <div key={r.message_id} className="px-3 py-2 rounded-lg text-[12px] cursor-pointer hover:bg-indigo-50 transition-colors"
+                            style={{ background: '#F4F3F1', color: '#1C1B1F' }}>
+                            <p className="line-clamp-2 leading-relaxed">{r.body}</p>
+                            <p className="text-[10px] mt-1" style={{ color: '#9A97A0' }}>{formatTime(r.sent_at)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {convSearchQuery && !convSearchLoading && convSearchResults.length === 0 && (
+                      <p className="text-[12px] mt-2 text-center" style={{ color: '#9A97A0' }}>No messages found</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Message stream */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
@@ -1745,6 +2294,117 @@ export default function InboxPage() {
                   )}
                 </div>
 
+                {/* AI Action Result panel */}
+                {showAIResult && aiActionResult && (
+                  <div className="flex-shrink-0 px-4 py-3" style={{ background: '#F6F5FE', borderTop: '1px solid #E1DEFB' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={12} style={{ color: '#4F46E5' }} />
+                        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: '#4F46E5' }}>
+                          {AI_ACTIONS.find(a => a.id === aiActionResult.action)?.label ?? 'AI Result'}
+                        </span>
+                      </div>
+                      <button onClick={() => setShowAIResult(false)} className="p-0.5 rounded hover:bg-white/50 transition-colors" style={{ color: '#9A97A0' }}>
+                        <X size={13} />
+                      </button>
+                    </div>
+                    {aiActionResult.action === 'ask-ai' && (aiActionResult.data as { asking?: boolean }).asking ? (
+                      <div className="space-y-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={askAiQuestion}
+                          onChange={e => setAskAiQuestion(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { submitAskAi(askAiQuestion) } }}
+                          placeholder="Ask anything about this conversation…"
+                          className="w-full px-3 py-2 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          style={{ background: 'white', border: '1px solid #C7C4F7', color: '#1C1B1F' }}
+                        />
+                        <button
+                          onClick={() => submitAskAi(askAiQuestion)}
+                          disabled={!askAiQuestion.trim() || aiActionLoading === 'ask-ai'}
+                          className="w-full py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-colors"
+                          style={{ background: '#4F46E5' }}
+                        >
+                          {aiActionLoading === 'ask-ai' ? 'Thinking…' : 'Ask AI'}
+                        </button>
+                      </div>
+                    ) : aiActionResult.action === 'summarize' ? (
+                      <div>
+                        <p className="text-[12.5px] leading-relaxed" style={{ color: '#1C1B1F' }}>
+                          {(aiActionResult.data as { summary?: string }).summary ?? 'Summary generated.'}
+                        </p>
+                        {((aiActionResult.data as { key_points?: string[] }).key_points ?? []).length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {((aiActionResult.data as { key_points?: string[] }).key_points ?? []).map((point, i) => (
+                              <li key={i} className="flex items-start gap-2 text-[12px]" style={{ color: '#6B6870' }}>
+                                <span className="mt-1.5 w-1 h-1 rounded-full bg-indigo-400 flex-shrink-0" />
+                                {point}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : aiActionResult.action === 'follow-up' ? (
+                      <div>
+                        <p className="text-[12.5px] leading-relaxed mb-2" style={{ color: '#1C1B1F' }}>
+                          {(aiActionResult.data as { text?: string }).text ?? ''}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setDraft((aiActionResult.data as { text?: string }).text ?? '')
+                            setShowAIResult(false)
+                            draftRef.current?.focus()
+                          }}
+                          className="text-[11px] font-semibold px-3 py-1.5 rounded-lg text-white transition-colors"
+                          style={{ background: '#4F46E5' }}
+                        >
+                          Use as draft
+                        </button>
+                      </div>
+                    ) : aiActionResult.action === 'extract-tasks' ? (
+                      <p className="text-[12px]" style={{ color: '#15803D' }}>
+                        ✓ {((aiActionResult.data as { tasks?: unknown[] }).tasks ?? []).length} tasks extracted and added to Activity tab
+                      </p>
+                    ) : aiActionResult.action === 'extract-promises' ? (
+                      <p className="text-[12px]" style={{ color: '#15803D' }}>
+                        ✓ {((aiActionResult.data as { promises?: unknown[] }).promises ?? []).length} promises extracted and added to Activity tab
+                      </p>
+                    ) : aiActionResult.action === 'generate-proposal' ? (
+                      <div>
+                        <p className="text-[12.5px] font-semibold mb-1.5" style={{ color: '#1C1B1F' }}>
+                          {(aiActionResult.data as { title?: string }).title}
+                        </p>
+                        {((aiActionResult.data as { sections?: Array<{ heading: string; content: string }> }).sections ?? []).slice(0, 3).map((s, i) => (
+                          <div key={i} className="mb-1.5">
+                            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: '#4F46E5' }}>{s.heading}</p>
+                            <p className="text-[12px] leading-relaxed" style={{ color: '#6B6870' }}>{s.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : aiActionResult.action === 'generate-quote' ? (
+                      <div>
+                        <p className="text-[12.5px] leading-relaxed mb-2" style={{ color: '#1C1B1F' }}>
+                          {(aiActionResult.data as { text?: string }).text}
+                        </p>
+                        {(aiActionResult.data as { total?: string; currency?: string }).total && (
+                          <p className="text-[12px] font-bold" style={{ color: '#4F46E5' }}>
+                            Total: {(aiActionResult.data as { currency?: string }).currency ?? ''} {(aiActionResult.data as { total?: string }).total}
+                          </p>
+                        )}
+                      </div>
+                    ) : aiActionResult.action === 'ask-ai' ? (
+                      <p className="text-[12.5px] leading-relaxed" style={{ color: '#1C1B1F' }}>
+                        {(aiActionResult.data as { answer?: string; error?: string }).answer ?? (aiActionResult.data as { error?: string }).error}
+                      </p>
+                    ) : (aiActionResult.data as { error?: string }).error ? (
+                      <p className="text-[12px]" style={{ color: '#B91C4A' }}>{(aiActionResult.data as { error?: string }).error}</p>
+                    ) : (
+                      <p className="text-[12px]" style={{ color: '#15803D' }}>✓ Action completed</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Reply dock */}
                 <div className="flex-shrink-0" style={{ background: '#FFFFFF', borderTop: '1px solid #E8E6E3' }}>
 
@@ -1774,6 +2434,34 @@ export default function InboxPage() {
                     </div>
                   )}
 
+                  {/* Draft analysis suggestions */}
+                  {draftSuggestions.length > 0 && (
+                    <div className="px-3 pt-2 pb-0">
+                      <div className="rounded-xl px-3 py-2.5 space-y-2" style={{ background: '#F6F5FE', border: '1px solid #E1DEFB' }}>
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles size={11} style={{ color: '#4F46E5' }} />
+                          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#4F46E5' }}>Writing Assistant</p>
+                          {draftAnalysisLoading && <div className="w-2.5 h-2.5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin ml-auto" />}
+                        </div>
+                        {draftSuggestions.slice(0, 2).map((s, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <div className="w-1 h-1 rounded-full mt-1.5 flex-shrink-0" style={{ background: '#8B85F7' }} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11.5px] leading-relaxed" style={{ color: '#6B6870' }}>{s.reason}</p>
+                              <button
+                                onClick={() => { setDraft(s.improved); setDraftSuggestions([]) }}
+                                className="text-[10.5px] font-semibold mt-0.5 underline underline-offset-2 transition-colors hover:no-underline"
+                                style={{ color: '#4F46E5' }}
+                              >
+                                Use improved version
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Composer */}
                   <div className="px-3 py-3">
                     <div className="flex items-end gap-2">
@@ -1785,7 +2473,10 @@ export default function InboxPage() {
                           ref={draftRef}
                           rows={1}
                           value={draft}
-                          onChange={e => setDraft(e.target.value)}
+                          onChange={e => {
+                            setDraft(e.target.value)
+                            analyseDraftDebounced(e.target.value)
+                          }}
                           onKeyDown={e => {
                             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
                           }}
@@ -1806,31 +2497,26 @@ export default function InboxPage() {
                         <Send size={15} />
                       </button>
                     </div>
-                    {selectedMsgId && (
-                      <div className="flex items-center justify-between mt-1.5">
-                        <button
-                          onClick={regenerate}
-                          disabled={regenerating}
-                          className="flex items-center gap-1 text-xs font-medium disabled:opacity-50 transition-colors"
-                          style={{ color: '#4F46E5' }}
-                        >
-                          <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
-                          {regenerating ? 'Generating…' : 'Regenerate AI reply'}
-                        </button>
-                        <div className="flex items-center gap-2 text-[10px]" style={{ color: '#9A97A0' }}>
-                          <span className="font-mono">R</span>
-                          <span>·</span>
-                          <span className="font-mono">⌘↵</span>
-                        </div>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <div className="flex items-center gap-2">
+                        <AIActionsMenu onAction={runAiAction} loading={aiActionLoading} disabled={!selectedId} />
+                        {selectedMsgId && (
+                          <button
+                            onClick={regenerate}
+                            disabled={regenerating}
+                            className="flex items-center gap-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                            style={{ color: '#4F46E5' }}
+                          >
+                            <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
+                            {regenerating ? 'Generating…' : 'Regenerate'}
+                          </button>
+                        )}
                       </div>
-                    )}
-                  </div>
-
-                  {/* Command hints */}
-                  <div className="flex items-center gap-4 px-4 pb-2.5 text-[11px]" style={{ color: '#9A97A0' }}>
-                    <span><span className="font-semibold" style={{ color: '#6B6870' }}>/summarize</span> conversation</span>
-                    <span><span className="font-semibold" style={{ color: '#6B6870' }}>/log</span> CRM note</span>
-                    <span><span className="font-semibold" style={{ color: '#6B6870' }}>/research</span> ask Zuri</span>
+                      <div className="flex items-center gap-2 text-[10px]" style={{ color: '#9A97A0' }}>
+                        <span className="font-mono">⌘↵</span>
+                        <span>send</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -928,6 +928,91 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ── PATCH /api/agents/:agentId/contacts/:contactId/trust-level ──────────
+
+  fastify.patch(
+    '/api/agents/:agentId/contacts/:contactId/trust-level',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { agentId, contactId } = request.params as { agentId: string; contactId: string }
+      const { trustLevel } = (request.body ?? {}) as { trustLevel?: string }
+
+      if (!trustLevel) return reply.code(400).send({ error: 'trustLevel is required' })
+
+      // Verify agent belongs to user
+      const { rows: [agent] } = await db.query<{ id: string }>(
+        'SELECT id FROM agents WHERE id = $1 AND user_id = $2',
+        [agentId, userId],
+      )
+      if (!agent) return reply.code(404).send({ error: 'Agent not found' })
+
+      const { rowCount } = await db.query(
+        `UPDATE agent_assignments
+         SET contact_trust_override = $1
+         WHERE agent_id = $2 AND contact_id = $3`,
+        [trustLevel, agentId, contactId],
+      )
+
+      if (!rowCount) return reply.code(404).send({ error: 'Assignment not found' })
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── GET /api/agents/actions ──────────────────────────────────────────────
+
+  fastify.get(
+    '/api/agents/actions',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const query = request.query as Record<string, string>
+      const contactId = query.contactId
+
+      // Fetch last 10 approved suggested_replies for this user (optionally filtered by contact)
+      // joined with agent assignments and agents to surface which agent handled the contact
+      let sql = `
+        SELECT
+          aa.agent_id   AS "agentId",
+          a.name        AS "agentName",
+          sr.status     AS "action",
+          sr.message_id AS "target",
+          sr.created_at AS "createdAt"
+        FROM suggested_replies sr
+        JOIN conversations c ON c.id = sr.conversation_id
+        JOIN agent_assignments aa ON aa.contact_id = c.contact_id AND aa.agent_id IN (
+          SELECT id FROM agents WHERE user_id = $1
+        )
+        JOIN agents a ON a.id = aa.agent_id
+        WHERE sr.status = 'approved'
+          AND c.user_id = $1`
+
+      const params: unknown[] = [userId]
+
+      if (contactId) {
+        params.push(contactId)
+        sql += ` AND c.contact_id = $${params.length}`
+      }
+
+      sql += ' ORDER BY sr.created_at DESC LIMIT 10'
+
+      const { rows } = await db.query<{
+        agentId: string; agentName: string; action: string
+        target: string | null; createdAt: string
+      }>(sql, params)
+
+      return reply.send({
+        actions: rows.map((r) => ({
+          agentId: r.agentId,
+          agentName: r.agentName,
+          action: r.action,
+          target: r.target,
+          createdAt: r.createdAt,
+        })),
+      })
+    },
+  )
+
   // ── PATCH /api/escalations/:id ───────────────────────────────────────────
 
   fastify.patch(
