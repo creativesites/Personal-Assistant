@@ -399,6 +399,49 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ ok: true });
   });
 
+  // ── Get promises detected in messages with this contact ───────────────────
+  fastify.get('/api/contacts/:id/promises', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [contact] } = await db.query(
+      'SELECT id FROM contacts WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!contact) return reply.code(404).send({ error: 'Contact not found' });
+
+    const { rows } = await db.query(
+      `SELECT
+        ma.promises_detected,
+        ma.analysed_at,
+        m.whatsapp_timestamp AS message_at
+       FROM message_analyses ma
+       JOIN messages m ON m.id = ma.message_id
+       JOIN conversations c ON c.id = m.conversation_id
+       WHERE c.contact_id = $1 AND c.user_id = $2
+         AND ma.promises_detected IS NOT NULL
+         AND jsonb_array_length(ma.promises_detected) > 0
+       ORDER BY m.whatsapp_timestamp DESC
+       LIMIT 20`,
+      [id, userId],
+    );
+
+    const promises: Array<{ text: string; detectedAt: string; messageAt: string }> = [];
+    for (const row of rows) {
+      const detected = row.promises_detected as Array<{ text?: string; promise?: string; content?: string }>;
+      if (Array.isArray(detected)) {
+        for (const p of detected) {
+          const text = p.text ?? p.promise ?? p.content ?? null;
+          if (text) {
+            promises.push({ text, detectedAt: row.analysed_at, messageAt: row.message_at });
+          }
+        }
+      }
+    }
+
+    return reply.send({ promises });
+  });
+
   // ── Relationship clock — get ───────────────────────────────────────────────
   fastify.get('/api/contacts/:id/clock', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };

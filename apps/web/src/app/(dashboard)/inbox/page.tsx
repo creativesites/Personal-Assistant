@@ -36,16 +36,85 @@ interface Contact {
   location?: string
 }
 
+interface ContactInsight {
+  key: string
+  value: string
+  confidence: number
+  supportingText: string | null
+  createdAt: string
+}
+
+interface HealthHistoryEntry {
+  score: number
+  previousScore: number | null
+  changeReason: string | null
+  factors: unknown
+  recordedAt: string
+}
+
+interface ProactiveSuggestion {
+  id: string
+  suggestionType: string
+  title: string
+  body: string
+  draftMessage: string | null
+  priority: number
+}
+
+interface UpcomingEvent {
+  id: string
+  eventType: string
+  title: string
+  eventDate: string
+  isRecurring: boolean
+  confidence: number
+}
+
+interface ContactPromise {
+  text: string
+  detectedAt: string
+  messageAt: string
+}
+
 interface ContactDetail {
   id: string
   name: string
-  relationship: { type: string; healthScore: number; healthTrend: string }
+  email: string | null
+  company: string | null
+  jobTitle: string | null
+  industry: string | null
+  website: string | null
+  notes: string | null
+  customerStatus: string | null
+  pipelineStage: string | null
+  leadScore: number | null
+  tags: string[]
+  relationship: {
+    type: string
+    importanceTier: number
+    healthScore: number
+    healthTrend: string
+    lastInteractionAt: string | null
+    notes: string | null
+  }
   profile: {
-    personalitySummary: string
-    moodBaseline: string
-    communicationStyle?: string
-    topInterests?: string[]
+    personalitySummary: string | null
+    communicationStyle: string | null
+    emotionalPatterns: string | null
+    knownTriggers: string | null
+    currentLifeContext: string | null
+    moodBaseline: string | null
+    preferences: string | null
+    goals: string | null
+    painPoints: string | null
+    buyingBehaviour: string | null
+    relationshipStage: string | null
   } | null
+  insights: ContactInsight[]
+  healthHistory: HealthHistoryEntry[]
+  proactiveSuggestions: ProactiveSuggestion[]
+  upcomingEvents: UpcomingEvent[]
+  stats: { totalMessages: number; sent: number; received: number }
 }
 
 interface Conversation {
@@ -166,14 +235,6 @@ const FILTERS = [
   { id: 'waiting',     label: 'Waiting' },
   { id: 'at_risk',     label: 'At Risk' },
 ] as const
-
-const MOCK_TIMELINE: TimelineEvent[] = [
-  { id: '1', type: 'message',   label: 'First contacted',       date: '3 months ago' },
-  { id: '2', type: 'purchase',  label: 'Order placed — K2,400', date: '2 months ago' },
-  { id: '3', type: 'invoice',   label: 'Invoice sent',          date: '2 months ago' },
-  { id: '4', type: 'followup',  label: 'Follow-up sent',        date: '3 weeks ago' },
-  { id: '5', type: 'message',   label: 'Re-engaged',            date: '2 days ago' },
-]
 
 const MOCK_ACTIONS = [
   { label: 'Follow up tomorrow', icon: Bell },
@@ -481,6 +542,54 @@ function DailyBriefing({ name, items, loading, onDismiss }: { name: string; item
   )
 }
 
+// ─── Proactive Card ───────────────────────────────────────────────────────────
+
+function ProactiveCard({
+  suggestion, onSend, onSnooze,
+}: {
+  suggestion: ProactiveSuggestion
+  onSend: (draft: string | null) => void
+  onSnooze: () => void
+}) {
+  const isUrgent = suggestion.priority <= 2
+  const ICONS: Record<string, React.ElementType> = {
+    birthday: Calendar, dormant: Bell, follow_up: Bell,
+    promise: CheckCircle, milestone: Star, check_in: Bell,
+  }
+  const Icon = ICONS[suggestion.suggestionType] ?? Bell
+
+  return (
+    <div className={`rounded-xl p-3.5 border ${isUrgent ? 'bg-amber-50 border-amber-200' : 'bg-indigo-50 border-indigo-100'}`}>
+      <div className="flex items-start gap-2.5">
+        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isUrgent ? 'bg-amber-100' : 'bg-indigo-100'}`}>
+          <Icon size={13} className={isUrgent ? 'text-amber-600' : 'text-indigo-600'} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs font-semibold leading-tight ${isUrgent ? 'text-amber-900' : 'text-indigo-900'}`}>{suggestion.title}</p>
+          {suggestion.body && (
+            <p className={`text-[11px] mt-0.5 leading-relaxed ${isUrgent ? 'text-amber-700' : 'text-indigo-700'}`}>{suggestion.body}</p>
+          )}
+          <div className="flex gap-2 mt-2.5">
+            <button
+              onClick={() => onSend(suggestion.draftMessage)}
+              className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition-colors ${isUrgent ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+            >
+              <Wand2 size={10} />
+              Send Now
+            </button>
+            <button
+              onClick={onSnooze}
+              className={`text-[11px] font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${isUrgent ? 'border-amber-300 text-amber-700 hover:bg-amber-100' : 'border-indigo-200 text-indigo-600 hover:bg-indigo-100'}`}
+            >
+              Snooze
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Intel Panel ──────────────────────────────────────────────────────────────
 
 type AITab = 'overview' | 'memory' | 'activity' | 'files'
@@ -513,6 +622,9 @@ interface IntelPanelProps {
   onEditedTextChange: (v: string) => void
   onClose: () => void
   draftFocus: () => void
+  promises: ContactPromise[]
+  onApproveProactive: (id: string) => void
+  onSnoozeProactive: (id: string) => void
 }
 
 function IntelPanel({
@@ -521,6 +633,7 @@ function IntelPanel({
   editingSuggId, editedText, aiTab, messages, noteRef, onTabChange,
   onApprove, onDismiss, onRegenerate, onSetDraft,
   onAddNote, onNoteChange, onEditSugg, onEditedTextChange, onClose, draftFocus,
+  promises, onApproveProactive, onSnoozeProactive,
 }: IntelPanelProps) {
   const TABS: { id: AITab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -530,7 +643,6 @@ function IntelPanel({
   ]
 
   const healthScore = contactDetail?.relationship?.healthScore ?? selectedConv?.healthScore ?? 0
-  const leadScore = contact?.leadScore ?? selectedConv?.leadScore ?? 0
 
   // Derive AI insights from context for display in overview
   const insights: AIInsight[] = []
@@ -588,7 +700,76 @@ function IntelPanel({
         {/* ── Overview ────────────────────────────────────────────────────── */}
         {aiTab === 'overview' && (
           <div className="divide-y divide-gray-50">
-            {/* Score + summary */}
+
+            {/* === Proactive Reminders === */}
+            {contact && (() => {
+              const proactives = contactDetail?.proactiveSuggestions ?? []
+              const birthday = contactDetail?.upcomingEvents?.find(e => e.eventType === 'birthday')
+              const isDormant = healthScore < 35
+              const hasPromises = promises.length > 0
+              if (proactives.length === 0 && !birthday && !isDormant && !hasPromises) return null
+              return (
+                <div className="p-4 space-y-2.5">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reminders</p>
+
+                  {proactives.map(s => (
+                    <ProactiveCard
+                      key={s.id}
+                      suggestion={s}
+                      onSend={(draft) => { if (draft) { onSetDraft(draft); draftFocus() } onApproveProactive(s.id) }}
+                      onSnooze={() => onSnoozeProactive(s.id)}
+                    />
+                  ))}
+
+                  {birthday && (
+                    <div className="rounded-xl p-3.5 bg-pink-50 border border-pink-100 flex items-start gap-2.5">
+                      <div className="w-7 h-7 bg-pink-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <Calendar size={13} className="text-pink-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-pink-900">{birthday.title}</p>
+                        <p className="text-[11px] text-pink-600 mt-0.5">{birthday.eventDate}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {isDormant && proactives.length === 0 && (
+                    <div className="rounded-xl p-3.5 bg-amber-50 border border-amber-200 flex items-start gap-2.5">
+                      <TrendingDown size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-amber-900 mb-0.5">Relationship needs attention</p>
+                        <p className="text-[11px] text-amber-700 leading-relaxed">
+                          Health score is low ({healthScore}/100) — a warm follow-up could help.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {hasPromises && (
+                    <div className="space-y-1.5 pt-1">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Promises to Keep</p>
+                      {promises.slice(0, 3).map((p, i) => (
+                        <div key={i} className="flex items-start gap-2.5 p-2.5 bg-rose-50 rounded-xl border border-rose-100">
+                          <CheckCircle size={12} className="text-rose-400 mt-0.5 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-rose-900 leading-relaxed">{p.text}</p>
+                            <p className="text-[10px] text-rose-400 mt-0.5">{formatTime(p.messageAt)}</p>
+                          </div>
+                          <button
+                            onClick={() => { onSetDraft(p.text); draftFocus() }}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-100 hover:bg-rose-200 px-2 py-1 rounded-lg flex-shrink-0 transition-colors whitespace-nowrap"
+                          >
+                            Send Now
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* === Health Score === */}
             {contact && (
               <div className="p-4">
                 <div className="flex items-start gap-3 mb-3">
@@ -608,12 +789,9 @@ function IntelPanel({
                     )}
                   </div>
                 </div>
-                {/* AI Insights */}
                 {insights.length > 0 && (
                   <div className="space-y-2">
-                    {insights.map((ins, i) => (
-                      <InlineAICard key={i} insight={ins} />
-                    ))}
+                    {insights.map((ins, i) => <InlineAICard key={i} insight={ins} />)}
                   </div>
                 )}
               </div>
@@ -626,7 +804,7 @@ function IntelPanel({
               </div>
             )}
 
-            {/* Next recommended action */}
+            {/* === Recommended Action === */}
             {contextData?.nextAction && (
               <div className="p-4">
                 <div className={`rounded-xl p-3.5 flex items-start gap-3 ${contextData.urgency === 'high' ? 'bg-amber-50 border border-amber-100' : 'bg-indigo-50 border border-indigo-100'}`}>
@@ -643,106 +821,160 @@ function IntelPanel({
               </div>
             )}
 
-            {/* Lead score (business only) */}
-            {mode !== 'personal' && leadScore > 0 && (
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Lead Score</p>
-                  <span className={`text-xs font-bold tabular-nums ${leadScore > 70 ? 'text-indigo-600' : leadScore > 40 ? 'text-amber-600' : 'text-red-500'}`}>{leadScore}/100</span>
-                </div>
-                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${leadScore > 70 ? 'bg-indigo-500' : leadScore > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
-                    style={{ width: `${leadScore}%` }}
-                  />
-                </div>
-                <div className="flex gap-2 mt-2">
-                  {[
-                    leadScore > 60 && 'Pricing enquiry',
-                    leadScore > 50 && 'Quick responder',
-                    leadScore > 40 && 'Prior purchase',
-                  ].filter(Boolean).map((signal, i) => (
-                    <span key={i} className="flex items-center gap-1 text-[10px] text-emerald-700">
-                      <CheckCircle size={9} className="text-emerald-500" />
-                      {signal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Customer stats */}
-            {contact && mode !== 'personal' && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Customer Profile</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Since',    value: contact.customerSince },
-                    { label: 'Lifetime', value: contact.lifetimeValue != null ? `K${contact.lifetimeValue.toLocaleString()}` : undefined },
-                    { label: 'Avg Order',value: contact.avgOrderValue != null ? `K${contact.avgOrderValue.toLocaleString()}` : undefined },
-                    { label: 'Stage',    value: contact.pipelineStage?.replace(/_/g, ' ') },
-                  ].filter(r => r.value).map(r => (
-                    <div key={r.label} className="bg-gray-50 rounded-lg p-2">
-                      <p className="text-[9px] font-bold text-gray-400 uppercase">{r.label}</p>
-                      <p className="text-xs font-semibold text-gray-700 capitalize truncate">{r.value}</p>
+            {/* === Contact Intelligence Card === */}
+            {contact && contactDetail && (
+              <>
+                {/* Business Context */}
+                {mode !== 'personal' && (contactDetail.company || contactDetail.jobTitle || contactDetail.pipelineStage || contactDetail.leadScore != null) && (
+                  <div className="p-4">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Business Context</p>
+                    <div className="space-y-2">
+                      {contactDetail.company && (
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center flex-shrink-0">
+                            <BarChart2 size={11} className="text-gray-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400">Company</p>
+                            <p className="text-xs font-semibold text-gray-800">{contactDetail.company}</p>
+                          </div>
+                        </div>
+                      )}
+                      {contactDetail.jobTitle && (
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center flex-shrink-0">
+                            <UserCheck size={11} className="text-gray-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400">Role</p>
+                            <p className="text-xs font-semibold text-gray-800">{contactDetail.jobTitle}</p>
+                          </div>
+                        </div>
+                      )}
+                      {contactDetail.pipelineStage && (
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center flex-shrink-0">
+                            <Target size={11} className="text-gray-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400">Deal Stage</p>
+                            <p className="text-xs font-semibold text-gray-800 capitalize">{contactDetail.pipelineStage.replace(/_/g, ' ')}</p>
+                          </div>
+                        </div>
+                      )}
+                      {contactDetail.leadScore != null && (
+                        <div className="mt-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] text-gray-400">Lead Score</p>
+                            <span className={`text-xs font-bold tabular-nums ${contactDetail.leadScore > 70 ? 'text-indigo-600' : contactDetail.leadScore > 40 ? 'text-amber-600' : 'text-red-500'}`}>{contactDetail.leadScore}/100</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${contactDetail.leadScore > 70 ? 'bg-indigo-500' : contactDetail.leadScore > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                              style={{ width: `${contactDetail.leadScore}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* CRM quick actions */}
-            {mode !== 'personal' && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">CRM</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Convert',       icon: UserCheck },
-                    { label: 'Invoice',        icon: CreditCard },
-                    { label: 'Schedule call',  icon: Calendar },
-                    { label: 'Assign team',    icon: UserPlus },
-                  ].map(({ label, icon: Icon }) => (
-                    <button key={label} className="flex items-center gap-1.5 px-2.5 py-2 text-[11px] font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-left">
-                      <Icon size={11} className="text-gray-400 flex-shrink-0" />
-                      <span className="truncate">{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Communication Style */}
-            {(contextData?.communicationStyle || contactDetail?.profile?.communicationStyle) && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Communication Style</p>
-                <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 flex items-start gap-2.5">
-                  <MessageCircle size={13} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs font-semibold text-blue-900 capitalize leading-snug">
-                      {contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle}
-                    </p>
-                    <p className="text-[10px] text-blue-500 mt-0.5">Preferred style detected by AI</p>
                   </div>
-                </div>
-              </div>
+                )}
+
+                {/* Personal Context */}
+                {(contactDetail.profile?.communicationStyle || contactDetail.profile?.moodBaseline || contactDetail.profile?.currentLifeContext || contactDetail.notes) && (
+                  <div className="p-4">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Personal Context</p>
+                    <div className="space-y-2">
+                      {(contextData?.communicationStyle ?? contactDetail.profile?.communicationStyle) && (
+                        <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 flex items-start gap-2.5">
+                          <MessageCircle size={12} className="text-blue-500 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-widest">Comm. Style</p>
+                            <p className="text-xs font-semibold text-blue-900 capitalize leading-snug mt-0.5">
+                              {contextData?.communicationStyle ?? contactDetail.profile?.communicationStyle}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {contactDetail.profile?.moodBaseline && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <Activity size={11} className="text-gray-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400">Mood Baseline</p>
+                            <p className="text-xs font-medium text-gray-800 capitalize">{contactDetail.profile.moodBaseline}</p>
+                          </div>
+                        </div>
+                      )}
+                      {contactDetail.profile?.currentLifeContext && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <MapPin size={11} className="text-gray-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400">Life Context</p>
+                            <p className="text-xs text-gray-700 leading-relaxed">{contactDetail.profile.currentLifeContext}</p>
+                          </div>
+                        </div>
+                      )}
+                      {contactDetail.notes && (
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-6 h-6 bg-gray-100 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <StickyNote size={11} className="text-gray-500" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-400">Notes</p>
+                            <p className="text-xs text-gray-700 leading-relaxed">{contactDetail.notes}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {/* Interests & Passions */}
-            {contactDetail?.profile?.topInterests && contactDetail.profile.topInterests.length > 0 && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Interests & Passions</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {contactDetail.profile.topInterests.map(interest => (
-                    <span key={interest} className="flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 text-[11px] font-medium rounded-full border border-purple-100 capitalize">
-                      <Heart size={9} className="flex-shrink-0" />
-                      {interest}
-                    </span>
-                  ))}
+            {/* === AI Insights (Interests & Life Events from contact_insights) === */}
+            {contactDetail && (() => {
+              const INTEREST_KEYS = ['interest', 'hobby', 'passion', 'like', 'enjoy', 'favorite', 'favourite', 'sport', 'music', 'food', 'travel', 'fan', 'activity']
+              const LIFE_EVENT_KEYS = ['job', 'career', 'work', 'moved', 'relocat', 'promotion', 'study', 'graduat', 'married', 'birth', 'family', 'health', 'launch', 'start', 'bought', 'sold']
+              const interests = contactDetail.insights.filter(i => INTEREST_KEYS.some(k => i.key.toLowerCase().includes(k)))
+              const lifeEvents = contactDetail.insights.filter(i => LIFE_EVENT_KEYS.some(k => i.key.toLowerCase().includes(k)))
+              if (interests.length === 0 && lifeEvents.length === 0) return null
+              return (
+                <div className="p-4 space-y-3">
+                  {interests.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Interests & Passions</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {interests.map((ins, i) => (
+                          <span key={i} className="flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 text-[11px] font-medium rounded-full border border-purple-100 capitalize">
+                            <Heart size={9} className="flex-shrink-0" />
+                            {ins.value.length > 30 ? ins.value.slice(0, 30) + '…' : ins.value}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {lifeEvents.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Recent Life Events</p>
+                      <div className="space-y-1.5">
+                        {lifeEvents.map((ins, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                            <p className="text-xs text-gray-700 leading-relaxed">{ins.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
-            {/* Buying Signals (dedicated card when present) */}
+            {/* === Buying Signals === */}
             {mode !== 'personal' && contextData?.buyingSignals && contextData.buyingSignals.length > 0 && (
               <div className="p-4">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Buying Signals</p>
@@ -757,20 +989,13 @@ function IntelPanel({
               </div>
             )}
 
-            {/* Dormant relationship alert */}
-            {selectedConv && selectedConv.healthScore < 35 && (
+            {mode !== 'personal' && contactDetail?.profile?.buyingBehaviour && (
               <div className="p-4">
-                <div className="bg-amber-50 rounded-xl p-3.5 border border-amber-200 flex items-start gap-2.5">
-                  <TrendingDown size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs font-semibold text-amber-900 mb-0.5">Relationship needs attention</p>
-                    <p className="text-[11px] text-amber-700 leading-relaxed">
-                      Health score is low ({selectedConv.healthScore}/100). This contact may be drifting — a warm follow-up could help.
-                    </p>
-                  </div>
-                </div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Buying Behaviour</p>
+                <p className="text-xs text-gray-700 leading-relaxed">{contactDetail.profile.buyingBehaviour}</p>
               </div>
             )}
+
           </div>
         )}
 
@@ -1003,29 +1228,92 @@ function IntelPanel({
             {/* Relationship timeline */}
             <div className="p-4">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Timeline</p>
-              <div className="relative">
-                <div className="absolute left-[11px] top-3 bottom-3 w-px bg-gray-100" />
-                <div className="space-y-4">
-                  {MOCK_TIMELINE.map(ev => {
-                    const ICONS: Record<TimelineEvent['type'], React.ElementType> = {
-                      message: MessageSquare, purchase: DollarSign, invoice: CreditCard,
-                      note: StickyNote, followup: Bell, complaint: AlertTriangle, appointment: Calendar,
-                    }
-                    const Icon = ICONS[ev.type]
+              {contactDetail ? (
+                (() => {
+                  const hasUpcoming = (contactDetail.upcomingEvents?.length ?? 0) > 0
+                  const hasHistory = (contactDetail.healthHistory?.length ?? 0) > 0
+                  if (!hasUpcoming && !hasHistory) {
                     return (
-                      <div key={ev.id} className="flex items-start gap-3">
-                        <div className="w-6 h-6 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center flex-shrink-0 z-10">
-                          <Icon size={10} className="text-gray-400" />
-                        </div>
-                        <div className="pt-0.5">
-                          <p className="text-xs font-semibold text-gray-700">{ev.label}</p>
-                          <p className="text-[10px] text-gray-400">{ev.date}</p>
-                        </div>
+                      <div className="text-center py-6">
+                        <Calendar size={22} className="text-gray-300 mx-auto mb-2" />
+                        <p className="text-xs text-gray-400">No timeline events yet</p>
                       </div>
                     )
-                  })}
+                  }
+                  return (
+                    <div className="relative">
+                      <div className="absolute left-[11px] top-3 bottom-3 w-px bg-gray-100" />
+                      <div className="space-y-4">
+                        {contactDetail.upcomingEvents?.map(ev => {
+                          const EICONS: Record<string, React.ElementType> = {
+                            birthday: Calendar, anniversary: Heart, meeting: Calendar,
+                            deadline: AlertTriangle, appointment: Calendar,
+                          }
+                          const EIcon = EICONS[ev.eventType] ?? Calendar
+                          return (
+                            <div key={ev.id} className="flex items-start gap-3">
+                              <div className="w-6 h-6 rounded-full bg-indigo-50 border-2 border-indigo-200 flex items-center justify-center flex-shrink-0 z-10">
+                                <EIcon size={10} className="text-indigo-500" />
+                              </div>
+                              <div className="pt-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <p className="text-xs font-semibold text-gray-700">{ev.title}</p>
+                                  {ev.isRecurring && <span className="text-[9px] text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded-full">recurring</span>}
+                                </div>
+                                <p className="text-[10px] text-indigo-500">{ev.eventDate}</p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {contactDetail.healthHistory?.map((h, i) => (
+                          <div key={i} className="flex items-start gap-3">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 z-10 border-2 ${
+                              h.previousScore != null && h.score > h.previousScore ? 'bg-emerald-50 border-emerald-200' :
+                              h.previousScore != null && h.score < h.previousScore ? 'bg-red-50 border-red-200' :
+                              'bg-white border-gray-200'
+                            }`}>
+                              {h.previousScore != null && h.score > h.previousScore ? (
+                                <TrendingUp size={10} className="text-emerald-500" />
+                              ) : h.previousScore != null && h.score < h.previousScore ? (
+                                <TrendingDown size={10} className="text-red-400" />
+                              ) : (
+                                <Activity size={10} className="text-gray-400" />
+                              )}
+                            </div>
+                            <div className="pt-0.5">
+                              <p className="text-xs font-semibold text-gray-700">
+                                Health: {h.score}/100
+                                {h.previousScore != null && h.previousScore !== h.score && (
+                                  <span className={`ml-1 text-[10px] ${h.score > h.previousScore ? 'text-emerald-500' : 'text-red-400'}`}>
+                                    {h.score > h.previousScore ? `+${h.score - h.previousScore}` : `${h.score - h.previousScore}`}
+                                  </span>
+                                )}
+                              </p>
+                              {h.changeReason && <p className="text-[10px] text-gray-500 leading-relaxed">{h.changeReason}</p>}
+                              <p className="text-[10px] text-gray-400 mt-0.5">{formatTime(h.recordedAt)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()
+              ) : (
+                <div className="relative">
+                  <div className="absolute left-[11px] top-3 bottom-3 w-px bg-gray-100" />
+                  <div className="space-y-4">
+                    {[1,2,3].map(i => (
+                      <div key={i} className="flex items-start gap-3">
+                        <div className="w-6 h-6 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+                        <div className="flex-1 pt-1">
+                          <div className="h-3 bg-gray-100 rounded animate-pulse w-2/3 mb-1" />
+                          <div className="h-2.5 bg-gray-100 rounded animate-pulse w-1/3" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Conversation stats */}
@@ -1161,6 +1449,7 @@ export default function InboxPage() {
   const [editingSuggId, setEditingSuggId] = useState<string | null>(null)
   const [editedText, setEditedText] = useState('')
   const [isOnline, setIsOnline] = useState(true)
+  const [promises, setPromises] = useState<ContactPromise[]>([])
 
   // AI Actions state
   const [showAIActions, setShowAIActions] = useState(false)
@@ -1266,15 +1555,19 @@ export default function InboxPage() {
   const selectConversation = async (convId: string) => {
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
     setContactDetail(null); setLoadingMsgs(true); setMobileView('thread')
-    setDraft(''); setAiTab('overview'); setContextData(null)
+    setDraft(''); setAiTab('overview'); setContextData(null); setPromises([])
     if (!token) return
     const data = await apiClient<{ messages: Message[]; contact: Contact }>(
       `/api/conversations/${convId}/messages`, { token }
     )
     setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
     if (data.contact?.id) {
-      apiClient<{ contact: ContactDetail }>(`/api/contacts/${data.contact.id}`, { token })
+      const contactId = data.contact.id
+      apiClient<{ contact: ContactDetail }>(`/api/contacts/${contactId}`, { token })
         .then(d => setContactDetail(d.contact)).catch(() => {})
+      apiClient<{ promises: ContactPromise[] }>(`/api/contacts/${contactId}/promises`, { token })
+        .then(d => setPromises(d.promises ?? []))
+        .catch(() => setPromises([]))
     }
     loadContext(convId)
     const last = [...data.messages].reverse().find(m => m.pendingSuggestions > 0)
@@ -1332,6 +1625,27 @@ export default function InboxPage() {
     if (!newNote.trim()) return
     setNotes(prev => [{ id: `n-${Date.now()}`, text: newNote.trim(), author: userName, createdAt: new Date().toISOString() }, ...prev])
     setNewNote('')
+  }
+
+  const approveProactive = async (id: string) => {
+    if (!token) return
+    setContactDetail(prev => prev ? {
+      ...prev, proactiveSuggestions: prev.proactiveSuggestions.filter(s => s.id !== id),
+    } : prev)
+    try {
+      await apiClient(`/api/proactive/${id}`, { method: 'PATCH', token, body: JSON.stringify({ status: 'approved' }) })
+    } catch {}
+  }
+
+  const snoozeProactive = async (id: string) => {
+    if (!token) return
+    setContactDetail(prev => prev ? {
+      ...prev, proactiveSuggestions: prev.proactiveSuggestions.filter(s => s.id !== id),
+    } : prev)
+    const snoozedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    try {
+      await apiClient(`/api/proactive/${id}`, { method: 'PATCH', token, body: JSON.stringify({ status: 'snoozed', snoozedUntil }) })
+    } catch {}
   }
 
   const aiSummarize = async () => {
@@ -1885,6 +2199,9 @@ export default function InboxPage() {
                     onEditedTextChange={setEditedText}
                     onClose={() => setShowAIPanel(false)}
                     draftFocus={() => draftRef.current?.focus()}
+                    promises={promises}
+                    onApproveProactive={approveProactive}
+                    onSnoozeProactive={snoozeProactive}
                   />
                 </div>
               )}
@@ -1952,6 +2269,9 @@ export default function InboxPage() {
               onEditedTextChange={setEditedText}
               onClose={() => setMobileView('thread')}
               draftFocus={() => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
+              promises={promises}
+              onApproveProactive={approveProactive}
+              onSnoozeProactive={snoozeProactive}
             />
           </div>
         </div>
