@@ -60,12 +60,13 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
       );
       if (!suggestion) return reply.code(404).send({ error: 'Suggestion not found' });
 
+      const customText = (request.body as any)?.text;
       await addToQueue(QUEUE_NAMES.SEND_REPLY, {
         userId,
         messageId: suggestion.message_id,
         suggestedReplyId: id,
         recipientJid: suggestion.recipient_jid,
-        text: suggestion.suggestion_text,
+        text: customText || suggestion.suggestion_text,
       });
 
       await db.query(

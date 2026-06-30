@@ -2,19 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Search, ChevronLeft, Zap, RefreshCw, X, MessageSquare,
+  Search, ChevronLeft, ChevronDown, ChevronUp, Zap, RefreshCw, X, MessageSquare,
   AlertCircle, Send, Paperclip, Smile, Archive, StickyNote,
   ExternalLink, ChevronRight, TrendingUp, Clock, Flame, Star,
   AlertTriangle, Calendar, DollarSign, CheckCircle, XCircle,
   Sparkles, Brain, Bell, Tag, Edit3, Copy, UserPlus, CreditCard,
   UserCheck, FileText, WifiOff, Lightbulb, Activity,
   ShoppingCart, MessageCircle, MapPin, Download, Film,
-  Image, Phone, Mic, Target, Hash, BarChart2,
+  Image, Phone, Mic, Target, Hash, BarChart2, Bot, BookOpen,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { Avatar, EmptyState, HealthBar, SkeletonListItem } from '@/components/ui'
+import { Avatar, EmptyState, SkeletonListItem } from '@/components/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,11 +40,42 @@ interface ContactDetail {
   name: string
   relationship: { type: string; healthScore: number; healthTrend: string }
   profile: {
-    personalitySummary: string
-    moodBaseline: string
+    personalitySummary?: string
+    moodBaseline?: string
     communicationStyle?: string
-    topInterests?: string[]
+    goals?: string
+    painPoints?: string
+    buyingBehaviour?: string
+    relationshipStage?: string
+    preferences?: string
   } | null
+  insights: Array<{ key: string; value: string; confidence: number; supportingText?: string }>
+  healthHistory: Array<{ score: number; previousScore?: number; changeReason?: string; factors?: string[]; recordedAt: string }>
+  proactiveSuggestions: Array<{ id: string; suggestionType: string; title: string; body: string; draftMessage?: string; priority?: string }>
+  upcomingEvents: Array<{ id: string; eventType: string; title: string; eventDate: string; isRecurring?: boolean; confidence?: number }>
+  stats?: { totalMessages: number; sent: number; received: number }
+}
+
+interface ContactDocument {
+  id: string
+  fileName: string
+  fileType: string
+  fileSize: number
+  storageUrl: string
+  docCategory: string
+  notes?: string
+  uploadedAt: string
+}
+
+interface AgentInfo {
+  id: string
+  name: string
+  roleTitle: string
+  avatarEmoji: string
+  trustLevel: string
+  isActive: boolean
+  agentType: string
+  assignmentCount?: number
 }
 
 interface Conversation {
@@ -89,13 +120,6 @@ interface InternalNote {
   text: string
   author: string
   createdAt: string
-}
-
-interface TimelineEvent {
-  id: string
-  type: 'message' | 'purchase' | 'invoice' | 'note' | 'followup' | 'complaint' | 'appointment'
-  label: string
-  date: string
 }
 
 interface BriefingData {
@@ -145,17 +169,6 @@ const SENTIMENT_DOT: Record<string, string> = {
   frustrated: 'bg-amber-400', angry: 'bg-red-500',
 }
 
-const TONE_STYLE: Record<string, string> = {
-  friendly:     'bg-emerald-50 text-emerald-900 border-emerald-200',
-  professional: 'bg-blue-50 text-blue-900 border-blue-200',
-  empathetic:   'bg-purple-50 text-purple-900 border-purple-200',
-  casual:       'bg-gray-50 text-gray-800 border-gray-200',
-  urgent:       'bg-amber-50 text-amber-900 border-amber-200',
-  sales:        'bg-orange-50 text-orange-900 border-orange-200',
-  direct:       'bg-slate-50 text-slate-800 border-slate-200',
-  firm:         'bg-slate-50 text-slate-800 border-slate-200',
-}
-
 const FILTERS = [
   { id: 'all',         label: 'All' },
   { id: 'unread',      label: 'Unread' },
@@ -166,21 +179,11 @@ const FILTERS = [
   { id: 'at_risk',     label: 'At Risk' },
 ] as const
 
-const MOCK_TIMELINE: TimelineEvent[] = [
-  { id: '1', type: 'message',   label: 'First contacted',       date: '3 months ago' },
-  { id: '2', type: 'purchase',  label: 'Order placed — K2,400', date: '2 months ago' },
-  { id: '3', type: 'invoice',   label: 'Invoice sent',          date: '2 months ago' },
-  { id: '4', type: 'followup',  label: 'Follow-up sent',        date: '3 weeks ago' },
-  { id: '5', type: 'message',   label: 'Re-engaged',            date: '2 days ago' },
-]
-
-const MOCK_ACTIONS = [
-  { label: 'Follow up tomorrow', icon: Bell },
-  { label: 'Offer 10% discount', icon: Tag },
-  { label: 'Send catalogue',     icon: FileText },
-  { label: 'Book appointment',   icon: Calendar },
-  { label: 'Create invoice',     icon: CreditCard },
-]
+const PROACTIVE_ICONS: Record<string, string> = {
+  follow_up: '🔔', meeting: '📅', offer: '💰', document: '📄',
+  birthday: '🎂', anniversary: '🎉', health: '💙', check_in: '👋',
+  re_engagement: '✨', milestone: '🏆', life_event: '🌟',
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,6 +205,12 @@ function formatTime(ts: string | null) {
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function formatSLA(min: number) {
@@ -346,24 +355,24 @@ function MessageContent({ msg, token, isUser }: { msg: Message; token?: string |
 
 // ─── ScoreRing ────────────────────────────────────────────────────────────────
 
-function ScoreRing({ score, size = 72 }: { score: number; size?: number }) {
-  const sw = 6
+function ScoreRing({ score, size = 52 }: { score: number; size?: number }) {
+  const sw = size < 60 ? 5 : 6
   const r = (size - sw * 2) / 2
   const cx = size / 2
   const circumference = 2 * Math.PI * r
-  const color = score >= 70 ? '#4f46e5' : score >= 40 ? '#f59e0b' : '#ef4444'
+  const color = score >= 70 ? '#4F46E5' : score >= 40 ? '#B7791F' : '#B91C4A'
   const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F'
   return (
     <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: size, height: size }}>
       <svg className="-rotate-90" width={size} height={size}>
-        <circle cx={cx} cy={cx} r={r} fill="none" stroke="#f3f4f6" strokeWidth={sw} />
+        <circle cx={cx} cy={cx} r={r} fill="none" stroke="#EDEBE8" strokeWidth={sw} />
         <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth={sw}
           strokeDasharray={`${(score / 100) * circumference} ${circumference}`}
           strokeLinecap="round" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-base font-bold text-gray-900 leading-none">{score}</span>
-        <span className="text-[9px] font-bold leading-none mt-0.5" style={{ color }}>{grade}</span>
+        <span className="font-bold leading-none" style={{ fontSize: size < 60 ? 14 : 16, color: '#1C1B1F' }}>{score}</span>
+        <span className="font-bold leading-none mt-0.5" style={{ fontSize: 9, color }}>{grade}</span>
       </div>
     </div>
   )
@@ -373,19 +382,135 @@ function ScoreRing({ score, size = 72 }: { score: number; size?: number }) {
 
 function InlineAICard({ insight }: { insight: AIInsight }) {
   const cfg = {
-    opportunity: { icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', label: 'Opportunity Detected' },
-    alert:       { icon: AlertTriangle, bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', label: 'AI Alert' },
-    entity:      { icon: Sparkles, bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', label: 'AI Insight' },
+    opportunity: { icon: TrendingUp, bg: '#EAF7EE', border: '#C6E8CF', text: '#15803D', label: 'Opportunity' },
+    alert:       { icon: AlertTriangle, bg: '#FBF3E3', border: '#F0DDB0', text: '#B7791F', label: 'Alert' },
+    entity:      { icon: Sparkles, bg: '#EEEDFD', border: '#D4D1FB', text: '#4F46E5', label: 'AI Insight' },
   }[insight.type]
   const Icon = cfg.icon
   return (
-    <div className={`mx-auto w-fit max-w-xs rounded-xl px-3.5 py-2.5 border ${cfg.bg} ${cfg.border} flex items-start gap-2.5`}>
-      <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5`}>
-        <Icon size={11} className={cfg.text} />
-      </div>
+    <div className="mx-auto w-fit max-w-xs rounded-xl px-3.5 py-2.5 flex items-start gap-2.5"
+      style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
+      <Icon size={11} className="mt-0.5 flex-shrink-0" style={{ color: cfg.text }} />
       <div>
-        <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${cfg.text}`}>{cfg.label}</p>
-        <p className="text-xs text-gray-700 leading-relaxed">{insight.text}</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: cfg.text }}>{cfg.label}</p>
+        <p className="text-xs leading-relaxed" style={{ color: '#1C1B1F' }}>{insight.text}</p>
+      </div>
+    </div>
+  )
+}
+
+// ─── SectionTitle ─────────────────────────────────────────────────────────────
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10px] font-bold uppercase tracking-widest mb-2.5" style={{ color: '#9A97A0' }}>
+      {children}
+    </p>
+  )
+}
+
+// ─── SuggestionChip ───────────────────────────────────────────────────────────
+
+function SuggestionChip({
+  suggestion,
+  onApprove,
+  onDismiss,
+  onRegenerate,
+  regenerating,
+  actionLoading,
+}: {
+  suggestion: Suggestion
+  onApprove: (id: string, text?: string) => void
+  onDismiss: (id: string) => void
+  onRegenerate: () => void
+  regenerating: boolean
+  actionLoading: string | null
+}) {
+  const [showReasoning, setShowReasoning] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState(suggestion.text)
+
+  const isLoading = actionLoading === suggestion.id
+
+  return (
+    <div
+      className="flex-shrink-0 w-[258px] rounded-[11px] transition-all"
+      style={{ background: '#F6F5FE', border: '1px solid #E1DEFB', padding: '11px 12px 10px' }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-mono text-[10px] font-bold tracking-[0.06em] uppercase" style={{ color: '#4F46E5' }}>
+          ⚡ {(suggestion.tone ?? 'reply').toUpperCase()}
+        </span>
+        <div className="flex items-center gap-1.5">
+          {suggestion.confidence != null && (
+            <span className="font-mono text-[10px]" style={{ color: '#9A97A0' }}>{suggestion.confidence}%</span>
+          )}
+          {suggestion.reasoning && (
+            <button
+              onClick={() => setShowReasoning(v => !v)}
+              className="rounded p-0.5 transition-colors hover:bg-white/60"
+              title="Show AI reasoning"
+              style={{ color: showReasoning ? '#4F46E5' : '#9A97A0' }}
+            >
+              {showReasoning ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Reasoning */}
+      {showReasoning && suggestion.reasoning && (
+        <div className="mb-2 rounded-lg px-2.5 py-2" style={{ background: 'rgba(255,255,255,0.8)', border: '1px solid #E1DEFB' }}>
+          <p className="text-[11px] leading-relaxed italic" style={{ color: '#6B6870' }}>{suggestion.reasoning}</p>
+        </div>
+      )}
+
+      {/* Text or edit textarea */}
+      {editing ? (
+        <textarea
+          autoFocus
+          value={editText}
+          onChange={e => setEditText(e.target.value)}
+          rows={3}
+          className="w-full rounded-lg px-2.5 py-2 text-[12.5px] resize-none focus:outline-none leading-relaxed mb-2"
+          style={{ background: 'white', border: '1px solid #C7C4F7', color: '#1C1B1F', fontSize: 12.5 }}
+        />
+      ) : (
+        <p className="text-[12.5px] leading-[1.65] mb-2.5 line-clamp-3" style={{ color: '#1C1B1F' }}>
+          {suggestion.text}
+        </p>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => onApprove(suggestion.id, editing ? editText : undefined)}
+          disabled={isLoading}
+          className="flex-1 rounded-lg text-[11px] font-bold py-1.5 text-white transition-colors disabled:opacity-50"
+          style={{ background: '#4F46E5' }}
+          onMouseEnter={e => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.background = '#3730A3' }}
+          onMouseLeave={e => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.background = '#4F46E5' }}
+        >
+          {isLoading ? '…' : editing ? 'Send edited' : 'Send'}
+        </button>
+        <button
+          onClick={() => { setEditing(v => !v); if (!editing) setEditText(suggestion.text) }}
+          className="rounded-lg px-2.5 py-1.5 transition-colors"
+          style={{ background: 'white', border: '1px solid #E1DEFB', color: '#4F46E5' }}
+          title={editing ? 'Cancel edit' : 'Edit text'}
+        >
+          {editing ? <X size={11} /> : <Edit3 size={11} />}
+        </button>
+        <button
+          onClick={() => onDismiss(suggestion.id)}
+          disabled={isLoading}
+          className="rounded-lg px-2 py-1.5 transition-opacity disabled:opacity-40"
+          style={{ color: '#9A97A0' }}
+          title="Dismiss"
+        >
+          <X size={11} />
+        </button>
       </div>
     </div>
   )
@@ -400,8 +525,9 @@ function ConvRow({ conv, active, onClick, mode }: { conv: Conversation; active: 
     <button
       onClick={onClick}
       className={`w-full flex items-start gap-3 px-3 py-3 text-left transition-all border-l-[3px] ${
-        active ? 'bg-indigo-50/80 border-indigo-500' : 'hover:bg-white/70 border-transparent'
+        active ? 'border-indigo-500' : 'hover:bg-white/70 border-transparent'
       }`}
+      style={{ background: active ? '#EEEDFD' : undefined }}
     >
       <div className="relative flex-shrink-0 mt-0.5">
         <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="md" />
@@ -418,12 +544,12 @@ function ConvRow({ conv, active, onClick, mode }: { conv: Conversation; active: 
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1 mb-0.5">
-          <span className={`text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+          <span className={`text-[13px] truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
             {conv.contact.name}
           </span>
-          <span className="text-[10px] text-gray-400 flex-shrink-0 tabular-nums">{formatTime(conv.lastMessageAt)}</span>
+          <span className="text-[10px] flex-shrink-0 tabular-nums font-mono" style={{ color: '#9A97A0' }}>{formatTime(conv.lastMessageAt)}</span>
         </div>
-        <p className={`text-xs truncate mb-1.5 ${conv.unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
+        <p className={`text-[12px] truncate mb-1.5 ${conv.unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
           {conv.lastMessagePreview || 'No messages yet'}
         </p>
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -440,7 +566,7 @@ function ConvRow({ conv, active, onClick, mode }: { conv: Conversation; active: 
             </span>
           )}
           {mode !== 'personal' && (conv.leadScore ?? 0) > 70 && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md">
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md border" style={{ color: '#4F46E5', background: '#EEEDFD', borderColor: '#C7C4F7' }}>
               <TrendingUp size={9} />
               {conv.leadScore}
             </span>
@@ -490,34 +616,23 @@ interface IntelPanelProps {
   selectedConv: Conversation | null
   contextData: ConvContext | null
   contextLoading: boolean
-  suggestions: Suggestion[]
-  regenerating: boolean
-  actionLoading: string | null
   mode: string
   notes: InternalNote[]
   newNote: string
-  editingSuggId: string | null
-  editedText: string
   aiTab: AITab
+  documents: ContactDocument[]
+  documentsLoading: boolean
+  contactAgents: AgentInfo[]
   onTabChange: (t: AITab) => void
-  onApprove: (id: string, custom?: string) => void
-  onDismiss: (id: string) => void
-  onRegenerate: () => void
-  onSetDraft: (text: string) => void
   onAddNote: () => void
   onNoteChange: (v: string) => void
-  onEditSugg: (id: string | null) => void
-  onEditedTextChange: (v: string) => void
   onClose: () => void
-  draftFocus: () => void
 }
 
 function IntelPanel({
   contact, contactDetail, selectedConv, contextData, contextLoading,
-  suggestions, regenerating, actionLoading, mode, notes, newNote,
-  editingSuggId, editedText, aiTab, onTabChange,
-  onApprove, onDismiss, onRegenerate, onSetDraft,
-  onAddNote, onNoteChange, onEditSugg, onEditedTextChange, onClose, draftFocus,
+  mode, notes, newNote, aiTab, documents, documentsLoading, contactAgents,
+  onTabChange, onAddNote, onNoteChange, onClose,
 }: IntelPanelProps) {
   const TABS: { id: AITab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -529,50 +644,51 @@ function IntelPanel({
   const healthScore = contactDetail?.relationship?.healthScore ?? selectedConv?.healthScore ?? 0
   const leadScore = contact?.leadScore ?? selectedConv?.leadScore ?? 0
 
-  // Derive AI insights from context for display in overview
-  const insights: AIInsight[] = []
+  // Build extracted entity list from context
+  const extractedEntities: Array<{ icon: string; type: string; value: string }> = []
   if (contextData?.buyingSignals?.length) {
-    insights.push({ type: 'opportunity', text: contextData.buyingSignals[0] })
-  }
-  if (contextData?.dominantSentiment === 'frustrated' || contextData?.dominantSentiment === 'angry') {
-    insights.push({ type: 'alert', text: `Sentiment is ${contextData.dominantSentiment} — consider an empathetic response` })
+    contextData.buyingSignals.slice(0, 2).forEach(s =>
+      extractedEntities.push({ icon: '💰', type: 'Signal', value: s })
+    )
   }
   if (contextData?.intents?.length) {
-    insights.push({ type: 'entity', text: `Detected intent: ${contextData.intents.slice(0,2).join(', ').replace(/_/g, ' ')}` })
+    extractedEntities.push({ icon: '🎯', type: 'Intent', value: contextData.intents.slice(0, 2).map(i => i.replace(/_/g, ' ')).join(', ') })
+  }
+  if (contextData?.topTopics?.length) {
+    extractedEntities.push({ icon: '💬', type: 'Topics', value: contextData.topTopics.slice(0, 3).join(', ') })
+  }
+  if (contextData?.nextAction) {
+    extractedEntities.push({ icon: '✅', type: 'Next action', value: contextData.nextAction })
   }
 
-  // Files derived from messages (document type) — placeholder
-  const mockFiles = [
-    { name: 'Invoice_March.pdf', size: '142 KB', date: '2 months ago' },
-    { name: 'Product_Catalogue.pdf', size: '3.2 MB', date: '3 weeks ago' },
-  ]
-
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full" style={{ background: '#FFFFFF' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #E8E6E3' }}>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-indigo-50 rounded-md flex items-center justify-center">
-            <Brain size={13} className="text-indigo-600" />
+          <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: '#EEEDFD' }}>
+            <Brain size={13} style={{ color: '#4F46E5' }} />
           </div>
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-[13px] font-semibold" style={{ color: '#1C1B1F' }}>
             {contact?.name ? contact.name.split(' ')[0] : 'Intelligence'}
           </p>
         </div>
-        <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+        <button onClick={onClose} className="p-1.5 rounded-lg transition-colors hover:bg-gray-100" style={{ color: '#9A97A0' }}>
           <X size={14} />
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-100 flex-shrink-0 px-1">
+      <div className="flex flex-shrink-0 px-1" style={{ borderBottom: '1px solid #E8E6E3' }}>
         {TABS.map(tab => (
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
-            className={`flex-1 py-2.5 text-[11px] font-semibold transition-colors ${
-              aiTab === tab.id ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400 hover:text-gray-600'
-            }`}
+            className="flex-1 py-2.5 text-[11px] font-semibold transition-colors"
+            style={{
+              color: aiTab === tab.id ? '#4F46E5' : '#9A97A0',
+              borderBottom: aiTab === tab.id ? '2px solid #4F46E5' : '2px solid transparent',
+            }}
           >
             {tab.label}
           </button>
@@ -582,228 +698,314 @@ function IntelPanel({
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* ── Overview ────────────────────────────────────────────────────── */}
+        {/* ── OVERVIEW ────────────────────────────────────────────────────── */}
         {aiTab === 'overview' && (
-          <div className="divide-y divide-gray-50">
-            {/* Score + summary */}
-            {contact && (
-              <div className="p-4">
-                <div className="flex items-start gap-3 mb-3">
-                  <ScoreRing score={healthScore} size={64} />
-                  <div className="flex-1 min-w-0 pt-1">
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Relationship Health</p>
-                    <p className="text-xs text-gray-700 leading-relaxed">
-                      {healthScore >= 70 ? 'Strong relationship with consistent engagement.' :
-                       healthScore >= 40 ? 'Moderate — attention may improve retention.' :
-                       'Needs nurturing — high churn risk.'}
-                    </p>
-                    {contextData?.requiresResponse && (
-                      <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-100">
-                        <AlertCircle size={9} />
-                        Needs reply
-                      </span>
-                    )}
-                  </div>
+          <div style={{ borderColor: '#E8E6E3' }} className="divide-y divide-[#E8E6E3]">
+
+            {/* AI Summary */}
+            {contextData?.summary && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>AI Summary</SectionTitle>
+                <div className="rounded-xl p-3.5 text-[13px] leading-[1.65]"
+                  style={{ background: '#F6F5FE', border: '1px solid #E1DEFB', color: '#1C1B1F' }}>
+                  {contextData.summary}
                 </div>
-                {/* AI Insights */}
-                {insights.length > 0 && (
-                  <div className="space-y-2">
-                    {insights.map((ins, i) => (
-                      <InlineAICard key={i} insight={ins} />
-                    ))}
-                  </div>
-                )}
-              </div>
+              </section>
             )}
 
             {/* Context loading */}
             {contextLoading && (
-              <div className="p-4 space-y-2">
-                {[1,2].map(i => <div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}
-              </div>
+              <section className="px-4 py-3.5 space-y-2">
+                {[1,2].map(i => <div key={i} className="h-10 rounded-xl animate-pulse" style={{ background: '#F4F3F1' }} />)}
+              </section>
             )}
 
-            {/* Next recommended action */}
-            {contextData?.nextAction && (
-              <div className="p-4">
-                <div className={`rounded-xl p-3.5 flex items-start gap-3 ${contextData.urgency === 'high' ? 'bg-amber-50 border border-amber-100' : 'bg-indigo-50 border border-indigo-100'}`}>
-                  <Lightbulb size={14} className={`flex-shrink-0 mt-0.5 ${contextData.urgency === 'high' ? 'text-amber-600' : 'text-indigo-600'}`} />
-                  <div>
-                    <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${contextData.urgency === 'high' ? 'text-amber-500' : 'text-indigo-400'}`}>
-                      Recommended Action
-                    </p>
-                    <p className={`text-sm font-semibold ${contextData.urgency === 'high' ? 'text-amber-900' : 'text-indigo-900'}`}>
-                      {contextData.nextAction}
-                    </p>
+            {/* Conversation Score */}
+            {contact && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Conversation Score</SectionTitle>
+                <div className="flex items-center gap-3.5">
+                  <ScoreRing score={healthScore} size={52} />
+                  <div className="space-y-1.5">
+                    {healthScore >= 70 && (
+                      <div className="flex items-center gap-1.5 text-[12px]" style={{ color: '#1C1B1F' }}>
+                        <CheckCircle size={11} style={{ color: '#15803D' }} /> Fast response time
+                      </div>
+                    )}
+                    {!contextData?.requiresResponse && (
+                      <div className="flex items-center gap-1.5 text-[12px]" style={{ color: '#1C1B1F' }}>
+                        <CheckCircle size={11} style={{ color: '#15803D' }} /> No pending questions
+                      </div>
+                    )}
+                    {contextData?.buyingSignals?.length ? (
+                      <div className="flex items-center gap-1.5 text-[12px]" style={{ color: '#1C1B1F' }}>
+                        <CheckCircle size={11} style={{ color: '#15803D' }} /> Buying signals detected
+                      </div>
+                    ) : null}
+                    {contextData?.requiresResponse && (
+                      <div className="flex items-center gap-1.5 text-[12px]" style={{ color: '#B91C4A' }}>
+                        <AlertCircle size={11} style={{ color: '#B91C4A' }} /> Awaiting your reply
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+                {/* Lead score bar (business mode) */}
+                {mode !== 'personal' && leadScore > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-medium" style={{ color: '#9A97A0' }}>Lead score</span>
+                      <span className="text-[10px] font-mono font-bold" style={{ color: leadScore > 70 ? '#4F46E5' : leadScore > 40 ? '#B7791F' : '#B91C4A' }}>
+                        {leadScore}/100
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: '#EDEBE8' }}>
+                      <div className="h-full rounded-full transition-all" style={{
+                        width: `${leadScore}%`,
+                        background: leadScore > 70 ? '#4F46E5' : leadScore > 40 ? '#B7791F' : '#B91C4A',
+                      }} />
+                    </div>
+                  </div>
+                )}
+              </section>
             )}
 
-            {/* Lead score (business only) */}
-            {mode !== 'personal' && leadScore > 0 && (
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Lead Score</p>
-                  <span className={`text-xs font-bold tabular-nums ${leadScore > 70 ? 'text-indigo-600' : leadScore > 40 ? 'text-amber-600' : 'text-red-500'}`}>{leadScore}/100</span>
-                </div>
-                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${leadScore > 70 ? 'bg-indigo-500' : leadScore > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
-                    style={{ width: `${leadScore}%` }}
-                  />
-                </div>
-                <div className="flex gap-2 mt-2">
+            {/* Profile */}
+            {contactDetail?.profile && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Profile</SectionTitle>
+                <div className="grid grid-cols-2 gap-2">
                   {[
-                    leadScore > 60 && 'Pricing enquiry',
-                    leadScore > 50 && 'Quick responder',
-                    leadScore > 40 && 'Prior purchase',
-                  ].filter(Boolean).map((signal, i) => (
-                    <span key={i} className="flex items-center gap-1 text-[10px] text-emerald-700">
-                      <CheckCircle size={9} className="text-emerald-500" />
-                      {signal}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Customer stats */}
-            {contact && mode !== 'personal' && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Customer Profile</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Since',    value: contact.customerSince },
-                    { label: 'Lifetime', value: contact.lifetimeValue != null ? `K${contact.lifetimeValue.toLocaleString()}` : undefined },
-                    { label: 'Avg Order',value: contact.avgOrderValue != null ? `K${contact.avgOrderValue.toLocaleString()}` : undefined },
-                    { label: 'Stage',    value: contact.pipelineStage?.replace(/_/g, ' ') },
-                  ].filter(r => r.value).map(r => (
-                    <div key={r.label} className="bg-gray-50 rounded-lg p-2">
-                      <p className="text-[9px] font-bold text-gray-400 uppercase">{r.label}</p>
-                      <p className="text-xs font-semibold text-gray-700 capitalize truncate">{r.value}</p>
+                    { label: 'Communication', value: contactDetail.profile.communicationStyle },
+                    { label: 'Mood baseline', value: contactDetail.profile.moodBaseline },
+                    { label: 'Stage', value: contactDetail.profile.relationshipStage?.replace(/_/g, ' ') },
+                    { label: 'Pipeline', value: contact?.pipelineStage?.replace(/_/g, ' ') },
+                    { label: 'Goals', value: contactDetail.profile.goals },
+                    { label: 'Pain points', value: contactDetail.profile.painPoints },
+                  ].filter(f => f.value).map(f => (
+                    <div key={f.label} className="rounded-lg p-2.5" style={{ background: '#F4F3F1' }}>
+                      <p className="text-[10px] mb-0.5 capitalize" style={{ color: '#9A97A0' }}>{f.label}</p>
+                      <p className="text-[12px] font-medium truncate capitalize" style={{ color: '#1C1B1F' }}>{f.value}</p>
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
 
-            {/* CRM quick actions */}
-            {mode !== 'personal' && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">CRM</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Convert',       icon: UserCheck },
-                    { label: 'Invoice',        icon: CreditCard },
-                    { label: 'Schedule call',  icon: Calendar },
-                    { label: 'Assign team',    icon: UserPlus },
-                  ].map(({ label, icon: Icon }) => (
-                    <button key={label} className="flex items-center gap-1.5 px-2.5 py-2 text-[11px] font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-left">
-                      <Icon size={11} className="text-gray-400 flex-shrink-0" />
-                      <span className="truncate">{label}</span>
-                    </button>
+            {/* Live Insights */}
+            {(contactDetail?.insights?.length ?? 0) > 0 && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Live Insights</SectionTitle>
+                <div className="space-y-3">
+                  {contactDetail!.insights.slice(0, 5).map((ins, i) => (
+                    <div key={i} className="flex items-start gap-2.5">
+                      <div className="w-2 h-2 rounded-full mt-[5px] flex-shrink-0" style={{ background: '#4F46E5' }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] leading-[1.6]" style={{ color: '#1C1B1F' }}>{ins.value}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <div className="flex-1 h-[3px] rounded-full overflow-hidden" style={{ background: '#EDEBE8' }}>
+                            <div className="h-full rounded-full" style={{ width: `${Math.round(ins.confidence * 100)}%`, background: '#4F46E5' }} />
+                          </div>
+                          <span className="text-[10px] font-mono flex-shrink-0" style={{ color: '#9A97A0' }}>
+                            {Math.round(ins.confidence * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
+              </section>
+            )}
+
+            {/* Extracted Entities */}
+            {extractedEntities.length > 0 && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Extracted Entities</SectionTitle>
+                <div className="space-y-2">
+                  {extractedEntities.map((entity, i) => (
+                    <div key={i} className="flex items-center gap-2.5 py-1">
+                      <span className="text-base leading-none flex-shrink-0">{entity.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wide mr-1.5" style={{ color: '#9A97A0' }}>
+                          {entity.type}
+                        </span>
+                        <span className="text-[12.5px]" style={{ color: '#1C1B1F' }}>{entity.value}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Suggested Next Actions */}
+            {(contactDetail?.proactiveSuggestions?.length ?? 0) > 0 && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Suggested Next Actions</SectionTitle>
+                <div className="space-y-2.5">
+                  {contactDetail!.proactiveSuggestions.slice(0, 4).map(s => (
+                    <div key={s.id} className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base" style={{ background: '#F4F3F1' }}>
+                        {PROACTIVE_ICONS[s.suggestionType] ?? '✨'}
+                      </div>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="text-[12.5px] font-semibold leading-tight" style={{ color: '#1C1B1F' }}>{s.title}</p>
+                        <p className="text-[11.5px] mt-0.5 leading-relaxed line-clamp-2" style={{ color: '#6B6870' }}>{s.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Automation */}
+            {contactAgents.length > 0 && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Automation</SectionTitle>
+                <div className="space-y-2">
+                  {contactAgents.slice(0, 3).map(agent => (
+                    <div key={agent.id} className="rounded-xl p-3" style={{ background: '#F4F3F1' }}>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <div className="w-2 h-2 rounded-full" style={{ background: agent.isActive ? '#15803D' : '#9A97A0' }} />
+                        <span className="text-[12.5px] font-semibold" style={{ color: '#1C1B1F' }}>
+                          {agent.avatarEmoji} {agent.name}
+                        </span>
+                        <span className="ml-auto text-[10px] font-medium" style={{ color: agent.isActive ? '#15803D' : '#9A97A0' }}>
+                          {agent.isActive ? 'Active' : 'Paused'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] pl-4" style={{ color: '#6B6870' }}>{agent.roleTitle}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Knowledge Used */}
+            {contextData && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Knowledge Used</SectionTitle>
+                <div className="space-y-1.5">
+                  {contextData.topTopics.slice(0, 3).map((topic, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[12px]" style={{ color: '#1C1B1F' }}>
+                      <CheckCircle size={11} style={{ color: '#15803D' }} className="flex-shrink-0" />
+                      <span className="capitalize">{topic.replace(/_/g, ' ')} context</span>
+                    </div>
+                  ))}
+                  {contextData.topTopics.length === 0 && (
+                    <div className="flex items-center gap-2 text-[12px]" style={{ color: '#1C1B1F' }}>
+                      <CheckCircle size={11} style={{ color: '#15803D' }} className="flex-shrink-0" />
+                      Conversation history analysed
+                    </div>
+                  )}
+                  {contextData.analysedAt && (
+                    <p className="text-[10px] mt-1 font-mono" style={{ color: '#9A97A0' }}>
+                      Analysed {formatTime(contextData.analysedAt)}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {/* Empty state */}
+            {!contact && !contextLoading && (
+              <div className="flex flex-col items-center justify-center py-14 px-4 text-center">
+                <Brain size={28} className="mb-3" style={{ color: '#EDEBE8' }} />
+                <p className="text-[13px] font-medium" style={{ color: '#6B6870' }}>Select a conversation</p>
+                <p className="text-[12px] mt-1" style={{ color: '#9A97A0' }}>Intelligence builds as you engage</p>
               </div>
             )}
           </div>
         )}
 
-        {/* ── Memory ──────────────────────────────────────────────────────── */}
+        {/* ── MEMORY ──────────────────────────────────────────────────────── */}
         {aiTab === 'memory' && (
-          <div className="divide-y divide-gray-50">
-            {/* Context summary */}
-            {contextData?.summary && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">AI Conversation Summary</p>
-                <p className="text-xs text-gray-700 leading-relaxed">{contextData.summary}</p>
-                {contextData.analysedAt && (
-                  <p className="text-[10px] text-gray-300 mt-2">Analysed {formatTime(contextData.analysedAt)}</p>
-                )}
-              </div>
-            )}
+          <div className="divide-y" style={{ borderColor: '#E8E6E3' }}>
 
             {/* Personality */}
             {(contextData?.personalitySummary || contactDetail?.profile?.personalitySummary) && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Personality</p>
-                <p className="text-xs text-gray-700 leading-relaxed">
+              <section className="px-4 py-3.5">
+                <SectionTitle>Personality</SectionTitle>
+                <p className="text-[13px] leading-[1.65]" style={{ color: '#1C1B1F' }}>
                   {contextData?.personalitySummary ?? contactDetail?.profile?.personalitySummary}
                 </p>
                 {(contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle) && (
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <MessageCircle size={11} className="text-gray-400" />
-                    <p className="text-xs text-gray-500">{contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle}</p>
+                  <div className="flex items-center gap-1.5 mt-2.5">
+                    <MessageCircle size={11} style={{ color: '#9A97A0' }} />
+                    <p className="text-[12px]" style={{ color: '#6B6870' }}>
+                      {contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle}
+                    </p>
                   </div>
                 )}
-              </div>
+              </section>
             )}
 
-            {/* Smart tags / topics */}
+            {/* Intents + topics */}
             {contextData && (contextData.topTopics.length > 0 || contextData.intents.length > 0) && (
-              <div className="p-4">
+              <section className="px-4 py-3.5">
                 {contextData.intents.length > 0 && (
-                  <>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Intent Signals</p>
-                    <div className="flex flex-wrap gap-1.5 mb-3">
+                  <div className="mb-3.5">
+                    <SectionTitle>Intent Signals</SectionTitle>
+                    <div className="flex flex-wrap gap-1.5">
                       {contextData.intents.map(intent => (
-                        <span key={intent} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-full border border-blue-100 capitalize">
+                        <span key={intent} className="px-2 py-0.5 text-[11px] font-medium rounded-full border capitalize"
+                          style={{ background: '#EEEDFD', color: '#4F46E5', borderColor: '#C7C4F7' }}>
                           {intent.replace(/_/g, ' ')}
                         </span>
                       ))}
                     </div>
-                  </>
+                  </div>
                 )}
                 {contextData.topTopics.length > 0 && (
-                  <>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Key Topics</p>
+                  <div>
+                    <SectionTitle>Key Topics</SectionTitle>
                     <div className="flex flex-wrap gap-1.5">
                       {contextData.topTopics.map(topic => (
-                        <span key={topic} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full capitalize">
+                        <span key={topic} className="px-2 py-0.5 text-[11px] font-medium rounded-full capitalize"
+                          style={{ background: '#F4F3F1', color: '#6B6870' }}>
                           {topic.replace(/_/g, ' ')}
                         </span>
                       ))}
                     </div>
-                  </>
+                  </div>
                 )}
-              </div>
+              </section>
             )}
 
-            {/* AI insights / memory */}
-            {contextData?.insights && contextData.insights.length > 0 && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">AI Memory</p>
-                <div className="space-y-2">
-                  {contextData.insights.map((ins, i) => (
+            {/* AI Memory / insights */}
+            {(contextData?.insights?.length ?? 0) > 0 && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>AI Memory</SectionTitle>
+                <div className="space-y-2.5">
+                  {contextData!.insights.map((ins, i) => (
                     <div key={i} className="flex items-start gap-2">
-                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-300 flex-shrink-0" />
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#8B85F7' }} />
                       <div>
-                        <p className="text-xs text-gray-700 leading-relaxed">{ins.value}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5 capitalize">{ins.key?.replace(/_/g, ' ')}</p>
+                        <p className="text-[13px] leading-relaxed" style={{ color: '#1C1B1F' }}>{ins.value}</p>
+                        <p className="text-[10px] mt-0.5 capitalize" style={{ color: '#9A97A0' }}>{ins.key?.replace(/_/g, ' ')}</p>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
 
-            {/* Notes */}
-            <div className="p-4 space-y-3">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Private Notes</p>
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
+            {/* Private notes */}
+            <section className="px-4 py-3.5 space-y-3">
+              <SectionTitle>Private Notes</SectionTitle>
+              <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #E8E6E3' }}>
                 <textarea
                   value={newNote}
                   onChange={e => onNoteChange(e.target.value)}
                   placeholder="Add a private note — only your team sees this…"
                   rows={2}
-                  className="w-full px-3 py-2.5 text-xs text-gray-700 resize-none focus:outline-none border-b border-gray-100 placeholder-gray-400"
+                  className="w-full px-3 py-2.5 text-[12px] resize-none focus:outline-none placeholder-gray-400"
+                  style={{ borderBottom: '1px solid #F4F3F1', color: '#1C1B1F', background: 'white' }}
                 />
-                <div className="flex justify-end px-3 py-2 bg-gray-50">
+                <div className="flex justify-end px-3 py-2" style={{ background: '#F4F3F1' }}>
                   <button
                     onClick={onAddNote}
                     disabled={!newNote.trim()}
-                    className="text-xs font-semibold px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+                    className="text-xs font-semibold px-3 py-1.5 text-white rounded-lg disabled:opacity-40 transition-colors"
+                    style={{ background: '#4F46E5' }}
                   >
                     Save
                   </button>
@@ -811,184 +1013,163 @@ function IntelPanel({
               </div>
               {notes.length === 0 ? (
                 <div className="text-center py-4">
-                  <StickyNote size={22} className="text-gray-300 mx-auto mb-1.5" />
-                  <p className="text-xs text-gray-400">No notes yet</p>
+                  <StickyNote size={20} className="mx-auto mb-1.5" style={{ color: '#EDEBE8' }} />
+                  <p className="text-[12px]" style={{ color: '#9A97A0' }}>No notes yet</p>
                 </div>
               ) : notes.map(n => (
-                <div key={n.id} className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-                  <p className="text-xs text-gray-800 leading-relaxed">{n.text}</p>
-                  <p className="text-[10px] text-amber-600 mt-1.5">{n.author} · {formatTime(n.createdAt)}</p>
+                <div key={n.id} className="rounded-xl p-3" style={{ background: '#FBF3E3', border: '1px solid #F0DDB0' }}>
+                  <p className="text-[12px] leading-relaxed" style={{ color: '#1C1B1F' }}>{n.text}</p>
+                  <p className="text-[10px] mt-1.5" style={{ color: '#B7791F' }}>{n.author} · {formatTime(n.createdAt)}</p>
                 </div>
               ))}
-            </div>
+            </section>
 
             {!contextData && !contextLoading && (
-              <div className="px-4 py-8 text-center">
-                <Brain size={28} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-gray-600 mb-1">No memory yet</p>
-                <p className="text-xs text-gray-400">AI context builds as conversation progresses.</p>
+              <div className="px-4 py-10 text-center">
+                <Brain size={24} className="mx-auto mb-2" style={{ color: '#EDEBE8' }} />
+                <p className="text-[13px] font-medium" style={{ color: '#6B6870' }}>No memory yet</p>
+                <p className="text-[12px] mt-1" style={{ color: '#9A97A0' }}>AI context builds as conversations progress.</p>
               </div>
             )}
           </div>
         )}
 
-        {/* ── Activity ────────────────────────────────────────────────────── */}
+        {/* ── ACTIVITY ────────────────────────────────────────────────────── */}
         {aiTab === 'activity' && (
-          <div className="divide-y divide-gray-50">
-            {/* Suggestions */}
-            {(suggestions.length > 0 || regenerating) && (
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">AI Reply Suggestions</p>
-                  <button onClick={onRegenerate} disabled={regenerating} className="flex items-center gap-1 text-[11px] text-indigo-600 font-semibold disabled:opacity-50">
-                    <RefreshCw size={10} className={regenerating ? 'animate-spin' : ''} /> Regenerate
-                  </button>
+          <div className="divide-y" style={{ borderColor: '#E8E6E3' }}>
+
+            {/* Stats */}
+            {contactDetail?.stats && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Message Stats</SectionTitle>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'Total', value: contactDetail.stats.totalMessages },
+                    { label: 'Sent', value: contactDetail.stats.sent },
+                    { label: 'Received', value: contactDetail.stats.received },
+                  ].map(s => (
+                    <div key={s.label} className="rounded-lg p-2.5 text-center" style={{ background: '#F4F3F1' }}>
+                      <p className="text-[18px] font-bold leading-none" style={{ color: '#1C1B1F' }}>{s.value}</p>
+                      <p className="text-[10px] mt-1" style={{ color: '#9A97A0' }}>{s.label}</p>
+                    </div>
+                  ))}
                 </div>
-                {regenerating ? (
-                  <div className="flex flex-col items-center py-6 gap-2">
-                    <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-                    <p className="text-xs text-gray-400">Generating…</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {suggestions.map(s => (
-                      <div key={s.id} className={`rounded-xl p-3 border ${TONE_STYLE[s.tone] ?? 'bg-gray-50 border-gray-100 text-gray-800'}`}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[10px] font-bold uppercase tracking-wide">{s.tone}</span>
-                          <div className="flex items-center gap-1">
-                            {s.confidence != null && (
-                              <span className="text-[10px] font-semibold opacity-60">{s.confidence}%</span>
+              </section>
+            )}
+
+            {/* Upcoming events */}
+            {(contactDetail?.upcomingEvents?.length ?? 0) > 0 && (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Upcoming Events</SectionTitle>
+                <div className="space-y-2">
+                  {contactDetail!.upcomingEvents.slice(0, 4).map(ev => (
+                    <div key={ev.id} className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-base" style={{ background: '#F4F3F1' }}>
+                        {ev.eventType === 'birthday' ? '🎂' : ev.eventType === 'anniversary' ? '🎉' : ev.eventType === 'meeting' ? '📅' : '📌'}
+                      </div>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="text-[12.5px] font-semibold" style={{ color: '#1C1B1F' }}>{ev.title}</p>
+                        <p className="text-[11px] font-mono mt-0.5" style={{ color: '#9A97A0' }}>
+                          {new Date(ev.eventDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Relationship health timeline */}
+            {(contactDetail?.healthHistory?.length ?? 0) > 0 ? (
+              <section className="px-4 py-3.5">
+                <SectionTitle>Relationship Timeline</SectionTitle>
+                <div className="relative">
+                  <div className="absolute left-[11px] top-3 bottom-3 w-px" style={{ background: '#E8E6E3' }} />
+                  <div className="space-y-4">
+                    {contactDetail!.healthHistory.slice(0, 8).map((h, i) => {
+                      const improved = h.previousScore != null && h.score > h.previousScore
+                      const declined = h.previousScore != null && h.score < h.previousScore
+                      return (
+                        <div key={i} className="flex items-start gap-3">
+                          <div className="w-6 h-6 rounded-full bg-white border-2 flex items-center justify-center flex-shrink-0 z-10"
+                            style={{ borderColor: improved ? '#15803D' : declined ? '#B91C4A' : '#E8E6E3' }}>
+                            <Activity size={9} style={{ color: improved ? '#15803D' : declined ? '#B91C4A' : '#9A97A0' }} />
+                          </div>
+                          <div className="pt-0.5 flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-[12.5px] font-semibold" style={{ color: '#1C1B1F' }}>Health: {h.score}</p>
+                              {h.previousScore != null && (
+                                <span className="text-[10px] font-mono"
+                                  style={{ color: h.score > h.previousScore ? '#15803D' : '#B91C4A' }}>
+                                  {h.score > h.previousScore ? '↑' : '↓'}{Math.abs(h.score - h.previousScore)}
+                                </span>
+                              )}
+                            </div>
+                            {h.changeReason && (
+                              <p className="text-[11.5px] mt-0.5 leading-relaxed" style={{ color: '#6B6870' }}>{h.changeReason}</p>
                             )}
-                            <button onClick={() => { onEditSugg(s.id); onEditedTextChange(s.text) }} className="p-1 opacity-50 hover:opacity-100 transition-opacity">
-                              <Edit3 size={10} />
-                            </button>
-                            <button onClick={() => navigator.clipboard.writeText(s.text)} className="p-1 opacity-50 hover:opacity-100 transition-opacity">
-                              <Copy size={10} />
-                            </button>
+                            <p className="text-[10px] mt-0.5 font-mono" style={{ color: '#9A97A0' }}>{formatTime(h.recordedAt)}</p>
                           </div>
                         </div>
-                        {editingSuggId === s.id ? (
-                          <textarea
-                            autoFocus rows={3}
-                            value={editedText}
-                            onChange={e => onEditedTextChange(e.target.value)}
-                            className="w-full text-xs leading-relaxed bg-white/60 border border-current/20 rounded-lg p-2 resize-none focus:outline-none mb-2"
-                          />
-                        ) : (
-                          <p className="text-xs leading-relaxed mb-1">{s.text}</p>
-                        )}
-                        {editingSuggId !== s.id && s.reasoning && (
-                          <p className="text-[10px] opacity-50 leading-relaxed mb-2">{s.reasoning}</p>
-                        )}
-                        <div className="flex gap-1.5 mt-2">
-                          <button
-                            onClick={() => onApprove(s.id, editingSuggId === s.id ? editedText : undefined)}
-                            disabled={actionLoading === s.id}
-                            className="flex-1 text-[11px] font-bold py-1.5 bg-current/10 hover:bg-current/20 rounded-lg disabled:opacity-50 transition-colors"
-                          >
-                            {editingSuggId === s.id ? 'Send edited' : 'Send'}
-                          </button>
-                          {editingSuggId !== s.id && (
-                            <button
-                              onClick={() => { onSetDraft(s.text); draftFocus() }}
-                              className="flex-1 text-[11px] font-semibold py-1.5 bg-white/50 hover:bg-white/80 border border-current/10 rounded-lg transition-colors"
-                            >
-                              Edit
-                            </button>
-                          )}
-                          {editingSuggId === s.id && (
-                            <button onClick={() => onEditSugg(null)} className="px-3 text-[11px] py-1.5 bg-white/30 border border-current/10 rounded-lg">
-                              Cancel
-                            </button>
-                          )}
-                          <button
-                            onClick={() => onDismiss(s.id)}
-                            disabled={actionLoading === s.id}
-                            className="px-2 text-[11px] py-1.5 opacity-40 hover:opacity-70 transition-opacity"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
-                )}
+                </div>
+              </section>
+            ) : (
+              <div className="px-4 py-10 text-center">
+                <Activity size={24} className="mx-auto mb-2" style={{ color: '#EDEBE8' }} />
+                <p className="text-[13px] font-medium" style={{ color: '#6B6870' }}>No history yet</p>
+                <p className="text-[12px] mt-1" style={{ color: '#9A97A0' }}>Timeline builds as the relationship evolves.</p>
               </div>
             )}
-
-            {/* Suggested actions */}
-            {mode !== 'personal' && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Suggested Actions</p>
-                <div className="space-y-1">
-                  {MOCK_ACTIONS.map(a => {
-                    const Icon = a.icon
-                    return (
-                      <button key={a.label} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition-colors text-left group">
-                        <Icon size={12} className="text-gray-400 group-hover:text-indigo-500 flex-shrink-0" />
-                        {a.label}
-                        <ChevronRight size={11} className="ml-auto text-gray-300 group-hover:text-indigo-400" />
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Relationship timeline */}
-            <div className="p-4">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Timeline</p>
-              <div className="relative">
-                <div className="absolute left-[11px] top-3 bottom-3 w-px bg-gray-100" />
-                <div className="space-y-4">
-                  {MOCK_TIMELINE.map(ev => {
-                    const ICONS: Record<TimelineEvent['type'], React.ElementType> = {
-                      message: MessageSquare, purchase: DollarSign, invoice: CreditCard,
-                      note: StickyNote, followup: Bell, complaint: AlertTriangle, appointment: Calendar,
-                    }
-                    const Icon = ICONS[ev.type]
-                    return (
-                      <div key={ev.id} className="flex items-start gap-3">
-                        <div className="w-6 h-6 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center flex-shrink-0 z-10">
-                          <Icon size={10} className="text-gray-400" />
-                        </div>
-                        <div className="pt-0.5">
-                          <p className="text-xs font-semibold text-gray-700">{ev.label}</p>
-                          <p className="text-[10px] text-gray-400">{ev.date}</p>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
-        {/* ── Files ───────────────────────────────────────────────────────── */}
+        {/* ── FILES ───────────────────────────────────────────────────────── */}
         {aiTab === 'files' && (
-          <div className="p-4 space-y-2">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Shared Files</p>
-            {mockFiles.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer">
-                <div className="w-8 h-8 bg-white rounded-lg border border-gray-200 flex items-center justify-center flex-shrink-0">
-                  <FileText size={14} className="text-indigo-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-gray-800 truncate">{f.name}</p>
-                  <p className="text-[10px] text-gray-400">{f.size} · {f.date}</p>
-                </div>
-                <Download size={13} className="text-gray-400 flex-shrink-0" />
+          <div className="p-4">
+            <SectionTitle>Shared Files</SectionTitle>
+            {documentsLoading ? (
+              <div className="space-y-2">
+                {[1,2,3].map(i => <div key={i} className="h-14 rounded-xl animate-pulse" style={{ background: '#F4F3F1' }} />)}
               </div>
-            ))}
-            {mockFiles.length === 0 && (
+            ) : documents.length === 0 ? (
               <div className="text-center py-10">
-                <FileText size={24} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-xs text-gray-400">No files shared yet</p>
+                <FileText size={24} className="mx-auto mb-2" style={{ color: '#EDEBE8' }} />
+                <p className="text-[13px]" style={{ color: '#9A97A0' }}>No files shared yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {documents.map(doc => (
+                  <a
+                    key={doc.id}
+                    href={doc.storageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 p-3 rounded-xl transition-colors group cursor-pointer"
+                    style={{ background: '#F4F3F1', border: '1px solid transparent' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.background = '#EDEBE8'}
+                    onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.background = '#F4F3F1'}
+                  >
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'white', border: '1px solid #E8E6E3' }}>
+                      <FileText size={15} style={{ color: '#4F46E5' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-semibold truncate" style={{ color: '#1C1B1F' }}>{doc.fileName}</p>
+                      <p className="text-[11px]" style={{ color: '#9A97A0' }}>
+                        {formatFileSize(doc.fileSize)} · {formatTime(doc.uploadedAt)}
+                      </p>
+                    </div>
+                    <Download size={13} className="flex-shrink-0 transition-colors" style={{ color: '#9A97A0' }} />
+                  </a>
+                ))}
               </div>
             )}
           </div>
         )}
+
       </div>
     </div>
   )
@@ -1013,6 +1194,9 @@ export default function InboxPage() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [contact, setContact] = useState<Contact | null>(null)
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null)
+  const [documents, setDocuments] = useState<ContactDocument[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [contactAgents, setContactAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -1038,8 +1222,6 @@ export default function InboxPage() {
   const [draft, setDraft] = useState('')
   const [newNote, setNewNote] = useState('')
   const [notes, setNotes] = useState<InternalNote[]>([])
-  const [editingSuggId, setEditingSuggId] = useState<string | null>(null)
-  const [editedText, setEditedText] = useState('')
   const [isOnline, setIsOnline] = useState(true)
 
   const selectedIdRef = useRef<string | null>(null)
@@ -1083,6 +1265,14 @@ export default function InboxPage() {
     } catch {} finally {
       setLoadingContext(false)
     }
+  }, [token])
+
+  // Load agents once on mount
+  useEffect(() => {
+    if (!token) return
+    apiClient<{ agents: AgentInfo[] }>('/api/agents', { token })
+      .then(d => setContactAgents((d.agents ?? []).filter((a: AgentInfo) => a.isActive)))
+      .catch(() => {})
   }, [token])
 
   useEffect(() => {
@@ -1140,14 +1330,22 @@ export default function InboxPage() {
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
     setContactDetail(null); setLoadingMsgs(true); setMobileView('thread')
     setDraft(''); setAiTab('overview'); setContextData(null)
+    setDocuments([]); setDocumentsLoading(false)
     if (!token) return
     const data = await apiClient<{ messages: Message[]; contact: Contact }>(
       `/api/conversations/${convId}/messages`, { token }
     )
     setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
     if (data.contact?.id) {
+      // Load full contact detail
       apiClient<{ contact: ContactDetail }>(`/api/contacts/${data.contact.id}`, { token })
         .then(d => setContactDetail(d.contact)).catch(() => {})
+      // Load documents
+      setDocumentsLoading(true)
+      apiClient<{ documents: ContactDocument[] }>(`/api/contacts/${data.contact.id}/documents`, { token })
+        .then(d => setDocuments(d.documents ?? []))
+        .catch(() => setDocuments([]))
+        .finally(() => setDocumentsLoading(false))
     }
     loadContext(convId)
     const last = [...data.messages].reverse().find(m => m.pendingSuggestions > 0)
@@ -1173,7 +1371,7 @@ export default function InboxPage() {
       ...(customText ? { body: JSON.stringify({ text: customText }) } : {}),
     })
     setSuggestions(prev => prev.filter(s => s.id !== id))
-    setActionLoading(null); setEditingSuggId(null)
+    setActionLoading(null)
   }
 
   const dismissSuggestion = async (id: string) => {
@@ -1240,10 +1438,17 @@ export default function InboxPage() {
     timelineInsights.push({ type: 'alert', text: `Sentiment shift detected — consider a more empathetic tone` })
   }
 
+  const intelPanelProps: IntelPanelProps = {
+    contact, contactDetail, selectedConv, contextData, contextLoading: loadingContext,
+    mode, notes, newNote, aiTab, documents, documentsLoading, contactAgents,
+    onTabChange: setAiTab, onAddNote: addNote, onNoteChange: setNewNote,
+    onClose: () => setShowAIPanel(false),
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full overflow-hidden bg-stone-50">
+    <div className="flex h-full overflow-hidden" style={{ background: '#FAFAF9' }}>
 
       {/* Offline banner */}
       {!isOnline && (
@@ -1254,12 +1459,13 @@ export default function InboxPage() {
       )}
 
       {/* ── Left: Conversation list ──────────────────────────────────────────── */}
-      <div className={`${mobileView !== 'list' ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[272px] border-r border-gray-200 flex-shrink-0 bg-white`}>
+      <div className={`${mobileView !== 'list' ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[272px] border-r flex-shrink-0`}
+        style={{ background: '#FFFFFF', borderColor: '#E8E6E3' }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-3 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #E8E6E3' }}>
           <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold text-gray-900">Inbox</h1>
+            <h1 className="text-[15px] font-semibold" style={{ color: '#1C1B1F' }}>Inbox</h1>
             {totalUnread > 0 && (
               <span className="bg-indigo-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
                 {totalUnread > 99 ? '99+' : totalUnread}
@@ -1269,13 +1475,15 @@ export default function InboxPage() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => setShowSearch(v => !v)}
-              className={`p-1.5 rounded-lg transition-colors ${showSearch ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: showSearch ? '#4F46E5' : '#9A97A0', background: showSearch ? '#EEEDFD' : 'transparent' }}
             >
               <Search size={15} />
             </button>
             <a
               href="/inbox/queue"
-              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors"
+              style={{ color: '#4F46E5', background: '#EEEDFD' }}
             >
               <Zap size={12} />
               Queue
@@ -1285,17 +1493,18 @@ export default function InboxPage() {
 
         {/* Search */}
         {showSearch && (
-          <div className="px-3 py-2 border-b border-gray-50 flex-shrink-0">
+          <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid #F4F3F1' }}>
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#9A97A0' }} />
               <input
                 autoFocus type="search" value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search conversations…"
-                className="w-full pl-8 pr-8 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
+                className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+                style={{ background: '#F4F3F1', border: '1px solid #E8E6E3', color: '#1C1B1F' }}
               />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2" style={{ color: '#9A97A0' }}>
                   <X size={13} />
                 </button>
               )}
@@ -1304,14 +1513,15 @@ export default function InboxPage() {
         )}
 
         {/* Filter chips */}
-        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-50 overflow-x-auto flex-shrink-0 no-scrollbar">
+        <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto flex-shrink-0 no-scrollbar" style={{ borderBottom: '1px solid #F4F3F1' }}>
           {FILTERS.map(f => (
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
-              className={`flex-shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
-                filter === f.id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
+              className="flex-shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors"
+              style={filter === f.id
+                ? { background: '#4F46E5', color: 'white' }
+                : { background: '#F4F3F1', color: '#6B6870' }}
             >
               {f.label}
             </button>
@@ -1320,28 +1530,28 @@ export default function InboxPage() {
 
         {/* Stats bar */}
         {!loading && conversations.length > 0 && (
-          <div className="flex items-center divide-x divide-gray-100 border-b border-gray-100 flex-shrink-0 px-3 py-2">
+          <div className="flex items-center divide-x flex-shrink-0 px-3 py-2" style={{ borderBottom: '1px solid #E8E6E3', borderColor: '#E8E6E3' }}>
             <div className="flex items-center gap-1.5 flex-1 pr-3">
-              <MessageSquare size={11} className="text-indigo-400" />
+              <MessageSquare size={11} style={{ color: '#8B85F7' }} />
               <div>
-                <p className="text-[9px] text-gray-400 leading-none">Unread</p>
-                <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{totalUnread}</p>
+                <p className="text-[9px] leading-none" style={{ color: '#9A97A0' }}>Unread</p>
+                <p className="text-xs font-bold leading-none mt-0.5" style={{ color: '#1C1B1F' }}>{totalUnread}</p>
               </div>
             </div>
             {mode !== 'personal' && (
               <div className="flex items-center gap-1.5 flex-1 px-3">
-                <Flame size={11} className="text-red-400" />
+                <Flame size={11} style={{ color: '#B91C4A' }} />
                 <div>
-                  <p className="text-[9px] text-gray-400 leading-none">Hot leads</p>
-                  <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{hotLeads}</p>
+                  <p className="text-[9px] leading-none" style={{ color: '#9A97A0' }}>Hot leads</p>
+                  <p className="text-xs font-bold leading-none mt-0.5" style={{ color: '#1C1B1F' }}>{hotLeads}</p>
                 </div>
               </div>
             )}
             <div className="flex items-center gap-1.5 flex-1 pl-3">
-              <Activity size={11} className="text-emerald-400" />
+              <Activity size={11} style={{ color: '#15803D' }} />
               <div>
-                <p className="text-[9px] text-gray-400 leading-none">Avg health</p>
-                <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{avgHealth}%</p>
+                <p className="text-[9px] leading-none" style={{ color: '#9A97A0' }}>Avg health</p>
+                <p className="text-xs font-bold leading-none mt-0.5" style={{ color: '#1C1B1F' }}>{avgHealth}%</p>
               </div>
             </div>
           </div>
@@ -1370,7 +1580,7 @@ export default function InboxPage() {
               description={search ? `No match for "${search}"` : filter !== 'all' ? 'Try a different filter.' : 'Connect WhatsApp to get started.'}
             />
           ) : (
-            <div className="divide-y divide-gray-50/80">
+            <div className="divide-y" style={{ borderColor: '#F4F3F1' }}>
               {filtered.map(conv => (
                 <ConvRow key={conv.id} conv={conv} active={selectedId === conv.id} onClick={() => selectConversation(conv.id)} mode={mode} />
               ))}
@@ -1384,17 +1594,19 @@ export default function InboxPage() {
         {selectedId && contact ? (
           <>
             {/* Chat header */}
-            <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 bg-white flex-shrink-0 shadow-sm">
+            <div className="flex items-center gap-3 px-4 h-14 flex-shrink-0 shadow-sm"
+              style={{ background: '#FFFFFF', borderBottom: '1px solid #E8E6E3' }}>
               <button
                 onClick={() => setMobileView('list')}
-                className="md:hidden p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+                className="md:hidden p-2 -ml-2 rounded-lg transition-colors"
+                style={{ color: '#9A97A0' }}
               >
                 <ChevronLeft size={20} />
               </button>
               <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
+                  <p className="text-[13px] font-semibold truncate" style={{ color: '#1C1B1F' }}>{contact.name}</p>
                   {currentPriority && CurrentPIcon && (
                     <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${currentPriority.color}`}>
                       <CurrentPIcon size={9} />
@@ -1402,24 +1614,29 @@ export default function InboxPage() {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-[12px] truncate" style={{ color: '#9A97A0' }}>
                   {contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
                 </p>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Add note" onClick={() => { setShowAIPanel(true); setAiTab('memory') }}>
+                <button className="p-2 rounded-lg transition-colors hover:bg-gray-100" title="Add note"
+                  style={{ color: '#9A97A0' }}
+                  onClick={() => { setShowAIPanel(true); setAiTab('memory') }}>
                   <StickyNote size={16} />
                 </button>
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Open CRM">
+                <a href={`/contacts/${contact.id}`} className="p-2 rounded-lg transition-colors hover:bg-gray-100" title="Open CRM"
+                  style={{ color: '#9A97A0' }}>
                   <ExternalLink size={16} />
-                </button>
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Archive">
+                </a>
+                <button className="p-2 rounded-lg transition-colors hover:bg-gray-100" title="Archive"
+                  style={{ color: '#9A97A0' }}>
                   <Archive size={16} />
                 </button>
                 {/* Mobile intel button */}
                 <button
                   onClick={() => setMobileView('intel')}
-                  className="md:hidden flex items-center gap-1.5 ml-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-semibold rounded-lg"
+                  className="md:hidden flex items-center gap-1.5 ml-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg"
+                  style={{ background: '#EEEDFD', color: '#4F46E5' }}
                 >
                   <Brain size={12} />
                   Intel
@@ -1427,7 +1644,8 @@ export default function InboxPage() {
                 {/* Desktop intel toggle */}
                 <button
                   onClick={() => setShowAIPanel(v => !v)}
-                  className={`hidden md:flex p-2 rounded-lg transition-colors ${showAIPanel ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                  className="hidden md:flex p-2 rounded-lg transition-colors"
+                  style={{ color: showAIPanel ? '#4F46E5' : '#9A97A0', background: showAIPanel ? '#EEEDFD' : 'transparent' }}
                   title="AI Intelligence Panel"
                 >
                   <Brain size={16} />
@@ -1438,7 +1656,7 @@ export default function InboxPage() {
             {/* Messages + intel row */}
             <div className="flex flex-1 min-h-0">
               {/* Message area */}
-              <div className="flex flex-col flex-1 min-w-0 bg-stone-50">
+              <div className="flex flex-col flex-1 min-w-0" style={{ background: '#FAFAF9' }}>
 
                 {/* Message stream */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
@@ -1446,7 +1664,7 @@ export default function InboxPage() {
                     <div className="space-y-3">
                       {Array.from({ length: 5 }, (_, i) => (
                         <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-                          <div className={`h-10 rounded-2xl animate-pulse bg-gray-200 ${i % 2 === 0 ? 'w-48' : 'w-36'}`} />
+                          <div className={`h-10 rounded-2xl animate-pulse ${i % 2 === 0 ? 'w-48' : 'w-36'}`} style={{ background: '#EDEBE8' }} />
                         </div>
                       ))}
                     </div>
@@ -1456,8 +1674,6 @@ export default function InboxPage() {
                         const isUser = msg.senderType === 'user'
                         const isApproved = msg.approvalMode === 'approved'
                         const isAuto = msg.approvalMode === 'autonomous'
-
-                        // Show inline AI insight after 2nd-to-last contact message
                         const showInsight = !isUser && timelineInsights.length > 0 && idx === messages.length - 2
 
                         return (
@@ -1469,35 +1685,45 @@ export default function InboxPage() {
                               >
                                 <div className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm relative ${
                                   isAuto
-                                    ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-br-sm'
+                                    ? 'rounded-br-sm'
                                     : isApproved
-                                    ? 'bg-gray-900 text-white rounded-br-sm border-l-4 border-indigo-400'
+                                    ? 'rounded-br-sm border-l-4'
                                     : isUser
-                                    ? 'bg-indigo-600 text-white rounded-br-sm'
-                                    : 'bg-white border border-gray-200 text-gray-900 rounded-bl-sm'
+                                    ? 'rounded-br-sm'
+                                    : 'rounded-bl-sm'
                                 } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-2 ring-amber-300' : ''}
                                   ${selectedMsgId === msg.id ? 'ring-2 ring-indigo-400' : ''}`}
+                                  style={
+                                    isAuto
+                                      ? { background: 'linear-gradient(135deg, #322F8A, #3D38A8)', color: 'white', borderColor: '#4F46E5' }
+                                      : isApproved
+                                      ? { background: '#1C1B1F', color: 'white', borderLeftColor: '#4F46E5' }
+                                      : isUser
+                                      ? { background: '#4F46E5', color: 'white' }
+                                      : { background: '#FFFFFF', color: '#1C1B1F', border: '1px solid #E8E6E3' }
+                                  }
                                 >
                                   {isAuto && (
-                                    <span className="absolute -top-2 right-2 inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-400 rounded-full text-[9px] font-bold text-white">
+                                    <span className="absolute -top-2 right-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold text-white"
+                                      style={{ background: '#4F46E5' }}>
                                       <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                                       AUTO-SENT
                                     </span>
                                   )}
                                   <MessageContent msg={msg} token={token} isUser={isUser} />
                                   <div className="flex items-center justify-between gap-2 mt-0.5">
-                                    <span className={`text-[10px] ${isUser ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                    <span className="text-[10px]" style={{ color: isUser ? 'rgba(255,255,255,0.6)' : '#9A97A0' }}>
                                       {formatTime(msg.timestamp)}
                                     </span>
                                     {isUser && msg.deliveryStatus === 'read' && (
-                                      <span className="text-[10px] text-indigo-300 font-medium">✓✓</span>
+                                      <span className="text-[10px] font-medium" style={{ color: isAuto ? '#8B85F7' : '#8B85F7' }}>✓✓</span>
                                     )}
                                   </div>
                                 </div>
                                 {msg.pendingSuggestions > 0 && (
                                   <p className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${
-                                    !isUser ? 'text-amber-600 justify-start' : 'text-indigo-400 justify-end'
-                                  }`}>
+                                    !isUser ? 'justify-start' : 'justify-end'
+                                  }`} style={{ color: selectedMsgId === msg.id ? '#4F46E5' : '#B7791F' }}>
                                     <Zap size={10} />
                                     {selectedMsgId === msg.id ? 'Suggestions ready ↓' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
                                   </p>
@@ -1505,7 +1731,7 @@ export default function InboxPage() {
                               </div>
                             </div>
 
-                            {/* Inline AI insight card */}
+                            {/* Inline AI insight */}
                             {showInsight && timelineInsights[0] && (
                               <div className="py-2">
                                 <InlineAICard insight={timelineInsights[0]} />
@@ -1520,32 +1746,38 @@ export default function InboxPage() {
                 </div>
 
                 {/* Reply dock */}
-                <div className="border-t border-gray-200 bg-white flex-shrink-0">
-                  {/* Suggestion chips */}
-                  {suggestions.length > 0 && (
-                    <div className="px-3 pt-3 pb-0 grid grid-cols-3 gap-1.5">
-                      {suggestions.slice(0, 3).map(s => (
-                        <button
-                          key={s.id}
-                          onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
-                          className={`relative rounded-xl px-3 py-2.5 text-left border text-xs transition-all hover:shadow-sm hover:-translate-y-px ${TONE_STYLE[s.tone] ?? 'bg-gray-50 text-gray-800 border-gray-200'}`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-bold capitalize text-[10px]">{s.tone}</span>
-                            {s.confidence != null && (
-                              <span className="text-[10px] opacity-60 tabular-nums">{s.confidence}%</span>
-                            )}
-                          </div>
-                          <p className="line-clamp-2 leading-relaxed text-[11px]">{s.text}</p>
-                        </button>
-                      ))}
+                <div className="flex-shrink-0" style={{ background: '#FFFFFF', borderTop: '1px solid #E8E6E3' }}>
+
+                  {/* AI Suggestion chips */}
+                  {(suggestions.length > 0 || regenerating) && (
+                    <div className="px-3 pt-3 pb-0">
+                      {regenerating ? (
+                        <div className="flex items-center gap-2 py-2">
+                          <div className="w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                          <p className="text-xs" style={{ color: '#9A97A0' }}>Generating suggestions…</p>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-2">
+                          {suggestions.map(s => (
+                            <SuggestionChip
+                              key={s.id}
+                              suggestion={s}
+                              onApprove={approveSuggestion}
+                              onDismiss={dismissSuggestion}
+                              onRegenerate={regenerate}
+                              regenerating={regenerating}
+                              actionLoading={actionLoading}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {/* Composer */}
                   <div className="px-3 py-3">
                     <div className="flex items-end gap-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
+                      <button className="p-2 rounded-lg transition-colors flex-shrink-0" style={{ color: '#9A97A0' }}>
                         <Paperclip size={17} />
                       </button>
                       <div className="flex-1">
@@ -1557,18 +1789,19 @@ export default function InboxPage() {
                           onKeyDown={e => {
                             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
                           }}
-                          placeholder="Type a message… (⌘↵ to send)"
-                          className="w-full resize-none px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all leading-relaxed"
-                          style={{ minHeight: '42px', maxHeight: '128px' }}
+                          placeholder={`Message ${contact.name.split(' ')[0]}, or type / for commands…`}
+                          className="w-full resize-none px-4 py-2.5 text-sm rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all leading-relaxed"
+                          style={{ background: '#F4F3F1', border: '1px solid #E8E6E3', color: '#1C1B1F', minHeight: 42, maxHeight: 128 }}
                         />
                       </div>
-                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
+                      <button className="p-2 rounded-lg transition-colors flex-shrink-0" style={{ color: '#9A97A0' }}>
                         <Smile size={17} />
                       </button>
                       <button
                         onClick={sendDraft}
                         disabled={!draft.trim()}
-                        className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
+                        className="p-2.5 rounded-[9px] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
+                        style={{ background: '#4F46E5', color: 'white' }}
                       >
                         <Send size={15} />
                       </button>
@@ -1578,63 +1811,52 @@ export default function InboxPage() {
                         <button
                           onClick={regenerate}
                           disabled={regenerating}
-                          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
+                          className="flex items-center gap-1 text-xs font-medium disabled:opacity-50 transition-colors"
+                          style={{ color: '#4F46E5' }}
                         >
                           <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
                           {regenerating ? 'Generating…' : 'Regenerate AI reply'}
                         </button>
-                        <span className="text-[10px] text-gray-400">R · ⌘↵</span>
+                        <div className="flex items-center gap-2 text-[10px]" style={{ color: '#9A97A0' }}>
+                          <span className="font-mono">R</span>
+                          <span>·</span>
+                          <span className="font-mono">⌘↵</span>
+                        </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* Command hints */}
+                  <div className="flex items-center gap-4 px-4 pb-2.5 text-[11px]" style={{ color: '#9A97A0' }}>
+                    <span><span className="font-semibold" style={{ color: '#6B6870' }}>/summarize</span> conversation</span>
+                    <span><span className="font-semibold" style={{ color: '#6B6870' }}>/log</span> CRM note</span>
+                    <span><span className="font-semibold" style={{ color: '#6B6870' }}>/research</span> ask Zuri</span>
                   </div>
                 </div>
               </div>
 
               {/* ── Right: Intelligence panel (desktop) ─────────────────────── */}
               {showAIPanel && (
-                <div className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
-                  <IntelPanel
-                    contact={contact}
-                    contactDetail={contactDetail}
-                    selectedConv={selectedConv}
-                    contextData={contextData}
-                    contextLoading={loadingContext}
-                    suggestions={suggestions}
-                    regenerating={regenerating}
-                    actionLoading={actionLoading}
-                    mode={mode}
-                    notes={notes}
-                    newNote={newNote}
-                    editingSuggId={editingSuggId}
-                    editedText={editedText}
-                    aiTab={aiTab}
-                    onTabChange={setAiTab}
-                    onApprove={approveSuggestion}
-                    onDismiss={dismissSuggestion}
-                    onRegenerate={regenerate}
-                    onSetDraft={setDraft}
-                    onAddNote={addNote}
-                    onNoteChange={setNewNote}
-                    onEditSugg={setEditingSuggId}
-                    onEditedTextChange={setEditedText}
-                    onClose={() => setShowAIPanel(false)}
-                    draftFocus={() => draftRef.current?.focus()}
-                  />
+                <div className="hidden md:flex w-[320px] xl:w-[340px] flex-col flex-shrink-0 overflow-hidden"
+                  style={{ borderLeft: '1px solid #E8E6E3' }}>
+                  <IntelPanel {...intelPanelProps} onClose={() => setShowAIPanel(false)} />
                 </div>
               )}
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center bg-stone-50">
-            <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center mb-4">
-              <MessageSquare size={28} className="text-gray-400" />
+          <div className="flex-1 flex flex-col items-center justify-center" style={{ background: '#FAFAF9' }}>
+            <div className="w-16 h-16 rounded-2xl shadow-sm flex items-center justify-center mb-4"
+              style={{ background: '#FFFFFF', border: '1px solid #E8E6E3' }}>
+              <MessageSquare size={28} style={{ color: '#9A97A0' }} />
             </div>
-            <p className="text-sm font-semibold text-gray-900 mb-1">Select a conversation</p>
-            <p className="text-xs text-gray-500 mb-6">Choose from the list on the left.</p>
-            <div className="flex items-center gap-5 text-xs text-gray-400">
+            <p className="text-[13px] font-semibold mb-1" style={{ color: '#1C1B1F' }}>Select a conversation</p>
+            <p className="text-[12px] mb-6" style={{ color: '#9A97A0' }}>Choose from the list on the left.</p>
+            <div className="flex items-center gap-5 text-[12px]" style={{ color: '#9A97A0' }}>
               {[['⌘K', 'Search'], ['R', 'Regenerate'], ['⌘↵', 'Send']].map(([key, label]) => (
                 <span key={key} className="flex items-center gap-1.5">
-                  <kbd className="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-[10px] font-mono shadow-sm">{key}</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded text-[10px] font-mono shadow-sm"
+                    style={{ background: '#FFFFFF', border: '1px solid #E8E6E3' }}>{key}</kbd>
                   {label}
                 </span>
               ))}
@@ -1646,44 +1868,21 @@ export default function InboxPage() {
       {/* ── Mobile: Intel view ───────────────────────────────────────────────── */}
       {mobileView === 'intel' && selectedId && contact && (
         <div className="md:hidden flex flex-col flex-1 min-w-0">
-          {/* Mobile intel header */}
-          <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 bg-white flex-shrink-0">
-            <button onClick={() => setMobileView('thread')} className="p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg">
+          <div className="flex items-center gap-3 px-4 h-14 flex-shrink-0"
+            style={{ background: '#FFFFFF', borderBottom: '1px solid #E8E6E3' }}>
+            <button onClick={() => setMobileView('thread')} className="p-2 -ml-2 rounded-lg" style={{ color: '#9A97A0' }}>
               <ChevronLeft size={20} />
             </button>
             <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
-              <p className="text-xs text-indigo-500 font-medium">AI Intelligence</p>
+              <p className="text-[13px] font-semibold truncate" style={{ color: '#1C1B1F' }}>{contact.name}</p>
+              <p className="text-[12px] font-medium" style={{ color: '#4F46E5' }}>AI Intelligence</p>
             </div>
           </div>
           <div className="flex-1 overflow-hidden">
             <IntelPanel
-              contact={contact}
-              contactDetail={contactDetail}
-              selectedConv={selectedConv}
-              contextData={contextData}
-              contextLoading={loadingContext}
-              suggestions={suggestions}
-              regenerating={regenerating}
-              actionLoading={actionLoading}
-              mode={mode}
-              notes={notes}
-              newNote={newNote}
-              editingSuggId={editingSuggId}
-              editedText={editedText}
-              aiTab={aiTab}
-              onTabChange={setAiTab}
-              onApprove={approveSuggestion}
-              onDismiss={dismissSuggestion}
-              onRegenerate={regenerate}
-              onSetDraft={text => { setDraft(text); setMobileView('thread') }}
-              onAddNote={addNote}
-              onNoteChange={setNewNote}
-              onEditSugg={setEditingSuggId}
-              onEditedTextChange={setEditedText}
+              {...intelPanelProps}
               onClose={() => setMobileView('thread')}
-              draftFocus={() => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
             />
           </div>
         </div>
