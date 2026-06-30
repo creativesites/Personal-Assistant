@@ -6,7 +6,7 @@ import { apiClient } from '@/lib/api'
 import {
   FileText, Globe, FileEdit, BookOpen, Table, Upload, Link2,
   Sparkles, Search, RefreshCw, Trash2, Eye, RotateCcw,
-  AlertTriangle, X, ChevronRight, File, Send, Database,
+  AlertTriangle, X, ChevronRight, File as FileIcon, Send, Database,
   Layers, Clock, Tag, CheckCircle, AlertCircle, Loader2,
 } from 'lucide-react'
 
@@ -98,7 +98,7 @@ function TypeIcon({ type, className = 'w-4 h-4' }: { type: string; className?: s
     case 'excel':  return <Table className={`${className} text-emerald-600`} />
     case 'csv':    return <Table className={`${className} text-gray-500`} />
     case 'notion': return <BookOpen className={`${className} text-purple-500`} />
-    default:       return <File className={`${className} text-gray-400`} />
+    default:       return <FileIcon className={`${className} text-gray-400`} />
   }
 }
 
