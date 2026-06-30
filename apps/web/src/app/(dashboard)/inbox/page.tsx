@@ -7,9 +7,9 @@ import {
   ExternalLink, ChevronRight, TrendingUp, Clock, Flame, Star,
   AlertTriangle, Calendar, DollarSign, CheckCircle, XCircle,
   Sparkles, Brain, Bell, Tag, Edit3, Copy, UserPlus, CreditCard,
-  UserCheck, FileText, WifiOff, Info, Lightbulb, Activity,
-  ShoppingCart, MessageCircle, MapPin, Download, Music, Film,
-  Image, Sticker, Phone, Mic,
+  UserCheck, FileText, WifiOff, Lightbulb, Activity,
+  ShoppingCart, MessageCircle, MapPin, Download, Film,
+  Image, Phone, Mic, Target, Hash, BarChart2,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -73,6 +73,7 @@ interface Message {
   transcription?: string | null
   quotedMessageId?: string | null
   deliveryStatus?: 'sent' | 'delivered' | 'read'
+  approvalMode?: 'manual' | 'approved' | 'autonomous'
 }
 
 interface Suggestion {
@@ -80,6 +81,7 @@ interface Suggestion {
   text: string
   tone: string
   reasoning: string
+  confidence?: number
 }
 
 interface InternalNote {
@@ -121,40 +123,37 @@ interface ConvContext {
   analysedAt: string | null
 }
 
+interface AIInsight {
+  type: 'opportunity' | 'alert' | 'entity'
+  text: string
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const AI_PRIORITY: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  hot_lead:       { label: 'Hot Lead',          color: 'bg-red-50 text-red-700 border-red-100',       icon: Flame },
-  ready_to_buy:   { label: 'Ready to Buy',      color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: DollarSign },
-  needs_followup: { label: 'Needs Follow-up',   color: 'bg-amber-50 text-amber-700 border-amber-100', icon: AlertTriangle },
-  loyal:          { label: 'Loyal Customer',    color: 'bg-purple-50 text-purple-700 border-purple-100', icon: Star },
-  dissatisfied:   { label: 'Dissatisfied',      color: 'bg-rose-50 text-rose-700 border-rose-100',    icon: XCircle },
-  appointment:    { label: 'Appointment Today', color: 'bg-blue-50 text-blue-700 border-blue-100',    icon: Calendar },
-  waiting:        { label: 'Waiting on You',    color: 'bg-gray-50 text-gray-600 border-gray-200',    icon: Clock },
+  hot_lead:       { label: 'Hot Lead',     color: 'bg-red-50 text-red-700 border-red-200',             icon: Flame },
+  ready_to_buy:   { label: 'Ready to Buy', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: DollarSign },
+  needs_followup: { label: 'Follow-up',    color: 'bg-amber-50 text-amber-700 border-amber-200',       icon: AlertTriangle },
+  loyal:          { label: 'VIP',          color: 'bg-purple-50 text-purple-700 border-purple-200',    icon: Star },
+  dissatisfied:   { label: 'At Risk',      color: 'bg-rose-50 text-rose-700 border-rose-200',          icon: XCircle },
+  appointment:    { label: 'Appt Today',   color: 'bg-blue-50 text-blue-700 border-blue-200',          icon: Calendar },
+  waiting:        { label: 'Waiting',      color: 'bg-gray-100 text-gray-600 border-gray-200',         icon: Clock },
 }
 
 const SENTIMENT_DOT: Record<string, string> = {
   happy: 'bg-emerald-400', neutral: 'bg-gray-300',
-  frustrated: 'bg-amber-400', angry: 'bg-red-400',
-}
-
-const SENTIMENT_STYLE: Record<string, { badge: string; label: string }> = {
-  positive: { badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', label: 'Positive' },
-  happy:    { badge: 'bg-emerald-50 text-emerald-700 border-emerald-100', label: 'Happy' },
-  neutral:  { badge: 'bg-gray-50 text-gray-600 border-gray-200',          label: 'Neutral' },
-  negative: { badge: 'bg-rose-50 text-rose-700 border-rose-100',          label: 'Negative' },
-  frustrated:{ badge: 'bg-amber-50 text-amber-700 border-amber-100',      label: 'Frustrated' },
-  angry:    { badge: 'bg-red-50 text-red-700 border-red-100',             label: 'Angry' },
+  frustrated: 'bg-amber-400', angry: 'bg-red-500',
 }
 
 const TONE_STYLE: Record<string, string> = {
-  friendly:     'bg-emerald-50 text-emerald-800 border-emerald-100',
-  professional: 'bg-blue-50 text-blue-800 border-blue-100',
-  empathetic:   'bg-purple-50 text-purple-800 border-purple-100',
-  casual:       'bg-gray-50 text-gray-700 border-gray-200',
-  urgent:       'bg-amber-50 text-amber-800 border-amber-100',
-  sales:        'bg-orange-50 text-orange-800 border-orange-100',
-  firm:         'bg-slate-50 text-slate-700 border-slate-200',
+  friendly:     'bg-emerald-50 text-emerald-900 border-emerald-200',
+  professional: 'bg-blue-50 text-blue-900 border-blue-200',
+  empathetic:   'bg-purple-50 text-purple-900 border-purple-200',
+  casual:       'bg-gray-50 text-gray-800 border-gray-200',
+  urgent:       'bg-amber-50 text-amber-900 border-amber-200',
+  sales:        'bg-orange-50 text-orange-900 border-orange-200',
+  direct:       'bg-slate-50 text-slate-800 border-slate-200',
+  firm:         'bg-slate-50 text-slate-800 border-slate-200',
 }
 
 const FILTERS = [
@@ -167,20 +166,20 @@ const FILTERS = [
   { id: 'at_risk',     label: 'At Risk' },
 ] as const
 
-const MOCK_ACTIONS = [
-  { label: 'Follow up tomorrow',  icon: Bell },
-  { label: 'Offer 10% discount',  icon: Tag },
-  { label: 'Send catalogue',       icon: FileText },
-  { label: 'Book appointment',     icon: Calendar },
-  { label: 'Create invoice',       icon: CreditCard },
+const MOCK_TIMELINE: TimelineEvent[] = [
+  { id: '1', type: 'message',   label: 'First contacted',       date: '3 months ago' },
+  { id: '2', type: 'purchase',  label: 'Order placed — K2,400', date: '2 months ago' },
+  { id: '3', type: 'invoice',   label: 'Invoice sent',          date: '2 months ago' },
+  { id: '4', type: 'followup',  label: 'Follow-up sent',        date: '3 weeks ago' },
+  { id: '5', type: 'message',   label: 'Re-engaged',            date: '2 days ago' },
 ]
 
-const MOCK_TIMELINE: TimelineEvent[] = [
-  { id: '1', type: 'message',   label: 'First contacted',         date: '3 months ago' },
-  { id: '2', type: 'purchase',  label: 'Order placed — K2,400',   date: '2 months ago' },
-  { id: '3', type: 'invoice',   label: 'Invoice sent',            date: '2 months ago' },
-  { id: '4', type: 'followup',  label: 'Follow-up sent',          date: '3 weeks ago' },
-  { id: '5', type: 'message',   label: 'Re-engaged conversation', date: '2 days ago' },
+const MOCK_ACTIONS = [
+  { label: 'Follow up tomorrow', icon: Bell },
+  { label: 'Offer 10% discount', icon: Tag },
+  { label: 'Send catalogue',     icon: FileText },
+  { label: 'Book appointment',   icon: Calendar },
+  { label: 'Create invoice',     icon: CreditCard },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -192,10 +191,37 @@ function mediaHref(path: string, token?: string | null): string {
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
 }
 
+function formatTime(ts: string | null) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (diffMin < 1) return 'now'
+  if (diffMin < 60) return `${diffMin}m`
+  const diffDays = Math.floor(diffMin / 1440)
+  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function formatSLA(min: number) {
+  if (min < 60) return `${min}m`
+  if (min < 1440) return `${Math.round(min / 60)}h`
+  return `${Math.round(min / 1440)}d`
+}
+
+function getGreeting() {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
+// ─── MessageContent ───────────────────────────────────────────────────────────
+
 function MessageContent({ msg, token, isUser }: { msg: Message; token?: string | null; isUser: boolean }) {
   const mType = msg.messageType ?? 'text'
-  const textClass = `leading-relaxed whitespace-pre-wrap ${isUser ? 'text-white' : 'text-gray-900'}`
-  const metaClass = `text-xs mt-1 ${isUser ? 'text-indigo-200' : 'text-gray-500'}`
+  const textClass = `leading-relaxed whitespace-pre-wrap text-sm ${isUser ? 'text-white' : 'text-gray-900'}`
 
   if (mType === 'deleted') {
     return (
@@ -239,12 +265,7 @@ function MessageContent({ msg, token, isUser }: { msg: Message; token?: string |
       return (
         <div className="space-y-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={href}
-            alt={msg.body ?? 'Image'}
-            className="max-w-[220px] rounded-lg object-cover"
-            style={{ maxHeight: 220 }}
-          />
+          <img src={href} alt={msg.body ?? 'Image'} className="max-w-[220px] rounded-lg object-cover" style={{ maxHeight: 220 }} />
           {msg.body && <p className={textClass}>{msg.body}</p>}
         </div>
       )
@@ -262,12 +283,7 @@ function MessageContent({ msg, token, isUser }: { msg: Message; token?: string |
     if (href) {
       return (
         <div className="space-y-1">
-          <video
-            src={href}
-            controls
-            className="max-w-[220px] rounded-lg"
-            style={{ maxHeight: 180 }}
-          />
+          <video src={href} controls className="max-w-[220px] rounded-lg" style={{ maxHeight: 180 }} />
           {msg.body && <p className={textClass}>{msg.body}</p>}
         </div>
       )
@@ -309,9 +325,7 @@ function MessageContent({ msg, token, isUser }: { msg: Message; token?: string |
       return (
         <a href={href} download target="_blank" rel="noopener noreferrer"
           className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition-colors ${
-            isUser
-              ? 'bg-indigo-500 border-indigo-400 text-white hover:bg-indigo-400'
-              : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+            isUser ? 'bg-indigo-500 border-indigo-400 text-white hover:bg-indigo-400' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
           }`}>
           <FileText size={14} className="flex-shrink-0" />
           <span className="truncate max-w-[160px]">{fileName}</span>
@@ -327,88 +341,72 @@ function MessageContent({ msg, token, isUser }: { msg: Message; token?: string |
     )
   }
 
-  // Default: text
+  return <p className={textClass}>{msg.body ?? ''}</p>
+}
+
+// ─── ScoreRing ────────────────────────────────────────────────────────────────
+
+function ScoreRing({ score, size = 72 }: { score: number; size?: number }) {
+  const sw = 6
+  const r = (size - sw * 2) / 2
+  const cx = size / 2
+  const circumference = 2 * Math.PI * r
+  const color = score >= 70 ? '#4f46e5' : score >= 40 ? '#f59e0b' : '#ef4444'
+  const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F'
   return (
-    <p className={textClass}>{msg.body ?? ''}</p>
-  )
-}
-
-function formatTime(ts: string | null) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000)
-  if (diffMin < 1) return 'now'
-  if (diffMin < 60) return `${diffMin}m`
-  const diffDays = Math.floor(diffMin / 1440)
-  if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' })
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-function formatSLA(min: number) {
-  if (min < 60) return `${min}m`
-  if (min < 1440) return `${Math.round(min / 60)}h`
-  return `${Math.round(min / 1440)}d`
-}
-
-function getGreeting() {
-  const h = new Date().getHours()
-  if (h < 12) return 'Good morning'
-  if (h < 17) return 'Good afternoon'
-  return 'Good evening'
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function DailyBriefing({ name, items, loading, onDismiss }: { name: string; items: string[]; loading: boolean; onDismiss: () => void }) {
-  return (
-    <div className="mx-3 mt-3 mb-1 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 p-4 relative shadow-md">
-      <button onClick={onDismiss} className="absolute top-3 right-3 text-indigo-300 hover:text-white transition-colors">
-        <X size={14} />
-      </button>
-      <div className="flex items-center gap-1.5 mb-2">
-        <Sparkles size={12} className="text-indigo-300" />
-        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest">AI Daily Briefing</p>
+    <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: size, height: size }}>
+      <svg className="-rotate-90" width={size} height={size}>
+        <circle cx={cx} cy={cx} r={r} fill="none" stroke="#f3f4f6" strokeWidth={sw} />
+        <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth={sw}
+          strokeDasharray={`${(score / 100) * circumference} ${circumference}`}
+          strokeLinecap="round" />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-base font-bold text-gray-900 leading-none">{score}</span>
+        <span className="text-[9px] font-bold leading-none mt-0.5" style={{ color }}>{grade}</span>
       </div>
-      <p className="text-sm font-semibold text-white mb-2">{getGreeting()}, {name}.</p>
-      {loading ? (
-        <div className="space-y-1.5">
-          {[1,2,3].map(i => <div key={i} className="h-3 bg-white/20 rounded animate-pulse" />)}
-        </div>
-      ) : (
-        <ul className="space-y-1">
-          {items.map((item, i) => (
-            <li key={i} className="flex items-start gap-2 text-xs text-indigo-100 leading-relaxed">
-              <span className="mt-1.5 w-1 h-1 rounded-full bg-indigo-300 flex-shrink-0" />
-              {item}
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }
 
-function ConvRow({
-  conv, active, onClick, mode,
-}: {
-  conv: Conversation; active: boolean; onClick: () => void; mode: string
-}) {
+// ─── InlineAICard ─────────────────────────────────────────────────────────────
+
+function InlineAICard({ insight }: { insight: AIInsight }) {
+  const cfg = {
+    opportunity: { icon: TrendingUp, bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', label: 'Opportunity Detected' },
+    alert:       { icon: AlertTriangle, bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', label: 'AI Alert' },
+    entity:      { icon: Sparkles, bg: 'bg-indigo-50', border: 'border-indigo-200', text: 'text-indigo-700', label: 'AI Insight' },
+  }[insight.type]
+  const Icon = cfg.icon
+  return (
+    <div className={`mx-auto w-fit max-w-xs rounded-xl px-3.5 py-2.5 border ${cfg.bg} ${cfg.border} flex items-start gap-2.5`}>
+      <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5`}>
+        <Icon size={11} className={cfg.text} />
+      </div>
+      <div>
+        <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${cfg.text}`}>{cfg.label}</p>
+        <p className="text-xs text-gray-700 leading-relaxed">{insight.text}</p>
+      </div>
+    </div>
+  )
+}
+
+// ─── ConvRow ──────────────────────────────────────────────────────────────────
+
+function ConvRow({ conv, active, onClick, mode }: { conv: Conversation; active: boolean; onClick: () => void; mode: string }) {
   const priority = conv.aiPriority ? AI_PRIORITY[conv.aiPriority] : null
   const PIcon = priority?.icon
-
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-start gap-3 px-3 py-3 text-left transition-all border-l-2 ${
-        active ? 'bg-indigo-50 border-indigo-500' : 'hover:bg-gray-50/80 border-transparent'
+      className={`w-full flex items-start gap-3 px-3 py-3 text-left transition-all border-l-[3px] ${
+        active ? 'bg-indigo-50/80 border-indigo-500' : 'hover:bg-white/70 border-transparent'
       }`}
     >
       <div className="relative flex-shrink-0 mt-0.5">
         <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="md" />
         {conv.unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-indigo-600 border-2 border-white rounded-full flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-indigo-600 border-2 border-white rounded-full flex items-center justify-center">
             <span className="text-[8px] font-bold text-white px-0.5 leading-none">
               {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
             </span>
@@ -425,10 +423,10 @@ function ConvRow({
           </span>
           <span className="text-[10px] text-gray-400 flex-shrink-0 tabular-nums">{formatTime(conv.lastMessageAt)}</span>
         </div>
-        <p className={`text-xs truncate ${conv.unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
+        <p className={`text-xs truncate mb-1.5 ${conv.unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
           {conv.lastMessagePreview || 'No messages yet'}
         </p>
-        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {priority && PIcon && (
             <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${priority.color}`}>
               <PIcon size={9} />
@@ -442,7 +440,7 @@ function ConvRow({
             </span>
           )}
           {mode !== 'personal' && (conv.leadScore ?? 0) > 70 && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-500">
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md">
               <TrendingUp size={9} />
               {conv.leadScore}
             </span>
@@ -453,115 +451,303 @@ function ConvRow({
   )
 }
 
-// ─── Context Panel ────────────────────────────────────────────────────────────
+// ─── DailyBriefing ────────────────────────────────────────────────────────────
 
-function ContextPanel({
-  data, loading, contactName, onClose,
-}: {
-  data: ConvContext | null; loading: boolean; contactName: string; onClose: () => void
-}) {
-  const sentimentStyle = data ? (SENTIMENT_STYLE[data.dominantSentiment] ?? SENTIMENT_STYLE.neutral) : SENTIMENT_STYLE.neutral
+function DailyBriefing({ name, items, loading, onDismiss }: { name: string; items: string[]; loading: boolean; onDismiss: () => void }) {
+  return (
+    <div className="mx-3 mt-3 mb-1 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 p-4 relative shadow-md">
+      <button onClick={onDismiss} className="absolute top-3 right-3 text-indigo-300 hover:text-white transition-colors">
+        <X size={13} />
+      </button>
+      <div className="flex items-center gap-1.5 mb-2">
+        <Sparkles size={11} className="text-indigo-300" />
+        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest">AI Daily Briefing</p>
+      </div>
+      <p className="text-sm font-semibold text-white mb-2">{getGreeting()}, {name}.</p>
+      {loading ? (
+        <div className="space-y-1.5">{[1,2,3].map(i => <div key={i} className="h-3 bg-white/20 rounded animate-pulse" />)}</div>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs text-indigo-100 leading-relaxed">
+              <span className="mt-1.5 w-1 h-1 rounded-full bg-indigo-300 flex-shrink-0" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ─── Intel Panel ──────────────────────────────────────────────────────────────
+
+type AITab = 'overview' | 'memory' | 'activity' | 'files'
+
+interface IntelPanelProps {
+  contact: Contact | null
+  contactDetail: ContactDetail | null
+  selectedConv: Conversation | null
+  contextData: ConvContext | null
+  contextLoading: boolean
+  suggestions: Suggestion[]
+  regenerating: boolean
+  actionLoading: string | null
+  mode: string
+  notes: InternalNote[]
+  newNote: string
+  editingSuggId: string | null
+  editedText: string
+  aiTab: AITab
+  onTabChange: (t: AITab) => void
+  onApprove: (id: string, custom?: string) => void
+  onDismiss: (id: string) => void
+  onRegenerate: () => void
+  onSetDraft: (text: string) => void
+  onAddNote: () => void
+  onNoteChange: (v: string) => void
+  onEditSugg: (id: string | null) => void
+  onEditedTextChange: (v: string) => void
+  onClose: () => void
+  draftFocus: () => void
+}
+
+function IntelPanel({
+  contact, contactDetail, selectedConv, contextData, contextLoading,
+  suggestions, regenerating, actionLoading, mode, notes, newNote,
+  editingSuggId, editedText, aiTab, onTabChange,
+  onApprove, onDismiss, onRegenerate, onSetDraft,
+  onAddNote, onNoteChange, onEditSugg, onEditedTextChange, onClose, draftFocus,
+}: IntelPanelProps) {
+  const TABS: { id: AITab; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'memory',   label: 'Memory' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'files',    label: 'Files' },
+  ]
+
+  const healthScore = contactDetail?.relationship?.healthScore ?? selectedConv?.healthScore ?? 0
+  const leadScore = contact?.leadScore ?? selectedConv?.leadScore ?? 0
+
+  // Derive AI insights from context for display in overview
+  const insights: AIInsight[] = []
+  if (contextData?.buyingSignals?.length) {
+    insights.push({ type: 'opportunity', text: contextData.buyingSignals[0] })
+  }
+  if (contextData?.dominantSentiment === 'frustrated' || contextData?.dominantSentiment === 'angry') {
+    insights.push({ type: 'alert', text: `Sentiment is ${contextData.dominantSentiment} — consider an empathetic response` })
+  }
+  if (contextData?.intents?.length) {
+    insights.push({ type: 'entity', text: `Detected intent: ${contextData.intents.slice(0,2).join(', ').replace(/_/g, ' ')}` })
+  }
+
+  // Files derived from messages (document type) — placeholder
+  const mockFiles = [
+    { name: 'Invoice_March.pdf', size: '142 KB', date: '2 months ago' },
+    { name: 'Product_Catalogue.pdf', size: '3.2 MB', date: '3 weeks ago' },
+  ]
 
   return (
-    <div className="absolute inset-0 z-10 bg-white flex flex-col overflow-hidden">
+    <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0 bg-white">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-indigo-50 rounded-md flex items-center justify-center">
             <Brain size={13} className="text-indigo-600" />
           </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">AI Context</p>
-            <p className="text-[10px] text-gray-400">{contactName}</p>
-          </div>
+          <p className="text-sm font-semibold text-gray-900">
+            {contact?.name ? contact.name.split(' ')[0] : 'Intelligence'}
+          </p>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <X size={16} />
+        <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <X size={14} />
         </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-100 flex-shrink-0 px-1">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            className={`flex-1 py-2.5 text-[11px] font-semibold transition-colors ${
+              aiTab === tab.id ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="p-5 space-y-4">
-            {[1,2,3,4].map(i => (
-              <div key={i} className="space-y-2">
-                <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
-                <div className="h-14 bg-gray-50 rounded-xl animate-pulse" />
-              </div>
-            ))}
-          </div>
-        ) : data ? (
+
+        {/* ── Overview ────────────────────────────────────────────────────── */}
+        {aiTab === 'overview' && (
           <div className="divide-y divide-gray-50">
-
-            {/* Next Action — hero recommendation */}
-            <div className="p-4">
-              <div className={`rounded-xl p-3.5 flex items-start gap-3 ${data.urgency === 'high' ? 'bg-amber-50 border border-amber-100' : 'bg-indigo-50 border border-indigo-100'}`}>
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${data.urgency === 'high' ? 'bg-amber-100' : 'bg-indigo-100'}`}>
-                  <Lightbulb size={14} className={data.urgency === 'high' ? 'text-amber-600' : 'text-indigo-600'} />
-                </div>
-                <div>
-                  <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${data.urgency === 'high' ? 'text-amber-500' : 'text-indigo-400'}`}>
-                    Recommended Action
-                  </p>
-                  <p className={`text-sm font-semibold ${data.urgency === 'high' ? 'text-amber-900' : 'text-indigo-900'}`}>
-                    {data.nextAction}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Sentiment */}
-            <div className="p-4">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Conversation Mood</p>
-              <div className="flex items-center gap-2.5">
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${sentimentStyle.badge}`}>
-                  <Activity size={11} />
-                  {sentimentStyle.label}
-                </span>
-                {data.requiresResponse && (
-                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold bg-red-50 text-red-600 border border-red-100">
-                    <AlertCircle size={10} />
-                    Needs reply
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Summary */}
-            {data.summary && (
+            {/* Score + summary */}
+            {contact && (
               <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Relationship Summary</p>
-                <p className="text-sm text-gray-700 leading-relaxed">{data.summary}</p>
+                <div className="flex items-start gap-3 mb-3">
+                  <ScoreRing score={healthScore} size={64} />
+                  <div className="flex-1 min-w-0 pt-1">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Relationship Health</p>
+                    <p className="text-xs text-gray-700 leading-relaxed">
+                      {healthScore >= 70 ? 'Strong relationship with consistent engagement.' :
+                       healthScore >= 40 ? 'Moderate — attention may improve retention.' :
+                       'Needs nurturing — high churn risk.'}
+                    </p>
+                    {contextData?.requiresResponse && (
+                      <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-100">
+                        <AlertCircle size={9} />
+                        Needs reply
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* AI Insights */}
+                {insights.length > 0 && (
+                  <div className="space-y-2">
+                    {insights.map((ins, i) => (
+                      <InlineAICard key={i} insight={ins} />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Buying Signals */}
-            {data.buyingSignals.length > 0 && (
+            {/* Context loading */}
+            {contextLoading && (
+              <div className="p-4 space-y-2">
+                {[1,2].map(i => <div key={i} className="h-10 bg-gray-100 rounded-xl animate-pulse" />)}
+              </div>
+            )}
+
+            {/* Next recommended action */}
+            {contextData?.nextAction && (
               <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Buying Signals</p>
-                <div className="space-y-1.5">
-                  {data.buyingSignals.map((signal, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <ShoppingCart size={12} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-gray-700 leading-relaxed">{signal}</p>
+                <div className={`rounded-xl p-3.5 flex items-start gap-3 ${contextData.urgency === 'high' ? 'bg-amber-50 border border-amber-100' : 'bg-indigo-50 border border-indigo-100'}`}>
+                  <Lightbulb size={14} className={`flex-shrink-0 mt-0.5 ${contextData.urgency === 'high' ? 'text-amber-600' : 'text-indigo-600'}`} />
+                  <div>
+                    <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${contextData.urgency === 'high' ? 'text-amber-500' : 'text-indigo-400'}`}>
+                      Recommended Action
+                    </p>
+                    <p className={`text-sm font-semibold ${contextData.urgency === 'high' ? 'text-amber-900' : 'text-indigo-900'}`}>
+                      {contextData.nextAction}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Lead score (business only) */}
+            {mode !== 'personal' && leadScore > 0 && (
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Lead Score</p>
+                  <span className={`text-xs font-bold tabular-nums ${leadScore > 70 ? 'text-indigo-600' : leadScore > 40 ? 'text-amber-600' : 'text-red-500'}`}>{leadScore}/100</span>
+                </div>
+                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${leadScore > 70 ? 'bg-indigo-500' : leadScore > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                    style={{ width: `${leadScore}%` }}
+                  />
+                </div>
+                <div className="flex gap-2 mt-2">
+                  {[
+                    leadScore > 60 && 'Pricing enquiry',
+                    leadScore > 50 && 'Quick responder',
+                    leadScore > 40 && 'Prior purchase',
+                  ].filter(Boolean).map((signal, i) => (
+                    <span key={i} className="flex items-center gap-1 text-[10px] text-emerald-700">
+                      <CheckCircle size={9} className="text-emerald-500" />
+                      {signal}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Customer stats */}
+            {contact && mode !== 'personal' && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Customer Profile</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: 'Since',    value: contact.customerSince },
+                    { label: 'Lifetime', value: contact.lifetimeValue != null ? `K${contact.lifetimeValue.toLocaleString()}` : undefined },
+                    { label: 'Avg Order',value: contact.avgOrderValue != null ? `K${contact.avgOrderValue.toLocaleString()}` : undefined },
+                    { label: 'Stage',    value: contact.pipelineStage?.replace(/_/g, ' ') },
+                  ].filter(r => r.value).map(r => (
+                    <div key={r.label} className="bg-gray-50 rounded-lg p-2">
+                      <p className="text-[9px] font-bold text-gray-400 uppercase">{r.label}</p>
+                      <p className="text-xs font-semibold text-gray-700 capitalize truncate">{r.value}</p>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Intents & Topics */}
-            {(data.intents.length > 0 || data.topTopics.length > 0) && (
+            {/* CRM quick actions */}
+            {mode !== 'personal' && (
               <div className="p-4">
-                {data.intents.length > 0 && (
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">CRM</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: 'Convert',       icon: UserCheck },
+                    { label: 'Invoice',        icon: CreditCard },
+                    { label: 'Schedule call',  icon: Calendar },
+                    { label: 'Assign team',    icon: UserPlus },
+                  ].map(({ label, icon: Icon }) => (
+                    <button key={label} className="flex items-center gap-1.5 px-2.5 py-2 text-[11px] font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-left">
+                      <Icon size={11} className="text-gray-400 flex-shrink-0" />
+                      <span className="truncate">{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Memory ──────────────────────────────────────────────────────── */}
+        {aiTab === 'memory' && (
+          <div className="divide-y divide-gray-50">
+            {/* Context summary */}
+            {contextData?.summary && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">AI Conversation Summary</p>
+                <p className="text-xs text-gray-700 leading-relaxed">{contextData.summary}</p>
+                {contextData.analysedAt && (
+                  <p className="text-[10px] text-gray-300 mt-2">Analysed {formatTime(contextData.analysedAt)}</p>
+                )}
+              </div>
+            )}
+
+            {/* Personality */}
+            {(contextData?.personalitySummary || contactDetail?.profile?.personalitySummary) && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Personality</p>
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  {contextData?.personalitySummary ?? contactDetail?.profile?.personalitySummary}
+                </p>
+                {(contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle) && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <MessageCircle size={11} className="text-gray-400" />
+                    <p className="text-xs text-gray-500">{contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Smart tags / topics */}
+            {contextData && (contextData.topTopics.length > 0 || contextData.intents.length > 0) && (
+              <div className="p-4">
+                {contextData.intents.length > 0 && (
                   <>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Intent Signals</p>
                     <div className="flex flex-wrap gap-1.5 mb-3">
-                      {data.intents.map(intent => (
+                      {contextData.intents.map(intent => (
                         <span key={intent} className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-full border border-blue-100 capitalize">
                           {intent.replace(/_/g, ' ')}
                         </span>
@@ -569,11 +755,11 @@ function ContextPanel({
                     </div>
                   </>
                 )}
-                {data.topTopics.length > 0 && (
+                {contextData.topTopics.length > 0 && (
                   <>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Key Topics</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {data.topTopics.map(topic => (
+                      {contextData.topTopics.map(topic => (
                         <span key={topic} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] font-medium rounded-full capitalize">
                           {topic.replace(/_/g, ' ')}
                         </span>
@@ -584,44 +770,17 @@ function ContextPanel({
               </div>
             )}
 
-            {/* Contact Profile */}
-            {(data.personalitySummary || data.communicationStyle || data.moodBaseline) && (
-              <div className="p-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">Contact Profile</p>
-                <div className="space-y-2.5">
-                  {data.personalitySummary && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase mb-0.5">Personality</p>
-                      <p className="text-xs text-gray-700 leading-relaxed">{data.personalitySummary}</p>
-                    </div>
-                  )}
-                  {data.communicationStyle && (
-                    <div className="flex items-center gap-2">
-                      <MessageCircle size={11} className="text-gray-400 flex-shrink-0" />
-                      <p className="text-xs text-gray-600">{data.communicationStyle}</p>
-                    </div>
-                  )}
-                  {data.moodBaseline && (
-                    <div className="flex items-center gap-2">
-                      <Activity size={11} className="text-gray-400 flex-shrink-0" />
-                      <p className="text-xs text-gray-600">Baseline mood: {data.moodBaseline}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* AI Insights */}
-            {data.insights.length > 0 && (
+            {/* AI insights / memory */}
+            {contextData?.insights && contextData.insights.length > 0 && (
               <div className="p-4">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5">AI Memory</p>
                 <div className="space-y-2">
-                  {data.insights.map((insight, i) => (
+                  {contextData.insights.map((ins, i) => (
                     <div key={i} className="flex items-start gap-2">
                       <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-300 flex-shrink-0" />
                       <div>
-                        <p className="text-xs text-gray-700 leading-relaxed">{insight.value}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5 capitalize">{insight.key?.replace(/_/g, ' ')}</p>
+                        <p className="text-xs text-gray-700 leading-relaxed">{ins.value}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 capitalize">{ins.key?.replace(/_/g, ' ')}</p>
                       </div>
                     </div>
                   ))}
@@ -629,20 +788,205 @@ function ContextPanel({
               </div>
             )}
 
-            {/* Analysed timestamp */}
-            {data.analysedAt && (
-              <div className="px-4 py-3">
-                <p className="text-[10px] text-gray-300 text-center">
-                  Context analysed {formatTime(data.analysedAt)}
-                </p>
+            {/* Notes */}
+            <div className="p-4 space-y-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Private Notes</p>
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <textarea
+                  value={newNote}
+                  onChange={e => onNoteChange(e.target.value)}
+                  placeholder="Add a private note — only your team sees this…"
+                  rows={2}
+                  className="w-full px-3 py-2.5 text-xs text-gray-700 resize-none focus:outline-none border-b border-gray-100 placeholder-gray-400"
+                />
+                <div className="flex justify-end px-3 py-2 bg-gray-50">
+                  <button
+                    onClick={onAddNote}
+                    disabled={!newNote.trim()}
+                    className="text-xs font-semibold px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+              {notes.length === 0 ? (
+                <div className="text-center py-4">
+                  <StickyNote size={22} className="text-gray-300 mx-auto mb-1.5" />
+                  <p className="text-xs text-gray-400">No notes yet</p>
+                </div>
+              ) : notes.map(n => (
+                <div key={n.id} className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                  <p className="text-xs text-gray-800 leading-relaxed">{n.text}</p>
+                  <p className="text-[10px] text-amber-600 mt-1.5">{n.author} · {formatTime(n.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+
+            {!contextData && !contextLoading && (
+              <div className="px-4 py-8 text-center">
+                <Brain size={28} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-gray-600 mb-1">No memory yet</p>
+                <p className="text-xs text-gray-400">AI context builds as conversation progresses.</p>
               </div>
             )}
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full py-16 px-4 text-center">
-            <Brain size={32} className="text-gray-300 mb-3" />
-            <p className="text-sm font-semibold text-gray-600 mb-1">No context yet</p>
-            <p className="text-xs text-gray-400">AI context builds as the conversation progresses.</p>
+        )}
+
+        {/* ── Activity ────────────────────────────────────────────────────── */}
+        {aiTab === 'activity' && (
+          <div className="divide-y divide-gray-50">
+            {/* Suggestions */}
+            {(suggestions.length > 0 || regenerating) && (
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">AI Reply Suggestions</p>
+                  <button onClick={onRegenerate} disabled={regenerating} className="flex items-center gap-1 text-[11px] text-indigo-600 font-semibold disabled:opacity-50">
+                    <RefreshCw size={10} className={regenerating ? 'animate-spin' : ''} /> Regenerate
+                  </button>
+                </div>
+                {regenerating ? (
+                  <div className="flex flex-col items-center py-6 gap-2">
+                    <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                    <p className="text-xs text-gray-400">Generating…</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {suggestions.map(s => (
+                      <div key={s.id} className={`rounded-xl p-3 border ${TONE_STYLE[s.tone] ?? 'bg-gray-50 border-gray-100 text-gray-800'}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wide">{s.tone}</span>
+                          <div className="flex items-center gap-1">
+                            {s.confidence != null && (
+                              <span className="text-[10px] font-semibold opacity-60">{s.confidence}%</span>
+                            )}
+                            <button onClick={() => { onEditSugg(s.id); onEditedTextChange(s.text) }} className="p-1 opacity-50 hover:opacity-100 transition-opacity">
+                              <Edit3 size={10} />
+                            </button>
+                            <button onClick={() => navigator.clipboard.writeText(s.text)} className="p-1 opacity-50 hover:opacity-100 transition-opacity">
+                              <Copy size={10} />
+                            </button>
+                          </div>
+                        </div>
+                        {editingSuggId === s.id ? (
+                          <textarea
+                            autoFocus rows={3}
+                            value={editedText}
+                            onChange={e => onEditedTextChange(e.target.value)}
+                            className="w-full text-xs leading-relaxed bg-white/60 border border-current/20 rounded-lg p-2 resize-none focus:outline-none mb-2"
+                          />
+                        ) : (
+                          <p className="text-xs leading-relaxed mb-1">{s.text}</p>
+                        )}
+                        {editingSuggId !== s.id && s.reasoning && (
+                          <p className="text-[10px] opacity-50 leading-relaxed mb-2">{s.reasoning}</p>
+                        )}
+                        <div className="flex gap-1.5 mt-2">
+                          <button
+                            onClick={() => onApprove(s.id, editingSuggId === s.id ? editedText : undefined)}
+                            disabled={actionLoading === s.id}
+                            className="flex-1 text-[11px] font-bold py-1.5 bg-current/10 hover:bg-current/20 rounded-lg disabled:opacity-50 transition-colors"
+                          >
+                            {editingSuggId === s.id ? 'Send edited' : 'Send'}
+                          </button>
+                          {editingSuggId !== s.id && (
+                            <button
+                              onClick={() => { onSetDraft(s.text); draftFocus() }}
+                              className="flex-1 text-[11px] font-semibold py-1.5 bg-white/50 hover:bg-white/80 border border-current/10 rounded-lg transition-colors"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {editingSuggId === s.id && (
+                            <button onClick={() => onEditSugg(null)} className="px-3 text-[11px] py-1.5 bg-white/30 border border-current/10 rounded-lg">
+                              Cancel
+                            </button>
+                          )}
+                          <button
+                            onClick={() => onDismiss(s.id)}
+                            disabled={actionLoading === s.id}
+                            className="px-2 text-[11px] py-1.5 opacity-40 hover:opacity-70 transition-opacity"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Suggested actions */}
+            {mode !== 'personal' && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Suggested Actions</p>
+                <div className="space-y-1">
+                  {MOCK_ACTIONS.map(a => {
+                    const Icon = a.icon
+                    return (
+                      <button key={a.label} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition-colors text-left group">
+                        <Icon size={12} className="text-gray-400 group-hover:text-indigo-500 flex-shrink-0" />
+                        {a.label}
+                        <ChevronRight size={11} className="ml-auto text-gray-300 group-hover:text-indigo-400" />
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Relationship timeline */}
+            <div className="p-4">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Timeline</p>
+              <div className="relative">
+                <div className="absolute left-[11px] top-3 bottom-3 w-px bg-gray-100" />
+                <div className="space-y-4">
+                  {MOCK_TIMELINE.map(ev => {
+                    const ICONS: Record<TimelineEvent['type'], React.ElementType> = {
+                      message: MessageSquare, purchase: DollarSign, invoice: CreditCard,
+                      note: StickyNote, followup: Bell, complaint: AlertTriangle, appointment: Calendar,
+                    }
+                    const Icon = ICONS[ev.type]
+                    return (
+                      <div key={ev.id} className="flex items-start gap-3">
+                        <div className="w-6 h-6 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center flex-shrink-0 z-10">
+                          <Icon size={10} className="text-gray-400" />
+                        </div>
+                        <div className="pt-0.5">
+                          <p className="text-xs font-semibold text-gray-700">{ev.label}</p>
+                          <p className="text-[10px] text-gray-400">{ev.date}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Files ───────────────────────────────────────────────────────── */}
+        {aiTab === 'files' && (
+          <div className="p-4 space-y-2">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Shared Files</p>
+            {mockFiles.map((f, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer">
+                <div className="w-8 h-8 bg-white rounded-lg border border-gray-200 flex items-center justify-center flex-shrink-0">
+                  <FileText size={14} className="text-indigo-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-800 truncate">{f.name}</p>
+                  <p className="text-[10px] text-gray-400">{f.size} · {f.date}</p>
+                </div>
+                <Download size={13} className="text-gray-400 flex-shrink-0" />
+              </div>
+            ))}
+            {mockFiles.length === 0 && (
+              <div className="text-center py-10">
+                <FileText size={24} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No files shared yet</p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -652,8 +996,7 @@ function ContextPanel({
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-type MobilePane = 'list' | 'thread'
-type AITab = 'overview' | 'notes' | 'timeline'
+type MobileView = 'list' | 'thread' | 'intel'
 type FilterId = typeof FILTERS[number]['id']
 
 export default function InboxPage() {
@@ -662,7 +1005,7 @@ export default function InboxPage() {
   const mode = session.data?.mode ?? 'business'
   const userName = (session.data?.user?.email ?? '').split('@')[0] || 'there'
 
-  // Data
+  // Data state
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -680,15 +1023,13 @@ export default function InboxPage() {
   const [briefingItems, setBriefingItems] = useState<string[]>([])
   const [briefingLoading, setBriefingLoading] = useState(false)
 
-  // Context panel
-  const [showContextPanel, setShowContextPanel] = useState(false)
+  // Context
   const [contextData, setContextData] = useState<ConvContext | null>(null)
   const [loadingContext, setLoadingContext] = useState(false)
 
   // UI
-  const [mobilePane, setMobilePane] = useState<MobilePane>('list')
+  const [mobileView, setMobileView] = useState<MobileView>('list')
   const [showAIPanel, setShowAIPanel] = useState(true)
-  const [showMobileAI, setShowMobileAI] = useState(false)
   const [search, setSearch] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [filter, setFilter] = useState<FilterId>('all')
@@ -706,7 +1047,7 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
 
-  // ── Data loading ──────────────────────────────────────────────────────────
+  // ── Data loading ────────────────────────────────────────────────────────────
 
   const loadConversations = useCallback(async () => {
     if (!token) return
@@ -729,6 +1070,18 @@ export default function InboxPage() {
       setBriefingItems(data.items)
     } catch {} finally {
       setBriefingLoading(false)
+    }
+  }, [token])
+
+  const loadContext = useCallback(async (convId: string) => {
+    if (!token) return
+    setLoadingContext(true)
+    setContextData(null)
+    try {
+      const data = await apiClient<{ context: ConvContext }>(`/api/conversations/${convId}/context`, { token })
+      setContextData(data.context)
+    } catch {} finally {
+      setLoadingContext(false)
     }
   }, [token])
 
@@ -759,13 +1112,12 @@ export default function InboxPage() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
   }, [])
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (document.activeElement as HTMLElement)?.tagName
       const inField = tag === 'INPUT' || tag === 'TEXTAREA'
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setShowSearch(v => !v) }
-      if (e.key === 'Escape') { setShowSearch(false); setShowMobileAI(false); setShowContextPanel(false) }
+      if (e.key === 'Escape') { setShowSearch(false) }
       if (e.key === 'r' && !inField && !e.metaKey && !e.ctrlKey) {
         if (selectedIdRef.current && selectedMsgIdRef.current && token) {
           setRegenerating(true); setSuggestions([])
@@ -782,13 +1134,12 @@ export default function InboxPage() {
   useEffect(() => { selectedMsgIdRef.current = selectedMsgId }, [selectedMsgId])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // ── Actions ───────────────────────────────────────────────────────────────
+  // ── Actions ─────────────────────────────────────────────────────────────────
 
   const selectConversation = async (convId: string) => {
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
-    setContactDetail(null); setLoadingMsgs(true); setMobilePane('thread')
-    setShowMobileAI(false); setDraft(''); setAiTab('overview')
-    setShowContextPanel(false); setContextData(null)
+    setContactDetail(null); setLoadingMsgs(true); setMobileView('thread')
+    setDraft(''); setAiTab('overview'); setContextData(null)
     if (!token) return
     const data = await apiClient<{ messages: Message[]; contact: Contact }>(
       `/api/conversations/${convId}/messages`, { token }
@@ -798,24 +1149,12 @@ export default function InboxPage() {
       apiClient<{ contact: ContactDetail }>(`/api/contacts/${data.contact.id}`, { token })
         .then(d => setContactDetail(d.contact)).catch(() => {})
     }
+    loadContext(convId)
     const last = [...data.messages].reverse().find(m => m.pendingSuggestions > 0)
     if (last) {
       setSelectedMsgId(last.id)
       apiClient<{ suggestions: Suggestion[] }>(`/api/messages/${last.id}/suggestions`, { token })
         .then(d => setSuggestions(d.suggestions)).catch(() => {})
-    }
-  }
-
-  const openContext = async (convId: string) => {
-    if (!token) return
-    setShowContextPanel(true)
-    setLoadingContext(true)
-    setContextData(null)
-    try {
-      const data = await apiClient<{ context: ConvContext }>(`/api/conversations/${convId}/context`, { token })
-      setContextData(data.context)
-    } catch {} finally {
-      setLoadingContext(false)
     }
   }
 
@@ -834,7 +1173,7 @@ export default function InboxPage() {
       ...(customText ? { body: JSON.stringify({ text: customText }) } : {}),
     })
     setSuggestions(prev => prev.filter(s => s.id !== id))
-    setActionLoading(null); setEditingSuggId(null); setShowMobileAI(false)
+    setActionLoading(null); setEditingSuggId(null)
   }
 
   const dismissSuggestion = async (id: string) => {
@@ -868,7 +1207,7 @@ export default function InboxPage() {
     setNewNote('')
   }
 
-  // ── Filtering ─────────────────────────────────────────────────────────────
+  // ── Filtering ────────────────────────────────────────────────────────────────
 
   const filtered = conversations.filter(c => {
     const q = search.toLowerCase()
@@ -884,27 +1223,40 @@ export default function InboxPage() {
   })
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0)
+  const hotLeads = conversations.filter(c => c.aiPriority === 'hot_lead' || c.aiPriority === 'ready_to_buy').length
+  const avgHealth = conversations.length > 0
+    ? Math.round(conversations.reduce((s, c) => s + c.healthScore, 0) / conversations.length)
+    : 0
   const selectedConv = conversations.find(c => c.id === selectedId) ?? null
   const currentPriority = selectedConv?.aiPriority ? AI_PRIORITY[selectedConv.aiPriority] : null
-  const CurrentPriorityIcon = currentPriority?.icon ?? null
+  const CurrentPIcon = currentPriority?.icon ?? null
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // Derive inline AI insight cards for message timeline
+  const timelineInsights: AIInsight[] = []
+  if (contextData?.buyingSignals?.length) {
+    timelineInsights.push({ type: 'opportunity', text: contextData.buyingSignals[0] })
+  }
+  if (contextData?.dominantSentiment === 'frustrated' || contextData?.dominantSentiment === 'angry') {
+    timelineInsights.push({ type: 'alert', text: `Sentiment shift detected — consider a more empathetic tone` })
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full overflow-hidden bg-white">
+    <div className="flex h-full overflow-hidden bg-stone-50">
 
       {/* Offline banner */}
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-xs font-medium text-center py-2 flex items-center justify-center gap-2">
           <WifiOff size={13} />
-          You are offline — messages will be queued and sent when you reconnect.
+          You are offline — messages will be queued when you reconnect.
         </div>
       )}
 
-      {/* ── Conversation list ─────────────────────────────────────────────── */}
-      <div className={`${mobilePane === 'thread' ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[280px] border-r border-gray-100 flex-shrink-0`}>
+      {/* ── Left: Conversation list ──────────────────────────────────────────── */}
+      <div className={`${mobileView !== 'list' ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[272px] border-r border-gray-200 flex-shrink-0 bg-white`}>
 
-        {/* List header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold text-gray-900">Inbox</h1>
@@ -939,7 +1291,7 @@ export default function InboxPage() {
               <input
                 autoFocus type="search" value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search name, message, tag…"
+                placeholder="Search conversations…"
                 className="w-full pl-8 pr-8 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
               />
               {search && (
@@ -951,8 +1303,8 @@ export default function InboxPage() {
           </div>
         )}
 
-        {/* Smart filter chips */}
-        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-50 overflow-x-auto flex-shrink-0">
+        {/* Filter chips */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-50 overflow-x-auto flex-shrink-0 no-scrollbar">
           {FILTERS.map(f => (
             <button
               key={f.id}
@@ -966,17 +1318,41 @@ export default function InboxPage() {
           ))}
         </div>
 
-        {/* Daily briefing */}
-        {!briefingDismissed && mode !== 'personal' && (
-          <DailyBriefing
-            name={userName}
-            items={briefingItems}
-            loading={briefingLoading}
-            onDismiss={() => setBriefingDismissed(true)}
-          />
+        {/* Stats bar */}
+        {!loading && conversations.length > 0 && (
+          <div className="flex items-center divide-x divide-gray-100 border-b border-gray-100 flex-shrink-0 px-3 py-2">
+            <div className="flex items-center gap-1.5 flex-1 pr-3">
+              <MessageSquare size={11} className="text-indigo-400" />
+              <div>
+                <p className="text-[9px] text-gray-400 leading-none">Unread</p>
+                <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{totalUnread}</p>
+              </div>
+            </div>
+            {mode !== 'personal' && (
+              <div className="flex items-center gap-1.5 flex-1 px-3">
+                <Flame size={11} className="text-red-400" />
+                <div>
+                  <p className="text-[9px] text-gray-400 leading-none">Hot leads</p>
+                  <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{hotLeads}</p>
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 flex-1 pl-3">
+              <Activity size={11} className="text-emerald-400" />
+              <div>
+                <p className="text-[9px] text-gray-400 leading-none">Avg health</p>
+                <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{avgHealth}%</p>
+              </div>
+            </div>
+          </div>
         )}
 
-        {/* Conversation rows */}
+        {/* Daily briefing */}
+        {!briefingDismissed && mode !== 'personal' && (
+          <DailyBriefing name={userName} items={briefingItems} loading={briefingLoading} onDismiss={() => setBriefingDismissed(true)} />
+        )}
+
+        {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="p-3 space-y-1">{Array.from({ length: 7 }, (_, i) => <SkeletonListItem key={i} />)}</div>
@@ -1003,14 +1379,14 @@ export default function InboxPage() {
         </div>
       </div>
 
-      {/* ── Chat + AI panel ───────────────────────────────────────────────── */}
-      <div className={`${mobilePane === 'list' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0`}>
+      {/* ── Center: Chat ─────────────────────────────────────────────────────── */}
+      <div className={`${mobileView === 'list' ? 'hidden md:flex' : mobileView === 'intel' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0`}>
         {selectedId && contact ? (
           <>
             {/* Chat header */}
             <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 bg-white flex-shrink-0 shadow-sm">
               <button
-                onClick={() => { setMobilePane('list'); setSelectedId(null) }}
+                onClick={() => setMobileView('list')}
                 className="md:hidden p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
               >
                 <ChevronLeft size={20} />
@@ -1019,9 +1395,9 @@ export default function InboxPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
-                  {currentPriority && CurrentPriorityIcon && (
+                  {currentPriority && CurrentPIcon && (
                     <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${currentPriority.color}`}>
-                      <CurrentPriorityIcon size={9} />
+                      <CurrentPIcon size={9} />
                       {currentPriority.label}
                     </span>
                   )}
@@ -1031,14 +1407,7 @@ export default function InboxPage() {
                 </p>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                <button
-                  onClick={() => selectedId && openContext(selectedId)}
-                  className={`p-2 rounded-lg transition-colors ${showContextPanel ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-                  title="AI Context"
-                >
-                  <Info size={16} />
-                </button>
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Add note" onClick={() => { setShowAIPanel(true); setAiTab('notes') }}>
+                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Add note" onClick={() => { setShowAIPanel(true); setAiTab('memory') }}>
                   <StickyNote size={16} />
                 </button>
                 <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Open CRM">
@@ -1047,14 +1416,15 @@ export default function InboxPage() {
                 <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Archive">
                   <Archive size={16} />
                 </button>
-                {suggestions.length > 0 && (
-                  <button
-                    onClick={() => setShowMobileAI(true)}
-                    className="md:hidden flex items-center gap-1.5 ml-1 px-2.5 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg"
-                  >
-                    <Zap size={12} /> {suggestions.length}
-                  </button>
-                )}
+                {/* Mobile intel button */}
+                <button
+                  onClick={() => setMobileView('intel')}
+                  className="md:hidden flex items-center gap-1.5 ml-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-semibold rounded-lg"
+                >
+                  <Brain size={12} />
+                  Intel
+                </button>
+                {/* Desktop intel toggle */}
                 <button
                   onClick={() => setShowAIPanel(v => !v)}
                   className={`hidden md:flex p-2 rounded-lg transition-colors ${showAIPanel ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
@@ -1065,22 +1435,12 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* Messages + AI panel row */}
+            {/* Messages + intel row */}
             <div className="flex flex-1 min-h-0">
+              {/* Message area */}
+              <div className="flex flex-col flex-1 min-w-0 bg-stone-50">
 
-              {/* Messages */}
-              <div className="flex flex-col flex-1 min-w-0 bg-gray-50 relative">
-
-                {/* AI Context Panel overlay */}
-                {showContextPanel && (
-                  <ContextPanel
-                    data={contextData}
-                    loading={loadingContext}
-                    contactName={contact.name}
-                    onClose={() => setShowContextPanel(false)}
-                  />
-                )}
-
+                {/* Message stream */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
                   {loadingMsgs ? (
                     <div className="space-y-3">
@@ -1092,415 +1452,187 @@ export default function InboxPage() {
                     </div>
                   ) : (
                     <>
-                      {messages.map(msg => (
-                        <div key={msg.id} className={`flex ${msg.senderType === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          <div
-                            onClick={() => msg.pendingSuggestions > 0 && selectMessage(msg.id)}
-                            className={`max-w-[75%] md:max-w-sm ${msg.pendingSuggestions > 0 ? 'cursor-pointer' : ''}`}
-                          >
-                            <div className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                              msg.senderType === 'user'
-                                ? 'bg-indigo-600 text-white rounded-br-sm'
-                                : 'bg-white border border-gray-200 text-gray-900 rounded-bl-sm'
-                            } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-2 ring-amber-300' : ''}
-                              ${selectedMsgId === msg.id ? 'ring-2 ring-indigo-400' : ''}`}
-                            >
-                              <MessageContent
-                                msg={msg}
-                                token={token}
-                                isUser={msg.senderType === 'user'}
-                              />
-                              <div className="flex items-center justify-between gap-2 mt-0.5">
-                                <span className={`text-[10px] ${msg.senderType === 'user' ? 'text-indigo-200' : 'text-gray-400'}`}>
-                                  {formatTime(msg.timestamp)}
-                                </span>
-                                {msg.senderType === 'user' && msg.deliveryStatus === 'read' && (
-                                  <span className="text-[10px] text-indigo-300 font-medium">✓✓</span>
+                      {messages.map((msg, idx) => {
+                        const isUser = msg.senderType === 'user'
+                        const isApproved = msg.approvalMode === 'approved'
+                        const isAuto = msg.approvalMode === 'autonomous'
+
+                        // Show inline AI insight after 2nd-to-last contact message
+                        const showInsight = !isUser && timelineInsights.length > 0 && idx === messages.length - 2
+
+                        return (
+                          <div key={msg.id}>
+                            <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                              <div
+                                onClick={() => msg.pendingSuggestions > 0 && selectMessage(msg.id)}
+                                className={`max-w-[75%] md:max-w-sm ${msg.pendingSuggestions > 0 ? 'cursor-pointer' : ''}`}
+                              >
+                                <div className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm relative ${
+                                  isAuto
+                                    ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-br-sm'
+                                    : isApproved
+                                    ? 'bg-gray-900 text-white rounded-br-sm border-l-4 border-indigo-400'
+                                    : isUser
+                                    ? 'bg-indigo-600 text-white rounded-br-sm'
+                                    : 'bg-white border border-gray-200 text-gray-900 rounded-bl-sm'
+                                } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-2 ring-amber-300' : ''}
+                                  ${selectedMsgId === msg.id ? 'ring-2 ring-indigo-400' : ''}`}
+                                >
+                                  {isAuto && (
+                                    <span className="absolute -top-2 right-2 inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-400 rounded-full text-[9px] font-bold text-white">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                      AUTO-SENT
+                                    </span>
+                                  )}
+                                  <MessageContent msg={msg} token={token} isUser={isUser} />
+                                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                                    <span className={`text-[10px] ${isUser ? 'text-indigo-200' : 'text-gray-400'}`}>
+                                      {formatTime(msg.timestamp)}
+                                    </span>
+                                    {isUser && msg.deliveryStatus === 'read' && (
+                                      <span className="text-[10px] text-indigo-300 font-medium">✓✓</span>
+                                    )}
+                                  </div>
+                                </div>
+                                {msg.pendingSuggestions > 0 && (
+                                  <p className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${
+                                    !isUser ? 'text-amber-600 justify-start' : 'text-indigo-400 justify-end'
+                                  }`}>
+                                    <Zap size={10} />
+                                    {selectedMsgId === msg.id ? 'Suggestions ready ↓' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
+                                  </p>
                                 )}
                               </div>
                             </div>
-                            {msg.pendingSuggestions > 0 && (
-                              <p className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${
-                                msg.senderType === 'contact' ? 'text-amber-600 justify-start' : 'text-indigo-400 justify-end'
-                              }`}>
-                                <Zap size={10} />
-                                {selectedMsgId === msg.id ? 'Suggestions ready — see panel' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
-                              </p>
+
+                            {/* Inline AI insight card */}
+                            {showInsight && timelineInsights[0] && (
+                              <div className="py-2">
+                                <InlineAICard insight={timelineInsights[0]} />
+                              </div>
                             )}
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                       <div ref={messagesEndRef} />
                     </>
                   )}
                 </div>
 
-                {/* AI suggestion chips above composer (when AI panel is closed) */}
-                {!showAIPanel && suggestions.length > 0 && (
-                  <div className="px-3 pt-2 flex gap-2 overflow-x-auto">
-                    {suggestions.map(s => (
-                      <button
-                        key={s.id}
-                        onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
-                        className={`flex-shrink-0 max-w-[200px] text-xs px-3 py-2 rounded-xl border text-left transition-colors hover:shadow-sm ${TONE_STYLE[s.tone] ?? 'bg-gray-50 text-gray-700 border-gray-100'}`}
-                      >
-                        <span className="font-bold capitalize block mb-0.5 text-[10px]">{s.tone}</span>
-                        <span className="line-clamp-2 leading-relaxed">{s.text}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Composer */}
-                <div className="border-t border-gray-200 bg-white px-3 py-3 flex-shrink-0">
-                  <div className="flex items-end gap-2">
-                    <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
-                      <Paperclip size={18} />
-                    </button>
-                    <div className="flex-1 relative">
-                      <textarea
-                        ref={draftRef}
-                        rows={1}
-                        value={draft}
-                        onChange={e => setDraft(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
-                        }}
-                        placeholder="Type a message… (⌘↵ to send)"
-                        className="w-full resize-none px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all leading-relaxed"
-                        style={{ minHeight: '42px', maxHeight: '128px' }}
-                      />
-                    </div>
-                    <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
-                      <Smile size={18} />
-                    </button>
-                    <button
-                      onClick={sendDraft}
-                      disabled={!draft.trim()}
-                      className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
-                    >
-                      <Send size={16} />
-                    </button>
-                  </div>
-                  {selectedMsgId && (
-                    <div className="flex items-center justify-between mt-1.5">
-                      <button
-                        onClick={regenerate}
-                        disabled={regenerating}
-                        className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
-                      >
-                        <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
-                        {regenerating ? 'Generating…' : 'Regenerate AI reply'}
-                      </button>
-                      <span className="text-[10px] text-gray-400">R · ⌘↵</span>
+                {/* Reply dock */}
+                <div className="border-t border-gray-200 bg-white flex-shrink-0">
+                  {/* Suggestion chips */}
+                  {suggestions.length > 0 && (
+                    <div className="px-3 pt-3 pb-0 grid grid-cols-3 gap-1.5">
+                      {suggestions.slice(0, 3).map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
+                          className={`relative rounded-xl px-3 py-2.5 text-left border text-xs transition-all hover:shadow-sm hover:-translate-y-px ${TONE_STYLE[s.tone] ?? 'bg-gray-50 text-gray-800 border-gray-200'}`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold capitalize text-[10px]">{s.tone}</span>
+                            {s.confidence != null && (
+                              <span className="text-[10px] opacity-60 tabular-nums">{s.confidence}%</span>
+                            )}
+                          </div>
+                          <p className="line-clamp-2 leading-relaxed text-[11px]">{s.text}</p>
+                        </button>
+                      ))}
                     </div>
                   )}
+
+                  {/* Composer */}
+                  <div className="px-3 py-3">
+                    <div className="flex items-end gap-2">
+                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
+                        <Paperclip size={17} />
+                      </button>
+                      <div className="flex-1">
+                        <textarea
+                          ref={draftRef}
+                          rows={1}
+                          value={draft}
+                          onChange={e => setDraft(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
+                          }}
+                          placeholder="Type a message… (⌘↵ to send)"
+                          className="w-full resize-none px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all leading-relaxed"
+                          style={{ minHeight: '42px', maxHeight: '128px' }}
+                        />
+                      </div>
+                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
+                        <Smile size={17} />
+                      </button>
+                      <button
+                        onClick={sendDraft}
+                        disabled={!draft.trim()}
+                        className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
+                      >
+                        <Send size={15} />
+                      </button>
+                    </div>
+                    {selectedMsgId && (
+                      <div className="flex items-center justify-between mt-1.5">
+                        <button
+                          onClick={regenerate}
+                          disabled={regenerating}
+                          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
+                        >
+                          <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
+                          {regenerating ? 'Generating…' : 'Regenerate AI reply'}
+                        </button>
+                        <span className="text-[10px] text-gray-400">R · ⌘↵</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* ── AI Intelligence Panel (desktop) ──────────────────────── */}
+              {/* ── Right: Intelligence panel (desktop) ─────────────────────── */}
               {showAIPanel && (
-                <div className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 bg-white flex-col flex-shrink-0 overflow-hidden">
-                  {/* Panel header */}
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-indigo-50 rounded-md flex items-center justify-center">
-                        <Brain size={13} className="text-indigo-600" />
-                      </div>
-                      <p className="text-sm font-semibold text-gray-900">AI Intelligence</p>
-                    </div>
-                    <button onClick={() => setShowAIPanel(false)} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  {/* Tabs */}
-                  <div className="flex border-b border-gray-100 flex-shrink-0">
-                    {(['overview', 'notes', 'timeline'] as AITab[]).map(tab => (
-                      <button
-                        key={tab}
-                        onClick={() => setAiTab(tab)}
-                        className={`flex-1 py-2.5 text-xs font-semibold capitalize transition-colors ${
-                          aiTab === tab ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
-
-                    {/* ── Overview ──────────────────────────────────────────── */}
-                    {aiTab === 'overview' && (
-                      <>
-                        {/* AI Suggestions */}
-                        {(suggestions.length > 0 || regenerating) && (
-                          <div className="p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">AI Suggestions</p>
-                              <button onClick={regenerate} disabled={regenerating} className="flex items-center gap-1 text-[11px] text-indigo-600 font-semibold disabled:opacity-50">
-                                <RefreshCw size={10} className={regenerating ? 'animate-spin' : ''} /> Regenerate
-                              </button>
-                            </div>
-                            {regenerating ? (
-                              <div className="flex flex-col items-center py-6 gap-2">
-                                <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-                                <p className="text-xs text-gray-400">Generating suggestions…</p>
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                {suggestions.map(s => (
-                                  <div key={s.id} className={`rounded-xl p-3 border ${TONE_STYLE[s.tone] ?? 'bg-gray-50 border-gray-100'}`}>
-                                    <div className="flex items-center justify-between mb-1.5">
-                                      <span className="text-[10px] font-bold uppercase tracking-wide">{s.tone}</span>
-                                      <div className="flex items-center gap-1">
-                                        <button onClick={() => { setEditingSuggId(s.id); setEditedText(s.text) }} className="p-1 opacity-50 hover:opacity-100 transition-opacity" title="Edit">
-                                          <Edit3 size={10} />
-                                        </button>
-                                        <button onClick={() => navigator.clipboard.writeText(s.text)} className="p-1 opacity-50 hover:opacity-100 transition-opacity" title="Copy">
-                                          <Copy size={10} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                    {editingSuggId === s.id ? (
-                                      <textarea
-                                        autoFocus rows={3}
-                                        value={editedText}
-                                        onChange={e => setEditedText(e.target.value)}
-                                        className="w-full text-xs leading-relaxed bg-white/60 border border-current/20 rounded-lg p-2 resize-none focus:outline-none mb-2"
-                                      />
-                                    ) : (
-                                      <p className="text-xs leading-relaxed mb-1">{s.text}</p>
-                                    )}
-                                    {!editingSuggId && s.reasoning && (
-                                      <p className="text-[10px] opacity-50 leading-relaxed mb-2">{s.reasoning}</p>
-                                    )}
-                                    <div className="flex gap-1.5 mt-2">
-                                      <button
-                                        onClick={() => approveSuggestion(s.id, editingSuggId === s.id ? editedText : undefined)}
-                                        disabled={actionLoading === s.id}
-                                        className="flex-1 text-[11px] font-bold py-1.5 bg-current/10 hover:bg-current/20 rounded-lg disabled:opacity-50 transition-colors"
-                                      >
-                                        {editingSuggId === s.id ? 'Send edited' : 'Send'}
-                                      </button>
-                                      {editingSuggId !== s.id && (
-                                        <button
-                                          onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
-                                          className="flex-1 text-[11px] font-semibold py-1.5 bg-white/50 hover:bg-white/80 border border-current/10 rounded-lg transition-colors"
-                                        >
-                                          Edit
-                                        </button>
-                                      )}
-                                      {editingSuggId === s.id && (
-                                        <button onClick={() => setEditingSuggId(null)} className="px-3 text-[11px] py-1.5 bg-white/30 border border-current/10 rounded-lg">
-                                          Cancel
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={() => dismissSuggestion(s.id)}
-                                        disabled={actionLoading === s.id}
-                                        className="px-2 text-[11px] py-1.5 opacity-40 hover:opacity-70 transition-opacity"
-                                      >
-                                        <X size={12} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Customer summary */}
-                        {contactDetail && (
-                          <div className="p-4">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Customer</p>
-                            <div className="grid grid-cols-2 gap-1.5 mb-3">
-                              {[
-                                { label: 'Since', value: contact.customerSince },
-                                { label: 'Lifetime', value: contact.lifetimeValue != null ? `K${contact.lifetimeValue.toLocaleString()}` : undefined },
-                                { label: 'Avg order', value: contact.avgOrderValue != null ? `K${contact.avgOrderValue.toLocaleString()}` : undefined },
-                                { label: 'Stage', value: contact.pipelineStage?.replace(/_/g, ' ') },
-                              ].filter(r => r.value).map(r => (
-                                <div key={r.label} className="bg-gray-50 rounded-lg p-2">
-                                  <p className="text-[9px] font-bold text-gray-400 uppercase">{r.label}</p>
-                                  <p className="text-xs font-semibold text-gray-700 capitalize truncate">{r.value}</p>
-                                </div>
-                              ))}
-                            </div>
-                            {contactDetail.profile?.personalitySummary && (
-                              <p className="text-xs text-gray-600 leading-relaxed">{contactDetail.profile.personalitySummary}</p>
-                            )}
-                            {contactDetail.relationship && (
-                              <div className="mt-2">
-                                <HealthBar score={contactDetail.relationship.healthScore} size="sm" className="w-full mt-1" />
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Lead score */}
-                        {mode !== 'personal' && (contact.leadScore ?? selectedConv?.leadScore) != null && (
-                          <div className="p-4">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Lead Score</p>
-                            <div className="flex items-center gap-3">
-                              {(() => {
-                                const score = contact.leadScore ?? selectedConv?.leadScore ?? 0
-                                const color = score > 70 ? '#4f46e5' : score > 40 ? '#f59e0b' : '#ef4444'
-                                const circumference = 2 * Math.PI * 22
-                                return (
-                                  <div className="relative w-14 h-14 flex-shrink-0">
-                                    <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
-                                      <circle cx="28" cy="28" r="22" fill="none" stroke="#f3f4f6" strokeWidth="5" />
-                                      <circle cx="28" cy="28" r="22" fill="none" stroke={color} strokeWidth="5"
-                                        strokeDasharray={`${(score / 100) * circumference} ${circumference}`}
-                                        strokeLinecap="round"
-                                      />
-                                    </svg>
-                                    <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-gray-900">{score}</span>
-                                  </div>
-                                )
-                              })()}
-                              <ul className="space-y-0.5">
-                                <li className="text-[10px] text-gray-500 flex items-center gap-1"><CheckCircle size={9} className="text-emerald-500 flex-shrink-0" />Recently asked for pricing</li>
-                                <li className="text-[10px] text-gray-500 flex items-center gap-1"><CheckCircle size={9} className="text-emerald-500 flex-shrink-0" />Responds quickly</li>
-                                <li className="text-[10px] text-gray-500 flex items-center gap-1"><CheckCircle size={9} className="text-emerald-500 flex-shrink-0" />Purchased twice before</li>
-                              </ul>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Suggested actions */}
-                        {mode !== 'personal' && (
-                          <div className="p-4">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Suggested Actions</p>
-                            <div className="space-y-1">
-                              {MOCK_ACTIONS.map(a => {
-                                const Icon = a.icon
-                                return (
-                                  <button key={a.label} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition-colors text-left group">
-                                    <Icon size={12} className="text-gray-400 group-hover:text-indigo-500 flex-shrink-0" />
-                                    {a.label}
-                                    <ChevronRight size={11} className="ml-auto text-gray-300 group-hover:text-indigo-400" />
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* CRM quick actions */}
-                        {mode !== 'personal' && (
-                          <div className="p-4">
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">CRM</p>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              {[
-                                { label: 'Convert customer', icon: UserCheck },
-                                { label: 'Create invoice',   icon: CreditCard },
-                                { label: 'Schedule call',    icon: Calendar },
-                                { label: 'Assign to team',   icon: UserPlus },
-                              ].map(({ label, icon: Icon }) => (
-                                <button key={label} className="flex items-center gap-1.5 px-2.5 py-2 text-[11px] font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors text-left">
-                                  <Icon size={11} className="text-gray-400 flex-shrink-0" />
-                                  <span className="truncate">{label}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Context panel shortcut */}
-                        <div className="p-4">
-                          <button
-                            onClick={() => selectedId && openContext(selectedId)}
-                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors text-left group border border-indigo-100"
-                          >
-                            <Info size={12} className="text-indigo-500 flex-shrink-0" />
-                            View full AI context for this conversation
-                            <ChevronRight size={11} className="ml-auto text-indigo-300" />
-                          </button>
-                        </div>
-                      </>
-                    )}
-
-                    {/* ── Notes ──────────────────────────────────────────────── */}
-                    {aiTab === 'notes' && (
-                      <div className="p-4 space-y-3">
-                        <div className="rounded-xl border border-gray-200 overflow-hidden">
-                          <textarea
-                            value={newNote}
-                            onChange={e => setNewNote(e.target.value)}
-                            placeholder="Private note — only your team can see this…"
-                            rows={3}
-                            className="w-full px-3 py-2.5 text-xs text-gray-700 resize-none focus:outline-none border-b border-gray-100 placeholder-gray-400"
-                          />
-                          <div className="flex justify-end px-3 py-2 bg-gray-50">
-                            <button
-                              onClick={addNote} disabled={!newNote.trim()}
-                              className="text-xs font-semibold px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
-                            >
-                              Add Note
-                            </button>
-                          </div>
-                        </div>
-                        {notes.length === 0 ? (
-                          <div className="text-center py-8">
-                            <StickyNote size={26} className="text-gray-300 mx-auto mb-2" />
-                            <p className="text-xs text-gray-400">No notes yet</p>
-                          </div>
-                        ) : notes.map(n => (
-                          <div key={n.id} className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-                            <p className="text-xs text-gray-800 leading-relaxed">{n.text}</p>
-                            <p className="text-[10px] text-amber-600 mt-1.5">{n.author} · {formatTime(n.createdAt)}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* ── Timeline ───────────────────────────────────────────── */}
-                    {aiTab === 'timeline' && (
-                      <div className="p-4">
-                        <div className="relative">
-                          <div className="absolute left-[18px] top-3 bottom-3 w-px bg-gray-100" />
-                          <div className="space-y-4">
-                            {MOCK_TIMELINE.map(ev => {
-                              const ICONS: Record<TimelineEvent['type'], React.ElementType> = {
-                                message: MessageSquare, purchase: DollarSign, invoice: CreditCard,
-                                note: StickyNote, followup: Bell, complaint: AlertTriangle, appointment: Calendar,
-                              }
-                              const Icon = ICONS[ev.type]
-                              return (
-                                <div key={ev.id} className="flex items-start gap-3">
-                                  <div className="w-6 h-6 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center flex-shrink-0 z-10">
-                                    <Icon size={10} className="text-gray-400" />
-                                  </div>
-                                  <div className="pt-0.5">
-                                    <p className="text-xs font-semibold text-gray-700">{ev.label}</p>
-                                    <p className="text-[10px] text-gray-400">{ev.date}</p>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                <div className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
+                  <IntelPanel
+                    contact={contact}
+                    contactDetail={contactDetail}
+                    selectedConv={selectedConv}
+                    contextData={contextData}
+                    contextLoading={loadingContext}
+                    suggestions={suggestions}
+                    regenerating={regenerating}
+                    actionLoading={actionLoading}
+                    mode={mode}
+                    notes={notes}
+                    newNote={newNote}
+                    editingSuggId={editingSuggId}
+                    editedText={editedText}
+                    aiTab={aiTab}
+                    onTabChange={setAiTab}
+                    onApprove={approveSuggestion}
+                    onDismiss={dismissSuggestion}
+                    onRegenerate={regenerate}
+                    onSetDraft={setDraft}
+                    onAddNote={addNote}
+                    onNoteChange={setNewNote}
+                    onEditSugg={setEditingSuggId}
+                    onEditedTextChange={setEditedText}
+                    onClose={() => setShowAIPanel(false)}
+                    draftFocus={() => draftRef.current?.focus()}
+                  />
                 </div>
               )}
             </div>
           </>
         ) : (
-          /* No conversation selected */
-          <div className="flex-1 flex flex-col items-center justify-center bg-gray-50">
+          <div className="flex-1 flex flex-col items-center justify-center bg-stone-50">
             <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center mb-4">
               <MessageSquare size={28} className="text-gray-400" />
             </div>
             <p className="text-sm font-semibold text-gray-900 mb-1">Select a conversation</p>
-            <p className="text-xs text-gray-500 mb-6">Choose from the list on the left to open a thread.</p>
+            <p className="text-xs text-gray-500 mb-6">Choose from the list on the left.</p>
             <div className="flex items-center gap-5 text-xs text-gray-400">
-              {[['⌘K', 'Search'], ['R', 'Regenerate reply'], ['⌘↵', 'Send message']].map(([key, label]) => (
+              {[['⌘K', 'Search'], ['R', 'Regenerate'], ['⌘↵', 'Send']].map(([key, label]) => (
                 <span key={key} className="flex items-center gap-1.5">
                   <kbd className="px-1.5 py-0.5 bg-white border border-gray-200 rounded text-[10px] font-mono shadow-sm">{key}</kbd>
                   {label}
@@ -1511,64 +1643,48 @@ export default function InboxPage() {
         )}
       </div>
 
-      {/* ── Mobile AI bottom sheet ─────────────────────────────────────────── */}
-      {showMobileAI && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMobileAI(false)} />
-          <div className="relative bg-white rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 bg-indigo-50 rounded-lg flex items-center justify-center">
-                  <Brain size={14} className="text-indigo-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">AI Suggestions</p>
-                  <p className="text-xs text-gray-400">{suggestions.length} option{suggestions.length !== 1 ? 's' : ''}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <button onClick={regenerate} disabled={regenerating} className="flex items-center gap-1 text-xs text-indigo-600 font-semibold disabled:opacity-50">
-                  <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} /> Regenerate
-                </button>
-                <button onClick={() => setShowMobileAI(false)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg">
-                  <X size={16} />
-                </button>
-              </div>
+      {/* ── Mobile: Intel view ───────────────────────────────────────────────── */}
+      {mobileView === 'intel' && selectedId && contact && (
+        <div className="md:hidden flex flex-col flex-1 min-w-0">
+          {/* Mobile intel header */}
+          <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 bg-white flex-shrink-0">
+            <button onClick={() => setMobileView('thread')} className="p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg">
+              <ChevronLeft size={20} />
+            </button>
+            <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
+              <p className="text-xs text-indigo-500 font-medium">AI Intelligence</p>
             </div>
-            <div className="overflow-y-auto p-4 space-y-3 flex-1">
-              {regenerating ? (
-                <div className="flex justify-center py-8">
-                  <div className="w-6 h-6 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-                </div>
-              ) : suggestions.map(s => (
-                <div key={s.id} className={`rounded-xl p-4 border ${TONE_STYLE[s.tone] ?? 'bg-gray-50 border-gray-100'}`}>
-                  <span className="text-[10px] font-bold uppercase tracking-wide capitalize block mb-2">{s.tone}</span>
-                  <p className="text-sm leading-relaxed mb-3">{s.text}</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => approveSuggestion(s.id)}
-                      disabled={actionLoading === s.id}
-                      className="flex-1 text-sm font-bold py-2.5 bg-current/10 hover:bg-current/20 rounded-xl disabled:opacity-50 transition-colors"
-                    >
-                      Send
-                    </button>
-                    <button
-                      onClick={() => { setDraft(s.text); setShowMobileAI(false); draftRef.current?.focus() }}
-                      className="flex-1 text-sm font-semibold py-2.5 bg-white/60 border border-current/10 rounded-xl transition-colors"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => dismissSuggestion(s.id)}
-                      disabled={actionLoading === s.id}
-                      className="px-4 text-sm py-2.5 bg-white/30 border border-current/10 rounded-xl transition-colors"
-                    >
-                      Skip
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <IntelPanel
+              contact={contact}
+              contactDetail={contactDetail}
+              selectedConv={selectedConv}
+              contextData={contextData}
+              contextLoading={loadingContext}
+              suggestions={suggestions}
+              regenerating={regenerating}
+              actionLoading={actionLoading}
+              mode={mode}
+              notes={notes}
+              newNote={newNote}
+              editingSuggId={editingSuggId}
+              editedText={editedText}
+              aiTab={aiTab}
+              onTabChange={setAiTab}
+              onApprove={approveSuggestion}
+              onDismiss={dismissSuggestion}
+              onRegenerate={regenerate}
+              onSetDraft={text => { setDraft(text); setMobileView('thread') }}
+              onAddNote={addNote}
+              onNoteChange={setNewNote}
+              onEditSugg={setEditingSuggId}
+              onEditedTextChange={setEditedText}
+              onClose={() => setMobileView('thread')}
+              draftFocus={() => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
+            />
           </div>
         </div>
       )}
