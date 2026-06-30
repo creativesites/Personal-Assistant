@@ -502,4 +502,74 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       },
     });
   });
+
+  // ── POST /api/conversations/:id/summarize ─────────────────────────────────
+
+  fastify.post('/api/conversations/:id/summarize', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const conv = await db.query('SELECT id FROM conversations WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!conv.rows.length) return reply.code(404).send({ error: 'Not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/summarize?user_id=${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Intelligence service unavailable' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/followup ──────────────────────────────────
+
+  fastify.post('/api/conversations/:id/followup', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const conv = await db.query('SELECT id FROM conversations WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!conv.rows.length) return reply.code(404).send({ error: 'Not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/followup?user_id=${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Intelligence service unavailable' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/ask ──────────────────────────────────────
+
+  fastify.post('/api/conversations/:id/ask', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { question } = request.body as { question?: string };
+
+    if (!question?.trim()) return reply.code(400).send({ error: 'question is required' });
+
+    const conv = await db.query('SELECT id FROM conversations WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!conv.rows.length) return reply.code(404).send({ error: 'Not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, question }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Intelligence service unavailable' });
+    }
+  });
 }

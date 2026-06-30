@@ -10,6 +10,7 @@ import {
   UserCheck, FileText, WifiOff, Lightbulb, Activity,
   ShoppingCart, MessageCircle, MapPin, Download, Film,
   Image, Phone, Mic, Target, Hash, BarChart2,
+  ChevronDown, Heart, TrendingDown, Wand2,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -499,6 +500,8 @@ interface IntelPanelProps {
   editingSuggId: string | null
   editedText: string
   aiTab: AITab
+  messages: Message[]
+  noteRef: React.RefObject<HTMLTextAreaElement | null>
   onTabChange: (t: AITab) => void
   onApprove: (id: string, custom?: string) => void
   onDismiss: (id: string) => void
@@ -515,7 +518,7 @@ interface IntelPanelProps {
 function IntelPanel({
   contact, contactDetail, selectedConv, contextData, contextLoading,
   suggestions, regenerating, actionLoading, mode, notes, newNote,
-  editingSuggId, editedText, aiTab, onTabChange,
+  editingSuggId, editedText, aiTab, messages, noteRef, onTabChange,
   onApprove, onDismiss, onRegenerate, onSetDraft,
   onAddNote, onNoteChange, onEditSugg, onEditedTextChange, onClose, draftFocus,
 }: IntelPanelProps) {
@@ -707,6 +710,67 @@ function IntelPanel({
                 </div>
               </div>
             )}
+
+            {/* Communication Style */}
+            {(contextData?.communicationStyle || contactDetail?.profile?.communicationStyle) && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Communication Style</p>
+                <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 flex items-start gap-2.5">
+                  <MessageCircle size={13} className="text-blue-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-900 capitalize leading-snug">
+                      {contextData?.communicationStyle ?? contactDetail?.profile?.communicationStyle}
+                    </p>
+                    <p className="text-[10px] text-blue-500 mt-0.5">Preferred style detected by AI</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Interests & Passions */}
+            {contactDetail?.profile?.topInterests && contactDetail.profile.topInterests.length > 0 && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Interests & Passions</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {contactDetail.profile.topInterests.map(interest => (
+                    <span key={interest} className="flex items-center gap-1 px-2.5 py-1 bg-purple-50 text-purple-700 text-[11px] font-medium rounded-full border border-purple-100 capitalize">
+                      <Heart size={9} className="flex-shrink-0" />
+                      {interest}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Buying Signals (dedicated card when present) */}
+            {mode !== 'personal' && contextData?.buyingSignals && contextData.buyingSignals.length > 0 && (
+              <div className="p-4">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Buying Signals</p>
+                <div className="space-y-1.5">
+                  {contextData.buyingSignals.map((signal, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <TrendingUp size={11} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-gray-700 leading-relaxed">{signal}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Dormant relationship alert */}
+            {selectedConv && selectedConv.healthScore < 35 && (
+              <div className="p-4">
+                <div className="bg-amber-50 rounded-xl p-3.5 border border-amber-200 flex items-start gap-2.5">
+                  <TrendingDown size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-amber-900 mb-0.5">Relationship needs attention</p>
+                    <p className="text-[11px] text-amber-700 leading-relaxed">
+                      Health score is low ({selectedConv.healthScore}/100). This contact may be drifting — a warm follow-up could help.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -793,6 +857,7 @@ function IntelPanel({
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Private Notes</p>
               <div className="rounded-xl border border-gray-200 overflow-hidden">
                 <textarea
+                  ref={noteRef}
                   value={newNote}
                   onChange={e => onNoteChange(e.target.value)}
                   placeholder="Add a private note — only your team sees this…"
@@ -962,6 +1027,61 @@ function IntelPanel({
                 </div>
               </div>
             </div>
+
+            {/* Conversation stats */}
+            {messages.length > 0 && (() => {
+              const sentCount = messages.filter(m => m.senderType === 'user').length
+              const recvCount = messages.filter(m => m.senderType === 'contact').length
+              const total = messages.length
+              const sentPct = Math.round((sentCount / total) * 100)
+              const recvPct = 100 - sentPct
+
+              // Rough avg response time: time between contact msg → next user msg
+              let totalGapMs = 0; let gapCount = 0
+              for (let i = 1; i < messages.length; i++) {
+                if (messages[i].senderType === 'user' && messages[i - 1].senderType === 'contact') {
+                  totalGapMs += new Date(messages[i].timestamp).getTime() - new Date(messages[i - 1].timestamp).getTime()
+                  gapCount++
+                }
+              }
+              const avgResponseMin = gapCount > 0 ? Math.round(totalGapMs / gapCount / 60000) : null
+
+              return (
+                <div className="p-4 border-t border-gray-50">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Conversation Stats</p>
+                  <div className="space-y-2.5">
+                    <div>
+                      <div className="flex justify-between text-[11px] mb-1">
+                        <span className="text-gray-500">You sent</span>
+                        <span className="font-semibold text-gray-700">{sentCount} msg ({sentPct}%)</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-400 rounded-full transition-all" style={{ width: `${sentPct}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[11px] mb-1">
+                        <span className="text-gray-500">They sent</span>
+                        <span className="font-semibold text-gray-700">{recvCount} msg ({recvPct}%)</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${recvPct}%` }} />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-gray-400">{total} messages total</span>
+                      {avgResponseMin !== null && (
+                        <span className="text-[10px] text-gray-400">
+                          Avg reply <span className="font-semibold text-gray-600">
+                            {avgResponseMin < 60 ? `${avgResponseMin}m` : `${Math.round(avgResponseMin / 60)}h`}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -1042,10 +1162,17 @@ export default function InboxPage() {
   const [editedText, setEditedText] = useState('')
   const [isOnline, setIsOnline] = useState(true)
 
+  // AI Actions state
+  const [showAIActions, setShowAIActions] = useState(false)
+  const [aiActionLoading, setAIActionLoading] = useState<string | null>(null)
+  const [aiActionResult, setAIActionResult] = useState<{ label: string; text: string } | null>(null)
+  const [aiAskInput, setAIAskInput] = useState('')
+
   const selectedIdRef = useRef<string | null>(null)
   const selectedMsgIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -1205,6 +1332,52 @@ export default function InboxPage() {
     if (!newNote.trim()) return
     setNotes(prev => [{ id: `n-${Date.now()}`, text: newNote.trim(), author: userName, createdAt: new Date().toISOString() }, ...prev])
     setNewNote('')
+  }
+
+  const aiSummarize = async () => {
+    if (!selectedId || !token) return
+    setAIActionLoading('summarize')
+    try {
+      const data = await apiClient<{ summary: string }>(`/api/conversations/${selectedId}/summarize`, { method: 'POST', token })
+      setAIActionResult({ label: 'AI Summary', text: data.summary })
+    } catch {
+      setAIActionResult({ label: 'AI Summary', text: 'Could not generate summary. Make sure the intelligence service is running.' })
+    } finally {
+      setAIActionLoading(null)
+    }
+  }
+
+  const aiFollowup = async () => {
+    if (!selectedId || !token) return
+    setAIActionLoading('followup')
+    try {
+      const data = await apiClient<{ followup: string }>(`/api/conversations/${selectedId}/followup`, { method: 'POST', token })
+      setDraft(data.followup)
+      setShowAIActions(false)
+      setAIActionResult(null)
+      setTimeout(() => draftRef.current?.focus(), 50)
+    } catch {
+      setAIActionResult({ label: 'Follow-up', text: 'Could not generate follow-up.' })
+    } finally {
+      setAIActionLoading(null)
+    }
+  }
+
+  const aiAsk = async () => {
+    if (!selectedId || !token || !aiAskInput.trim()) return
+    const question = aiAskInput.trim()
+    setAIActionLoading('ask')
+    setAIAskInput('')
+    try {
+      const data = await apiClient<{ answer: string }>(`/api/conversations/${selectedId}/ask`, {
+        method: 'POST', token, body: JSON.stringify({ question }),
+      })
+      setAIActionResult({ label: `Q: ${question.slice(0, 40)}${question.length > 40 ? '…' : ''}`, text: data.answer })
+    } catch {
+      setAIActionResult({ label: 'Ask AI', text: 'Could not get an answer.' })
+    } finally {
+      setAIActionLoading(null)
+    }
   }
 
   // ── Filtering ────────────────────────────────────────────────────────────────
@@ -1407,12 +1580,20 @@ export default function InboxPage() {
                 </p>
               </div>
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Add note" onClick={() => { setShowAIPanel(true); setAiTab('memory') }}>
+                <button
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  title="Add note"
+                  onClick={() => { setShowAIPanel(true); setAiTab('memory'); setTimeout(() => noteRef.current?.focus(), 150) }}
+                >
                   <StickyNote size={16} />
                 </button>
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Open CRM">
+                <a
+                  href={`/contacts/${contact.id}`}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  title="View full profile"
+                >
                   <ExternalLink size={16} />
-                </button>
+                </a>
                 <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Archive">
                   <Archive size={16} />
                 </button>
@@ -1521,6 +1702,79 @@ export default function InboxPage() {
 
                 {/* Reply dock */}
                 <div className="border-t border-gray-200 bg-white flex-shrink-0">
+
+                  {/* AI result card */}
+                  {aiActionResult && (
+                    <div className="mx-3 mt-2 bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
+                      <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                        <div className="flex items-center gap-1.5">
+                          <Sparkles size={11} className="text-indigo-500" />
+                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{aiActionResult.label}</p>
+                        </div>
+                        <button onClick={() => setAIActionResult(null)} className="p-0.5 text-indigo-300 hover:text-indigo-500 transition-colors">
+                          <X size={11} />
+                        </button>
+                      </div>
+                      <p className="px-3 pb-2.5 text-xs text-gray-700 leading-relaxed">{aiActionResult.text}</p>
+                      <div className="flex border-t border-indigo-100">
+                        <button
+                          onClick={() => { setDraft(aiActionResult.text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
+                          className="flex-1 text-[11px] font-semibold text-indigo-700 py-2 hover:bg-indigo-100 transition-colors"
+                        >
+                          Use as draft
+                        </button>
+                        <div className="w-px bg-indigo-100" />
+                        <button
+                          onClick={() => setAIActionResult(null)}
+                          className="flex-1 text-[11px] text-gray-500 py-2 hover:bg-gray-50 transition-colors"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Actions expanded panel */}
+                  {showAIActions && (
+                    <div className="mx-3 mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          onClick={aiSummarize}
+                          disabled={aiActionLoading === 'summarize'}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors"
+                        >
+                          {aiActionLoading === 'summarize' ? <RefreshCw size={10} className="animate-spin" /> : <FileText size={10} />}
+                          Summarize
+                        </button>
+                        <button
+                          onClick={aiFollowup}
+                          disabled={aiActionLoading === 'followup'}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors"
+                        >
+                          {aiActionLoading === 'followup' ? <RefreshCw size={10} className="animate-spin" /> : <ChevronRight size={10} />}
+                          Follow-up draft
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={aiAskInput}
+                          onChange={e => setAIAskInput(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiAsk() } }}
+                          placeholder="Ask AI anything about this conversation…"
+                          className="flex-1 text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400"
+                        />
+                        <button
+                          onClick={aiAsk}
+                          disabled={!aiAskInput.trim() || aiActionLoading === 'ask'}
+                          className="flex items-center gap-1 px-3 py-2 text-[11px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+                        >
+                          {aiActionLoading === 'ask' ? <RefreshCw size={10} className="animate-spin" /> : <Wand2 size={10} />}
+                          Ask
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Suggestion chips */}
                   {suggestions.length > 0 && (
                     <div className="px-3 pt-3 pb-0 grid grid-cols-3 gap-1.5">
@@ -1573,19 +1827,29 @@ export default function InboxPage() {
                         <Send size={15} />
                       </button>
                     </div>
-                    {selectedMsgId && (
-                      <div className="flex items-center justify-between mt-1.5">
+                    <div className="flex items-center justify-between mt-1.5">
+                      <div className="flex items-center gap-3">
+                        {selectedMsgId && (
+                          <button
+                            onClick={regenerate}
+                            disabled={regenerating}
+                            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
+                          >
+                            <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
+                            {regenerating ? 'Generating…' : 'Regenerate reply'}
+                          </button>
+                        )}
                         <button
-                          onClick={regenerate}
-                          disabled={regenerating}
-                          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
+                          onClick={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
+                          className={`flex items-center gap-1 text-xs font-medium transition-colors ${showAIActions ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-600'}`}
                         >
-                          <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
-                          {regenerating ? 'Generating…' : 'Regenerate AI reply'}
+                          <Sparkles size={11} />
+                          AI Actions
+                          <ChevronDown size={10} className={`transition-transform ${showAIActions ? 'rotate-180' : ''}`} />
                         </button>
-                        <span className="text-[10px] text-gray-400">R · ⌘↵</span>
                       </div>
-                    )}
+                      <span className="text-[10px] text-gray-400">⌘↵</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1608,6 +1872,8 @@ export default function InboxPage() {
                     editingSuggId={editingSuggId}
                     editedText={editedText}
                     aiTab={aiTab}
+                    messages={messages}
+                    noteRef={noteRef}
                     onTabChange={setAiTab}
                     onApprove={approveSuggestion}
                     onDismiss={dismissSuggestion}
@@ -1673,6 +1939,8 @@ export default function InboxPage() {
               editingSuggId={editingSuggId}
               editedText={editedText}
               aiTab={aiTab}
+              messages={messages}
+              noteRef={noteRef}
               onTabChange={setAiTab}
               onApprove={approveSuggestion}
               onDismiss={dismissSuggestion}
