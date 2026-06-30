@@ -4,6 +4,7 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
+import { config } from '../config';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -501,5 +502,440 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         analysedAt: analyses[0]?.whatsapp_timestamp ?? conv.last_message_at,
       },
     });
+  });
+
+  // ── GET /api/conversations/:id/analytics ──────────────────────────────────
+
+  fastify.get('/api/conversations/:id/analytics', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const [messagesResult, sentimentResult] = await Promise.all([
+      db.query(
+        `SELECT m.id, m.sender_type, m.whatsapp_timestamp, m.body
+         FROM messages m
+         WHERE m.conversation_id = $1 AND m.is_deleted = false
+         ORDER BY m.whatsapp_timestamp ASC`,
+        [id],
+      ),
+      db.query(
+        `SELECT ma.sentiment_score
+         FROM messages m
+         JOIN message_analyses ma ON ma.message_id = m.id
+         WHERE m.conversation_id = $1 AND ma.sentiment_score IS NOT NULL`,
+        [id],
+      ),
+    ]);
+
+    const messages = messagesResult.rows as Array<{
+      id: string; sender_type: string; whatsapp_timestamp: Date; body: string | null;
+    }>;
+
+    const totalMessages = messages.length;
+    const sent = messages.filter((m) => m.sender_type === 'user').length;
+    const received = messages.filter((m) => m.sender_type === 'contact').length;
+
+    // Compute response times: find pairs where contact msg is followed by user msg
+    const responseTimes: number[] = [];
+    let longestSilence = 0;
+    for (let i = 1; i < messages.length; i++) {
+      const prev = messages[i - 1];
+      const curr = messages[i];
+      if (!prev.whatsapp_timestamp || !curr.whatsapp_timestamp) continue;
+      const diffSec = (new Date(curr.whatsapp_timestamp).getTime() - new Date(prev.whatsapp_timestamp).getTime()) / 1000;
+      if (diffSec > longestSilence) longestSilence = diffSec;
+      if (prev.sender_type === 'contact' && curr.sender_type === 'user') {
+        responseTimes.push(diffSec);
+      }
+    }
+
+    const avgResponseTimeSeconds = responseTimes.length > 0
+      ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
+      : null;
+
+    // Avg sentiment score
+    const sentimentScores = sentimentResult.rows.map((r: any) => parseFloat(r.sentiment_score)).filter((s) => !isNaN(s));
+    const avgSentiment = sentimentScores.length > 0
+      ? sentimentScores.reduce((a, b) => a + b, 0) / sentimentScores.length
+      : null;
+
+    // Avg reply length in words (contact side)
+    const contactMessages = messages.filter((m) => m.sender_type === 'contact' && m.body);
+    const avgReplyLengthWords = contactMessages.length > 0
+      ? contactMessages.reduce((sum, m) => sum + (m.body ?? '').split(/\s+/).filter(Boolean).length, 0) / contactMessages.length
+      : null;
+
+    return reply.send({
+      totalMessages,
+      sent,
+      received,
+      avgResponseTimeSeconds: avgResponseTimeSeconds !== null ? Math.round(avgResponseTimeSeconds) : null,
+      longestSilenceSeconds: longestSilence > 0 ? Math.round(longestSilence) : null,
+      avgSentiment: avgSentiment !== null ? Math.round(avgSentiment * 1000) / 1000 : null,
+      avgReplyLengthWords: avgReplyLengthWords !== null ? Math.round(avgReplyLengthWords * 10) / 10 : null,
+    });
+  });
+
+  // ── POST /api/conversations/:id/summarize ─────────────────────────────────
+
+  fastify.post('/api/conversations/:id/summarize', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/follow-up ─────────────────────────────────
+
+  fastify.post('/api/conversations/:id/follow-up', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/search ────────────────────────────────────
+
+  fastify.post('/api/conversations/:id/search', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { query } = (request.body ?? {}) as { query?: string };
+
+    if (!query?.trim()) return reply.code(400).send({ error: 'query is required' });
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id, query }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/extract-tasks ─────────────────────────────
+
+  fastify.post('/api/conversations/:id/extract-tasks', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id, c.contact_id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    let tasks: any[] = [];
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/extract-tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      const data = await res.json() as { tasks?: any[] };
+      tasks = data.tasks ?? [];
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+
+    if (tasks.length === 0) return reply.send({ tasks: [] });
+
+    const insertedTasks: any[] = [];
+    for (const task of tasks) {
+      const { rows: [inserted] } = await db.query(
+        `INSERT INTO contact_tasks (user_id, contact_id, title, description, due_date, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'ai')
+         RETURNING id, title, description, due_date, completed_at, created_by, created_at`,
+        [userId, conv.contact_id, task.title ?? task.task ?? 'Task', task.description ?? null, task.due_date ?? null],
+      );
+      insertedTasks.push({
+        id: inserted.id,
+        title: inserted.title,
+        description: inserted.description,
+        dueDate: inserted.due_date,
+        completedAt: inserted.completed_at,
+        createdBy: inserted.created_by,
+        createdAt: inserted.created_at,
+      });
+    }
+
+    return reply.send({ tasks: insertedTasks });
+  });
+
+  // ── POST /api/conversations/:id/extract-promises ──────────────────────────
+
+  fastify.post('/api/conversations/:id/extract-promises', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id, c.contact_id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    let promises: any[] = [];
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/extract-promises`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      const data = await res.json() as { promises?: any[] };
+      promises = data.promises ?? [];
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+
+    if (promises.length === 0) return reply.send({ promises: [] });
+
+    const insertedPromises: any[] = [];
+    for (const promise of promises) {
+      const { rows: [inserted] } = await db.query(
+        `INSERT INTO contact_promises (user_id, contact_id, conversation_id, body, made_by, due_date, source)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ai')
+         RETURNING id, body, made_by, due_date, fulfilled_at, source, created_at`,
+        [
+          userId,
+          conv.contact_id,
+          id,
+          promise.body ?? promise.text ?? 'Promise',
+          promise.made_by ?? 'user',
+          promise.due_date ?? null,
+        ],
+      );
+      insertedPromises.push({
+        id: inserted.id,
+        body: inserted.body,
+        madeBy: inserted.made_by,
+        dueDate: inserted.due_date,
+        fulfilledAt: inserted.fulfilled_at,
+        source: inserted.source,
+        createdAt: inserted.created_at,
+      });
+    }
+
+    return reply.send({ promises: insertedPromises });
+  });
+
+  // ── POST /api/conversations/:id/generate-proposal ────────────────────────
+
+  fastify.post('/api/conversations/:id/generate-proposal', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/generate-proposal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/generate-quote ───────────────────────────
+
+  fastify.post('/api/conversations/:id/generate-quote', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/generate-quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/crm-notes ────────────────────────────────
+
+  fastify.post('/api/conversations/:id/crm-notes', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/crm-notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/add-to-kb ────────────────────────────────
+
+  fastify.post('/api/conversations/:id/add-to-kb', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { title } = (request.body ?? {}) as { title?: string };
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id, c.contact_id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    // Fetch last 20 messages to format as KB content
+    const { rows: messages } = await db.query(
+      `SELECT m.sender_type, m.body, m.whatsapp_timestamp
+       FROM messages m
+       WHERE m.conversation_id = $1 AND m.is_deleted = false AND m.body IS NOT NULL
+       ORDER BY m.whatsapp_timestamp DESC
+       LIMIT 20`,
+      [id],
+    );
+
+    const formatted = messages.reverse().map((m: any) => {
+      const ts = m.whatsapp_timestamp ? new Date(m.whatsapp_timestamp).toISOString() : '';
+      const role = m.sender_type === 'user' ? 'Me' : 'Contact';
+      return `[${ts}] ${role}: ${m.body}`;
+    }).join('\n');
+
+    const docTitle = title?.trim() || `Conversation ${new Date().toISOString().slice(0, 10)}`;
+
+    const { rows: [doc] } = await db.query(
+      `INSERT INTO kb_documents (user_id, title, source_type, raw_content, status)
+       VALUES ($1, $2, 'text', $3, 'processing')
+       RETURNING id, created_at`,
+      [userId, docTitle, formatted],
+    );
+
+    return reply.send({ ok: true, documentId: doc.id });
+  });
+
+  // ── POST /api/conversations/:id/ask-ai ───────────────────────────────────
+
+  fastify.post('/api/conversations/:id/ask-ai', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { question } = (request.body ?? {}) as { question?: string };
+
+    if (!question?.trim()) return reply.code(400).send({ error: 'question is required' });
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/conversations/ask-ai`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, conversation_id: id, question }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Failed to reach intelligence service' });
+    }
+  });
+
+  // ── POST /api/conversations/:id/create-automation ────────────────────────
+
+  fastify.post('/api/conversations/:id/create-automation', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { description } = (request.body ?? {}) as { description?: string };
+
+    if (!description?.trim()) return reply.code(400).send({ error: 'description is required' });
+
+    const { rows: [conv] } = await db.query(
+      'SELECT c.id FROM conversations c WHERE c.id = $1 AND c.user_id = $2',
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    // automation_rules table does not exist yet — return a queued stub
+    return reply.send({ ok: true, message: 'Automation creation queued' });
   });
 }

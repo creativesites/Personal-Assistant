@@ -803,6 +803,164 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ ok: true });
   });
 
+  // ── Mute contact ──────────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/mute', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rowCount } = await db.query(
+      'UPDATE contacts SET muted_at = NOW(), updated_at = NOW() WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Contact not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Unmute contact ────────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/mute', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rowCount } = await db.query(
+      'UPDATE contacts SET muted_at = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Contact not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Block contact ─────────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/block', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rowCount } = await db.query(
+      'UPDATE contacts SET blocked_at = NOW(), updated_at = NOW() WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Contact not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Unblock contact ───────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/block', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rowCount } = await db.query(
+      'UPDATE contacts SET blocked_at = NULL, updated_at = NOW() WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Contact not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Promises — list ───────────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/promises', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, body, made_by, due_date, fulfilled_at, source, created_at
+       FROM contact_promises
+       WHERE contact_id = $1 AND user_id = $2
+       ORDER BY created_at DESC`,
+      [id, userId],
+    );
+
+    return reply.send({ promises: rows.map((r: any) => ({
+      id: r.id,
+      body: r.body,
+      madeBy: r.made_by,
+      dueDate: r.due_date,
+      fulfilledAt: r.fulfilled_at,
+      source: r.source,
+      createdAt: r.created_at,
+    })) });
+  });
+
+  // ── Promises — create ─────────────────────────────────────────────────────
+  fastify.post('/api/contacts/:id/promises', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { body?: string; madeBy?: string; dueDate?: string };
+
+    if (!body.body?.trim()) return reply.code(400).send({ error: 'body is required' });
+
+    const validMadeBy = ['user', 'contact'];
+    const madeBy = validMadeBy.includes(body.madeBy ?? '') ? body.madeBy : 'user';
+
+    const { rows: [promise] } = await db.query(
+      `INSERT INTO contact_promises (user_id, contact_id, body, made_by, due_date, source)
+       VALUES ($1, $2, $3, $4, $5, 'manual')
+       RETURNING id, body, made_by, due_date, fulfilled_at, source, created_at`,
+      [userId, id, body.body.trim(), madeBy, body.dueDate ?? null],
+    );
+
+    return reply.code(201).send({ promise: {
+      id: promise.id,
+      body: promise.body,
+      madeBy: promise.made_by,
+      dueDate: promise.due_date,
+      fulfilledAt: promise.fulfilled_at,
+      source: promise.source,
+      createdAt: promise.created_at,
+    } });
+  });
+
+  // ── Promises — update ─────────────────────────────────────────────────────
+  fastify.patch('/api/contacts/:id/promises/:promiseId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, promiseId } = request.params as { id: string; promiseId: string };
+    const body = request.body as { fulfilledAt?: string | null; body?: string; dueDate?: string };
+
+    const sets: string[] = [];
+    const values: unknown[] = [promiseId, userId, id];
+    let idx = 4;
+
+    if (body.body !== undefined)        { sets.push(`body = $${idx++}`);         values.push(body.body.trim()); }
+    if (body.dueDate !== undefined)     { sets.push(`due_date = $${idx++}`);     values.push(body.dueDate || null); }
+    if ('fulfilledAt' in body)          { sets.push(`fulfilled_at = $${idx++}`); values.push(body.fulfilledAt || null); }
+
+    if (sets.length === 0) return reply.code(400).send({ error: 'Nothing to update' });
+    sets.push('updated_at = NOW()');
+
+    const { rowCount } = await db.query(
+      `UPDATE contact_promises SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2 AND contact_id = $3`,
+      values,
+    );
+
+    if (!rowCount) return reply.code(404).send({ error: 'Promise not found' });
+
+    const { rows: [promise] } = await db.query(
+      'SELECT id, body, made_by, due_date, fulfilled_at, source, created_at FROM contact_promises WHERE id = $1',
+      [promiseId],
+    );
+
+    return reply.send({ promise: {
+      id: promise.id,
+      body: promise.body,
+      madeBy: promise.made_by,
+      dueDate: promise.due_date,
+      fulfilledAt: promise.fulfilled_at,
+      source: promise.source,
+      createdAt: promise.created_at,
+    } });
+  });
+
+  // ── Promises — delete ─────────────────────────────────────────────────────
+  fastify.delete('/api/contacts/:id/promises/:promiseId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, promiseId } = request.params as { id: string; promiseId: string };
+
+    await db.query(
+      'DELETE FROM contact_promises WHERE id = $1 AND user_id = $2 AND contact_id = $3',
+      [promiseId, userId, id],
+    );
+
+    return reply.send({ ok: true });
+  });
+
   // ── Contact messages ──────────────────────────────────────────────────────
   fastify.get('/api/contacts/:id/messages', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
