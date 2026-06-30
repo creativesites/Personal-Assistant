@@ -641,6 +641,292 @@ function AiSignalsFeed({ leads, onLeadClick }: { leads: Lead[]; onLeadClick: (l:
   );
 }
 
+// ─── Pipeline funnel ──────────────────────────────────────────────────────────
+
+const FUNNEL_STAGES = STAGES.filter(s => s.key !== 'won' && s.key !== 'lost');
+
+function PipelineFunnel({ leads, onStageClick }: { leads: Lead[]; onStageClick: (stage: string) => void }) {
+  const now = Date.now();
+
+  const stageStatsFinal = FUNNEL_STAGES.map(stage => {
+    const sl = leads.filter(l => (l.pipelineStage ?? 'new_lead') === stage.key);
+    const stalled = sl.filter(l => l.lastMessageAt && (now - new Date(l.lastMessageAt).getTime()) / 86400000 > 7).length;
+    const hot = sl.filter(l => l.leadScore >= 70).length;
+    return { ...stage, count: sl.length, stalled, hot };
+  });
+
+  const maxCount = Math.max(...stageStatsFinal.map(s => s.count), 1);
+  const total = leads.filter(l => l.pipelineStage !== 'won' && l.pipelineStage !== 'lost').length;
+  const won = leads.filter(l => l.pipelineStage === 'won').length;
+  const lost = leads.filter(l => l.pipelineStage === 'lost').length;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-sm text-gray-900">Pipeline Funnel</h3>
+        <div className="flex items-center gap-3 text-xs text-gray-400">
+          {won > 0 && <span className="text-green-600 font-medium">{won} won</span>}
+          {lost > 0 && <span className="text-red-500">{lost} lost</span>}
+          <span>{total} active</span>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        {stageStatsFinal.map((stage, i) => {
+          const pct = total > 0 ? Math.round((stage.count / total) * 100) : 0;
+          const prevCount = i > 0 ? stageStatsFinal[i - 1].count : null;
+          const conv = prevCount && prevCount > 0 ? Math.round((stage.count / prevCount) * 100) : null;
+          const barW = Math.max((stage.count / maxCount) * 100, stage.count > 0 ? 4 : 0);
+          return (
+            <div key={stage.key}>
+              {i > 0 && conv !== null && stage.count > 0 && (
+                <div className="flex items-center gap-2 py-0.5">
+                  <span className="text-xs text-gray-300 w-20 text-right flex-shrink-0">↓</span>
+                  <span className="text-xs text-gray-400">{conv}% advance</span>
+                </div>
+              )}
+              <button
+                onClick={() => onStageClick(stage.key)}
+                className="w-full flex items-center gap-3 group"
+              >
+                <span className="text-xs text-gray-500 w-20 text-right flex-shrink-0 group-hover:text-indigo-600 transition-colors">
+                  {stage.label}
+                </span>
+                <div className="flex-1 relative h-8 bg-gray-50 rounded-lg overflow-hidden border border-transparent group-hover:border-indigo-100 transition-colors">
+                  <div
+                    className={cn('h-full rounded-lg opacity-60', stage.dot.replace('-400', '-200').replace('bg-', 'bg-'))}
+                    style={{ width: `${barW}%` }}
+                  />
+                  <div className="absolute inset-0 flex items-center px-2 gap-2">
+                    <span className="text-xs font-semibold text-gray-700">
+                      {stage.count > 0 ? stage.count : '—'}
+                    </span>
+                    {stage.stalled > 0 && (
+                      <span className="text-xs text-amber-500">{stage.stalled} stalled</span>
+                    )}
+                    {stage.hot > 0 && (
+                      <span className="text-xs text-green-600">{stage.hot} hot</span>
+                    )}
+                  </div>
+                </div>
+                <span className="text-xs text-gray-400 w-8 text-right flex-shrink-0">{pct}%</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── AI pipeline types + helpers ──────────────────────────────────────────────
+
+type AIPriority = 'critical' | 'high' | 'opportunity' | 'nurture' | 'stale';
+
+interface AIAction {
+  priority: AIPriority;
+  action: string;
+  actionType: 'reply' | 'advance' | 'reengage' | 'open';
+  targetStage?: string;
+  reason: string;
+}
+
+const PRIORITY_RANK: Record<AIPriority, number> = { critical: 0, high: 1, opportunity: 2, nurture: 3, stale: 4 };
+const PRIORITY_STYLE: Record<AIPriority, { border: string; text: string; dot: string; badge: string; label: string }> = {
+  critical:    { border: 'border-red-200',    text: 'text-red-700',    dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700',    label: 'Reply Now' },
+  high:        { border: 'border-orange-200', text: 'text-orange-700', dot: 'bg-orange-400', badge: 'bg-orange-50 text-orange-700', label: 'High Priority' },
+  opportunity: { border: 'border-indigo-200', text: 'text-indigo-700', dot: 'bg-indigo-400', badge: 'bg-indigo-50 text-indigo-700', label: 'Opportunity' },
+  nurture:     { border: 'border-gray-200',   text: 'text-gray-600',   dot: 'bg-gray-400',   badge: 'bg-gray-100 text-gray-600',   label: 'Nurture' },
+  stale:       { border: 'border-amber-200',  text: 'text-amber-700',  dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700',  label: 'Re-engage' },
+};
+
+function getAIAction(lead: Lead): AIAction {
+  const now = Date.now();
+  const daysSince = lead.lastMessageAt
+    ? Math.floor((now - new Date(lead.lastMessageAt).getTime()) / 86400000)
+    : null;
+
+  if (lead.hasRequiresResponse || lead.maxUrgency === 'urgent') {
+    return { priority: 'critical', action: 'Reply now', actionType: 'reply', reason: 'Awaiting your response' };
+  }
+  if (lead.maxUrgency === 'high') {
+    return { priority: 'high', action: 'Follow up', actionType: 'open', reason: 'High urgency signal detected' };
+  }
+  if (lead.leadScore >= 75 && (lead.pipelineStage === 'new_lead' || !lead.pipelineStage)) {
+    return { priority: 'opportunity', action: 'Move to Contacted', actionType: 'advance', targetStage: 'contacted', reason: `Score ${lead.leadScore} — ready to progress` };
+  }
+  if (lead.leadScore >= 70 && lead.pipelineStage === 'contacted') {
+    return { priority: 'opportunity', action: 'Mark as Qualified', actionType: 'advance', targetStage: 'qualified', reason: `Score ${lead.leadScore} + buying signals` };
+  }
+  if (lead.interestInsights.length >= 2 && lead.pipelineStage === 'qualified') {
+    return { priority: 'opportunity', action: 'Send Proposal', actionType: 'advance', targetStage: 'proposal', reason: `${lead.interestInsights.length} buying signals` };
+  }
+  if (daysSince !== null && daysSince > 14) {
+    return { priority: 'stale', action: 'Re-engage', actionType: 'open', reason: `${daysSince} days without contact` };
+  }
+  if (daysSince !== null && daysSince > 7) {
+    return { priority: 'nurture', action: 'Check in', actionType: 'open', reason: `Last contact ${daysSince}d ago` };
+  }
+  return { priority: 'nurture', action: 'View lead', actionType: 'open', reason: 'Maintain relationship' };
+}
+
+// ─── AI focus card ────────────────────────────────────────────────────────────
+
+function AIFocusCard({
+  lead,
+  aiAction,
+  onClick,
+  onAdvance,
+}: {
+  lead: Lead;
+  aiAction: AIAction;
+  onClick: () => void;
+  onAdvance: (id: string, stage: string) => void;
+}) {
+  const style = PRIORITY_STYLE[aiAction.priority];
+  const topInsight = lead.interestInsights[0] ?? lead.insights[0] ?? null;
+  const stage = getStage(lead.pipelineStage);
+
+  async function handleAction(e: { stopPropagation(): void }) {
+    e.stopPropagation();
+    if (aiAction.actionType === 'advance' && aiAction.targetStage) {
+      onAdvance(lead.id, aiAction.targetStage);
+    } else {
+      onClick();
+    }
+  }
+
+  return (
+    <div className={cn('bg-white border rounded-xl p-4 hover:shadow-md transition-all', style.border)}>
+      <div className="flex items-start gap-3">
+        <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="md" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={onClick} className="font-semibold text-gray-900 text-sm hover:text-indigo-600 truncate">
+              {lead.name}
+            </button>
+            <ScoreRing score={lead.leadScore} />
+          </div>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {lead.company && <span className="text-xs text-gray-400 truncate">{lead.company}</span>}
+            <span className={cn('inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full', stage.color)}>
+              <span className={cn('w-1 h-1 rounded-full', stage.dot)} />
+              {stage.label}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 bg-gray-50 rounded-lg p-2.5">
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', style.dot)} />
+          <span className={cn('text-xs font-semibold', style.text)}>{style.label}</span>
+          <span className="text-xs text-gray-400">— {aiAction.reason}</span>
+        </div>
+        {topInsight && (
+          <p className="text-xs text-gray-600 italic line-clamp-1">
+            &ldquo;{topInsight.supportingText ?? topInsight.value}&rdquo;
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={handleAction}
+          className={cn(
+            'flex-1 py-2 text-xs font-semibold rounded-lg transition-colors',
+            aiAction.priority === 'critical'
+              ? 'bg-red-600 text-white hover:bg-red-700'
+              : aiAction.priority === 'high'
+              ? 'bg-orange-500 text-white hover:bg-orange-600'
+              : aiAction.priority === 'opportunity'
+              ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+              : 'bg-gray-800 text-white hover:bg-gray-700',
+          )}
+        >
+          {aiAction.action}
+        </button>
+        <button
+          onClick={onClick}
+          className="px-3 py-2 text-xs text-gray-500 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          View
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── AI pipeline view ─────────────────────────────────────────────────────────
+
+function AIPipelineView({
+  leads,
+  onLeadClick,
+  onStageChange,
+  token,
+}: {
+  leads: Lead[];
+  onLeadClick: (l: Lead) => void;
+  onStageChange: (id: string, stage: string) => void;
+  token: string;
+}) {
+  const [advancing, setAdvancing] = useState<string | null>(null);
+
+  async function handleAdvance(id: string, targetStage: string) {
+    setAdvancing(id);
+    try {
+      await apiClient(`/api/leads/${id}/stage`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ pipelineStage: targetStage }),
+      });
+      onStageChange(id, targetStage);
+    } catch {}
+    setAdvancing(null);
+  }
+
+  const withActions = leads
+    .map(lead => ({ lead, aiAction: getAIAction(lead) }))
+    .sort((a, b) => PRIORITY_RANK[a.aiAction.priority] - PRIORITY_RANK[b.aiAction.priority]);
+
+  const groups: Record<AIPriority, typeof withActions> = {
+    critical: [], high: [], opportunity: [], nurture: [], stale: [],
+  };
+  for (const item of withActions) groups[item.aiAction.priority].push(item);
+
+  const groupOrder: AIPriority[] = ['critical', 'high', 'opportunity', 'stale', 'nurture'];
+
+  return (
+    <div className="space-y-6">
+      {groupOrder.map(priority => {
+        const items = groups[priority];
+        if (items.length === 0) return null;
+        const style = PRIORITY_STYLE[priority];
+        return (
+          <div key={priority}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className={cn('w-2 h-2 rounded-full', style.dot)} />
+              <h3 className="font-semibold text-sm text-gray-800">{style.label}</h3>
+              <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{items.length}</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {items.map(({ lead, aiAction }) => (
+                <div key={lead.id} className={advancing === lead.id ? 'opacity-50 pointer-events-none' : ''}>
+                  <AIFocusCard
+                    lead={lead}
+                    aiAction={aiAction}
+                    onClick={() => onLeadClick(lead)}
+                    onAdvance={handleAdvance}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState() {
@@ -676,9 +962,10 @@ export default function LeadsPage() {
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [selected, setSelected] = useState<Lead | null>(null);
-  const [view, setView]         = useState<'kanban' | 'list'>('kanban');
+  const [view, setView]         = useState<'kanban' | 'list' | 'ai'>('kanban');
   const [filter, setFilter]     = useState<string>('all');
   const [search, setSearch]     = useState('');
+  const [stageFilter, setStageFilter] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -702,6 +989,7 @@ export default function LeadsPage() {
   }
 
   const filtered = leads.filter(l => {
+    if (stageFilter && (l.pipelineStage ?? 'new_lead') !== stageFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       if (
@@ -729,12 +1017,28 @@ export default function LeadsPage() {
       <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-screen-2xl mx-auto space-y-5">
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Leads</h1>
             <p className="text-sm text-gray-500 mt-0.5">AI-enriched sales pipeline from your WhatsApp conversations</p>
           </div>
           <div className="flex items-center gap-2">
+            {/* AI Focus toggle */}
+            <button
+              onClick={() => setView('ai')}
+              title="AI Focus"
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors',
+                view === 'ai'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                  : 'border-gray-200 text-gray-500 hover:border-indigo-200 hover:text-indigo-600',
+              )}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+              AI Focus
+            </button>
             <button
               onClick={() => setView('kanban')}
               title="Kanban"
@@ -798,131 +1102,175 @@ export default function LeadsPage() {
           <>
             <KPIStrip leads={leads} />
 
-            {/* Search + filters */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 min-w-[160px] max-w-xs">
-                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                </svg>
-                <input
-                  type="text"
-                  placeholder="Search leads…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
-              </div>
-              {([
-                { key: 'all',         label: 'All' },
-                { key: 'hot',         label: 'Hot' },
-                { key: 'needs_reply', label: 'Needs reply' },
-                { key: 'urgent',      label: 'Urgent' },
-                { key: 'no_profile',  label: 'No signals' },
-              ] as { key: string; label: string }[]).map(f => {
-                const count =
-                  f.key === 'hot'         ? leads.filter(l => l.leadScore >= 70).length :
-                  f.key === 'needs_reply' ? leads.filter(l => l.hasRequiresResponse).length :
-                  f.key === 'urgent'      ? leads.filter(l => l.maxUrgency === 'urgent' || l.maxUrgency === 'high').length :
-                  f.key === 'no_profile'  ? leads.filter(l => !l.profile.buyingBehaviour && !l.interestInsights.length).length :
-                  null;
-                return (
-                  <button
-                    key={f.key}
-                    onClick={() => setFilter(f.key)}
-                    className={cn(
-                      'text-sm px-3 py-2 rounded-lg border transition-colors',
-                      filter === f.key
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-200',
-                    )}
-                  >
-                    {f.label}
-                    {count !== null && (
-                      <span className="ml-1.5 text-xs opacity-70">{count}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Pipeline funnel — collapsible */}
+            {view !== 'ai' && (
+              <PipelineFunnel
+                leads={leads}
+                onStageClick={stage => {
+                  setStageFilter(prev => prev === stage ? null : stage);
+                  if (view === 'kanban') {
+                    // In kanban, clicking funnel scrolls to/highlights the stage rather than filtering
+                    setStageFilter(null);
+                  }
+                }}
+              />
+            )}
 
-            {/* Main content */}
-            <div className="flex gap-5">
-              <div className="flex-1 min-w-0">
-                {view === 'kanban' ? (
-                  <div className="overflow-x-auto pb-4">
-                    <div className="flex gap-4 min-w-max">
-                      {STAGES.map(stage => (
-                        <KanbanColumn
-                          key={stage.key}
-                          stage={stage}
-                          leads={byStage[stage.key] ?? []}
-                          onLeadClick={setSelected}
-                        />
-                      ))}
-                    </div>
+            {/* Stage filter chip (if active) */}
+            {stageFilter && view !== 'kanban' && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Filtering by stage:</span>
+                <button
+                  onClick={() => setStageFilter(null)}
+                  className="flex items-center gap-1.5 text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full px-3 py-1 hover:bg-indigo-100 transition-colors"
+                >
+                  {getStage(stageFilter).label}
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* AI Pipeline view */}
+            {view === 'ai' && (
+              <AIPipelineView
+                leads={filtered}
+                onLeadClick={setSelected}
+                onStageChange={handleStageChange}
+                token={token}
+              />
+            )}
+
+            {/* Search + filters + kanban/list (hidden in AI view) */}
+            {view !== 'ai' && (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[160px] max-w-xs">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                    </svg>
+                    <input
+                      type="text"
+                      placeholder="Search leads…"
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
                   </div>
-                ) : (
-                  <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                    {filtered.length === 0 ? (
-                      <div className="p-8 text-center text-sm text-gray-400">No leads match this filter.</div>
+                  {([
+                    { key: 'all',         label: 'All' },
+                    { key: 'hot',         label: 'Hot' },
+                    { key: 'needs_reply', label: 'Needs reply' },
+                    { key: 'urgent',      label: 'Urgent' },
+                    { key: 'no_profile',  label: 'No signals' },
+                  ] as { key: string; label: string }[]).map(f => {
+                    const count =
+                      f.key === 'hot'         ? leads.filter(l => l.leadScore >= 70).length :
+                      f.key === 'needs_reply' ? leads.filter(l => l.hasRequiresResponse).length :
+                      f.key === 'urgent'      ? leads.filter(l => l.maxUrgency === 'urgent' || l.maxUrgency === 'high').length :
+                      f.key === 'no_profile'  ? leads.filter(l => !l.profile.buyingBehaviour && !l.interestInsights.length).length :
+                      null;
+                    return (
+                      <button
+                        key={f.key}
+                        onClick={() => setFilter(f.key)}
+                        className={cn(
+                          'text-sm px-3 py-2 rounded-lg border transition-colors',
+                          filter === f.key
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-200',
+                        )}
+                      >
+                        {f.label}
+                        {count !== null && (
+                          <span className="ml-1.5 text-xs opacity-70">{count}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Main content */}
+                <div className="flex gap-5">
+                  <div className="flex-1 min-w-0">
+                    {view === 'kanban' ? (
+                      <div className="overflow-x-auto pb-4">
+                        <div className="flex gap-4 min-w-max">
+                          {STAGES.map(stage => (
+                            <KanbanColumn
+                              key={stage.key}
+                              stage={stage}
+                              leads={byStage[stage.key] ?? []}
+                              onLeadClick={setSelected}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     ) : (
-                      <div className="divide-y divide-gray-50">
-                        {filtered.map(lead => {
-                          const stg = getStage(lead.pipelineStage);
-                          const topInsight = lead.interestInsights[0] ?? lead.insights[0] ?? null;
-                          return (
-                            <button
-                              key={lead.id}
-                              onClick={() => setSelected(lead)}
-                              className="w-full text-left px-4 py-3.5 hover:bg-gray-50 transition-colors flex items-center gap-4"
-                            >
-                              <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="md" />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-gray-900 text-sm truncate">{lead.name}</span>
-                                  {lead.company && (
-                                    <span className="text-xs text-gray-400 truncate hidden sm:block">{lead.company}</span>
-                                  )}
-                                </div>
-                                {topInsight ? (
-                                  <p className="text-xs text-gray-500 truncate mt-0.5">{topInsight.value}</p>
-                                ) : lead.lastContactMessage?.body ? (
-                                  <p className="text-xs text-gray-400 italic truncate mt-0.5">
-                                    &ldquo;{lead.lastContactMessage.body}&rdquo;
-                                  </p>
-                                ) : null}
-                              </div>
-                              <div className="flex items-center gap-3 flex-shrink-0">
-                                <span className={cn('hidden sm:inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full', stg.color)}>
-                                  <span className={cn('w-1.5 h-1.5 rounded-full', stg.dot)} />
-                                  {stg.label}
-                                </span>
-                                {lead.hasRequiresResponse && (
-                                  <span className="text-xs bg-red-50 text-red-600 border border-red-100 rounded-full px-2 py-0.5">
-                                    Reply
-                                  </span>
-                                )}
-                                <ScoreRing score={lead.leadScore} />
-                              </div>
-                            </button>
-                          );
-                        })}
+                      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                        {filtered.length === 0 ? (
+                          <div className="p-8 text-center text-sm text-gray-400">No leads match this filter.</div>
+                        ) : (
+                          <div className="divide-y divide-gray-50">
+                            {filtered.map(lead => {
+                              const stg = getStage(lead.pipelineStage);
+                              const topInsight = lead.interestInsights[0] ?? lead.insights[0] ?? null;
+                              return (
+                                <button
+                                  key={lead.id}
+                                  onClick={() => setSelected(lead)}
+                                  className="w-full text-left px-4 py-3.5 hover:bg-gray-50 transition-colors flex items-center gap-4"
+                                >
+                                  <Avatar name={lead.name} avatarUrl={lead.avatarUrl} size="md" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-gray-900 text-sm truncate">{lead.name}</span>
+                                      {lead.company && (
+                                        <span className="text-xs text-gray-400 truncate hidden sm:block">{lead.company}</span>
+                                      )}
+                                    </div>
+                                    {topInsight ? (
+                                      <p className="text-xs text-gray-500 truncate mt-0.5">{topInsight.value}</p>
+                                    ) : lead.lastContactMessage?.body ? (
+                                      <p className="text-xs text-gray-400 italic truncate mt-0.5">
+                                        &ldquo;{lead.lastContactMessage.body}&rdquo;
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex items-center gap-3 flex-shrink-0">
+                                    <span className={cn('hidden sm:inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full', stg.color)}>
+                                      <span className={cn('w-1.5 h-1.5 rounded-full', stg.dot)} />
+                                      {stg.label}
+                                    </span>
+                                    {lead.hasRequiresResponse && (
+                                      <span className="text-xs bg-red-50 text-red-600 border border-red-100 rounded-full px-2 py-0.5">
+                                        Reply
+                                      </span>
+                                    )}
+                                    <ScoreRing score={lead.leadScore} />
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
 
-              {/* AI signals sidebar — desktop only */}
-              <div className="hidden lg:block w-80 flex-shrink-0">
-                <AiSignalsFeed leads={filtered} onLeadClick={setSelected} />
-              </div>
-            </div>
+                  {/* AI signals sidebar — desktop only */}
+                  <div className="hidden lg:block w-80 flex-shrink-0">
+                    <AiSignalsFeed leads={filtered} onLeadClick={setSelected} />
+                  </div>
+                </div>
 
-            {/* AI signals below on mobile */}
-            <div className="lg:hidden">
-              <AiSignalsFeed leads={filtered} onLeadClick={setSelected} />
-            </div>
+                {/* AI signals below on mobile */}
+                <div className="lg:hidden">
+                  <AiSignalsFeed leads={filtered} onLeadClick={setSelected} />
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
