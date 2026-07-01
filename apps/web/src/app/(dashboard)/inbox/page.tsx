@@ -2135,63 +2135,92 @@ export default function InboxPage() {
     ))}
   </div>
 )}
+{/* Composer */}
+<div className="px-4 pb-5 pt-2 bg-gradient-to-t from-white via-white to-transparent dark:from-neutral-950 dark:via-neutral-950">
+  <div className="flex flex-col gap-2.5">
+    {/* Main Input Capsule */}
+    <div className="group/input relative flex items-end gap-2 p-1.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-900/50 backdrop-blur-md focus-within:border-neutral-300 dark:focus-within:border-neutral-700 focus-within:bg-white dark:focus-within:bg-neutral-900 focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.2)] transition-all duration-300">
+      
+      {/* Attachment Button */}
+      <button className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 active:scale-95 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all flex-shrink-0 mb-0.5">
+        <Paperclip size={18} strokeWidth={2.2} />
+      </button>
+      
+      {/* Dynamic Textarea */}
+      <div className="flex-1 min-w-0 self-center py-1">
+        <textarea
+          ref={draftRef}
+          rows={1}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
+          }}
+          placeholder="Type a message…"
+          className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none leading-relaxed align-middle"
+          style={{ minHeight: '24px', maxHeight: '140px' }}
+        />
+      </div>
+
+      {/* Emoji Picker Button */}
+      <button className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 active:scale-95 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all flex-shrink-0 mb-0.5">
+        <Smile size={18} strokeWidth={2.2} />
+      </button>
+
+      {/* Premium Send Button */}
+      <button
+        onClick={sendDraft}
+        disabled={!draft.trim()}
+        className={`
+          p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm
+          ${draft.trim() 
+            ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110' 
+            : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed opacity-70'
+          }
+        `}
+      >
+        <Send size={15} strokeWidth={2.5} className={draft.trim() ? 'animate-pulse' : ''} />
+      </button>
+    </div>
+
+    {/* Footer Meta & Actions */}
+    <div className="flex items-center justify-between px-1">
+      <div className="flex items-center gap-3">
+        {selectedMsgId && (
+          <button
+            onClick={regenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:opacity-80 font-semibold disabled:opacity-50 transition-opacity"
+          >
+            <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
+            {regenerating ? 'Generating…' : 'Regenerate'}
+          </button>
+        )}
+        
+        {/* Smart AI Action Trigger */}
+        <button
+          onClick={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
+          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-all ${
+            showAIActions 
+              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 ring-1 ring-indigo-500/20' 
+              : 'text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800/60 hover:bg-neutral-200'
+          }`}
+        >
+          <Sparkles size={12} className={showAIActions ? 'fill-indigo-500/20' : ''} />
+          <span>AI Actions</span>
+          <ChevronDown size={11} className={`transition-transform duration-300 ${showAIActions ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+      
+      {/* Desktop-only shortcut indicator (hidden on mobile) */}
+      <span className="hidden sm:inline-block text-[10px] font-medium font-mono text-neutral-400 dark:text-neutral-600 tracking-wider">
+        ⌘ + ↵
+      </span>
+    </div>
+  </div>
+</div>
 
 
-                  {/* Composer */}
-                  <div className="px-3 py-3">
-                    <div className="flex items-end gap-2">
-                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
-                        <Paperclip size={17} />
-                      </button>
-                      <div className="flex-1">
-                        <textarea
-                          ref={draftRef}
-                          rows={1}
-                          value={draft}
-                          onChange={e => setDraft(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
-                          }}
-                          placeholder="Type a message… (⌘↵ to send)"
-                          className="w-full resize-none px-4 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all leading-relaxed"
-                          style={{ minHeight: '42px', maxHeight: '128px' }}
-                        />
-                      </div>
-                      <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors flex-shrink-0">
-                        <Smile size={17} />
-                      </button>
-                      <button
-                        onClick={sendDraft}
-                        disabled={!draft.trim()}
-                        className="p-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-sm"
-                      >
-                        <Send size={15} />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between mt-1.5">
-                      <div className="flex items-center gap-3">
-                        {selectedMsgId && (
-                          <button
-                            onClick={regenerate}
-                            disabled={regenerating}
-                            className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium disabled:opacity-50"
-                          >
-                            <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
-                            {regenerating ? 'Generating…' : 'Regenerate reply'}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
-                          className={`flex items-center gap-1 text-xs font-medium transition-colors ${showAIActions ? 'text-indigo-600' : 'text-gray-400 hover:text-indigo-600'}`}
-                        >
-                          <Sparkles size={11} />
-                          AI Actions
-                          <ChevronDown size={10} className={`transition-transform ${showAIActions ? 'rotate-180' : ''}`} />
-                        </button>
-                      </div>
-                      <span className="text-[10px] text-gray-400">⌘↵</span>
-                    </div>
-                  </div>
                 </div>
               </div>
 
