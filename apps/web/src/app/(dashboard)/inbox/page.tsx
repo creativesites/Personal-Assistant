@@ -1933,7 +1933,17 @@ export default function InboxPage() {
             {/* Messages + intel row */}
             <div className="flex flex-1 min-h-0">
               {/* Message area */}
-              <div className="flex flex-col flex-1 min-w-0 bg-stone-50">
+              <div 
+  className="relative flex flex-col flex-1 min-w-0 overflow-hidden bg-[#eae6df]"
+  style={{
+    backgroundImage: `url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRcOOTYXA0CTvrMSr432Cm0CcRcPnrwgCDh_EyC5T05SQ&s=10')`,
+    backgroundSize: '400px', /* Keeps the doodle pattern crisp and at a comfortable mobile scale */
+    backgroundRepeat: 'repeat'
+  }}
+>
+  {/* Modern High-Fidelity Overlay Tint */}
+  {/* This mask dims the background pattern slightly so the text remains incredibly comfortable to read */}
+  <div className="absolute inset-0 bg-[#eae6df]/85 dark:bg-[#0b141a]/95 pointer-events-none mix-blend-normal" />
 
                 {/* Message stream */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
