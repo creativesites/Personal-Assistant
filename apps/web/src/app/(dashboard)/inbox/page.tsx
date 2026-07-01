@@ -1865,99 +1865,107 @@ export default function InboxPage() {
           )}
         </div>
       </div>
-
       {/* ── Center: Chat ─────────────────────────────────────────────────────── */}
-      <div className={`${mobileView === 'list' ? 'hidden md:flex' : mobileView === 'intel' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0`}>
+      <div className={`${mobileView === 'list' ? 'hidden md:flex' : mobileView === 'intel' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0 h-full relative`}>
         {selectedId && contact ? (
           <>
-            {/* Chat header */}
-            <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 bg-white flex-shrink-0 shadow-sm">
+            {/* 1. STICKY PREMIUM HEADER */}
+            <div className="sticky top-0 z-50 flex items-center gap-3 px-4 h-16 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md flex-shrink-0 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.03)] transition-all">
               <button
                 onClick={() => setMobileView('list')}
-                className="md:hidden p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+                className="md:hidden p-2 -ml-2 text-neutral-500 hover:text-neutral-800 rounded-xl hover:bg-neutral-100 transition-all"
               >
                 <ChevronLeft size={20} />
               </button>
-              <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
+              
+              <div className="relative group cursor-pointer">
+                <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
+                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" /> {/* Premium native online status indicator */}
+              </div>
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
+                  <p className="text-sm font-bold text-neutral-900 tracking-tight truncate">{contact.name}</p>
                   {currentPriority && CurrentPIcon && (
-                    <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${currentPriority.color}`}>
+                    <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
                       <CurrentPIcon size={9} />
                       {currentPriority.label}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
                   {contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
                 </p>
               </div>
-              <div className="flex items-center gap-0.5 flex-shrink-0">
+
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
                   title="Add note"
                   onClick={() => { setShowAIPanel(true); setAiTab('memory'); setTimeout(() => noteRef.current?.focus(), 150) }}
                 >
-                  <StickyNote size={16} />
+                  <StickyNote size={17} strokeWidth={2} />
                 </button>
                 <a
                   href={`/contacts/${contact.id}`}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
                   title="View full profile"
                 >
-                  <ExternalLink size={16} />
+                  <ExternalLink size={17} strokeWidth={2} />
                 </a>
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Archive">
-                  <Archive size={16} />
+                <button className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95" title="Archive">
+                  <Archive size={17} strokeWidth={2} />
                 </button>
+                
                 {/* Mobile intel button */}
                 <button
                   onClick={() => setMobileView('intel')}
-                  className="md:hidden flex items-center gap-1.5 ml-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-semibold rounded-lg"
+                  className="md:hidden flex items-center gap-1.5 ml-1 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-all"
                 >
-                  <Brain size={12} />
+                  <Brain size={12} className="fill-indigo-600/10" />
                   Intel
                 </button>
+                
                 {/* Desktop intel toggle */}
                 <button
                   onClick={() => setShowAIPanel(v => !v)}
-                  className={`hidden md:flex p-2 rounded-lg transition-colors ${showAIPanel ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                  className={`hidden md:flex p-2 rounded-xl transition-all active:scale-95 ${showAIPanel ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
                   title="AI Intelligence Panel"
                 >
-                  <Brain size={16} />
+                  <Brain size={17} strokeWidth={2} className={showAIPanel ? 'fill-indigo-600/10' : ''} />
                 </button>
               </div>
             </div>
 
-            {/* Messages + intel row */}
-            <div className="flex flex-1 min-h-0">
-              {/* Message area */}
+            {/* 2. MESSAGES + INTEL TIMELINE CONTAINER ROW */}
+            <div className="flex flex-1 min-h-0 relative overflow-hidden">
+              
+              {/* Message area canvas container wrapper */}
               <div 
-  className="relative flex flex-col flex-1 min-w-0 overflow-hidden bg-[#eae6df]"
-  style={{
-    backgroundImage: `url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRcOOTYXA0CTvrMSr432Cm0CcRcPnrwgCDh_EyC5T05SQ&s=10')`,
-    backgroundSize: '400px', /* Keeps the doodle pattern crisp and at a comfortable mobile scale */
-    backgroundRepeat: 'repeat'
-  }}
->
-  {/* Modern High-Fidelity Overlay Tint */}
-  {/* This mask dims the background pattern slightly so the text remains incredibly comfortable to read */}
-  <div className="absolute inset-0 bg-[#eae6df]/85 dark:bg-[#0b141a]/95 pointer-events-none mix-blend-normal" />
+                className="relative flex flex-col flex-1 min-w-0 overflow-y-auto bg-[#eae6df]"
+                style={{
+                  backgroundImage: `url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRcOOTYXA0CTvrMSr432Cm0CcRcPnrwgCDh_EyC5T05SQ&s=10')`,
+                  backgroundSize: '400px',
+                  backgroundRepeat: 'repeat',
+                  backgroundAttachment: 'local' /* Binds background canvas locally preventing trailing render lags */
+                }}
+              >
+                {/* Modern High-Fidelity Overlay Tint */}
+                <div className="absolute inset-0 bg-[#eae6df]/85 pointer-events-none mix-blend-normal z-0" />
 
-                {/* Message stream */}
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+                {/* Message stream viewport scroll space */}
+                <div className="relative z-10 flex-1 px-4 pt-4 pb-6 space-y-3">
                   {loadingMsgs ? (
                     <div className="space-y-3">
                       {Array.from({ length: 5 }, (_, i) => (
                         <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-                          <div className={`h-10 rounded-2xl animate-pulse bg-gray-200 ${i % 2 === 0 ? 'w-48' : 'w-36'}`} />
+                          <div className={`h-11 rounded-2xl animate-pulse bg-neutral-200/70 ${i % 2 === 0 ? 'w-48' : 'w-36'}`} />
                         </div>
                       ))}
                     </div>
                   ) : (
                     <>
-                                                                  {messages.map((msg, idx) => {
+                      {messages.map((msg, idx) => {
                         const isUser = msg.senderType === 'user'
                         const isApproved = msg.approvalMode === 'approved'
                         const isAuto = msg.approvalMode === 'autonomous'
@@ -1980,8 +1988,8 @@ export default function InboxPage() {
                                     : isApproved
                                     ? 'bg-[#E7FFDB] text-[#111b21] border-l-2 border-[#34b7f1]'
                                     : isUser
-                                    ? 'bg-[#E7FFDB] text-[#111b21]' // WhatsApp Light Mode Sent
-                                    : 'bg-[#f0f4f9] text-[#1f1f1f]' // Cool Gemini Blue-Gray Received
+                                    ? 'bg-[#E7FFDB] text-[#111b21]' 
+                                    : 'bg-[#f0f4f9] text-[#1f1f1f]' 
                                 } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-1 ring-amber-400/60' : ''}
                                   ${selectedMsgId === msg.id ? 'ring-1 ring-[#34b7f1]/60' : ''}`}
                                 >
@@ -2028,220 +2036,214 @@ export default function InboxPage() {
                       <div ref={messagesEndRef} />
                     </>
                   )}
-
-
-
-                </div>
-
-                {/* Reply dock */}
-                <div className="border-t border-gray-200 bg-white flex-shrink-0">
-
-                  {/* AI result card */}
-                  {aiActionResult && (
-                    <div className="mx-3 mt-2 bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
-                      <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-                        <div className="flex items-center gap-1.5">
-                          <Sparkles size={11} className="text-indigo-500" />
-                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{aiActionResult.label}</p>
-                        </div>
-                        <button onClick={() => setAIActionResult(null)} className="p-0.5 text-indigo-300 hover:text-indigo-500 transition-colors">
-                          <X size={11} />
-                        </button>
-                      </div>
-                      <p className="px-3 pb-2.5 text-xs text-gray-700 leading-relaxed">{aiActionResult.text}</p>
-                      <div className="flex border-t border-indigo-100">
-                        <button
-                          onClick={() => { setDraft(aiActionResult.text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
-                          className="flex-1 text-[11px] font-semibold text-indigo-700 py-2 hover:bg-indigo-100 transition-colors"
-                        >
-                          Use as draft
-                        </button>
-                        <div className="w-px bg-indigo-100" />
-                        <button
-                          onClick={() => setAIActionResult(null)}
-                          className="flex-1 text-[11px] text-gray-500 py-2 hover:bg-gray-50 transition-colors"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* AI Actions expanded panel */}
-                  {showAIActions && (
-                    <div className="mx-3 mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          onClick={aiSummarize}
-                          disabled={aiActionLoading === 'summarize'}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors"
-                        >
-                          {aiActionLoading === 'summarize' ? <RefreshCw size={10} className="animate-spin" /> : <FileText size={10} />}
-                          Summarize
-                        </button>
-                        <button
-                          onClick={aiFollowup}
-                          disabled={aiActionLoading === 'followup'}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors"
-                        >
-                          {aiActionLoading === 'followup' ? <RefreshCw size={10} className="animate-spin" /> : <ChevronRight size={10} />}
-                          Follow-up draft
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={aiAskInput}
-                          onChange={e => setAIAskInput(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiAsk() } }}
-                          placeholder="Ask AI anything about this conversation…"
-                          className="flex-1 text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400"
-                        />
-                        <button
-                          onClick={aiAsk}
-                          disabled={!aiAskInput.trim() || aiActionLoading === 'ask'}
-                          className="flex items-center gap-1 px-3 py-2 text-[11px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
-                        >
-                          {aiActionLoading === 'ask' ? <RefreshCw size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                          Ask
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Suggestion chips */}
-{suggestions.length > 0 && (
-  <div className="px-4 pt-4 pb-1 grid grid-cols-3 gap-3">
-    {suggestions.slice(0, 3).map(s => (
-      <button
-        key={s.id}
-        onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
-        className={`
-          group relative rounded-2xl p-3 text-left transition-all duration-300 ease-out
-          border border-neutral-200/60 dark:border-neutral-800/60
-          bg-gradient-to-b from-white to-neutral-50/50 
-          dark:from-neutral-900 dark:to-neutral-950/50
-          shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)]
-          hover:shadow-[0_12px_20px_-8px_rgba(0,0,0,0.08)]
-          hover:-translate-y-0.5 hover:border-neutral-300 dark:hover:border-neutral-700
-          active:translate-y-0 active:scale-[0.98]
-          focus:outline-none focus:ring-2 focus:ring-indigo-500/20
-          ${TONE_STYLE[s.tone] ?? ''}
-        `}
-      >
-        {/* Premium Animated Hover Glow Effect */}
-        <div className="absolute inset-0 -z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-2xl pointer-events-none" />
-
-        <div className="flex items-center justify-between mb-1.5">
-          {/* Tone Badge */}
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium tracking-wide uppercase text-[9px] bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 dark:group-hover:bg-indigo-950/50 dark:group-hover:text-indigo-400 transition-colors duration-300">
-            <span className="h-1 w-1 rounded-full bg-neutral-400 group-hover:bg-indigo-500 transition-colors" />
-            {s.tone}
-          </span>
-          
-          {/* Confidence Score */}
-          {s.confidence != null && (
-            <span className="text-[10px] font-medium font-mono text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300 transition-colors">
-              {s.confidence}%
-            </span>
-          )}
-        </div>
-
-        {/* Suggestion Text */}
-        <p className="line-clamp-2 leading-relaxed text-[11px] font-medium text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-white transition-colors duration-300">
-          {s.text}
-        </p>
-      </button>
-    ))}
-  </div>
-)}
-{/* Composer */}
-<div className="px-4 pb-5 pt-2 bg-gradient-to-t from-white via-white to-transparent dark:from-neutral-950 dark:via-neutral-950">
-  <div className="flex flex-col gap-2.5">
-    {/* Main Input Capsule */}
-    <div className="group/input relative flex items-end gap-2 p-1.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-900/50 backdrop-blur-md focus-within:border-neutral-300 dark:focus-within:border-neutral-700 focus-within:bg-white dark:focus-within:bg-neutral-900 focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.2)] transition-all duration-300">
-      
-      {/* Attachment Button */}
-      <button className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 active:scale-95 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all flex-shrink-0 mb-0.5">
-        <Paperclip size={18} strokeWidth={2.2} />
-      </button>
-      
-      {/* Dynamic Textarea */}
-      <div className="flex-1 min-w-0 self-center py-1">
-        <textarea
-          ref={draftRef}
-          rows={1}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
-          }}
-          placeholder="Type a message…"
-          className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none leading-relaxed align-middle"
-          style={{ minHeight: '24px', maxHeight: '140px' }}
-        />
-      </div>
-
-      {/* Emoji Picker Button */}
-      <button className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 active:scale-95 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all flex-shrink-0 mb-0.5">
-        <Smile size={18} strokeWidth={2.2} />
-      </button>
-
-      {/* Premium Send Button */}
-      <button
-        onClick={sendDraft}
-        disabled={!draft.trim()}
-        className={`
-          p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm
-          ${draft.trim() 
-            ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110' 
-            : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed opacity-70'
-          }
-        `}
-      >
-        <Send size={15} strokeWidth={2.5} className={draft.trim() ? 'animate-pulse' : ''} />
-      </button>
-    </div>
-
-    {/* Footer Meta & Actions */}
-    <div className="flex items-center justify-between px-1">
-      <div className="flex items-center gap-3">
-        {selectedMsgId && (
-          <button
-            onClick={regenerate}
-            disabled={regenerating}
-            className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:opacity-80 font-semibold disabled:opacity-50 transition-opacity"
-          >
-            <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
-            {regenerating ? 'Generating…' : 'Regenerate'}
-          </button>
-        )}
-        
-        {/* Smart AI Action Trigger */}
-        <button
-          onClick={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
-          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-all ${
-            showAIActions 
-              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 ring-1 ring-indigo-500/20' 
-              : 'text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800/60 hover:bg-neutral-200'
-          }`}
-        >
-          <Sparkles size={12} className={showAIActions ? 'fill-indigo-500/20' : ''} />
-          <span>AI Actions</span>
-          <ChevronDown size={11} className={`transition-transform duration-300 ${showAIActions ? 'rotate-180' : ''}`} />
-        </button>
-      </div>
-      
-      {/* Desktop-only shortcut indicator (hidden on mobile) */}
-      <span className="hidden sm:inline-block text-[10px] font-medium font-mono text-neutral-400 dark:text-neutral-600 tracking-wider">
-        ⌘ + ↵
-      </span>
-    </div>
-  </div>
-</div>
-
-
                 </div>
               </div>
+            </div>
+
+            {/* 3. FIXED BOTTOM REPLY DOCK AREA */}
+            <div className="sticky bottom-0 z-50 border-t border-neutral-200/80 bg-white/95 backdrop-blur-md flex-shrink-0 shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.05)]">
+
+              {/* AI result card */}
+              {aiActionResult && (
+                <div className="mx-4 mt-3 bg-indigo-50/70 rounded-xl border border-indigo-100/80 overflow-hidden backdrop-blur-sm">
+                  <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles size={11} className="text-indigo-500" />
+                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{aiActionResult.label}</p>
+                    </div>
+                    <button onClick={() => setAIActionResult(null)} className="p-0.5 text-indigo-300 hover:text-indigo-500 transition-colors">
+                      <X size={11} />
+                    </button>
+                  </div>
+                  <p className="px-3 pb-2.5 text-xs text-neutral-800 leading-relaxed font-medium">{aiActionResult.text}</p>
+                  <div className="flex border-t border-indigo-100">
+                    <button
+                      onClick={() => { setDraft(aiActionResult.text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
+                      className="flex-1 text-[11px] font-bold text-indigo-700 py-2.5 hover:bg-indigo-100/50 transition-colors"
+                    >
+                      Use as draft
+                    </button>
+                    <div className="w-px bg-indigo-100" />
+                    <button
+                      onClick={() => setAIActionResult(null)}
+                      className="flex-1 text-[11px] font-semibold text-neutral-500 py-2.5 hover:bg-neutral-50 transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* AI Actions expanded panel */}
+              {showAIActions && (
+                <div className="mx-4 mt-3 bg-neutral-50 rounded-xl border border-neutral-200 p-3 space-y-2.5 shadow-inner">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={aiSummarize}
+                      disabled={aiActionLoading === 'summarize'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-neutral-700 bg-white border border-neutral-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors shadow-sm active:scale-95"
+                    >
+                      {aiActionLoading === 'summarize' ? <RefreshCw size={10} className="animate-spin" /> : <FileText size={10} />}
+                      Summarize
+                    </button>
+                    <button
+                      onClick={aiFollowup}
+                      disabled={aiActionLoading === 'followup'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-neutral-700 bg-white border border-neutral-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors shadow-sm active:scale-95"
+                    >
+                      {aiActionLoading === 'followup' ? <RefreshCw size={10} className="animate-spin" /> : <ChevronRight size={10} />}
+                      Follow-up draft
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={aiAskInput}
+                      onChange={e => setAIAskInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiAsk() } }}
+                      placeholder="Ask AI anything about this conversation…"
+                      className="flex-1 text-xs px-3 py-2 bg-white border border-neutral-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-neutral-400 font-medium"
+                    />
+                    <button
+                      onClick={aiAsk}
+                      disabled={!aiAskInput.trim() || aiActionLoading === 'ask'}
+                      className="flex items-center gap-1 px-3 py-2 text-[11px] font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors shadow-sm active:scale-95"
+                    >
+                      {aiActionLoading === 'ask' ? <RefreshCw size={10} className="animate-spin" /> : <Wand2 size={10} />}
+                      Ask
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Redesigned Premium Suggestion chips with high contrast text */}
+              {suggestions.length > 0 && (
+                <div className="px-4 pt-3 pb-1 grid grid-cols-3 gap-3">
+                  {suggestions.slice(0, 3).map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
+                      className={`
+                        group relative rounded-2xl p-3 text-left transition-all duration-300 ease-out
+                        border border-neutral-200/80 bg-white/95 backdrop-blur-sm
+                        shadow-[0_2px_8px_-3px_rgba(0,0,0,0.06)]
+                        hover:shadow-[0_12px_24px_-8px_rgba(0,0,0,0.12)]
+                        hover:-translate-y-0.5 hover:border-neutral-300
+                        active:translate-y-0 active:scale-[0.98]
+                        focus:outline-none focus:ring-2 focus:ring-indigo-500/20
+                        ${TONE_STYLE[s.tone] ?? ''}
+                      `}
+                    >
+                      <div className="absolute inset-0 -z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-2xl pointer-events-none" />
+
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-bold tracking-wide uppercase text-[9px] bg-neutral-100 text-neutral-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors duration-300">
+                          <span className="h-1 w-1 rounded-full bg-neutral-400 group-hover:bg-indigo-500 transition-colors" />
+                          {s.tone}
+                        </span>
+                        {s.confidence != null && (
+                          <span className="text-[10px] font-bold font-mono text-neutral-400 group-hover:text-neutral-600 transition-colors">
+                            {s.confidence}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Boosted Contrast Text for Visibility */}
+                      <p className="line-clamp-2 leading-relaxed text-[11px] font-bold text-neutral-900 group-hover:text-indigo-950 transition-colors duration-300">
+                        {s.text}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Composer */}
+              <div className="px-4 pb-5 pt-2">
+                <div className="flex flex-col gap-2.5">
+                  <div className="group/input relative flex items-end gap-2 p-1.5 rounded-2xl border border-neutral-200/80 bg-neutral-50/80 focus-within:border-neutral-300 focus-within:bg-white focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300">
+                    <button className="p-2 text-neutral-400 hover:text-neutral-600 active:scale-95 rounded-xl hover:bg-neutral-100 transition-all flex-shrink-0 mb-0.5">
+                      <Paperclip size={18} strokeWidth={2.2} />
+                    </button>
+                    
+                    <div className="flex-1 min-w-0 self-center py-1">
+                      <textarea
+                        ref={draftRef}
+                        rows={1}
+                        value={draft}
+                        onChange={e => setDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
+                        }}
+                        placeholder="Type a message…"
+                        className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none font-medium leading-relaxed align-middle"
+                        style={{ minHeight: '24px', maxHeight: '140px' }}
+                      />
+                    </div>
+
+                    <button className="p-2 text-neutral-400 hover:text-neutral-600 active:scale-95 rounded-xl hover:bg-neutral-100 transition-all flex-shrink-0 mb-0.5">
+                      <Smile size={18} strokeWidth={2.2} />
+                    </button>
+
+                    <button
+                      onClick={sendDraft}
+                      disabled={!draft.trim()}
+                      className={`
+                        p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm
+                        ${draft.trim() 
+                          ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110' 
+                          : 'bg-neutral-200 text-neutral-400 cursor-not-allowed opacity-70'
+                        }
+                      `}
+                    >
+                      <Send size={15} strokeWidth={2.5} className={draft.trim() ? 'animate-pulse' : ''} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between px-1">
+                    <div className="flex items-center gap-3">
+                      {selectedMsgId && (
+                        <button
+                          onClick={regenerate}
+                          disabled={regenerating}
+                          className="flex items-center gap-1.5 text-xs text-indigo-600 hover:opacity-80 font-bold disabled:opacity-50 transition-opacity"
+                        >
+                          <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
+                          {regenerating ? 'Generating…' : 'Regenerate'}
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
+                        className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full transition-all ${
+                          showAIActions 
+                            ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-500/20' 
+                            : 'text-neutral-500 bg-neutral-100 hover:bg-neutral-200'
+                        }`}
+                      >
+                        <Sparkles size={12} className={showAIActions ? 'fill-indigo-500/20' : ''} />
+                        <span>AI Actions</span>
+                        <ChevronDown size={11} className={`transition-transform duration-300 ${showAIActions ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
+                    
+                    <span className="hidden sm:inline-block text-[10px] font-bold font-mono text-neutral-400 tracking-wider">
+                      **⌘ + ↵**
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </>
+        ) : null}
+      </div>
+
+
+            
+                        
+
+
+
+                
 
               {/* ── Right: Intelligence panel (desktop) ─────────────────────── */}
               {showAIPanel && (
