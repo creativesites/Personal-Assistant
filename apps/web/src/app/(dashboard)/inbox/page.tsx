@@ -1947,7 +1947,7 @@ export default function InboxPage() {
                     </div>
                   ) : (
                     <>
-                                            {messages.map((msg, idx) => {
+                                                                  {messages.map((msg, idx) => {
                         const isUser = msg.senderType === 'user'
                         const isApproved = msg.approvalMode === 'approved'
                         const isAuto = msg.approvalMode === 'autonomous'
@@ -1962,34 +1962,34 @@ export default function InboxPage() {
                                 onClick={() => msg.pendingSuggestions > 0 && selectMessage(msg.id)}
                                 className={`max-w-[85%] md:max-w-sm ${msg.pendingSuggestions > 0 ? 'cursor-pointer' : ''}`}
                               >
-                                <div className={`px-3 py-1.5 text-[15px] shadow-sm relative leading-snug ${
+                                <div className={`px-3 py-1.5 text-[15px] shadow-[0_1px_0.5px_rgba(0,0,0,0.08)] relative leading-snug ${
                                   isUser ? 'rounded-lg rounded-tr-none' : 'rounded-lg rounded-tl-none'
                                 } ${
                                   isAuto
-                                    ? 'bg-gradient-to-br from-[#005C4B] to-[#01705c] text-[#E9EDEF]'
+                                    ? 'bg-gradient-to-br from-[#E7FFDB] to-[#d8fbc2] text-[#111b21]'
                                     : isApproved
-                                    ? 'bg-[#005C4B] text-[#E9EDEF] border-l-2 border-[#53bdeb]'
+                                    ? 'bg-[#E7FFDB] text-[#111b21] border-l-2 border-[#34b7f1]'
                                     : isUser
-                                    ? 'bg-[#005C4B] text-[#E9EDEF]'
-                                    : 'bg-[#202C33] text-[#E9EDEF]'
-                                } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-1 ring-amber-400/50' : ''}
-                                  ${selectedMsgId === msg.id ? 'ring-1 ring-[#53bdeb]/50' : ''}`}
+                                    ? 'bg-[#E7FFDB] text-[#111b21]' // WhatsApp Light Mode Sent
+                                    : 'bg-[#f0f4f9] text-[#1f1f1f]' // Cool Gemini Blue-Gray Received
+                                } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-1 ring-amber-400/60' : ''}
+                                  ${selectedMsgId === msg.id ? 'ring-1 ring-[#34b7f1]/60' : ''}`}
                                 >
                                   {isAuto && (
-                                    <span className="absolute -top-2.5 right-1 inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#202C33] border border-[#005C4B] rounded-full text-[8px] font-bold text-[#8696A0]">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-[#00a884] animate-pulse" />
+                                    <span className="absolute -top-2.5 right-1 inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#f0f4f9] border border-[#d8fbc2] rounded-full text-[8px] font-bold text-[#5f6368] shadow-sm">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse" />
                                       AUTO
                                     </span>
                                   )}
                                   
                                   <MessageContent msg={msg} token={token} isUser={isUser} />
                                   
-                                  <div className="flex items-center justify-end gap-1 mt-1 text-right ml-auto">
-                                    <span className="text-[11px] text-[#8696A0] select-none">
+                                  <div className="flex items-center justify-end gap-1 mt-1 text-right ml-auto select-none">
+                                    <span className="text-[11px] text-[#5f6368]">
                                       {formatTime(msg.timestamp)}
                                     </span>
                                     {isUser && (
-                                      <span className={`text-[13px] leading-none ${msg.deliveryStatus === 'read' ? 'text-[#53bdeb]' : 'text-[#8696A0]'}`}>
+                                      <span className={`text-[13px] leading-none ${msg.deliveryStatus === 'read' ? 'text-[#34b7f1]' : 'text-[#8696A0]'}`}>
                                         ✓✓
                                       </span>
                                     )}
@@ -1997,7 +1997,7 @@ export default function InboxPage() {
                                 </div>
                                 {msg.pendingSuggestions > 0 && (
                                   <p className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${
-                                    !isUser ? 'text-amber-500 justify-start' : 'text-[#53bdeb] justify-end'
+                                    !isUser ? 'text-amber-600 justify-start' : 'text-[#34b7f1] justify-end'
                                   }`}>
                                     <Zap size={10} />
                                     {selectedMsgId === msg.id ? 'Suggestions ready ↓' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
@@ -2018,6 +2018,7 @@ export default function InboxPage() {
                       <div ref={messagesEndRef} />
                     </>
                   )}
+
 
 
                 </div>
