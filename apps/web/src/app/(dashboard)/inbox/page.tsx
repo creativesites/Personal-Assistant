@@ -1948,70 +1948,89 @@ export default function InboxPage() {
                   ) : (
                     <>
                       {messages.map((msg, idx) => {
-                        const isUser = msg.senderType === 'user'
-                        const isApproved = msg.approvalMode === 'approved'
-                        const isAuto = msg.approvalMode === 'autonomous'
+  const isUser = msg.senderType === 'user'
+  const isApproved = msg.approvalMode === 'approved'
+  const isAuto = msg.approvalMode === 'autonomous'
 
-                        // Show inline AI insight after 2nd-to-last contact message
-                        const showInsight = !isUser && timelineInsights.length > 0 && idx === messages.length - 2
+  // Show inline AI insight after 2nd-to-last contact message
+  const showInsight = !isUser && timelineInsights.length > 0 && idx === messages.length - 2
 
-                        return (
-                          <div key={msg.id}>
-                            <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                              <div
-                                onClick={() => msg.pendingSuggestions > 0 && selectMessage(msg.id)}
-                                className={`max-w-[75%] md:max-w-sm ${msg.pendingSuggestions > 0 ? 'cursor-pointer' : ''}`}
-                              >
-                                <div className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm relative ${
-                                  isAuto
-                                    ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white rounded-br-sm'
-                                    : isApproved
-                                    ? 'bg-gray-900 text-white rounded-br-sm border-l-4 border-indigo-400'
-                                    : isUser
-                                    ? 'bg-indigo-600 text-white rounded-br-sm'
-                                    : 'bg-white border border-gray-200 text-gray-900 rounded-bl-sm'
-                                } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-2 ring-amber-300' : ''}
-                                  ${selectedMsgId === msg.id ? 'ring-2 ring-indigo-400' : ''}`}
-                                >
-                                  {isAuto && (
-                                    <span className="absolute -top-2 right-2 inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-400 rounded-full text-[9px] font-bold text-white">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                                      AUTO-SENT
-                                    </span>
-                                  )}
-                                  <MessageContent msg={msg} token={token} isUser={isUser} />
-                                  <div className="flex items-center justify-between gap-2 mt-0.5">
-                                    <span className={`text-[10px] ${isUser ? 'text-indigo-200' : 'text-gray-400'}`}>
-                                      {formatTime(msg.timestamp)}
-                                    </span>
-                                    {isUser && msg.deliveryStatus === 'read' && (
-                                      <span className="text-[10px] text-indigo-300 font-medium">✓✓</span>
-                                    )}
-                                  </div>
-                                </div>
-                                {msg.pendingSuggestions > 0 && (
-                                  <p className={`mt-1 flex items-center gap-1 text-[11px] font-medium ${
-                                    !isUser ? 'text-amber-600 justify-start' : 'text-indigo-400 justify-end'
-                                  }`}>
-                                    <Zap size={10} />
-                                    {selectedMsgId === msg.id ? 'Suggestions ready ↓' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+  return (
+    <div key={msg.id} className="mb-1">
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-2`}>
+        <div
+          onClick={() => msg.pendingSuggestions > 0 && selectMessage(msg.id)}
+          className={`max-w-[85%] md:max-w-[75%] ${msg.pendingSuggestions > 0 ? 'cursor-pointer' : ''}`}
+        >
+          <div className={`
+            relative px-2.5 py-1.5 text-[15px] leading-snug shadow-sm 
+            ${isUser ? 'rounded-lg rounded-tr-none' : 'rounded-lg rounded-tl-none'}
+            ${
+              isAuto
+                ? 'bg-gradient-to-br from-[#005C4B] to-[#01705c] text-[#E9EDEF]' // Kept slightly distinct for AUTO, but within WA palette
+                : isApproved
+                ? 'bg-[#005C4B] text-[#E9EDEF] border-l-2 border-[#53bdeb]' // Highlighted approved
+                : isUser
+                ? 'bg-[#005C4B] text-[#E9EDEF]' // WhatsApp Dark Mode Sent Color
+                : 'bg-[#202C33] text-[#E9EDEF]' // WhatsApp Dark Mode Received Color
+            }
+            ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-1 ring-amber-400/50' : ''}
+            ${selectedMsgId === msg.id ? 'ring-1 ring-[#53bdeb]/50' : ''}
+          `}>
+            
+            {/* Auto-Sent Badge */}
+            {isAuto && (
+              <span className="absolute -top-2.5 right-0 inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#202C33] border border-[#005C4B] rounded-full text-[8px] font-bold text-[#8696A0]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00a884] animate-pulse" />
+                AUTO
+              </span>
+            )}
 
-                            {/* Inline AI insight card */}
-                            {showInsight && timelineInsights[0] && (
-                              <div className="py-2">
-                                <InlineAICard insight={timelineInsights[0]} />
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      <div ref={messagesEndRef} />
-                    </>
-                  )}
+            {/* Message Content & Inline Meta Container */}
+            <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-1">
+              <div className="flex-1 min-w-0 break-words">
+                <MessageContent msg={msg} token={token} isUser={isUser} />
+              </div>
+              
+              {/* WhatsApp Style Inline Timestamp & Ticks */}
+              <div className="flex items-center gap-1 self-end ml-auto shrink-0 pb-[1px]">
+                <span className="text-[11px] text-[#8696A0] select-none">
+                  {formatTime(msg.timestamp)}
+                </span>
+                
+                {isUser && (
+                  <span className={`text-[13px] ml-0.5 leading-none ${msg.deliveryStatus === 'read' ? 'text-[#53bdeb]' : 'text-[#8696A0]'}`}>
+                    {/* Standard double tick. Use an SVG check-all icon here in production for better fidelity */}
+                    ✓✓
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Pending Suggestions Indicator */}
+          {msg.pendingSuggestions > 0 && (
+            <p className={`mt-0.5 flex items-center gap-1 text-[11px] font-medium ${
+              !isUser ? 'text-amber-500 justify-start' : 'text-[#53bdeb] justify-end'
+            }`}>
+              <Zap size={10} />
+              {selectedMsgId === msg.id ? 'Suggestions ready ↓' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Inline AI insight card */}
+      {showInsight && timelineInsights[0] && (
+        <div className="py-2 px-2">
+          <InlineAICard insight={timelineInsights[0]} />
+        </div>
+      )}
+    </div>
+  )
+})}
+<div ref={messagesEndRef} />
+
                 </div>
 
                 {/* Reply dock */}
