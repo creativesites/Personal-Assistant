@@ -1870,62 +1870,70 @@ export default function InboxPage() {
       <div className={`${mobileView === 'list' ? 'hidden md:flex' : mobileView === 'intel' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0 relative`}>
         {selectedId && contact ? (
           <>
-            {/* Chat header */}
-            <div className="flex items-center gap-3 px-4 h-16 border-b border-gray-200/80 bg-white/90 backdrop-blur-md flex-shrink-0 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.03)] sticky top-0 z-20">
+            {/* 1. STICKY PREMIUM HEADER */}
+            <div className="sticky top-0 z-50 flex items-center gap-3 px-4 h-16 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md flex-shrink-0 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.03)] transition-all">
               <button
                 onClick={() => setMobileView('list')}
-                className="md:hidden p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+                className="md:hidden p-2 -ml-2 text-neutral-500 hover:text-neutral-800 rounded-xl hover:bg-neutral-100 transition-all"
               >
                 <ChevronLeft size={20} />
               </button>
-              <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
+              
+              <div className="relative group cursor-pointer">
+                <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
+                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" /> {/* Premium native online status indicator */}
+              </div>
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-bold text-gray-900 truncate">{contact.name}</p>
+                  <p className="text-sm font-bold text-neutral-900 tracking-tight truncate">{contact.name}</p>
                   {currentPriority && CurrentPIcon && (
-                    <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${currentPriority.color}`}>
+                    <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
                       <CurrentPIcon size={9} />
                       {currentPriority.label}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
                   {contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
                 </p>
               </div>
-              <div className="flex items-center gap-0.5 flex-shrink-0">
+
+              <div className="flex items-center gap-1 flex-shrink-0">
                 <button
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
                   title="Add note"
                   onClick={() => { setShowAIPanel(true); setAiTab('memory'); setTimeout(() => noteRef.current?.focus(), 150) }}
                 >
-                  <StickyNote size={16} />
+                  <StickyNote size={17} strokeWidth={2} />
                 </button>
                 <a
                   href={`/contacts/${contact.id}`}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
                   title="View full profile"
                 >
-                  <ExternalLink size={16} />
+                  <ExternalLink size={17} strokeWidth={2} />
                 </a>
-                <button className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors" title="Archive">
-                  <Archive size={16} />
+                <button className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95" title="Archive">
+                  <Archive size={17} strokeWidth={2} />
                 </button>
+                
                 {/* Mobile intel button */}
                 <button
                   onClick={() => setMobileView('intel')}
-                  className="md:hidden flex items-center gap-1.5 ml-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-semibold rounded-lg"
+                  className="md:hidden flex items-center gap-1.5 ml-1 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-all"
                 >
-                  <Brain size={12} />
+                  <Brain size={12} className="fill-indigo-600/10" />
                   Intel
                 </button>
+                
                 {/* Desktop intel toggle */}
                 <button
                   onClick={() => setShowAIPanel(v => !v)}
-                  className={`hidden md:flex p-2 rounded-lg transition-colors ${showAIPanel ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
+                  className={`hidden md:flex p-2 rounded-xl transition-all active:scale-95 ${showAIPanel ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
                   title="AI Intelligence Panel"
                 >
-                  <Brain size={16} />
+                  <Brain size={17} strokeWidth={2} className={showAIPanel ? 'fill-indigo-600/10' : ''} />
                 </button>
               </div>
             </div>
