@@ -17,9 +17,9 @@ export function MarketingNav() {
       <div className="max-w-6xl mx-auto px-4 md:px-6">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-10 h-10 rounded-lg bg-transparent pb-1 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-transparent pb-0.5 flex items-center justify-center">
               <img 
-              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
+              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri%20(1).png" 
               alt="Zuri Logo" 
               className="w-full h-full object-contain"
             />
