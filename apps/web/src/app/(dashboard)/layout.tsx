@@ -182,7 +182,7 @@ function WAStatusWidget({ wa, onNav, isMinimized = false }: { wa: WAStatus; onNa
       className={`flex items-center rounded-xl bg-gray-800/20 hover:bg-gray-800/40 transition-colors ${isMinimized ? 'p-2 justify-center w-10 h-10 mx-auto' : 'gap-2.5 px-3 py-2.5'}`}
     >
       <Smartphone className={`flex-shrink-0 ${wa.status === 'error' ? 'text-rose-400' : wa.status === 'disconnected' ? 'text-gray-500' : 'text-amber-400 animate-pulse'}`} size={16} />
-      {!isMinimized && <span className="text-xs font-semibold text-gray-400 truncate">WhatsApp Status</span>}
+      {!isMinimized && <span className="text-xs font-semibold text-gray-400 truncate">Connect WhatsApp</span>}
     </Link>
   )
 }
@@ -210,7 +210,7 @@ function SidebarContents({
     <>
       <div className={`h-16 flex items-center border-b border-gray-800/60 flex-shrink-0 ${isMinimized ? 'justify-center px-2' : 'px-5'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white p-0 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
+          <div className="w-8 h-8 rounded-xl bg-white p-0 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
             <img 
               src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
               alt="Zuri Logo" 
@@ -335,7 +335,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return (
       <div className="flex h-screen items-center justify-center bg-gray-950">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-30 h-30 rounded-2xl bg-white p-0 flex items-center justify-center shadow-lg animate-bounce">
+          <div className="w-20 h-20 rounded-2xl bg-white p-0 flex items-center justify-center shadow-lg animate-bounce">
             <img src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" alt="Loading" className="w-full h-full object-contain" />
           </div>
           <div className="text-xs font-bold tracking-widest uppercase text-gray-600 animate-pulse">Loading Zuri</div>
