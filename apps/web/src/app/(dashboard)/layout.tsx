@@ -89,24 +89,25 @@ const FOOTER_NAV: NavItem[] = [
   { href: '/diagnostics',   label: 'Diagnostics',   icon: Wrench, muted: true },
 ]
 
-const BOTTOM_NAV: Record<WorkspaceMode, NavItem[]> = {
+// Replaced 'Proactive' button positions with a system-aware Layout Item mapping approach below
+const BOTTOM_NAV: Record<WorkspaceMode, (NavItem | { isMenuToggle: true })[]> = {
   business: [
     { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
     { href: '/inbox',       label: 'Inbox',    icon: MessageSquare, badge: true },
     { href: '/contacts',    label: 'Contacts', icon: Users },
-    { href: '/inbox/queue', label: 'Queue',    icon: Zap },
+    { isMenuToggle: true },
   ],
   personal: [
     { href: '/dashboard',     label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',         label: 'Inbox',     icon: MessageSquare, badge: true },
     { href: '/relationships', label: 'People',    icon: HeartPulse },
-    { href: '/proactive',     label: 'Proactive', icon: Sparkles },
+    { isMenuToggle: true },
   ],
   hybrid: [
     { href: '/dashboard',  label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',      label: 'Inbox',     icon: MessageSquare, badge: true },
     { href: '/contacts',   label: 'Contacts',  icon: Users },
-    { href: '/proactive',  label: 'Proactive', icon: Sparkles },
+    { isMenuToggle: true },
   ],
 }
 
@@ -307,14 +308,30 @@ function SidebarContents({
 function MobileBottomNav({
   mode,
   pathname,
+  onOpenMenu,
 }: {
   mode: WorkspaceMode
   pathname: string
+  onOpenMenu: () => void
 }) {
   const items = BOTTOM_NAV[mode]
   return (
     <nav className="md:hidden fixed bottom-4 left-4 right-4 z-40 bg-gray-900/95 backdrop-blur-xl border border-gray-800/50 rounded-2xl flex items-stretch shadow-[0_8px_32px_rgba(0,0,0,0.4)] safe-area-bottom overflow-hidden">
-      {items.map(item => {
+      {items.map((item, index) => {
+        // If the array object is the toggle configuration
+        if ('isMenuToggle' in item) {
+          return (
+            <button
+              key="mobile-menu-trigger"
+              onClick={onOpenMenu}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[60px] text-gray-500 hover:text-gray-300 active:scale-95 transition-all duration-200"
+            >
+              <Menu className="w-5 h-5" />
+              <span className="text-[10px] font-semibold tracking-wide leading-none">Menu</span>
+            </button>
+          )
+        }
+
         const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
         const Icon = item.icon
         return (
@@ -366,29 +383,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
       
-      {/* Floating Modern Mobile Menu Trigger (No solid double headers) */}
-      <div className="md:hidden fixed top-3 left-3 z-40 pointer-events-none">
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="pointer-events-auto flex items-center justify-center w-11 h-11 bg-gray-900/90 backdrop-blur-md border border-gray-800/60 text-gray-300 active:scale-95 rounded-xl shadow-lg transition-all"
-          aria-label="Open navigation drawer"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* Floating Modern Mobile Notifications trigger */}
-      <div className="md:hidden fixed top-3 right-3 z-40 pointer-events-none">
-        <Link
-          href="/notifications"
-          className="pointer-events-auto flex items-center justify-center w-11 h-11 bg-gray-900/90 backdrop-blur-md border border-gray-800/60 text-gray-300 active:scale-95 rounded-xl shadow-lg transition-all"
-          aria-label="View notifications"
-        >
-          <Bell className="w-5 h-5" />
-        </Link>
-      </div>
-
-      {/* Mobile backdrop with smooth modern blur */}
+      {/* Mobile background backdrop with smooth overlay glass blur */}
       {sidebarOpen && (
         <div
           className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
@@ -425,13 +420,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       </aside>
 
-      {/* Main Content Layout with bottom padding padding configuration for clean app viewports */}
+      {/* Main Content Viewport - No padding-top layout buffers, allowing views complete visual control */}
       <main className="flex-1 overflow-auto bg-gray-50 pb-24 md:pb-0 transition-all duration-300">
         {children}
       </main>
 
-      {/* Premium app bottom tab row */}
-      <MobileBottomNav mode={mode} pathname={pathname} />
+      {/* Premium app bottom tab navigation deck */}
+      <MobileBottomNav mode={mode} pathname={pathname} onOpenMenu={() => setSidebarOpen(true)} />
     </div>
   )
 }
+
