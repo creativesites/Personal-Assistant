@@ -12,7 +12,7 @@ import {
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, UserCheck,
-  WifiOff, Loader2,
+  WifiOff, Loader2, ChevronLeft, ChevronRight
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -89,7 +89,6 @@ const FOOTER_NAV: NavItem[] = [
   { href: '/diagnostics',   label: 'Diagnostics',   icon: Wrench, muted: true },
 ]
 
-// Replaced 'Proactive' button positions with a system-aware Layout Item mapping approach below
 const BOTTOM_NAV: Record<WorkspaceMode, (NavItem | { isMenuToggle: true })[]> = {
   business: [
     { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
@@ -116,11 +115,13 @@ function NavLink({
   pathname,
   onClick,
   compact = false,
+  isMinimized = false,
 }: {
   item: NavItem
   pathname: string
   onClick?: () => void
   compact?: boolean
+  isMinimized?: boolean
 }) {
   const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
   const Icon = item.icon
@@ -128,105 +129,62 @@ function NavLink({
     <Link
       href={item.href}
       onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ease-out group ${
+      title={isMinimized ? item.label : undefined}
+      className={`flex items-center rounded-xl font-semibold transition-all duration-200 ease-out group relative ${
+        isMinimized ? 'justify-center p-2.5 mx-auto w-10 h-10' : 'gap-3 px-3 py-2.5'
+      } ${
         active
           ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
           : item.muted
           ? 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40'
           : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800/50'
-      } ${compact ? 'text-xs py-2' : ''}`}
+      } ${compact ? 'text-xs py-2' : 'text-sm'}`}
     >
       <Icon className={`flex-shrink-0 transition-transform duration-200 group-hover:scale-105 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
-      <span className="truncate">{item.label}</span>
+      
+      {!isMinimized && <span className="truncate">{item.label}</span>}
+
+      {/* Premium Desktop Tooltip for Minimized viewports */}
+      {isMinimized && (
+        <div className="absolute left-14 invisible group-hover:visible bg-gray-950 text-white text-xs px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-xl border border-gray-800/80 pointer-events-none z-50 transform translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150">
+          {item.label}
+        </div>
+      )}
     </Link>
   )
 }
 
-function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
+function WAStatusWidget({ wa, onNav, isMinimized = false }: { wa: WAStatus; onNav: () => void; isMinimized?: boolean }) {
   if (wa.status === 'connected') {
     return (
-      <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-gray-800/30 gap-2 border border-gray-800/40">
+      <div className={`flex items-center justify-between rounded-xl bg-gray-800/30 border border-gray-800/40 ${isMinimized ? 'p-2 justify-center' : 'px-3 py-2.5 gap-2'}`}>
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-          <div className="min-w-0">
-            <p className="text-xs font-bold text-emerald-400 leading-tight">Connected</p>
-            {wa.phone && (
-              <p className="text-[10px] text-gray-500 font-medium truncate leading-tight mt-0.5">+{wa.phone}</p>
-            )}
-          </div>
+          {!isMinimized && (
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-emerald-400 leading-tight">Connected</p>
+              {wa.phone && <p className="text-[10px] text-gray-500 font-medium truncate leading-tight mt-0.5">+{wa.phone}</p>}
+            </div>
+          )}
         </div>
-        <Link
-          href="/settings"
-          onClick={onNav}
-          className="text-[10px] font-bold text-gray-400 hover:text-gray-200 flex-shrink-0 transition-colors"
-        >
-          Manage
-        </Link>
+        {!isMinimized && (
+          <Link href="/settings" onClick={onNav} className="text-[10px] font-bold text-gray-400 hover:text-gray-200 flex-shrink-0 transition-colors">
+            Manage
+          </Link>
+        )}
       </div>
     )
   }
 
-  if (wa.status === 'connecting' || wa.status === 'qr_pending' || wa.status === 'link_code_pending') {
-    return (
-      <Link
-        href="/onboarding"
-        onClick={onNav}
-        className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-amber-950/20 border border-amber-900/30 hover:bg-amber-950/40 transition-colors"
-      >
-        <Loader2 className="w-4 h-4 text-amber-400 flex-shrink-0 animate-spin" />
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-amber-400 leading-tight">
-            {wa.status === 'qr_pending' ? 'Scan QR code' : wa.status === 'link_code_pending' ? 'Enter link code' : 'Connecting…'}
-          </p>
-          <p className="text-[10px] text-amber-600/80 font-medium leading-tight mt-0.5">Tap to continue setup</p>
-        </div>
-      </Link>
-    )
-  }
-
-  if (wa.status === 'error') {
-    return (
-      <Link
-        href="/onboarding"
-        onClick={onNav}
-        className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-rose-950/20 border border-rose-900/30 hover:bg-rose-950/40 transition-colors"
-      >
-        <WifiOff className="w-4 h-4 text-rose-400 flex-shrink-0" />
-        <div className="min-w-0">
-          <p className="text-xs font-bold text-rose-400 leading-tight">Connection error</p>
-          <p className="text-[10px] text-rose-600/80 font-medium leading-tight mt-0.5">Tap to reconnect</p>
-        </div>
-      </Link>
-    )
-  }
-
-  if (wa.status === 'disconnected') {
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center gap-2 px-3 py-1.5">
-          <WifiOff className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-          <p className="text-xs font-medium text-gray-500 truncate">WhatsApp disconnected</p>
-        </div>
-        <Link
-          href="/onboarding"
-          onClick={onNav}
-          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/40 transition-colors"
-        >
-          <Smartphone className="w-4 h-4 flex-shrink-0" />
-          <span>Reconnect WhatsApp</span>
-        </Link>
-      </div>
-    )
-  }
-
+  // Gracefully fallback all non-connected or pending loading states inside minimized views down to micro-dot alerts
   return (
     <Link
       href="/onboarding"
       onClick={onNav}
-      className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/40 transition-colors"
+      className={`flex items-center rounded-xl bg-gray-800/20 hover:bg-gray-800/40 transition-colors ${isMinimized ? 'p-2 justify-center w-10 h-10 mx-auto' : 'gap-2.5 px-3 py-2.5'}`}
     >
-      <Smartphone className="w-4 h-4 flex-shrink-0" />
-      <span>Connect WhatsApp</span>
+      <Smartphone className={`flex-shrink-0 ${wa.status === 'error' ? 'text-rose-400' : wa.status === 'disconnected' ? 'text-gray-500' : 'text-amber-400 animate-pulse'}`} size={16} />
+      {!isMinimized && <span className="text-xs font-semibold text-gray-400 truncate">WhatsApp Status</span>}
     </Link>
   )
 }
@@ -238,6 +196,7 @@ function SidebarContents({
   wa,
   onNav,
   onSignOut,
+  isMinimized = false,
 }: {
   pathname: string
   email: string | undefined
@@ -245,61 +204,67 @@ function SidebarContents({
   wa: WAStatus
   onNav: () => void
   onSignOut: () => void
+  isMinimized?: boolean
 }) {
-  const visibleGroups = NAV_GROUPS.filter(
-    g => !g.showForModes || g.showForModes.includes(mode),
-  )
+  const visibleGroups = NAV_GROUPS.filter(g => !g.showForModes || g.showForModes.includes(mode))
 
   return (
     <>
-      {/* Logo */}
-      <div className="h-16 flex items-center px-5 border-b border-gray-800/60 flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-b from-indigo-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-md shadow-indigo-500/20">
-            <span className="text-white text-sm font-black tracking-tight">Z</span>
+      {/* Premium Image Brand Asset Header wrapper */}
+      <div className={`h-16 flex items-center border-b border-gray-800/60 flex-shrink-0 ${isMinimized ? 'justify-center px-2' : 'px-5'}`}>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-gray-800/40 p-1 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
+            <img 
+              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
+              alt="Zuri Logo" 
+              className="w-full h-full object-contain"
+            />
           </div>
-          <span className="text-white font-bold text-base tracking-tight">Zuri</span>
+          {!isMinimized && <span className="text-white font-bold text-base tracking-tight bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">Zuri</span>}
         </div>
       </div>
 
-      {/* Scrollable nav */}
-      <nav className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-none">
+      {/* Nav Link Tree */}
+      <nav className="flex-1 overflow-y-auto p-3 space-y-5 scrollbar-none">
         {visibleGroups.map((group, gi) => (
           <div key={gi} className="space-y-1">
-            {group.label && (
+            {group.label && !isMinimized && (
               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2">
                 {group.label}
               </p>
             )}
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {group.items.map(item => (
-                <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} />
+                <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} isMinimized={isMinimized} />
               ))}
             </div>
           </div>
         ))}
 
-        <div className="border-t border-gray-800/60 pt-4 space-y-0.5">
+        <div className="border-t border-gray-800/60 pt-4 space-y-1">
           {FOOTER_NAV.map(item => (
-            <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} compact />
+            <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} compact isMinimized={isMinimized} />
           ))}
         </div>
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-gray-800/60 space-y-2 flex-shrink-0 bg-gray-900/50 backdrop-blur-md">
-        <WAStatusWidget wa={wa} onNav={onNav} />
+      {/* Footer Settings Block */}
+      <div className="p-3 border-t border-gray-800/60 space-y-2 flex-shrink-0 bg-gray-900/50 backdrop-blur-md">
+        <WAStatusWidget wa={wa} onNav={onNav} isMinimized={isMinimized} />
         <button
           onClick={onSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 transition-colors text-left"
+          title={isMinimized ? "Sign Out" : undefined}
+          className={`w-full flex items-center rounded-xl text-sm font-semibold text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 transition-colors text-left ${isMinimized ? 'p-2.5 justify-center w-10 h-10 mx-auto' : 'gap-3 px-3 py-2.5'}`}
         >
           <LogOut className="w-4 h-4 flex-shrink-0" />
-          Sign out
+          {!isMinimized && <span>Sign out</span>}
         </button>
-        <div className="px-3 py-1 flex items-center justify-between gap-2">
-          <ModeBadge mode={mode} />
-          {email && <p className="text-xs text-gray-600 font-medium truncate min-w-0">{email}</p>}
-        </div>
+        {!isMinimized && (
+          <div className="px-3 py-1 flex items-center justify-between gap-2">
+            <ModeBadge mode={mode} />
+            {email && <p className="text-xs text-gray-600 font-medium truncate min-w-0">{email}</p>}
+          </div>
+        )}
       </div>
     </>
   )
@@ -315,17 +280,26 @@ function MobileBottomNav({
   onOpenMenu: () => void
 }) {
   const items = BOTTOM_NAV[mode]
+
+  // Detect if any link outside of explicitly specified static tabs is active
+  const isSpecificTabActive = items.some(item => 'href' in item && (pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))))
+  const isMenuTabActive = !isSpecificTabActive
+
   return (
     <nav className="md:hidden fixed bottom-4 left-4 right-4 z-40 bg-gray-900/95 backdrop-blur-xl border border-gray-800/50 rounded-2xl flex items-stretch shadow-[0_8px_32px_rgba(0,0,0,0.4)] safe-area-bottom overflow-hidden">
       {items.map((item, index) => {
-        // If the array object is the toggle configuration
         if ('isMenuToggle' in item) {
           return (
             <button
               key="mobile-menu-trigger"
               onClick={onOpenMenu}
-              className="flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[60px] text-gray-500 hover:text-gray-300 active:scale-95 transition-all duration-200"
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[60px] relative active:scale-95 transition-all duration-200 ${
+                isMenuTabActive ? 'text-indigo-400 font-bold' : 'text-gray-500 hover:text-gray-300'
+              }`}
             >
+              {isMenuTabActive && (
+                <span className="absolute top-0 w-8 h-0.5 bg-indigo-500 rounded-full shadow-[0_2px_10px_rgba(99,102,241,0.5)]" />
+              )}
               <Menu className="w-5 h-5" />
               <span className="text-[10px] font-semibold tracking-wide leading-none">Menu</span>
             </button>
@@ -358,15 +332,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const session = useZuriSession()
   const pathname = usePathname()
   const { signOut } = useClerk()
+  
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [isMinimized, setIsMinimized] = useState(false)
   const wa = useWAStatus(session.data?.accessToken)
 
   if (session.status === 'loading') {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-950">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-b from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/10 animate-bounce">
-            <span className="text-white text-base font-black">Z</span>
+          <div className="w-10 h-10 rounded-2xl bg-gray-900 p-1.5 flex items-center justify-center shadow-lg animate-bounce">
+            <img src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" alt="Loading" className="w-full h-full object-contain" />
           </div>
           <div className="text-xs font-bold tracking-widest uppercase text-gray-600 animate-pulse">Loading Zuri</div>
         </div>
@@ -383,7 +359,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
       
-      {/* Mobile background backdrop with smooth overlay glass blur */}
+      {/* Mobile transparent overlay click blocker */}
       {sidebarOpen && (
         <div
           className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
@@ -391,16 +367,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* Modern Sidebar Container */}
+      {/* Modern Collapsible Sidebar Structure */}
       <aside
         className={`
           fixed md:relative z-50 md:z-auto
-          flex flex-col h-full w-66 bg-gray-900 flex-shrink-0
-          transition-transform duration-300 ease-in-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
-          border-r border-gray-800/40 shadow-2xl md:shadow-none
+          flex flex-col h-full bg-gray-900 flex-shrink-0
+          transition-all duration-300 ease-in-out
+          ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} 
+          ${isMinimized ? 'md:w-16' : 'md:w-64'}
+          border-r border-gray-800/40 shadow-2xl md:shadow-none relative
         `}
       >
+        {/* Toggle Minimize Floating Anchor Button (Desktop-only) */}
+        <button
+          onClick={() => setIsMinimized(prev => !prev)}
+          className="hidden md:flex absolute top-5 -right-3 w-6 h-6 bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-full items-center justify-center shadow-md z-50 transition-colors"
+          title={isMinimized ? "Expand Sidebar" : "Collapse Sidebar"}
+        >
+          {isMinimized ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+        </button>
+
         {sidebarOpen && (
           <button
             onClick={closeSidebar}
@@ -410,6 +396,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <X className="w-4 h-4" />
           </button>
         )}
+        
         <SidebarContents
           pathname={pathname}
           email={session.data?.user.email}
@@ -417,17 +404,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           wa={wa}
           onNav={closeSidebar}
           onSignOut={handleSignOut}
+          isMinimized={isMinimized}
         />
       </aside>
 
-      {/* Main Content Viewport - No padding-top layout buffers, allowing views complete visual control */}
+      {/* Main content frame container */}
       <main className="flex-1 overflow-auto bg-gray-50 pb-24 md:pb-0 transition-all duration-300">
         {children}
       </main>
 
-      {/* Premium app bottom tab navigation deck */}
+      {/* Premium responsive app navigation row */}
       <MobileBottomNav mode={mode} pathname={pathname} onOpenMenu={() => setSidebarOpen(true)} />
     </div>
   )
 }
-
