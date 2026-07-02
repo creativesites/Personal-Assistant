@@ -335,7 +335,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return (
       <div className="flex h-screen items-center justify-center bg-gray-950">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-2xl bg-gray-900 p-1.5 flex items-center justify-center shadow-lg animate-bounce">
+          <div className="w-30 h-30 rounded-2xl bg-white p-0 flex items-center justify-center shadow-lg animate-bounce">
             <img src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" alt="Loading" className="w-full h-full object-contain" />
           </div>
           <div className="text-xs font-bold tracking-widest uppercase text-gray-600 animate-pulse">Loading Zuri</div>
