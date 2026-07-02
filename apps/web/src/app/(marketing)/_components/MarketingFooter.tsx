@@ -28,8 +28,12 @@ export function MarketingFooter() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-                <span className="text-white text-sm font-bold">Z</span>
+              <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center">
+                <img 
+              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
+              alt="Zuri Logo" 
+              className="w-full h-full object-contain"
+            />
               </div>
               <span className="text-white font-bold text-lg">Zuri</span>
             </div>
@@ -56,7 +60,7 @@ export function MarketingFooter() {
         </div>
 
         <div className="border-t border-gray-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-xs">© 2025 Zuri. All rights reserved.</p>
+          <p className="text-xs">© 2026 Zuri. All rights reserved.</p>
           <div className="flex items-center gap-4 text-xs">
             <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
             <Link href="/privacy" className="hover:text-white transition-colors">Terms of Service</Link>
