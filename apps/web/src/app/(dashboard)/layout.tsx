@@ -212,7 +212,7 @@ function SidebarContents({
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-xl bg-white p-0 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
             <img 
-              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
+              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri%20(1).png" 
               alt="Zuri Logo" 
               className="w-full h-full object-contain"
             />
