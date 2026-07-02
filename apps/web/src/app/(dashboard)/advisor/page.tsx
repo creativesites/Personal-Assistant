@@ -327,7 +327,14 @@ export default function AdvisorPage() {
           <div className="flex items-center gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-sm font-bold tracking-tight text-white">AI Advisor Command</h1>
+                <div className="w-10 h-10 rounded-lg bg-transparent pb-0.5 flex items-center justify-center">
+              <img 
+              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri%20(1).png" 
+              alt="Zuri Logo" 
+              className="w-full h-full object-contain"
+            />
+            </div>
+                <h4 className="text-sm font-bold tracking-tight text-white">AI Advisor</h4>
                 <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Bot className="w-2.5 h-2.5" /> Core Agent
                 </span>
