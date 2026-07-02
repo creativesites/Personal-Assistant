@@ -144,7 +144,6 @@ function NavLink({
       
       {!isMinimized && <span className="truncate">{item.label}</span>}
 
-      {/* Premium Desktop Tooltip for Minimized viewports */}
       {isMinimized && (
         <div className="absolute left-14 invisible group-hover:visible bg-gray-950 text-white text-xs px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-xl border border-gray-800/80 pointer-events-none z-50 transform translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150">
           {item.label}
@@ -176,7 +175,6 @@ function WAStatusWidget({ wa, onNav, isMinimized = false }: { wa: WAStatus; onNa
     )
   }
 
-  // Gracefully fallback all non-connected or pending loading states inside minimized views down to micro-dot alerts
   return (
     <Link
       href="/onboarding"
@@ -210,10 +208,9 @@ function SidebarContents({
 
   return (
     <>
-      {/* Premium Image Brand Asset Header wrapper */}
       <div className={`h-16 flex items-center border-b border-gray-800/60 flex-shrink-0 ${isMinimized ? 'justify-center px-2' : 'px-5'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gray-800/40 p-1 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
+          <div className="w-12 h-10 rounded-xl bg-white p-1 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
             <img 
               src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
               alt="Zuri Logo" 
@@ -224,7 +221,6 @@ function SidebarContents({
         </div>
       </div>
 
-      {/* Nav Link Tree */}
       <nav className="flex-1 overflow-y-auto p-3 space-y-5 scrollbar-none">
         {visibleGroups.map((group, gi) => (
           <div key={gi} className="space-y-1">
@@ -248,7 +244,6 @@ function SidebarContents({
         </div>
       </nav>
 
-      {/* Footer Settings Block */}
       <div className="p-3 border-t border-gray-800/60 space-y-2 flex-shrink-0 bg-gray-900/50 backdrop-blur-md">
         <WAStatusWidget wa={wa} onNav={onNav} isMinimized={isMinimized} />
         <button
@@ -281,7 +276,6 @@ function MobileBottomNav({
 }) {
   const items = BOTTOM_NAV[mode]
 
-  // Detect if any link outside of explicitly specified static tabs is active
   const isSpecificTabActive = items.some(item => 'href' in item && (pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))))
   const isMenuTabActive = !isSpecificTabActive
 
@@ -357,9 +351,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const closeSidebar = () => setSidebarOpen(false)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
+    <div className="flex h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
       
-      {/* Mobile transparent overlay click blocker */}
+      {/* Mobile background backdrop overlay */}
       {sidebarOpen && (
         <div
           className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
@@ -367,18 +361,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* Modern Collapsible Sidebar Structure */}
+      {/* Fixed: Explicit positional boundaries for mobile absolute tracking vs desktop relative flexibility */}
       <aside
         className={`
-          fixed md:relative z-50 md:z-auto
-          flex flex-col h-full bg-gray-900 flex-shrink-0
+          fixed top-0 bottom-0 left-0 z-50 md:z-auto md:relative
+          flex flex-col h-full bg-gray-900
           transition-all duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} 
           ${isMinimized ? 'md:w-16' : 'md:w-64'}
-          border-r border-gray-800/40 shadow-2xl md:shadow-none relative
+          border-r border-gray-800/40 shadow-2xl md:shadow-none
         `}
       >
-        {/* Toggle Minimize Floating Anchor Button (Desktop-only) */}
+        {/* Toggle Minimize Floating Button (Desktop-only) */}
         <button
           onClick={() => setIsMinimized(prev => !prev)}
           className="hidden md:flex absolute top-5 -right-3 w-6 h-6 bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-full items-center justify-center shadow-md z-50 transition-colors"
@@ -408,12 +402,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       </aside>
 
-      {/* Main content frame container */}
-      <main className="flex-1 overflow-auto bg-gray-50 pb-24 md:pb-0 transition-all duration-300">
+      {/* Main Content Viewport now correctly consumes 100% full width on mobile devices */}
+      <main className="flex-1 w-full min-w-0 overflow-auto bg-gray-50 pb-24 md:pb-0 transition-all duration-300">
         {children}
       </main>
 
-      {/* Premium responsive app navigation row */}
+      {/* Premium mobile app bottom menu */}
       <MobileBottomNav mode={mode} pathname={pathname} onOpenMenu={() => setSidebarOpen(true)} />
     </div>
   )
