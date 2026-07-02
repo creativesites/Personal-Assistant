@@ -127,15 +127,15 @@ function NavLink({
     <Link
       href={item.href}
       onClick={onClick}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ease-out group ${
         active
-          ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/30'
+          ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
           : item.muted
-          ? 'text-gray-600 hover:text-gray-400 hover:bg-gray-800/50'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/60'
+          ? 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/40'
+          : 'text-gray-400 hover:text-gray-100 hover:bg-gray-800/50'
       } ${compact ? 'text-xs py-2' : ''}`}
     >
-      <Icon className={`flex-shrink-0 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
+      <Icon className={`flex-shrink-0 transition-transform duration-200 group-hover:scale-105 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
       <span className="truncate">{item.label}</span>
     </Link>
   )
@@ -144,20 +144,20 @@ function NavLink({
 function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
   if (wa.status === 'connected') {
     return (
-      <div className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-gray-800/40 gap-2">
+      <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-gray-800/30 gap-2 border border-gray-800/40">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0 shadow-[0_0_6px_rgba(34,197,94,0.7)]" />
+          <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
           <div className="min-w-0">
-            <p className="text-xs font-medium text-green-400 leading-tight">Connected</p>
+            <p className="text-xs font-bold text-emerald-400 leading-tight">Connected</p>
             {wa.phone && (
-              <p className="text-[10px] text-gray-500 truncate leading-tight mt-0.5">+{wa.phone}</p>
+              <p className="text-[10px] text-gray-500 font-medium truncate leading-tight mt-0.5">+{wa.phone}</p>
             )}
           </div>
         </div>
         <Link
           href="/settings"
           onClick={onNav}
-          className="text-[10px] text-gray-600 hover:text-gray-400 flex-shrink-0 transition-colors"
+          className="text-[10px] font-bold text-gray-400 hover:text-gray-200 flex-shrink-0 transition-colors"
         >
           Manage
         </Link>
@@ -170,14 +170,14 @@ function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
       <Link
         href="/onboarding"
         onClick={onNav}
-        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-amber-900/20 hover:bg-amber-900/30 transition-colors"
+        className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-amber-950/20 border border-amber-900/30 hover:bg-amber-950/40 transition-colors"
       >
         <Loader2 className="w-4 h-4 text-amber-400 flex-shrink-0 animate-spin" />
         <div className="min-w-0">
-          <p className="text-xs font-medium text-amber-400 leading-tight">
+          <p className="text-xs font-bold text-amber-400 leading-tight">
             {wa.status === 'qr_pending' ? 'Scan QR code' : wa.status === 'link_code_pending' ? 'Enter link code' : 'Connecting…'}
           </p>
-          <p className="text-[10px] text-gray-600 leading-tight mt-0.5">Tap to continue setup</p>
+          <p className="text-[10px] text-amber-600/80 font-medium leading-tight mt-0.5">Tap to continue setup</p>
         </div>
       </Link>
     )
@@ -188,12 +188,12 @@ function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
       <Link
         href="/onboarding"
         onClick={onNav}
-        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-red-900/20 hover:bg-red-900/30 transition-colors"
+        className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-rose-950/20 border border-rose-900/30 hover:bg-rose-950/40 transition-colors"
       >
-        <WifiOff className="w-4 h-4 text-red-400 flex-shrink-0" />
+        <WifiOff className="w-4 h-4 text-rose-400 flex-shrink-0" />
         <div className="min-w-0">
-          <p className="text-xs font-medium text-red-400 leading-tight">Connection error</p>
-          <p className="text-[10px] text-gray-600 leading-tight mt-0.5">Tap to reconnect</p>
+          <p className="text-xs font-bold text-rose-400 leading-tight">Connection error</p>
+          <p className="text-[10px] text-rose-600/80 font-medium leading-tight mt-0.5">Tap to reconnect</p>
         </div>
       </Link>
     )
@@ -203,13 +203,13 @@ function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
     return (
       <div className="space-y-1">
         <div className="flex items-center gap-2 px-3 py-1.5">
-          <WifiOff className="w-3.5 h-3.5 text-gray-600 flex-shrink-0" />
-          <p className="text-xs text-gray-600 truncate">WhatsApp disconnected</p>
+          <WifiOff className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+          <p className="text-xs font-medium text-gray-500 truncate">WhatsApp disconnected</p>
         </div>
         <Link
           href="/onboarding"
           onClick={onNav}
-          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/60 transition-colors"
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/40 transition-colors"
         >
           <Smartphone className="w-4 h-4 flex-shrink-0" />
           <span>Reconnect WhatsApp</span>
@@ -218,12 +218,11 @@ function WAStatusWidget({ wa, onNav }: { wa: WAStatus; onNav: () => void }) {
     )
   }
 
-  // unknown / never connected
   return (
     <Link
       href="/onboarding"
       onClick={onNav}
-      className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/60 transition-colors"
+      className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-gray-800/40 transition-colors"
     >
       <Smartphone className="w-4 h-4 flex-shrink-0" />
       <span>Connect WhatsApp</span>
@@ -253,21 +252,21 @@ function SidebarContents({
   return (
     <>
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-gray-800/80 flex-shrink-0">
+      <div className="h-16 flex items-center px-5 border-b border-gray-800/60 flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold tracking-tight">Z</span>
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-b from-indigo-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-md shadow-indigo-500/20">
+            <span className="text-white text-sm font-black tracking-tight">Z</span>
           </div>
-          <span className="text-white font-semibold tracking-tight">Zuri</span>
+          <span className="text-white font-bold text-base tracking-tight">Zuri</span>
         </div>
       </div>
 
       {/* Scrollable nav */}
-      <nav className="flex-1 overflow-y-auto p-3 space-y-5">
+      <nav className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-none">
         {visibleGroups.map((group, gi) => (
-          <div key={gi}>
+          <div key={gi} className="space-y-1">
             {group.label && (
-              <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest px-3 mb-1.5">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2">
                 {group.label}
               </p>
             )}
@@ -279,7 +278,7 @@ function SidebarContents({
           </div>
         ))}
 
-        <div className="border-t border-gray-800/80 pt-4 space-y-0.5">
+        <div className="border-t border-gray-800/60 pt-4 space-y-0.5">
           {FOOTER_NAV.map(item => (
             <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} compact />
           ))}
@@ -287,18 +286,18 @@ function SidebarContents({
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-gray-800/80 space-y-1 flex-shrink-0">
+      <div className="p-4 border-t border-gray-800/60 space-y-2 flex-shrink-0 bg-gray-900/50 backdrop-blur-md">
         <WAStatusWidget wa={wa} onNav={onNav} />
         <button
           onClick={onSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-600 hover:text-gray-300 hover:bg-gray-800/60 transition-colors text-left"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-gray-500 hover:text-gray-300 hover:bg-gray-800/40 transition-colors text-left"
         >
           <LogOut className="w-4 h-4 flex-shrink-0" />
           Sign out
         </button>
-        <div className="px-3 py-2 flex items-center justify-between gap-2">
+        <div className="px-3 py-1 flex items-center justify-between gap-2">
           <ModeBadge mode={mode} />
-          {email && <p className="text-xs text-gray-700 truncate min-w-0">{email}</p>}
+          {email && <p className="text-xs text-gray-600 font-medium truncate min-w-0">{email}</p>}
         </div>
       </div>
     </>
@@ -314,7 +313,7 @@ function MobileBottomNav({
 }) {
   const items = BOTTOM_NAV[mode]
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-gray-900 border-t border-gray-800 flex items-stretch safe-area-bottom">
+    <nav className="md:hidden fixed bottom-4 left-4 right-4 z-40 bg-gray-900/95 backdrop-blur-xl border border-gray-800/50 rounded-2xl flex items-stretch shadow-[0_8px_32px_rgba(0,0,0,0.4)] safe-area-bottom overflow-hidden">
       {items.map(item => {
         const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
         const Icon = item.icon
@@ -322,12 +321,15 @@ function MobileBottomNav({
           <Link
             key={item.href}
             href={item.href}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[56px] transition-colors ${
-              active ? 'text-indigo-400' : 'text-gray-600 hover:text-gray-400'
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[60px] relative transition-all duration-300 ${
+              active ? 'text-indigo-400 font-bold' : 'text-gray-500 hover:text-gray-300'
             }`}
           >
-            <Icon className="w-5 h-5" />
-            <span className="text-[10px] font-medium leading-none">{item.label}</span>
+            {active && (
+              <span className="absolute top-0 w-8 h-0.5 bg-indigo-500 rounded-full shadow-[0_2px_10px_rgba(99,102,241,0.5)]" />
+            )}
+            <Icon className={`w-5 h-5 transition-transform duration-200 ${active ? 'scale-105' : ''}`} />
+            <span className="text-[10px] font-semibold tracking-wide leading-none">{item.label}</span>
           </Link>
         )
       })}
@@ -345,11 +347,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (session.status === 'loading') {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <span className="text-white text-sm font-bold">Z</span>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-b from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/10 animate-bounce">
+            <span className="text-white text-base font-black">Z</span>
           </div>
-          <div className="text-sm text-gray-500">Loading…</div>
+          <div className="text-xs font-bold tracking-widest uppercase text-gray-600 animate-pulse">Loading Zuri</div>
         </div>
       </div>
     )
@@ -361,68 +363,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleSignOut = () => signOut({ redirectUrl: '/login' })
   const closeSidebar = () => setSidebarOpen(false)
 
-  const waStatusDot =
-    wa.status === 'connected'                                              ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.8)]' :
-    wa.status === 'connecting' || wa.status === 'qr_pending' || wa.status === 'link_code_pending' ? 'bg-amber-400 animate-pulse' :
-    wa.status === 'error'                                                  ? 'bg-red-500' :
-    wa.status === 'disconnected'                                           ? 'bg-gray-600' :
-    'bg-transparent'
-
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950">
-      {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-14 bg-gray-900 flex items-center px-4 gap-3 border-b border-gray-800">
+    <div className="flex h-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
+      
+      {/* Floating Modern Mobile Menu Trigger (No solid double headers) */}
+      <div className="md:hidden fixed top-3 left-3 z-40 pointer-events-none">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="text-gray-500 hover:text-gray-200 p-2 -ml-2 rounded-lg transition-colors"
-          aria-label="Open menu"
+          className="pointer-events-auto flex items-center justify-center w-11 h-11 bg-gray-900/90 backdrop-blur-md border border-gray-800/60 text-gray-300 active:scale-95 rounded-xl shadow-lg transition-all"
+          aria-label="Open navigation drawer"
         >
           <Menu className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-[10px] font-bold">Z</span>
-            </div>
-            {wa.status !== 'unknown' && (
-              <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-gray-900 ${waStatusDot}`} />
-            )}
-          </div>
-          <span className="text-white font-semibold text-sm">Zuri</span>
-        </div>
-        <div className="ml-auto flex items-center gap-1">
-          <Link
-            href="/notifications"
-            className="text-gray-500 hover:text-gray-200 p-2 rounded-lg transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell className="w-5 h-5" />
-          </Link>
-        </div>
       </div>
 
-      {/* Mobile backdrop */}
+      {/* Floating Modern Mobile Notifications trigger */}
+      <div className="md:hidden fixed top-3 right-3 z-40 pointer-events-none">
+        <Link
+          href="/notifications"
+          className="pointer-events-auto flex items-center justify-center w-11 h-11 bg-gray-900/90 backdrop-blur-md border border-gray-800/60 text-gray-300 active:scale-95 rounded-xl shadow-lg transition-all"
+          aria-label="View notifications"
+        >
+          <Bell className="w-5 h-5" />
+        </Link>
+      </div>
+
+      {/* Mobile backdrop with smooth modern blur */}
       {sidebarOpen && (
         <div
-          className="md:hidden fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
           onClick={closeSidebar}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Modern Sidebar Container */}
       <aside
         className={`
           fixed md:relative z-50 md:z-auto
-          flex flex-col h-full w-64 bg-gray-900 flex-shrink-0
-          transition-transform duration-200 ease-in-out
+          flex flex-col h-full w-66 bg-gray-900 flex-shrink-0
+          transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
-          border-r border-gray-800/60
+          border-r border-gray-800/40 shadow-2xl md:shadow-none
         `}
       >
         {sidebarOpen && (
           <button
             onClick={closeSidebar}
-            className="md:hidden absolute top-4 right-4 text-gray-500 hover:text-gray-200 p-1 rounded-lg"
+            className="md:hidden absolute top-4 right-4 text-gray-400 hover:text-gray-100 p-2 rounded-xl bg-gray-800/40 transition-colors"
             aria-label="Close menu"
           >
             <X className="w-4 h-4" />
@@ -438,12 +425,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto bg-gray-50 pt-14 md:pt-0 pb-14 md:pb-0">
+      {/* Main Content Layout with bottom padding padding configuration for clean app viewports */}
+      <main className="flex-1 overflow-auto bg-gray-50 pb-24 md:pb-0 transition-all duration-300">
         {children}
       </main>
 
-      {/* Mobile bottom nav */}
+      {/* Premium app bottom tab row */}
       <MobileBottomNav mode={mode} pathname={pathname} />
     </div>
   )
