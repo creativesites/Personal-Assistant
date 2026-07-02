@@ -28,7 +28,7 @@ export function MarketingFooter() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-white pb-1 flex items-center justify-center">
                 <img 
               src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
               alt="Zuri Logo" 
