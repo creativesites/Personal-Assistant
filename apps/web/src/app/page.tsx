@@ -160,8 +160,12 @@ function DashboardMockup() {
         <div className="flex h-64">
           {/* Mini sidebar */}
           <div className="w-12 bg-gray-950 flex flex-col items-center py-3 gap-3 border-r border-gray-800">
-            <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
-              <span className="text-white text-[10px] font-bold">Z</span>
+            <div className="w-7 h-7 rounded-lg bg-white flex items-center justify-center">
+              <img 
+              src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
+              alt="Zuri Logo" 
+              className="w-full h-full object-contain"
+            />
             </div>
             {[MessageSquare, TrendingUp, Users, BarChart3].map((Icon, i) => (
               <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 0 ? 'bg-indigo-600/20' : 'hover:bg-gray-800'}`}>
