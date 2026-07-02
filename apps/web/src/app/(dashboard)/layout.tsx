@@ -210,7 +210,7 @@ function SidebarContents({
     <>
       <div className={`h-16 flex items-center border-b border-gray-800/60 flex-shrink-0 ${isMinimized ? 'justify-center px-2' : 'px-5'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-12 h-10 rounded-xl bg-white p-1 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
+          <div className="w-10 h-10 rounded-xl bg-white p-0 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
             <img 
               src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri.png" 
               alt="Zuri Logo" 
