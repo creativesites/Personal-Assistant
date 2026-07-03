@@ -1,8 +1,8 @@
 'use client'
 
 import { SignIn } from '@clerk/nextjs'
-import Image from 'next/image'
-import { MessageCircle, Zap, Users, ShieldCheck } from 'lucide-react'
+import Link from 'next/link'
+import { MessageCircle, Zap, Users, ShieldCheck, Home } from 'lucide-react'
 
 export default function LoginPage() {
   return (
@@ -17,12 +17,10 @@ export default function LoginPage() {
 
         {/* Logo & Brand */}
         <div className="relative z-10 flex items-center gap-3 mb-8">
-          <Image
+          <img
             src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri%20(1).png"
             alt="Zuri Logo"
-            width={40}
-            height={40}
-            className="rounded-lg"
+            className="w-10 h-10 rounded-lg"
           />
           <div>
             <h1 className="text-xl font-bold text-gray-800">Zuri</h1>
@@ -76,10 +74,19 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Bottom Trust Note */}
-        <div className="relative z-10 flex items-center gap-2 text-xs text-gray-400 border-t border-gray-100 pt-4">
-          <ShieldCheck className="w-4 h-4 text-green-500" />
-          <span>Your conversations are encrypted and private. Zuri never sends messages without your approval.</span>
+        {/* Bottom: trust, back to home */}
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-gray-400 border-t border-gray-100 pt-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-green-500" />
+            <span>Your conversations are encrypted and private. Zuri never sends messages without your approval.</span>
+          </div>
+          <Link
+            href="/"
+            className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium transition-colors flex-shrink-0"
+          >
+            <Home className="w-4 h-4" />
+            Home
+          </Link>
         </div>
       </div>
 
