@@ -1,9 +1,8 @@
 'use client'
 
 import { SignUp } from '@clerk/nextjs'
-import Image from 'next/image'
 import Link from 'next/link'
-import { Zap, Users, Bell, ShieldCheck, ArrowLeft } from 'lucide-react'
+import { Zap, Users, Bell, ShieldCheck, ArrowLeft, Home } from 'lucide-react'
 
 export default function RegisterPage() {
   return (
@@ -18,12 +17,10 @@ export default function RegisterPage() {
 
         {/* Logo & Brand */}
         <div className="relative z-10 flex items-center gap-3 mb-8">
-          <Image
+          <img
             src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri%20(1).png"
             alt="Zuri Logo"
-            width={40}
-            height={40}
-            className="rounded-lg"
+            className="w-10 h-10 rounded-lg"
           />
           <div>
             <h1 className="text-xl font-bold text-gray-800">Zuri</h1>
@@ -76,19 +73,28 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        {/* Bottom: trust message + back to login */}
-        <div className="relative z-10 flex items-center justify-between text-xs text-gray-400 border-t border-gray-100 pt-4">
+        {/* Bottom: trust message, back to home, back to login */}
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-gray-400 border-t border-gray-100 pt-4">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-green-500" />
             <span>No credit card required. Cancel anytime.</span>
           </div>
-          <Link
-            href="/login"
-            className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Sign in
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium transition-colors"
+            >
+              <Home className="w-4 h-4" />
+              Home
+            </Link>
+            <Link
+              href="/login"
+              className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Sign in
+            </Link>
+          </div>
         </div>
       </div>
 
