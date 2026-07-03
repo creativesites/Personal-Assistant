@@ -1988,8 +1988,8 @@ export default function InboxPage() {
                                     : isApproved
                                     ? 'bg-[#E7FFDB] text-[#111b21] border-l-2 border-[#34b7f1]'
                                     : isUser
-                                    ? 'bg-[#E7FFDB] text-[#111b21]' // WhatsApp Light Mode Sent
-                                    : 'bg-[#f0f4f9] text-[#1f1f1f]' // Cool Gemini Blue-Gray Received
+                                    ? 'bg-[#E7FFDB] text-[#111b21] text-black' // WhatsApp Light Mode Sent
+                                    : 'bg-[#f0f4f9] text-[#1f1f1f] text-black' // Cool Gemini Blue-Gray Received
                                 } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-1 ring-amber-400/60' : ''}
                                   ${selectedMsgId === msg.id ? 'ring-1 ring-[#34b7f1]/60' : ''}`}
                                 >
