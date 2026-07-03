@@ -1,90 +1,95 @@
 'use client'
 
 import { SignIn } from '@clerk/nextjs'
-import { Bot, ShieldCheck, Terminal, Radio } from 'lucide-react'
+import Image from 'next/image'
+import { MessageCircle, Zap, Users, ShieldCheck } from 'lucide-react'
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen w-full bg-slate-950 flex flex-col md:flex-row font-sans overflow-hidden">
+    <div className="min-h-screen w-full bg-white flex flex-col md:flex-row font-sans">
       
-      {/* LEFT PANEL: OPERATIONAL TELEMETRY & APP ETHOS */}
-      <div className="w-full md:w-[45%] lg:w-[40%] bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 border-r border-slate-900 p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
+      {/* LEFT PANEL: VALUE PROPOSITION */}
+      <div className="w-full md:w-1/2 lg:w-[45%] bg-gradient-to-br from-indigo-50 via-white to-blue-50 border-r border-gray-100 p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
         
-        {/* Background Grid Pattern Overlay */}
-        <div className="absolute inset-0 opacity-[0.02] pointer-events-none mix-blend-overlay bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:24px_24px]" />
-        
-        {/* Glow ambient effects */}
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-10 right-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+        {/* Subtle decorative circles */}
+        <div className="absolute -top-32 -left-32 w-64 h-64 bg-indigo-100 rounded-full opacity-40 pointer-events-none" />
+        <div className="absolute bottom-0 right-0 w-48 h-48 bg-blue-100 rounded-full opacity-30 pointer-events-none" />
 
-        {/* Top Header Segment */}
-        <div className="relative z-10 flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600 border border-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Bot className="w-5 h-5 text-white" />
-          </div>
+        {/* Logo & Brand */}
+        <div className="relative z-10 flex items-center gap-3 mb-8">
+          <Image
+            src="https://tnznwohaezrslohtohep.supabase.co/storage/v1/object/public/assets/zuri%20(1).png"
+            alt="Zuri Logo"
+            width={40}
+            height={40}
+            className="rounded-lg"
+          />
           <div>
-            <span className="text-sm font-black tracking-tight text-white block">Zuri OS</span>
-            <span className="text-[10px] text-indigo-400 font-mono tracking-widest uppercase">Autonomous Layer</span>
+            <h1 className="text-xl font-bold text-gray-800">Zuri</h1>
+            <p className="text-xs text-indigo-500 font-medium">AI for your WhatsApp</p>
           </div>
         </div>
 
-        {/* Core Marketing / Tech Copy Block */}
-        <div className="relative z-10 my-auto py-12 space-y-6">
-          <div className="space-y-3">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] font-bold text-indigo-300 uppercase tracking-wider">
-              <Radio className="w-3 h-3 text-indigo-400 animate-pulse" /> Live Node Synchronization
-            </span>
-            <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white leading-tight">
-              The Intelligent Command Center for Your Business.
+        {/* Main Benefit Statement */}
+        <div className="relative z-10 my-auto py-8 space-y-8">
+          <div className="space-y-4">
+            <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 leading-tight">
+              Never miss a customer again.
+              <span className="block text-indigo-600">Reply smarter, not harder.</span>
             </h2>
-            <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-              Consolidate conversations, autonomously trace conversion drops, sync pricing guidelines, and orchestrate campaigns straight from a centralized neural interface.
+            <p className="text-sm text-gray-500 max-w-md leading-relaxed">
+              Zuri watches your WhatsApp conversations, understands your customers,
+              and helps you reply faster with AI‑generated suggestions that sound like you.
+              Spend less time typing, more time growing your business.
             </p>
           </div>
 
-          {/* Simulated Premium Telemetry Widget */}
-          <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 space-y-3 font-mono shadow-xl backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-slate-850 pb-2">
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                <Terminal className="w-3 h-3 text-indigo-400" /> core_telemetry_dump
+          {/* Key Benefits in Simple Language */}
+          <div className="grid grid-cols-1 gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                <Zap className="w-5 h-5 text-indigo-600" />
               </div>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <div>
+                <p className="font-semibold text-gray-800 text-sm">Instant AI replies</p>
+                <p className="text-xs text-gray-400">Zuri drafts responses that match your tone, ready in seconds.</p>
+              </div>
             </div>
-            
-            <div className="space-y-1.5 text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-slate-500">SYSTEM_NODE</span>
-                <span className="text-slate-300">zuri-edge-zambia</span>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                <Users className="w-5 h-5 text-green-600" />
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">INTELLIGENCE_INDEX</span>
-                <span className="text-emerald-400 font-bold">94% Optimal</span>
+              <div>
+                <p className="font-semibold text-gray-800 text-sm">Know every customer</p>
+                <p className="text-xs text-gray-400">Automatically builds profiles with lead scores, interests, and reminders.</p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">PIPELINE_MONITORS</span>
-                <span className="text-indigo-400 font-bold">Active Threads</span>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <MessageCircle className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-800 text-sm">Never forget a follow‑up</p>
+                <p className="text-xs text-gray-400">Alerts you when a customer goes quiet or a promise needs keeping.</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Bottom Infrastructure Security Meta */}
-        <div className="relative z-10 flex items-center gap-2 text-[11px] text-slate-500 border-t border-slate-900 pt-4">
-          <ShieldCheck className="w-4 h-4 text-indigo-500/70" />
-          <span>Enterprise End-to-End Cryptographic Validation</span>
+        {/* Bottom Trust Note */}
+        <div className="relative z-10 flex items-center gap-2 text-xs text-gray-400 border-t border-gray-100 pt-4">
+          <ShieldCheck className="w-4 h-4 text-green-500" />
+          <span>Your conversations are encrypted and private. Zuri never sends messages without your approval.</span>
         </div>
       </div>
 
-      {/* RIGHT PANEL: CLERK INBOUND AUTHENTICATION PORTAL */}
-      <div className="flex-1 bg-slate-950 flex flex-col justify-center items-center p-6 md:p-12 relative">
+      {/* RIGHT PANEL: SIGN IN */}
+      <div className="flex-1 bg-white flex flex-col justify-center items-center p-6 md:p-12 relative">
         
-        <div className="absolute top-8 right-8 text-[11px] font-mono text-slate-700 hidden sm:block">
-          SECURE_AUTH_PORTAL // 443
-        </div>
-
         <div className="w-full max-w-md mx-auto flex flex-col justify-center items-center">
           
-          <div className="w-full shadow-2xl rounded-2xl overflow-hidden border border-slate-900/40">
+          {/* Light Themed Clerk Card */}
+          <div className="w-full shadow-xl rounded-2xl overflow-hidden border border-gray-100 bg-white">
             <SignIn 
               appearance={{
                 layout: {
@@ -93,26 +98,26 @@ export default function LoginPage() {
                 },
                 variables: {
                   colorPrimary: '#4f46e5',
-                  colorBackground: '#020617',
-                  colorText: '#f8fafc',
-                  colorTextSecondary: '#94a3b8',
-                  colorInputBackground: '#0f172a',
-                  colorInputText: '#ffffff',
-                  colorBorder: '#1e293b',
+                  colorBackground: '#ffffff',
+                  colorText: '#1e293b',
+                  colorTextSecondary: '#64748b',
+                  colorInputBackground: '#f8fafc',
+                  colorInputText: '#1e293b',
+                  colorBorder: '#e2e8f0',
                 },
                 elements: {
                   rootBox: "w-full",
                   card: "bg-transparent shadow-none p-6 sm:p-8 w-full border-none",
-                  headerTitle: "text-xl font-extrabold tracking-tight text-white text-left",
-                  headerSubtitle: "text-xs text-slate-400 text-left mt-1",
-                  socialButtonsBlockButton: "bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-200 transition-all text-xs font-semibold rounded-xl py-2.5",
-                  dividerLine: "bg-slate-850",
-                  dividerText: "text-[10px] text-slate-500 uppercase tracking-widest font-bold",
-                  formLabel: "font-bold text-[11px] uppercase tracking-wider text-slate-400 mb-1",
-                  formButtonPrimary: "bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 rounded-xl transition-all shadow-md shadow-indigo-600/10 mt-2",
-                  formFieldInput: "bg-slate-900 border border-slate-800 focus:border-slate-700 text-xs rounded-xl px-3 py-2 text-white placeholder-slate-600 focus:outline-none transition-colors",
-                  footerActionText: "text-xs text-slate-400",
-                  footerActionLink: "text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors",
+                  headerTitle: "text-xl font-bold text-gray-800 text-left",
+                  headerSubtitle: "text-sm text-gray-500 text-left mt-1",
+                  socialButtonsBlockButton: "bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 transition-all text-sm font-medium rounded-xl py-2.5",
+                  dividerLine: "bg-gray-200",
+                  dividerText: "text-xs text-gray-400 uppercase tracking-wider font-bold",
+                  formLabel: "font-semibold text-sm text-gray-700 mb-1",
+                  formButtonPrimary: "bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-xl transition-all shadow-md shadow-indigo-600/10 mt-2",
+                  formFieldInput: "bg-gray-50 border border-gray-200 focus:border-indigo-400 text-sm rounded-xl px-3 py-2.5 text-gray-800 placeholder-gray-400 focus:outline-none transition-colors",
+                  footerActionText: "text-sm text-gray-500",
+                  footerActionLink: "text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition-colors",
                 }
               }}
             />
