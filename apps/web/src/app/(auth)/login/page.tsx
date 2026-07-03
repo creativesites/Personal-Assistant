@@ -1,7 +1,7 @@
 'use client'
 
 import { SignIn } from '@clerk/nextjs'
-import { Bot, ShieldCheck, Terminal, Layers, Zap, Radio } from 'lucide-react'
+import { Bot, ShieldCheck, Terminal, Radio } from 'lucide-react'
 
 export default function LoginPage() {
   return (
@@ -78,14 +78,12 @@ export default function LoginPage() {
       {/* RIGHT PANEL: CLERK INBOUND AUTHENTICATION PORTAL */}
       <div className="flex-1 bg-slate-950 flex flex-col justify-center items-center p-6 md:p-12 relative">
         
-        {/* Subtle decorative geometry for target login clean alignment */}
         <div className="absolute top-8 right-8 text-[11px] font-mono text-slate-700 hidden sm:block">
           SECURE_AUTH_PORTAL // 443
         </div>
 
         <div className="w-full max-w-md mx-auto flex flex-col justify-center items-center">
           
-          {/* Clerk Custom Appearance Injection Wrap Container */}
           <div className="w-full shadow-2xl rounded-2xl overflow-hidden border border-slate-900/40">
             <SignIn 
               appearance={{
@@ -94,13 +92,13 @@ export default function LoginPage() {
                   showOptionalFields: false,
                 },
                 variables: {
-                  colorPrimary: '#4f46e5', // Indigo 600 premium matching tone
-                  colorBackground: '#020617', // Slate 950 base fill mirror
-                  colorText: '#f8fafc', // White text scaling elements
+                  colorPrimary: '#4f46e5',
+                  colorBackground: '#020617',
+                  colorText: '#f8fafc',
                   colorTextSecondary: '#94a3b8',
-                  colorInputBackground: '#0f172a', // Slate 900 input field backgrounds
+                  colorInputBackground: '#0f172a',
                   colorInputText: '#ffffff',
-                  colorBorder: '#1e293b', // Slate 800 boundaries
+                  colorBorder: '#1e293b',
                 },
                 elements: {
                   rootBox: "w-full",
@@ -110,7 +108,7 @@ export default function LoginPage() {
                   socialButtonsBlockButton: "bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-200 transition-all text-xs font-semibold rounded-xl py-2.5",
                   dividerLine: "bg-slate-850",
                   dividerText: "text-[10px] text-slate-500 uppercase tracking-widest font-bold",
-                  formLabel font-bold text-[11px] uppercase tracking-wider text-slate-400 mb-1": "",
+                  formLabel: "font-bold text-[11px] uppercase tracking-wider text-slate-400 mb-1",
                   formButtonPrimary: "bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 rounded-xl transition-all shadow-md shadow-indigo-600/10 mt-2",
                   formFieldInput: "bg-slate-900 border border-slate-800 focus:border-slate-700 text-xs rounded-xl px-3 py-2 text-white placeholder-slate-600 focus:outline-none transition-colors",
                   footerActionText: "text-xs text-slate-400",
