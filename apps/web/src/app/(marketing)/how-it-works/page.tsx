@@ -1,171 +1,154 @@
 import Link from 'next/link'
+import { ArrowRight, Check } from 'lucide-react'
 
 const PHASES = [
   {
-    phase: 'Phase 1',
-    title: 'Connect your WhatsApp',
-    icon: '📱',
+    title: '1. Connect your WhatsApp',
+    description:
+      'Open Zuri, scan a QR code with your phone, and your WhatsApp is linked in under a minute. Nothing to install, no technical skills required.',
+    benefits: [
+      'Works with your existing WhatsApp number',
+      'No app download needed',
+      'Your customers only hear from you — Zuri never sends messages on its own',
+    ],
     color: 'bg-green-50 border-green-200',
-    iconBg: 'bg-green-100',
-    steps: [
-      {
-        title: 'Scan one QR code',
-        description: 'Open Zuri on any device, click "Connect WhatsApp", and scan the QR code with your phone. Your WhatsApp session links instantly — no app installation, no number changes.',
-      },
-      {
-        title: 'Your number stays yours',
-        description: 'Zuri runs alongside your existing WhatsApp — it reads and advises, but never sends a message without your explicit approval. Your contacts only ever hear from you.',
-      },
-      {
-        title: 'Works on any plan',
-        description: 'WhatsApp Business, personal accounts, and multi-device setups all work. One QR, one session, always in sync.',
-      },
-    ],
+    iconBg: 'bg-green-100 text-green-600',
   },
   {
-    phase: 'Phase 2',
-    title: 'Zuri learns your network',
-    icon: '🧠',
-    color: 'bg-indigo-50 border-indigo-200',
-    iconBg: 'bg-indigo-100',
-    steps: [
-      {
-        title: 'Conversation analysis',
-        description: 'Every message is processed through Zuri\'s intelligence engines — sentiment, urgency, topic extraction, promise detection, and emotional tone are captured in real-time.',
-      },
-      {
-        title: 'Contact profiles emerge',
-        description: 'Over days and weeks, Zuri builds deep psychological profiles: communication preferences, mood baselines, personality summaries, and what each person cares about most.',
-      },
-      {
-        title: 'Relationship health scoring',
-        description: 'Each contact gets a live health score (0–100) based on interaction frequency, sentiment trends, response times, and engagement depth. Scores update after every message.',
-      },
+    title: '2. Zuri learns about your customers',
+    description:
+      'It reads your conversations, remembers important details, and builds a profile for each contact — automatically.',
+    benefits: [
+      'Knows who your VIP clients are',
+      'Remembers past orders, birthdays, and promises',
+      'Understands how each customer likes to talk (formal, casual, quick)',
     ],
+    color: 'bg-blue-50 border-blue-200',
+    iconBg: 'bg-blue-100 text-blue-600',
   },
   {
-    phase: 'Phase 3',
-    title: 'Stay close, effortlessly',
-    icon: '✨',
+    title: '3. You get helpful suggestions',
+    description:
+      'Every morning, Zuri shows you who to follow up with, what to say, and why. One tap to send a message that sounds like you.',
+    benefits: [
+      'Daily “coffee feed” with 3–5 suggested replies',
+      'Reminders for overdue follow‑ups',
+      'Drafts that match your personal writing style',
+    ],
     color: 'bg-purple-50 border-purple-200',
-    iconBg: 'bg-purple-100',
-    steps: [
-      {
-        title: 'Daily nudges',
-        description: 'Every morning Zuri surfaces 3–5 relationships that need attention — with context on why, and a draft message ready to send. You approve, edit, or skip. You\'re always in control.',
-      },
-      {
-        title: 'Voice-matched drafts',
-        description: 'Zuri learns your writing style from thousands of your own messages. Suggested replies sound like you wrote them — because they\'re based on how you already write.',
-      },
-      {
-        title: 'Calendar intelligence',
-        description: 'Birthdays, appointments, deadlines, and promises extracted from chats are added to your Zuri calendar automatically. Nothing falls through the cracks.',
-      },
-    ],
+    iconBg: 'bg-purple-100 text-purple-600',
   },
 ]
 
 const FAQS = [
   {
-    q: 'Can Zuri read my private messages?',
-    a: 'Zuri processes messages to power its intelligence features. Messages are encrypted in transit and at rest. We never sell your data or use it to train models for other users. You can delete all your data at any time from Settings → Privacy.',
+    q: 'Is my WhatsApp data private?',
+    a: 'Absolutely. Your conversations are encrypted and stored securely. We never sell your data or share it with anyone. You can delete everything at any time.',
   },
   {
-    q: 'Does Zuri send messages automatically?',
-    a: 'No. Zuri is an advisory tool — it suggests, you decide. In higher-tier plans, you can enable selective automation for specific contact categories, but it\'s always opt-in and you can see every message before it goes.',
+    q: 'Will Zuri send messages without me knowing?',
+    a: 'No. Zuri only suggests replies — you always approve before anything is sent. You can even turn off suggestions for specific contacts.',
   },
   {
-    q: 'What happens if my WhatsApp session disconnects?',
-    a: 'Zuri will alert you immediately. Your data and profiles are safely stored — Zuri just pauses new analysis until you reconnect. Reconnecting takes seconds.',
+    q: 'What if my phone is off or I lose internet?',
+    a: 'Zuri pauses until you’re back online. Your profiles and data are safe, and you can reconnect in seconds.',
   },
   {
-    q: 'How long does it take to see results?',
-    a: 'Health scores and basic profiles appear within the first hour. Deeper profiles, voice matching, and accurate nudge timing improve over 7–14 days as Zuri processes more of your conversation history.',
+    q: 'How long until I see results?',
+    a: 'Within a few hours you’ll have contact summaries and follow‑up reminders. After a week, Zuri really understands your voice and your customers’ habits.',
   },
   {
-    q: 'Does it work for business WhatsApp accounts?',
-    a: 'Yes. WhatsApp Business accounts are fully supported, including product catalogues and business labels.',
+    q: 'Does it work with WhatsApp Business?',
+    a: 'Yes — WhatsApp Business accounts are fully supported, including product catalogues and business labels.',
   },
 ]
 
 export default function HowItWorksPage() {
   return (
-    <div>
+    <div className="bg-white">
       {/* Hero */}
-      <section className="bg-gradient-to-b from-gray-50 to-white py-16 md:py-24 px-4 md:px-6 text-center">
+      <section className="bg-gradient-to-b from-indigo-50 via-white to-white py-16 md:py-24 px-4 md:px-6 text-center">
         <div className="max-w-3xl mx-auto">
-          <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-4">How Zuri works</p>
+          <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-4">
+            How Zuri works
+          </p>
           <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 leading-tight mb-6">
-            From WhatsApp to relationship intelligence in 60 seconds
+            A simpler way to manage your customers on WhatsApp
           </h1>
-          <p className="text-lg text-gray-600 leading-relaxed max-w-2xl mx-auto">
-            Zuri operates in three phases — connecting to your WhatsApp, learning your network over time, and then proactively helping you stay close to the people who matter most.
+          <p className="text-lg text-gray-500 leading-relaxed max-w-2xl mx-auto">
+            Connect your WhatsApp, and Zuri will handle the typing — suggesting replies that sound like you,
+            reminding you when to follow up, and making sure no customer slips through the cracks.
           </p>
         </div>
       </section>
 
-      {/* 3 Phases */}
-      {PHASES.map((phase, phaseIdx) => (
-        <section
-          key={phase.phase}
-          className={`py-16 md:py-20 px-4 md:px-6 ${phaseIdx % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}
-        >
-          <div className="max-w-5xl mx-auto">
-            <div className={`flex flex-col ${phaseIdx % 2 === 0 ? 'lg:flex-row' : 'lg:flex-row-reverse'} gap-10 lg:gap-16 items-center`}>
-              {/* Visual side */}
-              <div className={`flex-shrink-0 w-full max-w-xs mx-auto lg:mx-0 rounded-3xl border-2 p-8 ${phase.color}`}>
-                <div className={`w-16 h-16 ${phase.iconBg} rounded-2xl flex items-center justify-center text-3xl mb-6`}>
-                  {phase.icon}
-                </div>
-                <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-2">{phase.phase}</p>
-                <h2 className="text-2xl font-extrabold text-gray-900 leading-tight">{phase.title}</h2>
+      {/* 3 Steps */}
+      <section className="py-16 md:py-20 px-4 md:px-6">
+        <div className="max-w-5xl mx-auto space-y-10">
+          {PHASES.map((phase, idx) => (
+            <div
+              key={idx}
+              className={`rounded-3xl border-2 p-8 md:p-10 ${phase.color} flex flex-col md:flex-row gap-8 items-start`}
+            >
+              {/* Icon / number */}
+              <div className="flex-shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-bold shadow-sm bg-white border border-gray-100">
+                <span className={phase.iconBg}>{idx + 1}</span>
               </div>
-
-              {/* Steps side */}
-              <div className="flex-1 space-y-6">
-                {phase.steps.map((step, i) => (
-                  <div key={i} className="flex gap-4 items-start">
-                    <div className="flex-shrink-0 w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold mt-0.5">
-                      {i + 1}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900 mb-1.5">{step.title}</h3>
-                      <p className="text-sm text-gray-600 leading-relaxed">{step.description}</p>
-                    </div>
-                  </div>
-                ))}
+              {/* Content */}
+              <div className="flex-1">
+                <h2 className="text-2xl font-extrabold text-gray-900 mb-3">{phase.title}</h2>
+                <p className="text-gray-600 leading-relaxed mb-6">{phase.description}</p>
+                <ul className="space-y-3">
+                  {phase.benefits.map((benefit, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <Check className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-700 text-sm">{benefit}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
-          </div>
-        </section>
-      ))}
+          ))}
+        </div>
+      </section>
 
       {/* FAQ */}
-      <section className="py-16 md:py-20 px-4 md:px-6">
+      <section className="py-16 md:py-20 px-4 md:px-6 bg-gray-50">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-10 text-center">Common questions</h2>
-          <div className="space-y-5">
+          <h2 className="text-3xl font-extrabold text-gray-900 mb-10 text-center">
+            Questions you might have
+          </h2>
+          <div className="space-y-4">
             {FAQS.map((faq) => (
-              <div key={faq.q} className="bg-gray-50 rounded-2xl p-6 border border-gray-100">
-                <h3 className="font-semibold text-gray-900 mb-2">{faq.q}</h3>
-                <p className="text-sm text-gray-600 leading-relaxed">{faq.a}</p>
-              </div>
+              <details key={faq.q} className="group bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <summary className="flex cursor-pointer items-center justify-between p-6 font-semibold text-gray-800 list-none">
+                  {faq.q}
+                  <span className="ml-4 flex-shrink-0 text-gray-400 transition-transform duration-200 group-open:rotate-180">
+                    ▼
+                  </span>
+                </summary>
+                <div className="px-6 pb-6">
+                  <p className="text-gray-600 leading-relaxed">{faq.a}</p>
+                </div>
+              </details>
             ))}
           </div>
         </div>
       </section>
 
       {/* CTA */}
-      <section className="bg-indigo-600 py-16 md:py-20 px-4 md:px-6">
+      <section className="py-16 md:py-20 px-4 md:px-6">
         <div className="max-w-xl mx-auto text-center">
-          <h2 className="text-3xl font-extrabold text-white mb-4">Ready to see it in action?</h2>
-          <p className="text-indigo-200 mb-8">Set up takes 60 seconds. No credit card required.</p>
+          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
+            Ready to make your WhatsApp work for you?
+          </h2>
+          <p className="text-gray-500 mb-8">Free 30‑day trial. No credit card needed.</p>
           <Link
             href="/register"
-            className="inline-flex items-center justify-center px-8 py-4 bg-white text-indigo-600 font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-lg text-base"
+            className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 text-base"
           >
             Get started free
+            <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </section>
