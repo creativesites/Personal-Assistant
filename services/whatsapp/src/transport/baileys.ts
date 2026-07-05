@@ -21,7 +21,8 @@ import {
 } from './types';
 
 const QR_TIMEOUT_MS = 3 * 60 * 1000;
-const MAX_RECONNECTS = 20;
+const RECONNECT_BASE_MS = 3_000;
+const RECONNECT_MAX_MS  = 60_000; // cap at 60 s — keeps trying forever
 const DEFAULT_MEDIA_DIR = '/app/media';
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -51,6 +52,7 @@ export class BaileysTransport extends WhatsAppTransport {
   private _status: TransportStatus = 'idle';
   private _stopping = false;
   private _reconnectCount = 0;
+  private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _qrTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly authPath: string;
   private readonly mediaDir: string;
@@ -83,6 +85,7 @@ export class BaileysTransport extends WhatsAppTransport {
   async stop(): Promise<void> {
     this._stopping = true;
     this._clearQrTimer();
+    this._clearReconnectTimer();
     if (this.sock) {
       try { this.sock.ws.close(); } catch { /* ignore */ }
       this.sock = null;
@@ -132,6 +135,7 @@ export class BaileysTransport extends WhatsAppTransport {
 
       if (connection === 'open') {
         this._clearQrTimer();
+        this._clearReconnectTimer();
         this._reconnectCount = 0;
         this._status = 'connected';
         const raw = sock.user?.id ?? '';
@@ -143,28 +147,31 @@ export class BaileysTransport extends WhatsAppTransport {
         const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
         const reason = this._mapReason(statusCode);
 
-        if (reason === 'logged_out' || reason === 'bad_session') {
+        // Terminal conditions — need a new QR scan
+        if (reason === 'logged_out') {
           this._clearQrTimer();
           this._status = 'idle';
-          if (reason === 'bad_session') {
-            await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => { /* ignore */ });
-          }
-          this.emitDisconnected(reason);
+          this.emitDisconnected('logged_out');
+          return;
+        }
+        if (reason === 'bad_session') {
+          this._clearQrTimer();
+          this._status = 'idle';
+          await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => { /* ignore */ });
+          this.emitDisconnected('bad_session');
           return;
         }
 
         if (this._stopping) return;
 
-        if (this._reconnectCount < MAX_RECONNECTS) {
-          const delay = Math.min(30000, 1000 * Math.pow(2, this._reconnectCount));
-          this._reconnectCount++;
-          console.log(`[baileys:${this.userId}] reconnecting (${this._reconnectCount}/${MAX_RECONNECTS}) in ${delay}ms...`);
-          setTimeout(() => { if (!this._stopping) this._boot().catch(console.error); }, delay);
-        } else {
-          this._clearQrTimer();
-          this._status = 'idle';
-          this.emitDisconnected('network');
-        }
+        // Network / transient drop — retry with exponential backoff, no cap on attempts
+        const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, this._reconnectCount), RECONNECT_MAX_MS);
+        this._reconnectCount++;
+        this._status = 'connecting';
+        console.log(`[baileys:${this.userId}] network drop — reconnecting in ${Math.round(delay / 1000)}s (attempt ${this._reconnectCount})`);
+        this._reconnectTimer = setTimeout(() => {
+          if (!this._stopping) this._boot().catch(console.error);
+        }, delay);
       }
     });
 
@@ -398,6 +405,13 @@ export class BaileysTransport extends WhatsAppTransport {
     if (this._qrTimer) {
       clearTimeout(this._qrTimer);
       this._qrTimer = null;
+    }
+  }
+
+  private _clearReconnectTimer(): void {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
     }
   }
 }

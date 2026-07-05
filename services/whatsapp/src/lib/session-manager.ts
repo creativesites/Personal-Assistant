@@ -75,11 +75,12 @@ export class SessionManager {
       this.sessions.delete(userId);
       try {
         await this.redis.del(`wa:qr:${userId}`);
+        // 'logged_out' and 'bad_session' are the only terminal states emitted now.
+        // Mark logged_out so restoreAll skips it (would need a new QR).
+        const dbStatus = reason === 'logged_out' ? 'logged_out' : 'error';
         await this.db.query(
-          `UPDATE whatsapp_instances
-           SET status = $1, updated_at = NOW()
-           WHERE id = $2`,
-          [reason === 'unknown' ? 'error' : 'disconnected', instanceId],
+          `UPDATE whatsapp_instances SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [dbStatus, instanceId],
         );
         await this.redis.publish(`whatsapp:disconnected:${userId}`, userId);
       } catch (err) {
@@ -128,10 +129,16 @@ export class SessionManager {
   }
 
   async restoreAll(): Promise<void> {
+    // Restore every user that was ever connected and hasn't explicitly logged out.
+    // Baileys will reuse the saved auth files — no QR scan needed.
     const { rows } = await this.db.query<{ user_id: string }>(
-      `SELECT user_id FROM whatsapp_instances WHERE status = 'connected'`,
+      `SELECT DISTINCT ON (user_id) user_id
+       FROM whatsapp_instances
+       WHERE status NOT IN ('logged_out')
+       ORDER BY user_id, last_connected_at DESC NULLS LAST`,
     );
     for (const { user_id } of rows) {
+      if (this.sessions.has(user_id)) continue;
       this.startSession(user_id).catch((err: Error) => {
         console.error(`[session] restore failed for ${user_id}:`, err.message);
       });
