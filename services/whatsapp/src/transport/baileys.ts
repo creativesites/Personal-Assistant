@@ -187,18 +187,22 @@ export class BaileysTransport extends WhatsAppTransport {
       }
     });
 
-    // Historical messages delivered on first connect — process without generating reply suggestions
+    // Historical messages delivered on first connect — normalise then emit as a single batch
+    // so the session manager can process them sequentially (avoid DB pool exhaustion).
     sock.ev.on('messaging-history.set', async ({ messages }) => {
       if (!messages || messages.length === 0) return;
-      console.log(`[baileys:${this.userId}] historical sync: ${messages.length} messages`);
+      console.log(`[baileys:${this.userId}] historical sync: ${messages.length} raw messages`);
+      const batch: import('./types').NormalisedMessage[] = [];
       for (const msg of messages) {
         try {
           const normalised = await this._normaliseHistorical(msg);
-          if (normalised) this.emitHistoricalMessage(normalised);
+          if (normalised) batch.push(normalised);
         } catch (err) {
           console.error(`[baileys:${this.userId}] historical normalise error:`, err);
         }
       }
+      console.log(`[baileys:${this.userId}] emitting historical batch: ${batch.length} messages`);
+      this.emitHistoricalBatch(batch);
     });
   }
 

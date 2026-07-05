@@ -96,12 +96,24 @@ export class SessionManager {
       }
     });
 
-    transport.on('historical_message', async (msg: NormalisedMessage) => {
-      try {
-        await this.handler.handleMessage(userId, msg, true);
-      } catch (err) {
-        console.error(`[session] historical handleMessage failed userId=${userId}:`, err);
+    transport.on('historical_batch', async (msgs: NormalisedMessage[]) => {
+      const BATCH = 50;
+      console.log(`[session] historical batch: ${msgs.length} messages for ${userId}`);
+      for (let i = 0; i < msgs.length; i++) {
+        try {
+          await this.handler.handleMessage(userId, msgs[i], true);
+        } catch (err) {
+          console.error(`[session] historical handleMessage failed userId=${userId}:`, err);
+        }
+        // After every batch, publish progress so the inbox refreshes
+        if ((i + 1) % BATCH === 0 || i === msgs.length - 1) {
+          await this.redis.publish(
+            `history:progress:${userId}`,
+            JSON.stringify({ processed: i + 1, total: msgs.length }),
+          ).catch(() => { /* ignore pub/sub errors */ });
+        }
       }
+      console.log(`[session] historical batch complete for ${userId}: ${msgs.length} messages written`);
     });
 
     await transport.start();

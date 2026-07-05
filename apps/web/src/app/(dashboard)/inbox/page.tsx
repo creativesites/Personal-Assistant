@@ -1507,6 +1507,7 @@ export default function InboxPage() {
     loadBriefing()
     const socket = getSocket(token)
     socket.on('message:new', loadConversations)
+    socket.on('history:progress', loadConversations)
     socket.on('suggestion:ready', (payload: string) => {
       try {
         const data = JSON.parse(payload)
@@ -1517,7 +1518,11 @@ export default function InboxPage() {
         loadConversations()
       } catch {}
     })
-    return () => { socket.off('message:new', loadConversations); socket.off('suggestion:ready') }
+    return () => {
+      socket.off('message:new', loadConversations)
+      socket.off('history:progress', loadConversations)
+      socket.off('suggestion:ready')
+    }
   }, [token, loadConversations, loadBriefing])
 
   useEffect(() => {

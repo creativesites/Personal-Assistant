@@ -1,5 +1,6 @@
 import { db } from './db';
 import { queues } from './queue';
+import { redis } from './redis';
 import { QUEUE_NAMES, MessageSenderType, MessageType } from '@zuri/types';
 
 interface SyncJob {
@@ -163,6 +164,12 @@ async function runSync(job: SyncJob, resumeFrom = 0, resumeMessages = 0): Promis
          WHERE id = $6`,
         [resumeFrom + localConvs, processedMessages, contactsCreated, leadsGenerated, insightsExtracted, syncJobId],
       );
+
+      // Push real-time progress so the inbox refreshes
+      await redis.publish(
+        `history:progress:${userId}`,
+        JSON.stringify({ processed: resumeFrom + localConvs, total: resumeFrom + conversations.length }),
+      ).catch(() => { /* ignore */ });
     }
   }
 

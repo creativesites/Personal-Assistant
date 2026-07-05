@@ -11,7 +11,7 @@ export const redisSub = new Redis(config.REDIS_URL, {
 });
 
 export function startRedisSubscriber(io: Server): void {
-  redisSub.psubscribe('whatsapp:*', 'message:new:*', 'suggestion:ready:*', (err) => {
+  redisSub.psubscribe('whatsapp:*', 'message:new:*', 'suggestion:ready:*', 'history:progress:*', (err) => {
     if (err) console.error('Redis psubscribe error:', err);
   });
 
