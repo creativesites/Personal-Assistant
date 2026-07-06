@@ -97,7 +97,9 @@ export default function LoginPage() {
           
           {/* Light Themed Clerk Card */}
           <div className="w-full shadow-xl rounded-2xl overflow-hidden border border-gray-100 bg-white">
-            <SignIn 
+            <SignIn
+              fallbackRedirectUrl="/inbox"
+              signUpForceRedirectUrl="/onboarding"
               appearance={{
                 layout: {
                   socialButtonsPlacement: 'bottom',

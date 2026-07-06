@@ -103,6 +103,8 @@ export default function RegisterPage() {
         <div className="w-full max-w-md mx-auto flex flex-col justify-center items-center">
           <div className="w-full shadow-xl rounded-2xl overflow-hidden border border-gray-100 bg-white">
             <SignUp
+              fallbackRedirectUrl="/onboarding"
+              signInForceRedirectUrl="/inbox"
               appearance={{
                 layout: {
                   socialButtonsPlacement: 'bottom',
