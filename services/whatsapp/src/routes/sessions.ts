@@ -51,5 +51,19 @@ export function sessionRoutes(sessionManager: SessionManager) {
       await sessionManager.sendMessage(userId, jid, text);
       return reply.send({ sent: true });
     });
+
+    fastify.post('/internal/sessions/request-link-code', async (request, reply) => {
+      const { userId, phoneNumber } = z.object({
+        userId: z.string().uuid(),
+        phoneNumber: z.string().min(7),
+      }).parse(request.body);
+
+      try {
+        const code = await sessionManager.requestLinkCode(userId, phoneNumber);
+        return reply.send({ code });
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
+    });
   };
 }

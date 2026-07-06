@@ -572,4 +572,23 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       return reply.code(502).send({ error: 'Intelligence service unavailable' });
     }
   });
+
+  // ── Archive / unarchive ───────────────────────────────────────────────────
+  fastify.patch('/api/conversations/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = request.body as { is_archived?: boolean };
+
+    if (typeof body?.is_archived !== 'boolean') {
+      return reply.code(400).send({ error: 'is_archived (boolean) required' });
+    }
+
+    const result = await db.query(
+      `UPDATE conversations SET is_archived = $1, updated_at = NOW()
+       WHERE id = $2 AND user_id = $3`,
+      [body.is_archived, id, userId],
+    );
+    if (result.rowCount === 0) return reply.code(404).send({ error: 'Conversation not found' });
+    return reply.send({ ok: true });
+  });
 }

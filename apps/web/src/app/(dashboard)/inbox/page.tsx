@@ -1919,7 +1919,22 @@ export default function InboxPage() {
                 >
                   <ExternalLink size={17} strokeWidth={2} />
                 </a>
-                <button className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95" title="Archive">
+                <button
+                  className="p-2 text-neutral-400 hover:text-amber-600 rounded-xl hover:bg-amber-50 transition-all active:scale-95"
+                  title="Archive conversation"
+                  onClick={async () => {
+                    if (!selectedId || !token) return
+                    try {
+                      await apiClient(`/api/conversations/${selectedId}`, {
+                        method: 'PATCH',
+                        token,
+                        body: JSON.stringify({ is_archived: true }),
+                      })
+                      setConversations(prev => prev.filter(c => c.id !== selectedId))
+                      setSelectedId(null)
+                    } catch { /* ignore */ }
+                  }}
+                >
                   <Archive size={17} strokeWidth={2} />
                 </button>
                 

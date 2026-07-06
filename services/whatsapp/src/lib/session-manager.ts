@@ -140,6 +140,23 @@ export class SessionManager {
     await entry.transport.sendText(jid, text);
   }
 
+  async requestLinkCode(userId: string, phoneNumber: string): Promise<string> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+
+    const code = await entry.transport.requestLinkCode(phoneNumber);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute window
+
+    await this.db.query(
+      `UPDATE whatsapp_instances
+       SET status = 'link_code_pending', link_code = $1, link_code_expires_at = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [code, expiresAt, entry.instanceId],
+    );
+    await this.redis.publish(`whatsapp:link_code:${userId}`, code).catch(() => { /* ignore */ });
+    return code;
+  }
+
   async restoreAll(): Promise<void> {
     // Restore every user that was ever connected and hasn't explicitly logged out.
     // Baileys will reuse the saved auth files — no QR scan needed.

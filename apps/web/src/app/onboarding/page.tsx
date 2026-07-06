@@ -47,6 +47,10 @@ export default function OnboardingPage() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [qrSecondsLeft, setQrSecondsLeft] = useState(QR_TTL_SECONDS)
   const [qrRefreshing, setQrRefreshing] = useState(false)
+  const [showPhoneInput, setShowPhoneInput] = useState(false)
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [linkCodeLoading, setLinkCodeLoading] = useState(false)
+  const [linkCodeError, setLinkCodeError] = useState<string | null>(null)
 
   const wasActiveRef = useRef(false)
   const lastQrRef = useRef<string | null>(null)
@@ -146,6 +150,25 @@ export default function OnboardingPage() {
       }
     } finally {
       setIsStarting(false)
+    }
+  }
+
+  const requestLinkCode = async () => {
+    if (!token || !phoneNumber.trim() || linkCodeLoading) return
+    setLinkCodeLoading(true)
+    setLinkCodeError(null)
+    try {
+      await apiClient('/api/whatsapp/request-link-code', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ phoneNumber: phoneNumber.replace(/\D/g, '') }),
+      })
+      setShowPhoneInput(false)
+      // Code will appear via polling (status becomes link_code_pending)
+    } catch (err: unknown) {
+      setLinkCodeError(err instanceof Error ? err.message : 'Failed to get code. Check the phone number and try again.')
+    } finally {
+      setLinkCodeLoading(false)
     }
   }
 
@@ -392,17 +415,38 @@ export default function OnboardingPage() {
 
             {/* Link code */}
             {isLinkCodeReady && !isConnected && (
-              <div className="space-y-5 text-center">
-                <div>
+              <div className="space-y-6">
+                <div className="text-center">
                   <p className="text-base font-semibold text-gray-800 mb-1">Enter this code in WhatsApp</p>
-                  <p className="text-xs text-gray-400">
-                    Open WhatsApp → Settings → Linked Devices → Link with phone number
-                  </p>
+                  <p className="text-xs text-gray-500">Code expires in about 5 minutes</p>
                 </div>
-                <div className="inline-flex bg-gray-50 border border-gray-200 rounded-2xl px-8 py-5">
-                  <p className="font-mono text-4xl font-bold text-gray-900 tracking-[0.3em]">
-                    {linkCodeData}
-                  </p>
+                <div className="flex justify-center">
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl px-8 py-5">
+                    <p className="font-mono text-4xl font-bold text-gray-900 tracking-[0.3em]">
+                      {linkCodeData}
+                    </p>
+                  </div>
+                </div>
+                <ol className="space-y-2.5 max-w-xs mx-auto">
+                  {[
+                    'Open WhatsApp on your phone',
+                    'Tap ⋮ (Android) or Settings (iPhone)',
+                    'Tap Linked Devices',
+                    'Tap Link a Device',
+                    'Tap "Link with phone number instead"',
+                    `Enter the code above`,
+                  ].map((step, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs font-bold mt-0.5">
+                        {i + 1}
+                      </span>
+                      <span className="text-sm text-gray-600 leading-snug">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="flex items-center gap-1.5 justify-center">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  <span className="text-xs text-gray-400">Waiting for confirmation…</span>
                 </div>
               </div>
             )}
@@ -453,12 +497,58 @@ export default function OnboardingPage() {
 
           {/* Card footer — only during QR */}
           {isQrReady && !isConnected && (
-            <div className="px-6 sm:px-8 py-4 bg-amber-50 border-t border-amber-100 flex items-start gap-2">
-              <span className="text-amber-500 text-sm leading-none mt-0.5">💡</span>
-              <p className="text-xs text-amber-700">
-                <strong>Keep this tab open.</strong> The QR code is only valid while you&apos;re on this page.
-                If it expires, a new one will appear automatically.
-              </p>
+            <div className="px-6 sm:px-8 border-t border-gray-100">
+              {/* "Use phone number instead" toggle */}
+              {!showPhoneInput ? (
+                <div className="py-4 flex items-center justify-between">
+                  <div className="flex items-start gap-2">
+                    <span className="text-amber-500 text-sm leading-none mt-0.5">💡</span>
+                    <p className="text-xs text-amber-700">
+                      <strong>Keep this tab open.</strong> The QR expires in {fmtTime(qrSecondsLeft)}.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowPhoneInput(true)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium whitespace-nowrap ml-4 underline underline-offset-2"
+                  >
+                    Use phone code instead
+                  </button>
+                </div>
+              ) : (
+                <div className="py-5 space-y-3">
+                  <p className="text-sm font-semibold text-gray-800">Connect with a phone code</p>
+                  <p className="text-xs text-gray-500">
+                    Enter your WhatsApp number (with country code). We&apos;ll show you a code to enter in
+                    WhatsApp → Linked Devices → Link with phone number.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      placeholder="+1 555 000 0000"
+                      value={phoneNumber}
+                      onChange={e => setPhoneNumber(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && requestLinkCode()}
+                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                    <button
+                      onClick={requestLinkCode}
+                      disabled={linkCodeLoading || !phoneNumber.trim()}
+                      className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {linkCodeLoading ? 'Sending…' : 'Get Code'}
+                    </button>
+                  </div>
+                  {linkCodeError && (
+                    <p className="text-xs text-red-600">{linkCodeError}</p>
+                  )}
+                  <button
+                    onClick={() => { setShowPhoneInput(false); setLinkCodeError(null) }}
+                    className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
+                  >
+                    Back to QR code
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -53,6 +53,13 @@ export abstract class WhatsAppTransport extends EventEmitter {
   /** Send a text message to a JID. */
   abstract sendText(jid: string, text: string): Promise<void>;
 
+  /**
+   * Request a phone-number pairing code (alternative to QR).
+   * phoneNumber must be digits only, no +, e.g. "15551234567".
+   * Returns the 8-char code the user enters in WhatsApp → Linked Devices.
+   */
+  abstract requestLinkCode(phoneNumber: string): Promise<string>;
+
   abstract getStatus(): TransportStatus;
 
   // Typed emit helpers so subclasses never pass the wrong shape.

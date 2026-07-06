@@ -64,6 +64,29 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
     }
   );
 
+  fastify.post(
+    '/api/whatsapp/request-link-code',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { phoneNumber } = z.object({ phoneNumber: z.string().min(7) }).parse(request.body);
+
+      try {
+        const res = await fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/request-link-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, phoneNumber }),
+        });
+        const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+        if (!res.ok) return reply.code(res.status).send(data);
+        return reply.send(data);
+      } catch (err: any) {
+        fastify.log.error({ err }, 'whatsapp/request-link-code: whatsapp service unreachable');
+        return reply.code(503).send({ error: 'WhatsApp service unavailable', detail: err.message });
+      }
+    }
+  );
+
   fastify.get(
     '/api/whatsapp/service-health',
     { preHandler: authenticate },

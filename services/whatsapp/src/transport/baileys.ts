@@ -98,6 +98,14 @@ export class BaileysTransport extends WhatsAppTransport {
     await this.sock.sendMessage(jid, { text });
   }
 
+  async requestLinkCode(phoneNumber: string): Promise<string> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    // Strip everything except digits
+    const digits = phoneNumber.replace(/\D/g, '');
+    if (!digits) throw new Error('Invalid phone number');
+    return await this.sock.requestPairingCode(digits);
+  }
+
   private async _boot(): Promise<void> {
     let version: [number, number, number];
     try {
