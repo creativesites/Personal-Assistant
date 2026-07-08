@@ -1159,7 +1159,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         id: string
         event_type: string
         title: string
-        event_date: string
+        timestamp: string
         contact_id: string | null
         contact_name: string | null
       }>(
