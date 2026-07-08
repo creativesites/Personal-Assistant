@@ -134,7 +134,7 @@ export default function OnboardingPage() {
 
         // Show an error whenever we end up disconnected after initiating a session,
         // regardless of whether wasActiveRef was set (covers quick Baileys failures).
-        if (s.status === 'disconnected' && (wasActiveRef.current || sessionInitiatedRef.current)) {
+        if ((s.status === 'disconnected' || s.status === 'logged_out') && (wasActiveRef.current || sessionInitiatedRef.current)) {
           setConnectError('Connection failed. Please check your internet and try again.')
           setQrData(null)
           lastQrRef.current = null

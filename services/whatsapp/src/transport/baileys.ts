@@ -106,6 +106,12 @@ export class BaileysTransport extends WhatsAppTransport {
   }
 
   private async _boot(): Promise<void> {
+    // For phone-code pairing, always start fresh — stale auth files have
+    // creds.registered = true which blocks requestPairingCode entirely.
+    if (this.pairingPhone) {
+      await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => {});
+    }
+
     let version: [number, number, number];
     try {
       const result = await fetchLatestBaileysVersion();
@@ -128,8 +134,8 @@ export class BaileysTransport extends WhatsAppTransport {
     sock.ev.on('creds.update', saveCreds);
 
     // For phone-code pairing: call requestPairingCode immediately — before QR is generated.
-    // Baileys only allows this while credentials are not yet registered.
-    if (this.pairingPhone && !state.creds.registered) {
+    // Auth was cleared above so creds are always fresh at this point.
+    if (this.pairingPhone) {
       const digits = this.pairingPhone.replace(/\D/g, '');
       sock.requestPairingCode(digits).then(code => {
         console.log(`[baileys:${this.userId}] pairing code generated`);
