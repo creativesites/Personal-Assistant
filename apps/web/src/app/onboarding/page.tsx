@@ -50,8 +50,11 @@ export default function OnboardingPage() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [qrSecondsLeft, setQrSecondsLeft] = useState(QR_TTL_SECONDS)
   const [qrRefreshing, setQrRefreshing] = useState(false)
-  // Phone code flow — user enters number BEFORE starting the session
+  // 'qr' | 'phone' tracks which method was used to start the session.
+  // 'choose' means we haven't started yet.
   const [connectMode, setConnectMode] = useState<'choose' | 'qr' | 'phone'>('choose')
+  // Controls the phone-input expansion inside the chooser (independent of connectMode).
+  const [showPhoneInput, setShowPhoneInput] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState('')
   const [phoneError, setPhoneError] = useState<string | null>(null)
 
@@ -132,7 +135,7 @@ export default function OnboardingPage() {
           clearQrTimer()
           wasActiveRef.current = false
           markSessionInitiated(false)
-          setConnectMode('choose')
+          setConnectMode('choose'); setShowPhoneInput(false)
         }
 
         if (s.status === 'error') {
@@ -142,7 +145,7 @@ export default function OnboardingPage() {
           clearQrTimer()
           wasActiveRef.current = false
           markSessionInitiated(false)
-          setConnectMode('choose')
+          setConnectMode('choose'); setShowPhoneInput(false)
         }
       } catch {
         // silently ignore poll errors
@@ -329,9 +332,9 @@ export default function OnboardingPage() {
                 </button>
 
                 {/* Phone code option */}
-                {connectMode !== 'phone' ? (
+                {!showPhoneInput ? (
                   <button
-                    onClick={() => setConnectMode('phone')}
+                    onClick={() => setShowPhoneInput(true)}
                     disabled={!token}
                     className="w-full flex items-start gap-4 p-4 border-2 border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 rounded-xl text-left transition-all group disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -377,7 +380,7 @@ export default function OnboardingPage() {
                       Include your country code: e.g. <strong>+263</strong> for Zimbabwe, <strong>+1</strong> for US/Canada, <strong>+44</strong> for UK.
                     </p>
                     <button
-                      onClick={() => { setConnectMode('choose'); setPhoneError(null) }}
+                      onClick={() => { setShowPhoneInput(false); setPhoneError(null) }}
                       className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2"
                     >
                       Back
