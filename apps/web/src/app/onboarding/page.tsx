@@ -117,6 +117,12 @@ export default function OnboardingPage() {
           wasActiveRef.current = true
         }
 
+        // Once the backend is in any active state, sessionInitiated has done its job
+        // (preventing the chooser from flashing). Clear it so it doesn't block QR/code display.
+        if (sessionInitiatedRef.current && s.status !== 'disconnected') {
+          markSessionInitiated(false)
+        }
+
         if (s.connected) {
           markSessionInitiated(false)
           wasActiveRef.current = false
@@ -203,7 +209,6 @@ export default function OnboardingPage() {
   const isQrReady        = backendStatus === 'qr_pending' && !!qrData
   const isLinkCodeReady  = backendStatus === 'link_code_pending' && !!linkCodeData
   const isConnectingPhase = isStarting
-    || sessionInitiated
     || backendStatus === 'connecting'
     || (backendStatus === 'qr_pending' && !qrData)
     || (backendStatus === 'link_code_pending' && !linkCodeData)
@@ -211,8 +216,9 @@ export default function OnboardingPage() {
   const isIdle    = waStatus !== null && !isConnectingPhase && !hasError
                     && !isQrReady && !isLinkCodeReady && !isConnected
   const isFirstLoad = waStatus === null && !connectError
-  // Show the method chooser when idle and user hasn't started yet
-  const showChooser = (isIdle || isFirstLoad) && connectMode === 'choose' && !isStarting
+  // sessionInitiated blocks the chooser during the gap between isStarting→false
+  // and the first poll arriving. Once polling clears it, real backend state drives UI.
+  const showChooser = (isIdle || isFirstLoad) && connectMode === 'choose' && !isStarting && !sessionInitiated
 
   const activeStage = isStarting ? 0
     : backendStatus === 'connecting' ? 1
@@ -302,11 +308,13 @@ export default function OnboardingPage() {
           {/* Card body */}
           <div className="px-6 sm:px-8 py-8">
 
-            {/* Loading */}
-            {isFirstLoad && !showChooser && (
+            {/* Loading — first page load OR the gap between connect returning and first poll */}
+            {(isFirstLoad || sessionInitiated) && !showChooser && !isConnectingPhase && (
               <div className="flex flex-col items-center gap-3 py-8">
                 <Spinner className="w-7 h-7 text-indigo-500" />
-                <p className="text-sm text-gray-400">Checking connection status…</p>
+                <p className="text-sm text-gray-400">
+                  {sessionInitiated ? 'Starting session…' : 'Checking connection status…'}
+                </p>
               </div>
             )}
 
