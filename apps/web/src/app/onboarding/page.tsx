@@ -44,6 +44,9 @@ export default function OnboardingPage() {
   const [qrData, setQrData] = useState<string | null>(null)
   const [linkCodeData, setLinkCodeData] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
+  // True from connect API success until a terminal state (connected/error/disconnected).
+  // Kept as state (not just a ref) so the connecting animation stays on screen.
+  const [sessionInitiated, setSessionInitiated] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [qrSecondsLeft, setQrSecondsLeft] = useState(QR_TTL_SECONDS)
   const [qrRefreshing, setQrRefreshing] = useState(false)
@@ -53,6 +56,8 @@ export default function OnboardingPage() {
   const [phoneError, setPhoneError] = useState<string | null>(null)
 
   const wasActiveRef = useRef(false)
+  // Ref mirrors sessionInitiated state so the polling closure always reads fresh value.
+  const sessionInitiatedRef = useRef(false)
   const lastQrRef = useRef<string | null>(null)
   const qrTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -61,6 +66,11 @@ export default function OnboardingPage() {
       clearInterval(qrTimerRef.current)
       qrTimerRef.current = null
     }
+  }
+
+  const markSessionInitiated = (val: boolean) => {
+    sessionInitiatedRef.current = val
+    setSessionInitiated(val)
   }
 
   const startQrCountdown = useCallback(() => {
@@ -100,30 +110,38 @@ export default function OnboardingPage() {
 
         if (s.linkCode) setLinkCodeData(s.linkCode)
 
-        if (s.status === 'connecting' || s.status === 'qr_pending') {
+        if (s.status === 'connecting' || s.status === 'qr_pending' || s.status === 'link_code_pending') {
           wasActiveRef.current = true
         }
 
         if (s.connected) {
+          markSessionInitiated(false)
+          wasActiveRef.current = false
           clearQrTimer()
           apiClient('/api/auth/onboarding-complete', { method: 'POST', token }).catch(() => {})
           router.push('/inbox')
           return
         }
 
-        if (s.status === 'disconnected' && wasActiveRef.current) {
-          setConnectError('Connection was lost. Please try again.')
+        // Show an error whenever we end up disconnected after initiating a session,
+        // regardless of whether wasActiveRef was set (covers quick Baileys failures).
+        if (s.status === 'disconnected' && (wasActiveRef.current || sessionInitiatedRef.current)) {
+          setConnectError('Connection failed. Please check your internet and try again.')
           setQrData(null)
           lastQrRef.current = null
           clearQrTimer()
           wasActiveRef.current = false
+          markSessionInitiated(false)
           setConnectMode('choose')
         }
 
         if (s.status === 'error') {
+          setConnectError('WhatsApp connection failed. Please try again.')
           setQrData(null)
           lastQrRef.current = null
           clearQrTimer()
+          wasActiveRef.current = false
+          markSessionInitiated(false)
           setConnectMode('choose')
         }
       } catch {
@@ -144,6 +162,7 @@ export default function OnboardingPage() {
     setQrData(null)
     lastQrRef.current = null
     wasActiveRef.current = false
+    markSessionInitiated(false)
 
     try {
       await apiClient('/api/whatsapp/connect', {
@@ -151,9 +170,15 @@ export default function OnboardingPage() {
         token,
         body: phone ? JSON.stringify({ phoneNumber: phone.replace(/\D/g, '') }) : undefined,
       })
+      // Session accepted — hold the connecting UI until polling gives a definitive result.
+      markSessionInitiated(true)
     } catch (err: unknown) {
-      if (!(err instanceof ApiError && err.status === 409)) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Session already active — polling will surface whatever state it's in.
+        markSessionInitiated(true)
+      } else {
         setConnectError(err instanceof Error ? err.message : 'Failed to start connection')
+        setConnectMode('choose')
       }
     } finally {
       setIsStarting(false)
@@ -175,6 +200,7 @@ export default function OnboardingPage() {
   const isQrReady        = backendStatus === 'qr_pending' && !!qrData
   const isLinkCodeReady  = backendStatus === 'link_code_pending' && !!linkCodeData
   const isConnectingPhase = isStarting
+    || sessionInitiated
     || backendStatus === 'connecting'
     || (backendStatus === 'qr_pending' && !qrData)
     || (backendStatus === 'link_code_pending' && !linkCodeData)
