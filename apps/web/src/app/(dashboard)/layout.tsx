@@ -280,7 +280,10 @@ function MobileBottomNav({
   const isMenuTabActive = !isSpecificTabActive
 
   return (
-    <nav className="md:hidden fixed bottom-4 left-4 right-4 z-40 bg-gray-900/95 backdrop-blur-xl border border-gray-800/50 rounded-2xl flex items-stretch shadow-[0_8px_32px_rgba(0,0,0,0.4)] safe-area-bottom overflow-hidden">
+    <nav
+      className="md:hidden w-full bg-gray-900/95 backdrop-blur-xl border-t border-gray-800/50 flex items-stretch flex-shrink-0"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       {items.map((item, index) => {
         if ('isMenuToggle' in item) {
           return (
@@ -351,7 +354,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const closeSidebar = () => setSidebarOpen(false)
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
+    <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
       
       {/* Mobile background backdrop overlay */}
       {sidebarOpen && (
@@ -402,8 +405,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       </aside>
 
-      {/* Main Content Viewport now correctly consumes 100% full width on mobile devices */}
-      <main className="flex-1 w-full min-w-0 overflow-auto bg-gray-50 pb-24 md:pb-0 transition-all duration-300">
+      <main className="flex-1 min-w-0 min-h-0 overflow-auto bg-gray-50 transition-all duration-300">
         {children}
       </main>
 

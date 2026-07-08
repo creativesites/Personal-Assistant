@@ -1959,7 +1959,7 @@ export default function InboxPage() {
             </div>
 
             {/* Messages + intel row */}
-            <div className="flex flex-1 min-h-0 relative overflow-y-auto">
+            <div className="flex flex-1 min-h-0 relative overflow-hidden">
               {/* Message area */}
               <div 
   className="relative flex flex-col flex-1 min-w-0 bg-[#eae6df]"
@@ -1974,7 +1974,7 @@ export default function InboxPage() {
   <div className="absolute inset-0 bg-[#eae6df]/85 dark:bg-[#0b141a]/95 pointer-events-none mix-blend-normal" />
 
                 {/* Message stream */}
-                <div className="flex-1 px-4 py-4 space-y-2 z-10">
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 z-10">
                   {loadingMsgs ? (
                     <div className="space-y-3">
                       {Array.from({ length: 5 }, (_, i) => (
@@ -2062,7 +2062,7 @@ export default function InboxPage() {
                 </div>
 
                 {/* Reply dock */}
-                <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 sticky bottom-0 z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
+                <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
 
                   {/* AI result card */}
                   {aiActionResult && (
