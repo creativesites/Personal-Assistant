@@ -57,7 +57,7 @@ export class BaileysTransport extends WhatsAppTransport {
   private readonly authPath: string;
   private readonly mediaDir: string;
 
-  constructor(userId: string, private readonly sessionsDir: string) {
+  constructor(userId: string, private readonly sessionsDir: string, private readonly pairingPhone?: string) {
     super();
     this.userId = userId;
     this.authPath = path.join(sessionsDir, userId);
@@ -100,7 +100,6 @@ export class BaileysTransport extends WhatsAppTransport {
 
   async requestLinkCode(phoneNumber: string): Promise<string> {
     if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
-    // Strip everything except digits
     const digits = phoneNumber.replace(/\D/g, '');
     if (!digits) throw new Error('Invalid phone number');
     return await this.sock.requestPairingCode(digits);
@@ -127,6 +126,18 @@ export class BaileysTransport extends WhatsAppTransport {
 
     this.sock = sock;
     sock.ev.on('creds.update', saveCreds);
+
+    // For phone-code pairing: call requestPairingCode immediately — before QR is generated.
+    // Baileys only allows this while credentials are not yet registered.
+    if (this.pairingPhone && !state.creds.registered) {
+      const digits = this.pairingPhone.replace(/\D/g, '');
+      sock.requestPairingCode(digits).then(code => {
+        console.log(`[baileys:${this.userId}] pairing code generated`);
+        this.emitLinkCode(code);
+      }).catch(err => {
+        console.error(`[baileys:${this.userId}] requestPairingCode failed:`, err);
+      });
+    }
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;

@@ -28,14 +28,29 @@ export class SessionManager {
     this.handler = new MessageHandler(db, redis, redisUrl);
   }
 
-  async startSession(userId: string): Promise<void> {
+  async startSession(userId: string, phoneNumber?: string): Promise<void> {
     if (this.sessions.has(userId)) {
       throw new Error('Session already active for this user');
     }
 
     const instanceId = await this.upsertInstance(userId, 'connecting');
-    const transport = this.createTransport(userId);
+    const transport = this.createTransport(userId, phoneNumber);
     this.sessions.set(userId, { transport, instanceId });
+
+    transport.on('link_code', async (code: string) => {
+      try {
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+        await this.db.query(
+          `UPDATE whatsapp_instances
+           SET status = 'link_code_pending', link_code = $1, link_code_expires_at = $2, updated_at = NOW()
+           WHERE id = $3`,
+          [code, expiresAt, instanceId],
+        );
+        await this.redis.publish(`whatsapp:link_code:${userId}`, code).catch(() => {});
+      } catch (err) {
+        console.error(`[session] link_code write failed userId=${userId}:`, err);
+      }
+    });
 
     transport.on('qr', async (dataUrl: string) => {
       try {

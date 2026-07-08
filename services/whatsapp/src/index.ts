@@ -14,8 +14,8 @@ async function main() {
   await redis.connect();
   redis.on('error', (err) => console.error('Redis error:', err));
 
-  const createTransport: TransportFactory = (userId) =>
-    new BaileysTransport(userId, config.SESSIONS_DIR);
+  const createTransport: TransportFactory = (userId, phoneNumber) =>
+    new BaileysTransport(userId, config.SESSIONS_DIR, phoneNumber);
 
   const sessionManager = new SessionManager(db, redis, config.REDIS_URL, createTransport);
 

@@ -69,6 +69,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
   protected emitMessage(msg: NormalisedMessage): void { this.emit('message', msg); }
   protected emitHistoricalMessage(msg: NormalisedMessage): void { this.emit('historical_message', msg); }
   protected emitHistoricalBatch(msgs: NormalisedMessage[]): void { this.emit('historical_batch', msgs); }
+  protected emitLinkCode(code: string): void { this.emit('link_code', code); }
 }
 
-export type TransportFactory = (userId: string) => WhatsAppTransport;
+export type TransportFactory = (userId: string, phoneNumber?: string) => WhatsAppTransport;

@@ -25,7 +25,9 @@ export function sessionRoutes(sessionManager: SessionManager) {
         return reply.code(409).send({ error: 'Session already active' });
       }
 
-      await sessionManager.startSession(body.userId);
+      // Normalize phone number — digits only, no + or spaces
+      const phoneNumber = body.phoneNumber ? body.phoneNumber.replace(/\D/g, '') : undefined;
+      await sessionManager.startSession(body.userId, phoneNumber);
 
       return reply.code(202).send({
         message: 'Connection started. Listen for whatsapp:qr or whatsapp:link_code events.',
