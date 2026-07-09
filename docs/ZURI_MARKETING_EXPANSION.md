@@ -1,7 +1,7 @@
 # Zuri Marketing Expansion: From WhatsApp CRM to Social Commerce Operating System
 
 **Date**: July 2026
-**Status**: Expanded plan — supersedes the July draft below. Phase A (frontend marketing pages) is in progress; everything past that is design, not yet built.
+**Status**: Phase A (public marketing site) shipped and live. Phase B (the actual product — §10 below) is fully planned, not yet built. §12 covers how it integrates into the existing dashboard, since both products need to feel like one system, not two apps bolted together.
 
 ---
 
@@ -160,42 +160,96 @@ AI Content Generator
                       CRM (existing Zuri core)
 ```
 
-## 8. Frontend Marketing Pages — Phase A (this round of work)
+## 8. Frontend Marketing Pages — Phase A (shipped)
 
-The existing public site (`apps/web/src/app/(marketing)/` + the homepage at `apps/web/src/app/page.tsx`) is 100% "reply faster on WhatsApp" positioned today — there is currently zero mention of content creation, social scheduling, or the funnel described above. Verified during this pass:
-- No dedicated page for this capability exists.
-- Homepage nav (`MarketingNav.tsx`) and footer (`MarketingFooter.tsx`) have no link to it.
-- SEO is greenfield across the whole marketing site — no per-page `metadata`, no sitemap, no robots.txt, no OG tags anywhere. Not fixed wholesale in this pass (real, separate scope), but the new page gets its own `metadata` export as a starting example.
-- Pricing is duplicated (near-identically, not exactly) between the homepage's inline pricing block and `/pricing`'s dedicated page — a pre-existing inconsistency, not something this pass needs to fix, but worth flagging: **do not add Zuri Marketing pricing to only one of the two** without remembering the other exists.
+The public site (`apps/web/src/app/(marketing)/`) was 100% "reply faster on WhatsApp" positioned before this phase — zero mention of content creation, social scheduling, or the funnel described above, no SEO metadata anywhere, and the old homepage manually re-imported nav/footer instead of using the shared layout. What actually shipped, across three iterations (the first attempt — bolting a teaser onto the old homepage — was wrong and got reverted):
 
-**What ships in this pass:**
-1. New page `apps/web/src/app/(marketing)/social-commerce/page.tsx` — the dedicated sales page for this capability: hero, the funnel diagram from §2, the module grid from §6, the platform-integration honesty section from §7 (framed positively, not as a wall of caveats), a workflow walkthrough, and a CTA.
-2. **Honesty constraint on the CTA**: this feature does not exist in the shipped product yet — only the plan does. The page must not say "Start free" as if it's usable today. CTA is "Get early access" → `/register`, with copy that existing Zuri WhatsApp customers get first access as it rolls out. This is a promise about *order of rollout*, not a false claim about current capability.
-3. Nav link added to `MarketingNav.tsx` (desktop + mobile), footer link added to `MarketingFooter.tsx`'s Product column.
-4. Homepage teaser section added between "How it works" and "Pricing," linking to the new page — introduces the idea without overhauling the existing, working reply-speed narrative.
-5. Per-page `metadata` export on the new page (title/description) — the first page on the site to have one; broader SEO work (sitemap, robots, OG images, per-page metadata everywhere else) is out of scope here and tracked as a follow-up below.
+1. **Three separate pages, not one homepage with a teaser**: the original homepage content moved unchanged to `(marketing)/whatsapp/page.tsx` (the dedicated "Zuri WhatsApp" product page); `(marketing)/marketing/page.tsx` is the dedicated "Zuri Marketing" product page (funnel diagram, module grid, platform-integration honesty section, workflow, CTA); `(marketing)/page.tsx` is a genuinely new unified homepage at `/` that explains both products with real substance (a condensed funnel section, expanded product cards) and routes visitors to whichever product page they want to explore — not a thin hub page.
+2. **CTA discipline, enforced consistently**: every "Explore" or product-named button goes to that product's own page, never straight to sign-up. Exactly one "Get started" action exists, at the bottom of the homepage, going to `/register`. The Zuri Marketing page's CTA says "Get early access" rather than "Start free," since the feature isn't built yet — existing WhatsApp customers get first access as it rolls out; that's a promise about rollout order, not a false claim about current capability.
+3. **A routing collision, caught before it became a second one**: the *public* sales page for Zuri Marketing lives at `/marketing`. This means the future *authenticated* in-app feature (§12) cannot also be named `/marketing` — Next.js route groups don't appear in the URL, so `(dashboard)/marketing` and `(marketing)/marketing` would collide at build time. §12 uses `/studio` for the authenticated side specifically to avoid this.
+4. **A live bug, found and fixed**: Clerk's `middleware.ts` guards every route via a hardcoded public-route allowlist. Both new pages were missing from it, so logged-out visitors clicking any nav link to either product got redirected straight to `/login` instead of seeing the page. Fixed by adding `/whatsapp(.*)` and `/marketing(.*)` to `isPublicRoute`.
+5. Per-page `metadata` export added to all three new pages — the first pages on the site to have one. Broader SEO work (sitemap, robots, OG images, metadata on every *other* existing page) is still greenfield and out of scope here.
+
+**Known pre-existing issues surfaced but not fixed in this phase** (flagging rather than scope-creeping): `docs/PRODUCT_VISION.md`'s USD pricing model doesn't match the live Kwacha pricing on `/pricing` and the `/whatsapp` page — a business decision, not a docs bug; `/contact` is linked from two pricing CTAs but the page doesn't exist and isn't in the middleware allowlist either; the homepage's old inline pricing block and the dedicated `/pricing` page still carry separately-drifting copies of the same three plans.
 
 ## 9. Analytics — the Differentiator, Not an Afterthought
 
-Once publishing goes through Zuri's own APIs rather than manual posting, the dashboard can show what a plain scheduler can't: total posts published, reach, likes, comments, shares, video views, **clicks to WhatsApp**, **leads generated**, **best-performing products**, **best posting times**, and — the part that actually matters to a shop owner — **which specific posts led to which specific sales**, because the WhatsApp conversation and the CRM sale record already live in the same system as the post.
+Once publishing goes through Zuri's own APIs rather than manual posting, the dashboard can show what a plain scheduler can't: total posts published, reach, likes, comments, shares, video views, **clicks to WhatsApp**, **leads generated**, **best-performing products**, **best posting times**, and — the part that actually matters to a shop owner — **which specific posts led to which specific sales**, because the WhatsApp conversation and the CRM sale record already live in the same system as the post. This is the design principle §12's analytics integration follows: extend the existing analytics area, don't build a second, disconnected one.
 
-## 10. Technical Notes for Later Build Phases (Not Built Yet)
+## 10. Data Model for Phase B (Not Built Yet)
 
-Sketched here so Phase B+ has a concrete starting point, in Zuri's actual conventions (migrations in `db/migrations/`, BullMQ queue naming `domain.action`, services split between `services/api` and `services/intelligence`) — none of this is implemented in this pass.
+In Zuri's actual conventions (migrations in `db/migrations/`, BullMQ queue naming `domain.action`, services split between `services/api` and `services/intelligence`) — none of this is implemented yet, sketched here so Phase B has a concrete starting point.
 
-**New tables** (rough sketch, will need real design pass): `products` (catalog item, links to `contacts`/leads the same way existing tables do), `social_accounts` (per-user OAuth tokens per platform — Facebook Page ID, IG Business Account ID, access token, refresh info, token expiry, granted permissions), `social_posts` (image/caption/video/platforms/scheduled_time/status/platform_post_id — a queue-backed table, not fire-and-forget), `content_generations` (AI output audit trail, mirroring the provenance discipline already used for `business_facts`/`contact_insights` in the Memory Engine).
+**New tables:**
+- `products` — catalog item (name, specs, price, images, IMEI/serial for electronics-style inventory). Links to `users`, optionally to `contacts` the same way existing tables do.
+- `social_accounts` — per-user OAuth connection per platform: platform, Facebook Page ID / IG Business Account ID, access token, refresh info, token expiry, granted permissions.
+- `social_posts` — the scheduling queue: product reference, image/caption/video, target platforms, scheduled time, **status** (`draft | scheduled | sending | sent | failed | cancelled` — the exact lifecycle `broadcasts` already uses for WhatsApp sends, reused deliberately, see §12), platform post ID once published.
+- `content_generations` — AI output audit trail (what was generated, from what input, which model), mirroring the provenance discipline already used for `business_facts`/`contact_insights` in the Memory Engine.
+- `marketing_access` — an entitlement column on `users` (`none | waitlisted | beta | enabled`), or a small `product_entitlements` table if more add-on products are expected later. See §12 for why this can't reuse the existing `mode` column.
 
-**Scheduling worker**: a BullMQ queue (e.g. `social.publish_post`) — check every minute for due posts, publish via the relevant platform API, record success/failure + the returned platform post ID, retry on failure. This is the same "queue-backed, not synchronous" discipline already used for `send.reply` in the existing WhatsApp send path — do not repost the mistake of "post immediately on click" that this doc's own research above says to avoid.
+**Scheduling worker**: a BullMQ queue (`social.publish_post`) — check every minute for due posts, publish via the relevant platform API, record success/failure + the returned platform post ID, retry on failure. Same "queue-backed, not synchronous" discipline already used for `send.reply` in the WhatsApp send path — do not repeat the "post immediately on click" mistake §7's research explicitly warns against.
 
-**Auth**: OAuth per business, one-time connect, tokens stored per `social_accounts` row, refreshed per platform's token lifecycle.
+**Where this plugs into the existing Memory Engine**: content performance data is exactly the kind of "business memory" the Memory Engine (`docs/MEMORY_ENGINE_PLAN.md`) already models — a "which products/posts convert" fact is structurally the same shape as a `business_facts` row (confidence rises with more evidence). Rather than a parallel analytics-only data model, Phase B should extend the existing `business_facts` categories (already has `'product'`, `'promotion'`) to hold content-performance facts, surfaced to reply generation and agent context through the same `memory/retrieval_service.py` — a Reel that's converting well is exactly what a sales agent should know when a customer asks "what's popular right now."
 
-**Where this plugs into the existing Memory Engine**: content performance data is exactly the kind of "business memory" the Memory Engine (`docs/MEMORY_ENGINE_PLAN.md`) already models — a "which products/posts convert" fact is structurally the same shape as a `business_facts` row (confidence rises with more data, evidence-backed). Rather than building a parallel analytics-only data model, Phase B+ should extend the existing `business_facts` categories (already has `'product'`, `'promotion'`) to hold content-performance facts, and let the same retrieval service (`memory/retrieval_service.py`) surface them to reply generation and agent context — a Reel that's converting well is exactly the kind of thing a sales agent should know about when a customer asks "what's popular right now."
+## 11. Known Conflicts to Resolve
 
-## 11. Known Conflicts to Resolve (Not Fixed in This Pass)
+- **Pricing**: `docs/PRODUCT_VISION.md` §6 describes USD pricing (Personal Free/$19, Pro $49, Business $149, Enterprise $500+) tied to "Intelligence Engine" tiers. The live site uses Kwacha pricing (Personal K200, Business K400, Enterprise K1,800) with different tier names/features. Genuinely different models, not copy-paste drift — someone needs to decide which is current. Zuri Marketing pricing (whenever it's set) needs to land in both the homepage and `/pricing`, not just one.
+- **Terms of Service**: dead `/terms` link in the footer, pre-existing.
+- **`/contact`**: linked from two pricing CTAs, page doesn't exist, not in the middleware allowlist.
 
-- **Pricing**: `docs/PRODUCT_VISION.md` §6 describes USD pricing (Personal Free/$19, Pro $49, Business $149, Enterprise $500+) tied to "Intelligence Engine" tiers. The live site (`/pricing`, homepage) uses Kwacha pricing (Personal K200, Business K400, Enterprise K1,800) with different tier names/features. These are genuinely different models, not a copy-paste drift. Someone needs to decide which is current and update the other — not addressed here since it's a business decision, not a docs bug.
-- **Terms of Service**: `MarketingFooter.tsx` links to `/terms`, which does not exist as a route. Pre-existing dead link, unrelated to this expansion, noted because a new page launch is a good moment to also fix nearby rot — not fixed in this pass to keep scope matched to what was asked.
-- **Homepage duplicate pricing block**: the homepage's inline pricing section and the dedicated `/pricing` page maintain separate, drifting copies of the same three plans. Pre-existing, not fixed here.
+---
+
+## 12. Dashboard Integration Architecture
+
+This section exists because of one explicit requirement: **Zuri WhatsApp and Zuri Marketing must feel like one system, not two apps sharing a login.** That means deciding, concretely, which dashboard pages are shared, which are new, and how access to the new feature is gated — grounded in how the dashboard actually works today, not assumptions.
+
+### 12.1 What the dashboard actually does today (verified, not assumed)
+
+- The sidebar (`(dashboard)/layout.tsx`) is a static `NAV_GROUPS` array. Gating is **group-level only**, via `showForModes: WorkspaceMode[]` (`business`/`personal`/`hybrid`) — there's no per-item gating today.
+- `mode` is a plain column on `users`, surfaced through Clerk-sync into `useZuriSession().data.mode`. Confirmed by reading every backend route that touches it: **it is a pure client-side display filter today.** No API endpoint branches on it. It decides what's rendered in the sidebar and a couple of dashboard sections — nothing else.
+- `<FeatureGate modes tiers>` exists as a component, but `tiers` is an accepted prop that does nothing (comment: "tier check wired in Phase 3 when subscription data is in the session"), and `<FeatureGate>` itself is **not used anywhere** in the actual dashboard — all real gating in practice happens via `NAV_GROUPS.showForModes` and ad hoc `mode === '...'` checks inside individual pages.
+- `automation/page.tsx` ("AI Workforce") is the codebase's own precedent for "new feature area, one nav item": it consolidates agents + rules + escalations into **one hub page with multiple in-page sections**, rather than exploding into several top-level nav items. `agents/page.tsx` is now a redirect stub to `/automation` — a sign this consolidation happened deliberately, not by accident.
+- `broadcasts/page.tsx` already has almost exactly the status lifecycle a social-post scheduler needs: `draft → scheduled → sending → sent/failed`, just targeting WhatsApp contacts instead of social platforms.
+- `analytics/page.tsx` already has a self-contained `SUB_NAV` + sticky-tab pattern (Overview/Sales/Customers/Chats/Operations/Opportunities/Predictions/Health/ROI/Reports) — a clean extension point, not something to duplicate.
+- `settings/page.tsx` is a flat `tabs` array with a lazy-load-per-tab convention already used for `enterprise`/`auto_responses`/`memory`/`privacy`.
+
+### 12.2 Why `mode` can't gate Zuri Marketing access
+
+`mode` (business/personal/hybrid) describes *how someone uses WhatsApp* — it is not a product-entitlement flag, and it's enforced nowhere on the backend today. Reusing it to gate a second paid/rolling-out product would be both semantically wrong (a "personal" mode user could legitimately want Zuri Marketing for a side hustle) and a real security gap (mode is client-controlled state with zero server enforcement — anyone could flip it and see gated content). **Zuri Marketing needs its own entitlement dimension**, not an overload of `mode`. This is also the moment to finally build the `tiers` half of `FeatureGate` that's been stubbed since it was written.
+
+### 12.3 The entitlement model
+
+New column: `users.marketing_access` — `none | waitlisted | beta | enabled`. Default `none`. This is deliberately simpler than a generic tiers/permissions table for now, matching the actual rollout story already promised on the public `/marketing` page ("existing customers get first access as it rolls out"):
+- `none` → nav item hidden, `/studio` shows the same "join the waitlist" pitch as the public `/marketing` page (not a 404 — a logged-in user clicking through should never hit a dead end).
+- `waitlisted` → same UI, but recorded as "asked for it" for rollout prioritization.
+- `beta` / `enabled` → full `/studio` access.
+
+`FeatureGate` gets a real implementation for a new `entitlements` prop (or reuses `tiers`, renamed if it's clearer) that checks this field, alongside the existing `modes` check it already has.
+
+### 12.4 Routing decision: `/studio`, not `/marketing`
+
+The public sales page already owns `/marketing` (`(marketing)/marketing/page.tsx`). The authenticated feature is a new top-level route `(dashboard)/studio/` — one hub page, following the `automation/page.tsx` precedent exactly: Product Catalog, AI Content Generator, Scheduled Posts, and Connected Accounts as in-page sections of one page, not four separate nav items. `middleware.ts` needs `/studio(.*)` added as an **authenticated** route (Clerk-protected, the default — unlike `/whatsapp` and `/marketing` which needed adding to the *public* allowlist, `/studio` needs no allowlist change since the default behavior for unlisted routes is already "require login").
+
+### 12.5 Shared pages — what integrates where, and why
+
+| Existing page | Integration | Why |
+|---|---|---|
+| **Contacts** (`/contacts`) | Shared, additively extended | Already the mode-agnostic, single source of truth for lead/health/tag data (`/api/contacts`). Add an optional `leadSource` field (which post/campaign, if any, brought this contact in) — additive, doesn't touch existing WhatsApp-only contacts. |
+| **Analytics** (`/analytics`) | Shared, new sub-nav tab | Add a "Campaigns" tab to the existing `SUB_NAV` array, next to Sales/Customers/Operations — not a second, disconnected analytics area. This is where post→lead→sale attribution (§9) actually gets shown. |
+| **Settings** (`/settings`) | Shared, new tab | Add a `connected_accounts` tab (Facebook/Instagram/TikTok OAuth) following the exact lazy-load-per-tab pattern already used for `enterprise`/`memory`/etc. |
+| **Billing** (`/billing`) | Shared | Same subscription system gates `marketing_access`; Zuri Marketing is priced as an add-on or higher tier, not a separate bill. |
+| **Notifications** (`/notifications`) | Shared | New notification types (post published, post failed, new social-sourced lead) flow through the existing notification center, not a separate inbox. |
+| **Calendar** (`/calendar`) | Shared | Scheduled posts appear as a new event type alongside existing WhatsApp-derived calendar events — one calendar, not two. |
+| **Dashboard home** (`/dashboard`) | Shared, extended | New KPI widgets (posts this week, leads from social, top-performing product) render when `marketing_access` is `beta`/`enabled`, next to existing WhatsApp KPIs — same page, same pattern `mode === 'hybrid'` conditionals already use there. |
+
+### 12.6 New, dedicated pages
+
+- **`/studio`** — the one new hub page. In-page sections: **Products** (catalog CRUD), **Content Generator** (upload a product → AI descriptions/scripts/images, per §6), **Scheduled Posts** (the `social_posts` queue, reusing `broadcasts/page.tsx`'s draft→scheduled→sending→sent/failed UI pattern), **Connected Accounts** (or this lives in Settings instead — one or the other, not both, to avoid a duplicated OAuth UI; current recommendation is Settings, per 12.5, with `/studio` linking to it).
+- Nav: one new group (e.g. "Marketing") containing one item ("Studio" → `/studio`), gated on `marketing_access !== 'none'` via the new entitlement check in `NavGroup`/`NavItem` (extending the type to support this alongside the existing `showForModes`).
+
+### 12.7 What this deliberately avoids
+
+No separate "Zuri Marketing dashboard" with its own shell, its own contacts list, its own settings, its own billing. The entire point of one login and shared data (§4) is that a lead from a Facebook post and a WhatsApp regular are the same contact record, visible in the same place, analyzed by the same intelligence layer — building a second silo would recreate exactly the disconnected-tools problem §12's own precedent research (and §9's "differentiator" argument) explicitly identifies as the thing competitors already have.
 
 ---
 
