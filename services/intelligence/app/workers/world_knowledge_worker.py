@@ -2,6 +2,7 @@ import structlog
 from bullmq import Worker
 from ..queue import redis_conn_opts
 from ..services.interest_matcher import WorldKnowledgeEngine
+from ..services.news_indexer import get_news_indexer
 
 log = structlog.get_logger()
 
@@ -10,6 +11,7 @@ _engine = WorldKnowledgeEngine()
 
 async def _process(job, token: str):
     user_id = job.data.get('userId')
+    await get_news_indexer().refresh()
     if user_id:
         await _engine.run_for_user(user_id)
     else:

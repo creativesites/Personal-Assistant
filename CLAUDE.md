@@ -174,12 +174,19 @@ INTERNAL_API_SECRET=   # shared with Vercel — 98c2ba10361bc6678f860c7b53d953ff
 CORS_ORIGIN=https://zuri-personal-assistant-delta.vercel.app
 GOOGLE_AI_API_KEY=     # Gemini API key
 DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
+DASHSCOPE_API_KEY=     # Alibaba Cloud DashScope key (Qwen models — currently default text pool)
 ```
 
 **CRITICAL — LiteLLM model naming:** All Gemini model names **must** use the `gemini/` prefix.
 - ✅ `gemini/gemini-3.5-flash` ← use this
 - ❌ `gemini-3.5-flash` ← LiteLLM will not find it
 - ❌ `gemini-2.0-flash` ← wrong model AND wrong format
+
+**CRITICAL — LiteLLM model naming (Qwen/DashScope):** All Alibaba Qwen model names **must** use the `dashscope/` prefix.
+- ✅ `dashscope/qwen-max` ← use this
+- ❌ `qwen-max` ← LiteLLM will not find it
+
+Model selection for Qwen calls is routed through `services/intelligence/app/ai/model_router.py`, not hardcoded — it rotates across a fixed pool of models once each crosses ~1M tokens of free-tier usage (task-scoped pools: `text`/`vision`/`ocr`/`translation`). See `docs/MEMORY_ENGINE_PLAN.md` §5 for the full design. One open LiteLLM issue (BerriAI/litellm#12505) reports `dashscope/` provider resolution failing on some versions — smoke-test against the pinned LiteLLM version before relying on this in production.
 
 **Vercel environment variables** (set in Vercel dashboard):
 ```
@@ -219,12 +226,15 @@ INTERNAL_API_SECRET=          # shared between apps/web and services/api
 API_URL=http://localhost:3000  # used by apps/web server-side (Next.js API routes)
 NEXT_PUBLIC_API_URL=http://localhost:3000  # used by browser
 
-# AI Providers (intelligence service — Gemini is primary)
+# AI Providers (intelligence service)
 # ALWAYS use gemini/ prefix with LiteLLM: gemini/gemini-3.5-flash
 GOOGLE_AI_API_KEY=
-DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
+DEFAULT_AI_MODEL=gemini/gemini-3.5-flash   # fallback once the Qwen pool is exhausted
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
+# Qwen models (dashscope/ prefix) are the default text-generation pool for now —
+# see model_router.py and docs/MEMORY_ENGINE_PLAN.md §5
+DASHSCOPE_API_KEY=
 
 # Web search (intelligence service — World Knowledge Engine)
 SERP_API_KEY=

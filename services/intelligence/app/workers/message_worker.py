@@ -6,8 +6,8 @@ from ..services.analyser import MessageAnalyser
 from ..services.reply_gen import ReplyGenerator
 from ..services.event_extractor import EventExtractor
 from ..services.health import RelationshipHealthService
-from ..services.cadence_learner import CadenceLearner
 from ..services.orchestrator import route_message
+from ..memory.conversation_memory import update_conversation_memory
 
 log = structlog.get_logger()
 
@@ -15,12 +15,12 @@ _analyser = MessageAnalyser()
 _reply_gen = ReplyGenerator()
 _extractor = EventExtractor()
 _health_svc = RelationshipHealthService()
-_cadence = CadenceLearner()
 _msg_counter: dict[str, int] = {}
 
-_profile_queue = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
-_voice_queue   = Queue('analysis.user_profile',    {'connection': redis_conn_opts()})
-_agent_queue   = Queue('agent.handle_message',     {'connection': redis_conn_opts()})
+_profile_queue  = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
+_voice_queue    = Queue('analysis.user_profile',    {'connection': redis_conn_opts()})
+_agent_queue    = Queue('agent.handle_message',     {'connection': redis_conn_opts()})
+_temporal_queue = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
 
 _user_msg_counter: dict[str, int] = {}
 
@@ -45,14 +45,20 @@ async def _process(job, token: str):
 
     await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
 
-    # Historical messages: skip reply generation and agent routing entirely
-    if not is_historical and sender_type == 'contact':
+    # Historical messages: skip reply generation, agent routing, and conversation
+    # memory entirely — that memory represents "current" state, not backfill.
+    if not is_historical:
         pool = await get_pool()
         async with pool.acquire() as conn:
             msg = await conn.fetchrow('SELECT body FROM messages WHERE id = $1', message_id)
         body = msg['body'] if msg else ''
 
         if body:
+            await update_conversation_memory(
+                conversation_id, sender_type=sender_type, body=body, analysis=analysis,
+            )
+
+        if sender_type == 'contact' and body:
             # Orchestrator decides: route to an agent OR generate a suggestion for the user
             decision, agent_id = await route_message(
                 message_id=message_id,
@@ -95,10 +101,11 @@ async def _process(job, token: str):
     if count % health_interval == 0:
         await _health_svc.recalculate(contact_id, user_id)
 
-    # Update cadence model
+    # Update cadence model — offloaded to the temporal worker instead of running
+    # inline, so a burst of messages doesn't serialize behind extra DB round-trips.
     cadence_interval = 20 if is_historical else 5
     if count % cadence_interval == 0 or count == 1:
-        await _cadence.learn(contact_id, user_id)
+        await _temporal_queue.add('cadence', {'contactId': contact_id, 'userId': user_id})
 
     # Trigger contact profile rebuild — more aggressive for historical to populate product fast
     profile_interval = 25 if is_historical else 10

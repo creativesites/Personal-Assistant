@@ -5,7 +5,6 @@ Handles autonomous conversation responses for configured agents.
 Called by agent_worker when a new message arrives for an agent-assigned conversation.
 """
 
-import json
 import structlog
 from ..ai.client import get_ai_client
 from ..config import settings
@@ -344,7 +343,7 @@ async def handle_agent_message(
             reply_text,
             reasoning or f'KB chunks: {len(kb_chunks)}. Trust: {trust_level}.',
             confidence,
-            json.dumps(executed_tools),
+            executed_tools,
         )
 
     log.info(
@@ -359,23 +358,36 @@ async def handle_agent_message(
 
     # Enqueue send job for autonomous and delegated trust levels
     if trust_level in ('autonomous', 'delegated'):
-        send_queue = get_queue('messages.send')
-        await send_queue.add(
-            'send',
-            {
-                'conversationId': conversation_id,
-                'contactId': contact_id,
-                'userId': user_id,
-                'body': reply_text,
-                'agentActionId': str(action_id),
-            },
-        )
-        log.info(
-            'agent_send_job_enqueued',
-            agent_id=agent_id,
-            conversation_id=conversation_id,
-            trust_level=trust_level,
-        )
+        async with pool.acquire() as conn:
+            contact_row = await conn.fetchrow(
+                'SELECT whatsapp_jid FROM contacts WHERE id = $1', contact_id,
+            )
+        recipient_jid = contact_row['whatsapp_jid'] if contact_row else None
+        if not recipient_jid:
+            log.warning(
+                'agent_send_skipped_no_jid',
+                agent_id=agent_id,
+                contact_id=contact_id,
+                action_id=str(action_id),
+            )
+        else:
+            send_queue = get_queue('send.reply')
+            await send_queue.add(
+                'send',
+                {
+                    'userId': user_id,
+                    'messageId': message_id,
+                    'suggestedReplyId': None,
+                    'recipientJid': recipient_jid,
+                    'text': reply_text,
+                },
+            )
+            log.info(
+                'agent_send_job_enqueued',
+                agent_id=agent_id,
+                conversation_id=conversation_id,
+                trust_level=trust_level,
+            )
 
     return {
         'action': 'responded',

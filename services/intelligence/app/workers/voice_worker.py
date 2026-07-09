@@ -2,16 +2,19 @@ import structlog
 from bullmq import Worker
 from ..queue import redis_conn_opts
 from ..services.voice_builder import UserVoiceBuilder
+from ..services.user_memory import UserMemoryService
 
 log = structlog.get_logger()
 
 _builder = UserVoiceBuilder()
+_user_memory = UserMemoryService()
 
 
 async def _process(job, token: str):
     user_id = job.data.get('userId')
     log.info('building_voice_profile', user_id=user_id)
     await _builder.build(user_id)
+    await _user_memory.learn(user_id)
     return {'ok': True}
 
 

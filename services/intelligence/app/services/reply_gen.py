@@ -1,3 +1,4 @@
+import json
 import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_REPLIES, LIVE_SEARCH_CONTEXT
@@ -5,6 +6,7 @@ from ..config import settings
 from ..database import get_pool
 from ..models import MessageAnalysis, ReplySuggestions
 from ..queue import publish_event
+from ..memory.conversation_memory import get_conversation_memory
 from .web_search import get_web_search
 from .knowledge_retriever import retrieve_relevant_chunks
 
@@ -63,7 +65,6 @@ class ReplyGenerator:
 
         user_style: str
         if comm_profile and comm_profile['writing_style']:
-            import json
             style_data = comm_profile['writing_style']
             user_style = json.dumps(style_data) if isinstance(style_data, dict) else str(style_data)
         else:
@@ -84,6 +85,27 @@ class ReplyGenerator:
         ) or '(no prior context)'
 
         client = get_ai_client()
+
+        # Conversation memory — rolling short-term state (topic, open questions,
+        # pending promises, recent decisions), cheaper and more current than
+        # re-deriving all of this from raw messages on every call.
+        memory_context = ''
+        convo_memory = await get_conversation_memory(conversation_id)
+        memory_lines = []
+        if convo_memory.get('current_topic'):
+            memory_lines.append(f"Current topic: {convo_memory['current_topic']}")
+        if convo_memory.get('unanswered_questions'):
+            memory_lines.append(
+                'Still-open questions from ' + contact_name + ': '
+                + '; '.join(convo_memory['unanswered_questions'])
+            )
+        if convo_memory.get('pending_promises'):
+            promises_text = '; '.join(
+                f"{p['made_by']} promised: {p['text']}" for p in convo_memory['pending_promises']
+            )
+            memory_lines.append(f'Outstanding promises: {promises_text}')
+        if memory_lines:
+            memory_context = '\n\nConversation memory:\n' + '\n'.join(memory_lines)
 
         # Live web search for factual questions
         search_context = ''
@@ -133,7 +155,7 @@ class ReplyGenerator:
             body=body,
             sentiment=analysis.sentiment,
             intent=analysis.intent.primary,
-        ) + search_context + kb_context
+        ) + memory_context + search_context + kb_context
 
         raw = await client.complete_json([{'role': 'user', 'content': prompt}])
         suggestions_model = ReplySuggestions(**raw)

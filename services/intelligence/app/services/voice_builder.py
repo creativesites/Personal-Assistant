@@ -1,4 +1,3 @@
-import json
 import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import BUILD_USER_VOICE_PROFILE
@@ -85,13 +84,13 @@ class UserVoiceBuilder:
                     updated_at = NOW()
                 """,
                 user_id,
-                json.dumps(writing_style),
-                json.dumps({
+                writing_style,
+                {
                     'greeting_patterns': raw.get('greeting_patterns', []),
                     'closing_patterns': raw.get('closing_patterns', []),
                     'characteristic_phrases': raw.get('characteristic_phrases', []),
                     'emoji_usage': raw.get('emoji_usage', 'none'),
-                }),
+                },
                 formality_score,
             )
 

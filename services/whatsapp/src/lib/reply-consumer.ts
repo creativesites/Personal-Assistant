@@ -29,7 +29,8 @@ export function startReplyConsumer(
       if (suggestedReplyId) {
         await db.query(
           `UPDATE suggested_replies
-           SET status = 'sent', sent_at = NOW(), updated_at = NOW()
+           SET status = CASE WHEN edited_text IS NOT NULL THEN 'edited_and_sent' ELSE 'sent' END,
+               sent_at = NOW(), updated_at = NOW()
            WHERE id = $1`,
           [suggestedReplyId]
         );

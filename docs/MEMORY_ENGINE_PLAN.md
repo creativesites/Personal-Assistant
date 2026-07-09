@@ -1,6 +1,6 @@
 # Memory Engine Plan
 
-Status: **planning** — no implementation started. This doc is the design reference for turning Zuri from message-centric ("what did the last message say?") to memory-centric ("what does Zuri already know about this person, this business, and this relationship?"). It also covers adding Alibaba/Qwen as a second AI provider with free-tier rotation.
+Status: **Phase 0 and Phase 1 implemented** (see §6 for what shipped vs. what's still open). This doc is the design reference for turning Zuri from message-centric ("what did the last message say?") to memory-centric ("what does Zuri already know about this person, this business, and this relationship?"). It also covers adding Alibaba/Qwen as a second AI provider with free-tier rotation.
 
 ---
 
@@ -102,12 +102,13 @@ node --import tsx/esm node_modules/@tencentdb-agent-memory/memory-tencentdb/src/
 # then: curl http://localhost:8420/health
 ```
 
-### 2.2 Unresolved before committing to production use
+### 2.2 Spike results (pinned npm `@tencentdb-agent-memory/memory-tencentdb@1.0.0`, verified by installing and reading the actual shipped source, not just docs)
 
-- **Route-version mismatch risk**: `memory-sdk-ts`'s README documents `/v2/conversation/*`, `/v2/atomic/*`, `/v2/scenario/*`, `/v2/core/*` routes; the `main`-branch `server.ts` I read exposes `/recall`, `/capture`, `/search/*`, `/seed`, `/session/end`. These may be the same API described two ways, or a version-ahead-of-main mismatch. **Verify against the exact npm version you pin before writing integration code** — don't assume either doc is current.
-- **Multi-tenant isolation bug** (GitHub issue #62) — open bug report about `recall` API isolation between users/sessions. Zuri would run one Gateway instance serving many WhatsApp end-users' memory partitions — check this issue's resolution status before any production rollout. This is a hard blocker if unresolved, since cross-user memory leakage would be a serious privacy incident for exactly the kind of data (private relationship psychology) Zuri handles.
+- **Route-version mismatch — resolved, no mismatch.** The installed v1.0.0 package's `src/gateway/server.ts` dispatches `/v2/*` to `src/gateway/v2-router.ts`, which implements the full documented set: `L0 Conversation` (add/query/search/**delete**), `L1 Atomic` (update/query/search/**delete**), `L2 Scenario` (ls/read/write/**rm**), `L3 Core` (read/write) — all POST, under `/v2/`. The `memory-sdk-ts` README's routes are current, not ahead of what ships. The older `/recall`/`/capture`/`/search/*`/`/seed` routes (§2.1) still exist alongside `/v2/*` for backward compatibility — prefer `/v2/*` for new integration work since it's the actively-developed surface.
+- **A real delete API exists** — corrects the earlier assumption. `atomic/delete`, `conversation/delete`, and `scenario/rm` are documented v2 endpoints, not just file-level cleanup. This meaningfully de-risks the right-to-be-forgotten design in §4.6.
+- **Multi-tenancy is a first-class v2 concept, not something Zuri would have to bolt on.** Every `/v2/*` request carries `Authorization: Bearer <apiKey>` + `x-tdai-service-id: <serviceId>`. In service mode, `resolveStore(serviceId)` / `resolveStorage(serviceId)` pool a distinct store per `serviceId`, and each request additionally scopes by a body-level `session_id`. This maps directly onto the partition design in §3: `serviceId = zuri:{userId}`, `session_id = zuri:{userId}:{contactId}` — the two-level isolation Zuri needs is native, not custom-built.
+- **Issue #62 status: confirmed still OPEN as of this spike.** Cross-user leakage (one user's `recall` returning another user's persona/paths) was filed against **v0.1.0**, which predates the `x-tdai-service-id` / `resolveStore(serviceId)` service-mode architecture found in v1.0.0 — it looks like it was reported against an older single-tenant, local-`dataDir` deployment mode, not the current per-serviceId-pooled v2 API. That is **not** the same as "fixed by the new architecture" — nobody has verified the new design is immune to the same class of bug. **Before any production rollout: run an explicit two-`serviceId` isolation test against the pinned v1.0.0 v2 API and confirm zero crossover.** Treat this as a hard gate, not a formality.
 - **No Python SDK exists** (checked PyPI directly — nothing published). `services/intelligence` calls the Gateway over plain HTTP (`httpx`), same as it already does for LLM calls and web search — no new integration pattern needed, just a new HTTP client module.
-- Deletion is file/session-level, not a documented single-call API — matters for the privacy design in §4.
 
 ---
 
@@ -151,7 +152,7 @@ Grading each layer by how much already exists vs. genuinely net-new keeps this p
 | **Relationship Memory** (separate from profile: relationship strength, cadence, missed followups, outstanding promises, conflict history, shared history duration, conversation themes, important dates) | `relationships.health_score`, `relationship_health_logs`, `relationship_clocks` exist; `promises_detected` captured per-message but never aggregated | Build an "outstanding promises" / "missed followups" / "shared history" aggregation view — mostly SQL over data already captured, no new AI calls |
 | **Business Memory** (global: products, pricing, shipping rules, refund policy, FAQ, hours, inventory, promotions, suppliers, tax, bank details, WA templates, brand voice, common objections) | Doesn't exist | Should be the **same mechanism** as Knowledge Memory below, not a separate table |
 | **Knowledge Memory** (AI auto-learns facts from conversation with confidence merging — e.g. product price mentioned by multiple customers converges to a high-confidence, auto-approved fact) | KB/`contact_documents` exists for uploaded docs; nothing auto-learns facts with confidence-merging | Merge Business + Knowledge Memory into one auto-learned + human-curated fact store. Most naturally TAM-shaped (L1 atom + consolidation is exactly this pattern) |
-| **User Memory** (preferred reply length, voice-note preference, sales style, working hours, frequently-rejects/accepts, favorite AI tone, approval rate, frequently-edited words) | `user_communication_profiles` only captures writing style | **Highest ROI, lowest risk in this whole plan** — `suggested_replies.status` (approved/edited/rejected) already exists and is unused for learning. Mining edit diffs and rejection patterns requires zero new capture, just analysis of data already in Postgres |
+| **User Memory** (preferred reply length, voice-note preference, sales style, working hours, frequently-rejects/accepts, favorite AI tone, approval rate, frequently-edited words) | `user_communication_profiles` only captures writing style | `approval_rate`/`tone_acceptance` are derivable today from `suggested_replies.status`/`tone` alone. `frequently_edited_words` looked free but wasn't — there was no endpoint that ever captured an edited draft (`edited_and_sent` was a defined status nothing set). Implemented the missing capture point too (see §6) rather than ship a feature with permanently-empty data |
 | **Agent Memory** (past negotiations, discounts given, successful closing strategies, objections, competitor mentions, refund history, escalations, VIP customers, community culture — per agent type) | `agent_actions` is an action *log*, not semantic memory; autonomous agents currently can't send at all (§1.5) | Biggest lift, biggest payoff — no existing relational pattern to preserve, so this is where TAM's hybrid recall has the most leverage |
 | **Experience Memory** (situation → action → outcome → confidence → use-again; case-based organizational intelligence) | Doesn't exist in any form | Genuinely novel. Implement as a **sub-type of Agent Memory**, not a separate subsystem — experiences are always attached to a specific agent |
 
@@ -253,7 +254,8 @@ This also gets real testing coverage per pool — vision/OCR models currently ha
 - Human approval workflow before AI-generated facts become "permanent"
 
 **Phase 3 — Agent + Experience Memory**
-- If TAM spike confirms the isolation bug is resolved and routes are stable: adopt TAM (self-hosted) here specifically — highest-leverage use case, no existing relational pattern to preserve
+- Spike confirmed TAM's v2 API has a real per-`serviceId`/`session_id` isolation model (§2.2) — but issue #62 is still open against an older deployment mode, so run the two-`serviceId` isolation test called out there before adopting TAM here in production
+- If that test passes: adopt TAM (self-hosted) for agent memory specifically — highest-leverage use case, no existing relational pattern to preserve
 - If not: native `agent_memories` table + pgvector recall, Experience Memory as a sub-type of Agent Memory
 - Fix the autonomous-send wiring (§1.5) as part of this work — currently a dead end
 
@@ -263,3 +265,22 @@ This also gets real testing coverage per pool — vision/OCR models currently ha
 
 **Phase 5 — Privacy & control surface**
 - Memory transparency UI in `apps/web`, per-user TAM/data partitions, wired to `data_retention_policies`
+
+---
+
+## Implementation Status (Phase 0 + Phase 1 — shipped)
+
+**Phase 0:**
+- `services/intelligence/app/ai/model_router.py` — task-scoped pools (`text`/`vision`/`ocr`/`translation`), Redis-backed rotation at 1M tokens/model, Postgres mirror (`ai_model_usage`, migration `0027`). `client.py` now defaults to the `text` pool (`qwen-max` first) instead of `DEFAULT_AI_MODEL`; falls back to Gemini only once a pool is fully exhausted.
+- `services/intelligence/scripts/smoke_test_dashscope.py` — run manually with a real `DASHSCOPE_API_KEY` before relying on this; not run automatically anywhere.
+- TAM spike done against pinned `@tencentdb-agent-memory/memory-tencentdb@1.0.0` — findings folded into §2.2 (route mismatch resolved, delete API exists, multi-tenancy is native via `x-tdai-service-id`, issue #62 still open but against an older deployment mode — isolation test still required before Phase 3).
+- Bugs fixed opportunistically: `profiler.py` now respects `locked_fields`; `reply_gen.py`'s conditional `json` import (`NameError` risk) fixed; `agent_engine.py`'s autonomous-send now targets the correct `send.reply` queue with the correct payload shape (was silently undeliverable before); three dead BullMQ queues (`temporal.clock_check`, `world.knowledge_check`, `proactive.generate_daily`) are now actually fed instead of sitting idle; a second class of bug found along the way — `json.dumps()` was being passed into columns where the asyncpg `jsonb` codec already serializes Python objects itself, double-encoding `relationship_clocks.peak_hours`/`typical_day_of_week`, `user_communication_profiles.writing_style`/`common_phrases`, and `agent_actions.tools_used` into JSON-string scalars instead of real objects — fixed all four.
+
+**Phase 1:**
+- Conversation Memory: `services/intelligence/app/memory/conversation_memory.py`, Redis-backed, 3-day TTL. Updated after every live message in `message_worker.py`; consumed by `reply_gen.py`.
+- Contact Memory: `contact_profiles.structured_attributes` (JSONB, migration `0028`), merged not replaced each profiling run. New `ContactStructuredAttributes` pydantic model, extended `BUILD_CONTACT_PROFILE` prompt.
+- Relationship Memory: new `relationship_memory` table (migration `0028`) + `services/intelligence/app/services/relationship_memory.py` — pure SQL aggregation (promises, themes, important dates, `nudge_count`-derived missed-followups), no new AI calls. Recomputed alongside cadence learning in `temporal_worker.py`.
+- Confidence/provenance: `contact_insights.evidence_count` and `.superseded_by` are now actually populated by `profiler.py` (were schema-only before).
+- User Memory v2: `services/intelligence/app/services/user_memory.py` mines `suggested_replies.status`/`.tone` into `approval_rate`/`tone_acceptance` (real data now). `frequently_edited_words` required adding the missing capture point — `suggested_replies.edited_text` column (migration `0028`) plus `POST /api/suggestions/:id/approve` now accepts an optional `editedText`; `reply-consumer.ts` no longer clobbers the `edited_and_sent` status back to `sent`. This signal starts empty and fills in as real edits happen going forward — it wasn't backfillable.
+
+**Not done yet (tracked for the phases above):** Business/Knowledge Memory (Phase 2), Agent/Experience Memory (Phase 3), retrieval unification and real consolidation scheduling (Phase 4), the memory transparency UI (Phase 5).

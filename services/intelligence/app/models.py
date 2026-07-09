@@ -67,6 +67,22 @@ class ContactInsights(BaseModel):
     insights: list[InsightItem]
 
 
+class ContactStructuredAttributes(BaseModel):
+    """CRM-style structured facts about a contact — merged, not replaced, into
+    contact_profiles.structured_attributes each profiling run, so a fact the
+    model doesn't re-mention this round isn't wiped out."""
+    lifetime_spend: str = ''
+    buying_frequency: str = ''
+    preferred_payment: str = ''
+    common_questions: list[str] = Field(default_factory=list)
+    last_frustration: str = ''
+    favorite_products: list[str] = Field(default_factory=list)
+    typical_reply_time: str = ''
+    emoji_usage: str = ''
+    budget: str = ''
+    notes: str = ''
+
+
 class ContactProfileUpdate(BaseModel):
     personality_summary: str
     communication_style: str
@@ -79,3 +95,4 @@ class ContactProfileUpdate(BaseModel):
     goals: str = ''
     preferences: str = ''
     relationship_stage: str = ''
+    structured_attributes: ContactStructuredAttributes = Field(default_factory=ContactStructuredAttributes)

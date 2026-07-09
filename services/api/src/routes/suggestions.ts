@@ -47,6 +47,7 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
+      const { editedText } = (request.body as { editedText?: string } | undefined) ?? {};
 
       const { rows: [suggestion] } = await db.query(
         `SELECT sr.id, sr.suggestion_text, sr.message_id, m.conversation_id,
@@ -60,17 +61,22 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
       );
       if (!suggestion) return reply.code(404).send({ error: 'Suggestion not found' });
 
+      const wasEdited = !!editedText && editedText.trim() !== suggestion.suggestion_text.trim();
+      const finalText = wasEdited ? editedText!.trim() : suggestion.suggestion_text;
+
       await addToQueue(QUEUE_NAMES.SEND_REPLY, {
         userId,
         messageId: suggestion.message_id,
         suggestedReplyId: id,
         recipientJid: suggestion.recipient_jid,
-        text: suggestion.suggestion_text,
+        text: finalText,
       });
 
       await db.query(
-        "UPDATE suggested_replies SET status = 'approved', updated_at = NOW() WHERE id = $1",
-        [id],
+        `UPDATE suggested_replies
+         SET status = $2, edited_text = $3, updated_at = NOW()
+         WHERE id = $1`,
+        [id, wasEdited ? 'edited_and_sent' : 'approved', wasEdited ? finalText : null],
       );
 
       return reply.send({ ok: true });

@@ -102,7 +102,6 @@ class CadenceLearner:
         importance_tier: int,
         last_interaction_at,
     ) -> None:
-        import json
         from datetime import datetime, timedelta, timezone
 
         check_interval = _TIER_INTERVALS.get(importance_tier, 14)
@@ -138,7 +137,7 @@ class CadenceLearner:
                       OR relationship_clocks.avg_days_between_messages IS NULL""",
                 user_id, contact_id,
                 avg_days, std_dev,
-                json.dumps(peak_hours), json.dumps(typical_dow),
+                peak_hours, typical_dow,
                 check_interval, next_check,
             )
 

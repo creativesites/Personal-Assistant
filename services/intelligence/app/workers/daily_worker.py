@@ -1,20 +1,19 @@
 import asyncio
 import structlog
 from datetime import datetime, timedelta, timezone
-from bullmq import Worker
+from bullmq import Worker, Queue
 from ..queue import redis_conn_opts
 from ..services.proactive import ProactiveService
 from ..services.health import RelationshipHealthService
-from ..services.clock_engine import ClockEngine
-from ..services.interest_matcher import WorldKnowledgeEngine
-from ..services.news_indexer import get_news_indexer
 
 log = structlog.get_logger()
 
 _proactive = ProactiveService()
 _health = RelationshipHealthService()
-_clock_engine = ClockEngine()
-_world_knowledge = WorldKnowledgeEngine()
+
+_proactive_queue = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
+_temporal_queue  = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
+_world_queue     = Queue('world.knowledge_check',    {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -41,11 +40,10 @@ async def run_daily_scheduler() -> None:
         log.info('daily_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
         await asyncio.sleep(wait_secs)
         try:
-            log.info('daily_proactive_run_start')
-            await _proactive.generate_for_all_users()
-            log.info('daily_proactive_run_done')
+            log.info('daily_proactive_enqueue')
+            await _proactive_queue.add('proactive', {})
         except Exception as exc:
-            log.error('daily_proactive_run_failed', error=str(exc))
+            log.error('daily_proactive_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:
@@ -53,11 +51,10 @@ async def run_temporal_scheduler() -> None:
     while True:
         await asyncio.sleep(900)  # 15 minutes
         try:
-            log.info('temporal_clock_check_start')
-            await _clock_engine.evaluate_all_users()
-            log.info('temporal_clock_check_done')
+            log.info('temporal_clock_check_enqueue')
+            await _temporal_queue.add('clock_check', {})
         except Exception as exc:
-            log.error('temporal_clock_check_failed', error=str(exc))
+            log.error('temporal_clock_check_enqueue_failed', error=str(exc))
 
 
 async def run_world_knowledge_scheduler() -> None:
@@ -65,9 +62,7 @@ async def run_world_knowledge_scheduler() -> None:
     while True:
         await asyncio.sleep(7200)  # 2 hours
         try:
-            log.info('world_knowledge_run_start')
-            await get_news_indexer().refresh()
-            await _world_knowledge.run_for_all_users()
-            log.info('world_knowledge_run_done')
+            log.info('world_knowledge_enqueue')
+            await _world_queue.add('refresh', {})
         except Exception as exc:
-            log.error('world_knowledge_run_failed', error=str(exc))
+            log.error('world_knowledge_enqueue_failed', error=str(exc))

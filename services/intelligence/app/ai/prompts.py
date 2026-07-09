@@ -112,8 +112,21 @@ Return ONLY valid JSON:
   "pain_points": "key problems, frustrations, or unmet needs evident from their messages. Leave empty string if unclear.",
   "goals": "what they appear to be trying to achieve — business, personal, or both. Leave empty string if unclear.",
   "preferences": "communication preferences, product preferences, scheduling preferences, etc. Leave empty string if unclear.",
-  "relationship_stage": "how far along the relationship is: new_contact|building_rapport|established|trusted_partner|at_risk|dormant"
+  "relationship_stage": "how far along the relationship is: new_contact|building_rapport|established|trusted_partner|at_risk|dormant",
+  "structured_attributes": {{
+    "lifetime_spend": "total amount spent if mentioned or inferable, else empty string",
+    "buying_frequency": "e.g. monthly, end of month, sporadic — else empty string",
+    "preferred_payment": "e.g. mobile money, bank transfer, cash — else empty string",
+    "common_questions": ["recurring questions they ask, e.g. shipping, sizes, stock"],
+    "last_frustration": "their most recent complaint or frustration, else empty string",
+    "favorite_products": ["specific products or services they've shown repeat interest in"],
+    "typical_reply_time": "e.g. within minutes, a few hours, next day — else empty string",
+    "emoji_usage": "high|medium|low|none — else empty string",
+    "budget": "low|medium|high, or a specific range if mentioned — else empty string",
+    "notes": "one short freeform observation not covered above, else empty string"
+  }}
 }}
+Only fill structured_attributes fields you have direct evidence for. Leave unclear fields as empty string/empty list rather than guessing.
 """
 
 GENERATE_CONTEXT_SNAPSHOT = """\
