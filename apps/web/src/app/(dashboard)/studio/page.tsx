@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { Send, Sparkles, Radio, Link2, Check } from 'lucide-react'
+import { Send, Sparkles, Radio, Link2, Check, ChevronDown, ChevronUp, Copy } from 'lucide-react'
 import { useZuriSession, setStoredMarketingAccess } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -19,6 +19,20 @@ interface Product {
   quantity: number
   status: string
   createdAt: string
+}
+
+interface Generation {
+  id: string
+  contentType: string
+  output: string
+  model: string
+  createdAt: string
+}
+
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+  description: 'Product description',
+  caption: 'Social caption',
+  video_script: 'Video script',
 }
 
 // ─── Waitlist pitch (marketing_access = none | waitlisted) ───────────────────
@@ -139,6 +153,93 @@ function AddProductForm({ onAdded }: { onAdded: () => void }) {
   )
 }
 
+function GeneratedContentCard({ generation }: { generation: Generation }) {
+  const { addToast } = useToast()
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(generation.output).then(() => {
+      addToast({ variant: 'success', title: 'Copied' })
+    })
+  }, [generation.output, addToast])
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-xs font-semibold text-gray-700">{CONTENT_TYPE_LABELS[generation.contentType] ?? generation.contentType}</p>
+        <button onClick={copy} className="text-gray-400 hover:text-indigo-600 transition-colors" aria-label="Copy">
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">{generation.output}</p>
+    </div>
+  )
+}
+
+function ProductCard({ product }: { product: Product }) {
+  const { addToast } = useToast()
+  const session = useZuriSession()
+  const token = session.data?.accessToken
+  const [expanded, setExpanded] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const { data, loading, refetch } = useApi<{ generations: Generation[] }>(
+    expanded ? `/api/products/${product.id}/generations` : null,
+    token,
+  )
+  const generations = data?.generations ?? []
+
+  const generate = useCallback(async () => {
+    if (!token) return
+    setGenerating(true)
+    setExpanded(true)
+    try {
+      await apiClient(`/api/products/${product.id}/generate`, { method: 'POST', token })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to generate content', description: 'Please try again.' })
+    } finally {
+      setGenerating(false)
+    }
+  }, [token, product.id, refetch, addToast])
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+          {product.price !== null && (
+            <p className="text-xs text-gray-500 mt-1">{product.currency} {product.price.toLocaleString()}</p>
+          )}
+        </div>
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+          aria-label={expanded ? 'Collapse' : 'Expand'}
+        >
+          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+          <Button size="sm" variant="secondary" onClick={generate} loading={generating} className="w-full">
+            <Sparkles className="w-3.5 h-3.5" />
+            {generations.length > 0 ? 'Regenerate content' : 'Generate content'}
+          </Button>
+
+          {loading && !generating ? (
+            <SkeletonCard />
+          ) : generations.length > 0 ? (
+            <div className="space-y-2">
+              {generations.map((g) => <GeneratedContentCard key={g.id} generation={g} />)}
+            </div>
+          ) : !generating ? (
+            <p className="text-xs text-gray-400 text-center py-2">No content generated yet.</p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ComingSoonCard({ icon: Icon, title, description }: { icon: React.FC<{ className?: string }>; title: string; description: string }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 opacity-70">
@@ -180,14 +281,7 @@ function StudioHub() {
               />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {products.map((p) => (
-                  <div key={p.id} className="rounded-xl border border-gray-200 bg-white p-4">
-                    <p className="text-sm font-medium text-gray-900 truncate">{p.name}</p>
-                    {p.price !== null && (
-                      <p className="text-xs text-gray-500 mt-1">{p.currency} {p.price.toLocaleString()}</p>
-                    )}
-                  </div>
-                ))}
+                {products.map((p) => <ProductCard key={p.id} product={p} />)}
               </div>
             )}
           </div>
@@ -196,11 +290,6 @@ function StudioHub() {
         <section>
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Coming to Studio</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <ComingSoonCard
-              icon={Sparkles}
-              title="AI Content Generator"
-              description="Turn a product into descriptions, image sets and video scripts in one pass."
-            />
             <ComingSoonCard
               icon={Radio}
               title="Scheduled Posts"
