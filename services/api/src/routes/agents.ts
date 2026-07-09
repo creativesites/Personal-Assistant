@@ -583,6 +583,28 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ── DELETE /api/agents/:id/memories/:memoryId — soft-delete. Added for
+  //     Phase 5 privacy controls; the read-only design note above still
+  //     holds (no approve/reject workflow) — this is deletion, not moderation. ──
+
+  fastify.delete(
+    '/api/agents/:id/memories/:memoryId',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, memoryId } = request.params as { id: string; memoryId: string }
+
+      const { rowCount } = await db.query(
+        `UPDATE agent_memories SET is_active = FALSE, updated_at = NOW()
+         WHERE id = $1 AND agent_id = $2 AND user_id = $3`,
+        [memoryId, id, userId],
+      )
+      if (!rowCount) return reply.code(404).send({ error: 'Memory not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
+
   // ── POST /api/agents/:id/assignments ─────────────────────────────────────
 
   fastify.post(

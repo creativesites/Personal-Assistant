@@ -28,7 +28,8 @@ const createApiKeyBody = z.object({
 const dataRetentionBody = z.object({
   raw_messages_days: z.number().int().min(1).max(3650),
   message_analyses_days: z.number().int().min(1).max(3650),
-  contact_insights_days: z.number().int().min(1).max(3650),
+  // 0 = keep forever, per the column's meaning in db/migrations/0019_enterprise.sql
+  contact_insights_days: z.number().int().min(0).max(3650),
   ai_suggestions_days: z.number().int().min(1).max(3650),
 });
 
@@ -346,13 +347,15 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
         [userId],
       );
 
-      // Return policy or sensible defaults
+      // Return policy or sensible defaults — must match the column defaults
+      // in db/migrations/0019_enterprise.sql, not values that happen to look
+      // plausible (these were previously swapped/wrong).
       return reply.send({
         policy: policy ?? {
           raw_messages_days: 365,
-          message_analyses_days: 180,
-          contact_insights_days: 730,
-          ai_suggestions_days: 90,
+          message_analyses_days: 730,
+          contact_insights_days: 0,
+          ai_suggestions_days: 180,
           updated_at: null,
         },
         isDefault: !policy,

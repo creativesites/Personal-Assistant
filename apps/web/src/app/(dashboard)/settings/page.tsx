@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
-import { ModeBadge, PageHeader, Tabs, useToast } from '@/components/ui'
+import { ModeBadge, PageHeader, Tabs, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/components/ui'
 import { Briefcase, Users, Zap, AlertTriangle } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -293,12 +293,229 @@ export default function SettingsPage() {
     }
   }
 
+  // ── Memory tab: Business Facts ──────────────────────────────────────────
+  interface BusinessFact {
+    id: string; category: string; factKey: string; factValue: string
+    confidence: number; evidenceCount: number; source: string
+    isApproved: boolean; isActive: boolean; createdAt: string; updatedAt: string
+  }
+  const [businessFacts, setBusinessFacts] = useState<BusinessFact[]>([])
+  const [factsFilter, setFactsFilter] = useState<'pending' | 'approved' | 'all'>('pending')
+  const [factActionLoading, setFactActionLoading] = useState<string | null>(null)
+  const [editingFactId, setEditingFactId] = useState<string | null>(null)
+  const [editFactValue, setEditFactValue] = useState('')
+
+  const loadBusinessFacts = async (filter: 'pending' | 'approved' | 'all') => {
+    if (!token) return
+    try {
+      const qs = filter === 'pending' ? '?pending=true' : filter === 'all' ? '?includeInactive=true' : ''
+      const data = await apiClient<{ facts: BusinessFact[] }>(`/api/business-facts${qs}`, { token })
+      setBusinessFacts(filter === 'approved' ? data.facts.filter(f => f.isApproved) : data.facts)
+    } catch { setBusinessFacts([]) }
+  }
+
+  const changeFactsFilter = (filter: 'pending' | 'approved' | 'all') => {
+    setFactsFilter(filter)
+    loadBusinessFacts(filter)
+  }
+
+  const approveFact = async (id: string) => {
+    if (!token) return
+    setFactActionLoading(id)
+    try {
+      await apiClient(`/api/business-facts/${id}/approve`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Fact approved' })
+      await loadBusinessFacts(factsFilter)
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to approve' })
+    } finally {
+      setFactActionLoading(null)
+    }
+  }
+
+  const rejectFact = async (id: string) => {
+    if (!token) return
+    setFactActionLoading(id)
+    try {
+      await apiClient(`/api/business-facts/${id}/reject`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Fact rejected' })
+      setBusinessFacts(prev => prev.filter(f => f.id !== id))
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to reject' })
+    } finally {
+      setFactActionLoading(null)
+    }
+  }
+
+  const startEditFact = (fact: BusinessFact) => {
+    setEditingFactId(fact.id)
+    setEditFactValue(fact.factValue)
+  }
+
+  const saveEditFact = async (id: string) => {
+    if (!token) return
+    setFactActionLoading(id)
+    try {
+      await apiClient(`/api/business-facts/${id}`, {
+        method: 'PATCH', token, body: JSON.stringify({ factValue: editFactValue }),
+      })
+      addToast({ variant: 'success', title: 'Fact updated' })
+      setEditingFactId(null)
+      await loadBusinessFacts(factsFilter)
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update' })
+    } finally {
+      setFactActionLoading(null)
+    }
+  }
+
+  // ── Memory tab: Agent Memories ───────────────────────────────────────────
+  interface AgentSummary { id: string; name: string }
+  interface AgentMemory {
+    id: string; contactId: string | null; scope: 'contact' | 'general'; memoryType: 'fact' | 'experience'
+    key: string | null; value: string | null; situation: string | null; actionTaken: string | null
+    outcome: string | null; worked: boolean | null; confidence: number; evidenceCount: number; createdAt: string
+  }
+  const [agentsList, setAgentsList] = useState<AgentSummary[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [agentMemories, setAgentMemories] = useState<AgentMemory[]>([])
+  const [agentMemoriesLoading, setAgentMemoriesLoading] = useState(false)
+  const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null)
+  const [memoryTabLoaded, setMemoryTabLoaded] = useState(false)
+
+  const loadAgentMemories = async (agentId: string) => {
+    if (!token || !agentId) return
+    setAgentMemoriesLoading(true)
+    try {
+      const data = await apiClient<{ memories: AgentMemory[] }>(`/api/agents/${agentId}/memories`, { token })
+      setAgentMemories(data.memories)
+    } catch {
+      setAgentMemories([])
+    } finally {
+      setAgentMemoriesLoading(false)
+    }
+  }
+
+  const selectAgent = (agentId: string) => {
+    setSelectedAgentId(agentId)
+    loadAgentMemories(agentId)
+  }
+
+  const deleteAgentMemory = async (memoryId: string) => {
+    if (!token || !selectedAgentId) return
+    setDeletingMemoryId(memoryId)
+    try {
+      await apiClient(`/api/agents/${selectedAgentId}/memories/${memoryId}`, { method: 'DELETE', token })
+      setAgentMemories(prev => prev.filter(m => m.id !== memoryId))
+      addToast({ variant: 'success', title: 'Memory deleted' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to delete' })
+    } finally {
+      setDeletingMemoryId(null)
+    }
+  }
+
+  const loadMemoryTab = async () => {
+    if (memoryTabLoaded || !token) return
+    setMemoryTabLoaded(true)
+    loadBusinessFacts('pending')
+    try {
+      const data = await apiClient<{ agents: AgentSummary[] }>('/api/agents', { token })
+      setAgentsList(data.agents)
+      if (data.agents.length) selectAgent(data.agents[0].id)
+    } catch { setAgentsList([]) }
+  }
+
+  // ── Privacy tab: retention policy + export/clear ────────────────────────
+  interface RetentionPolicy {
+    raw_messages_days: number; message_analyses_days: number
+    contact_insights_days: number; ai_suggestions_days: number
+  }
+  const DEFAULT_RETENTION: RetentionPolicy = {
+    raw_messages_days: 365, message_analyses_days: 730, contact_insights_days: 0, ai_suggestions_days: 180,
+  }
+  const [retention, setRetention] = useState<RetentionPolicy>(DEFAULT_RETENTION)
+  const [retentionLoaded, setRetentionLoaded] = useState(false)
+  const [savingRetention, setSavingRetention] = useState(false)
+  const [keepInsightsForever, setKeepInsightsForever] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const [clearAllOpen, setClearAllOpen] = useState(false)
+  const [clearingAll, setClearingAll] = useState(false)
+
+  const loadRetention = async () => {
+    if (!token || retentionLoaded) return
+    setRetentionLoaded(true)
+    try {
+      const data = await apiClient<{ policy: RetentionPolicy }>('/api/data-retention', { token })
+      setRetention(data.policy)
+      setKeepInsightsForever(data.policy.contact_insights_days === 0)
+    } catch { /* keep defaults */ }
+  }
+
+  const saveRetention = async () => {
+    if (!token) return
+    setSavingRetention(true)
+    try {
+      const payload = {
+        ...retention,
+        contact_insights_days: keepInsightsForever ? 0 : (retention.contact_insights_days || 365),
+      }
+      await apiClient('/api/data-retention', { method: 'PUT', token, body: JSON.stringify(payload) })
+      setRetention(payload)
+      addToast({ variant: 'success', title: 'Retention settings saved' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to save' })
+    } finally {
+      setSavingRetention(false)
+    }
+  }
+
+  const exportMemory = async () => {
+    if (!token) return
+    setExporting(true)
+    try {
+      const data = await apiClient('/api/memory/export', { token })
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `zuri-memory-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      addToast({ variant: 'error', title: 'Export failed' })
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const clearAllMemory = async () => {
+    if (!token) return
+    setClearingAll(true)
+    try {
+      const result = await apiClient<{ cleared: Record<string, number> }>('/api/memory/clear-all', {
+        method: 'POST', token,
+      })
+      const total = Object.values(result.cleared).reduce((a, b) => a + b, 0)
+      addToast({ variant: 'success', title: `Cleared ${total} AI-generated memories` })
+      setClearAllOpen(false)
+      setBusinessFacts([])
+      setAgentMemories([])
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to clear memories' })
+    } finally {
+      setClearingAll(false)
+    }
+  }
+
   const [activeTab, setActiveTab] = useState('account')
 
   const handleTabChange = (id: string) => {
     setActiveTab(id)
     if (id === 'enterprise' && !enterpriseLoaded) loadEnterprise()
     if (id === 'auto_responses' && !autoResponseLoaded) loadAutoResponse()
+    if (id === 'memory' && !memoryTabLoaded) loadMemoryTab()
+    if (id === 'privacy' && !retentionLoaded) loadRetention()
   }
 
   const tabs = [
@@ -306,6 +523,7 @@ export default function SettingsPage() {
     { id: 'workspace',      label: 'Workspace' },
     { id: 'intelligence',   label: 'AI Engines' },
     { id: 'auto_responses', label: 'Auto Responses' },
+    { id: 'memory',         label: 'Memory' },
     { id: 'privacy',        label: 'Privacy' },
     { id: 'enterprise',     label: 'Enterprise' },
   ]
@@ -883,6 +1101,157 @@ export default function SettingsPage() {
                   </div>
                 )}
 
+                {/* ── Memory tab ── */}
+                {currentTab === 'memory' && (
+                  <div className="space-y-4 pt-2">
+                    <Section title="Business Facts">
+                      <div className="px-5 py-3 flex items-center gap-2">
+                        {(['pending', 'approved', 'all'] as const).map(f => (
+                          <button
+                            key={f}
+                            onClick={() => changeFactsFilter(f)}
+                            className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors capitalize ${
+                              factsFilter === f ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                          >
+                            {f}
+                          </button>
+                        ))}
+                      </div>
+                      {businessFacts.length === 0 ? (
+                        <EmptyState
+                          title="No business facts here"
+                          description="Zuri learns pricing, policies, and product facts automatically from your conversations."
+                        />
+                      ) : (
+                        <div className="divide-y divide-gray-50">
+                          {businessFacts.map(fact => (
+                            <div key={fact.id} className="px-5 py-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Badge variant="purple">{fact.category}</Badge>
+                                    <Badge variant={fact.isApproved ? 'success' : 'warning'}>
+                                      {fact.isApproved ? 'Approved' : 'Pending review'}
+                                    </Badge>
+                                    <span className="text-xs text-gray-400">
+                                      {Math.round(fact.confidence * 100)}% confidence · {fact.evidenceCount} mention{fact.evidenceCount === 1 ? '' : 's'}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm font-medium text-gray-900">{fact.factKey}</p>
+                                  {editingFactId === fact.id ? (
+                                    <div className="mt-1.5 flex items-center gap-2">
+                                      <input
+                                        value={editFactValue}
+                                        onChange={e => setEditFactValue(e.target.value)}
+                                        className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      />
+                                      <button
+                                        onClick={() => saveEditFact(fact.id)}
+                                        disabled={factActionLoading === fact.id}
+                                        className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                                      >
+                                        Save
+                                      </button>
+                                      <button onClick={() => setEditingFactId(null)} className="text-xs text-gray-400 hover:text-gray-600">
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-gray-600 mt-0.5">{fact.factValue}</p>
+                                  )}
+                                </div>
+                                {editingFactId !== fact.id && (
+                                  <div className="flex-shrink-0 flex items-center gap-3">
+                                    {!fact.isApproved && (
+                                      <button
+                                        onClick={() => approveFact(fact.id)}
+                                        disabled={factActionLoading === fact.id}
+                                        className="text-xs font-medium text-green-600 hover:text-green-700"
+                                      >
+                                        Approve
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => startEditFact(fact)}
+                                      className="text-xs font-medium text-gray-500 hover:text-gray-700"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => rejectFact(fact.id)}
+                                      disabled={factActionLoading === fact.id}
+                                      className="text-xs font-medium text-red-500 hover:text-red-600"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Section>
+
+                    <Section title="Agent Memories">
+                      <div className="px-5 py-3">
+                        {agentsList.length === 0 ? (
+                          <p className="text-sm text-gray-400">No agents yet — create one in AI Workforce first.</p>
+                        ) : (
+                          <Select
+                            value={selectedAgentId}
+                            onChange={e => selectAgent(e.target.value)}
+                            className="max-w-xs"
+                            options={agentsList.map(a => ({ value: a.id, label: a.name }))}
+                          />
+                        )}
+                      </div>
+                      {agentMemoriesLoading ? (
+                        <div className="px-5 py-4 text-sm text-gray-400">Loading…</div>
+                      ) : agentMemories.length === 0 ? (
+                        <EmptyState
+                          title="Nothing remembered yet"
+                          description="This agent hasn't learned any facts or experiences from its conversations yet."
+                        />
+                      ) : (
+                        <div className="divide-y divide-gray-50">
+                          {agentMemories.map(mem => (
+                            <div key={mem.id} className="px-5 py-4 flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Badge variant={mem.memoryType === 'experience' ? 'info' : 'default'}>
+                                    {mem.memoryType}
+                                  </Badge>
+                                  <Badge variant="default">{mem.scope}</Badge>
+                                  <span className="text-xs text-gray-400">{Math.round(mem.confidence * 100)}% confidence</span>
+                                </div>
+                                {mem.memoryType === 'experience' ? (
+                                  <p className="text-sm text-gray-700">
+                                    <span className="font-medium">{mem.situation}</span> → {mem.actionTaken} → {mem.outcome}
+                                    {mem.worked !== null && (
+                                      <span className={mem.worked ? 'text-green-600' : 'text-red-500'}> ({mem.worked ? 'worked' : "didn't work"})</span>
+                                    )}
+                                  </p>
+                                ) : (
+                                  <p className="text-sm text-gray-700"><span className="font-medium">{mem.key}:</span> {mem.value}</p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => deleteAgentMemory(mem.id)}
+                                disabled={deletingMemoryId === mem.id}
+                                className="flex-shrink-0 text-xs font-medium text-red-500 hover:text-red-600"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Section>
+                  </div>
+                )}
+
                 {/* ── Privacy tab ── */}
                 {currentTab === 'privacy' && (
                   <div className="space-y-4 pt-2">
@@ -909,23 +1278,94 @@ export default function SettingsPage() {
                       </div>
                     </Section>
 
+                    <Section title="Data Retention">
+                      <div className="px-5 py-4 space-y-4">
+                        <p className="text-xs text-gray-400">
+                          How long Zuri keeps different kinds of data before it's automatically purged. 3650 days max.
+                        </p>
+                        {([
+                          ['raw_messages_days', 'Raw messages'],
+                          ['message_analyses_days', 'Message analysis (sentiment, intent, etc.)'],
+                          ['ai_suggestions_days', 'AI reply suggestions'],
+                        ] as const).map(([field, label]) => (
+                          <div key={field} className="flex items-center justify-between gap-4">
+                            <span className="text-sm text-gray-700">{label}</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={1}
+                                max={3650}
+                                value={retention[field]}
+                                onChange={e => setRetention(prev => ({ ...prev, [field]: Number(e.target.value) || 1 }))}
+                                className="w-20 text-sm border border-gray-300 rounded-lg px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              />
+                              <span className="text-xs text-gray-400">days</span>
+                            </div>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-sm text-gray-700">AI contact insights</span>
+                          <div className="flex items-center gap-3">
+                            {!keepInsightsForever && (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={3650}
+                                  value={retention.contact_insights_days || 365}
+                                  onChange={e => setRetention(prev => ({ ...prev, contact_insights_days: Number(e.target.value) || 1 }))}
+                                  className="w-20 text-sm border border-gray-300 rounded-lg px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <span className="text-xs text-gray-400">days</span>
+                              </div>
+                            )}
+                            <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={keepInsightsForever}
+                                onChange={e => setKeepInsightsForever(e.target.checked)}
+                                className="rounded border-gray-300"
+                              />
+                              Keep forever
+                            </label>
+                          </div>
+                        </div>
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            onClick={saveRetention}
+                            disabled={savingRetention}
+                            className="text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-4 py-2 transition-colors"
+                          >
+                            {savingRetention ? 'Saving…' : 'Save retention settings'}
+                          </button>
+                        </div>
+                      </div>
+                    </Section>
+
                     <Section title="Data Controls">
                       <div className="px-5 py-4 flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm font-medium text-gray-900">Export my data</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Download all your contacts, messages, and AI profiles</p>
+                          <p className="text-sm font-medium text-gray-900">Export my memory data</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Download every business fact, AI insight, and agent memory Zuri has created about you</p>
                         </div>
-                        <button className="flex-shrink-0 text-sm text-indigo-600 hover:text-indigo-700 font-medium transition-colors">
-                          Export
+                        <button
+                          onClick={exportMemory}
+                          disabled={exporting}
+                          className="flex-shrink-0 text-sm text-indigo-600 hover:text-indigo-700 font-medium transition-colors disabled:opacity-50"
+                        >
+                          {exporting ? 'Exporting…' : 'Export'}
                         </button>
                       </div>
                       <div className="px-5 py-4 flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm font-medium text-red-600">Delete all data</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Permanently remove all contacts, profiles, and history</p>
+                          <p className="text-sm font-medium text-red-600">Clear all AI-generated memories</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Removes business facts, contact insights, and agent memories — not your messages or contacts</p>
                         </div>
-                        <button className="flex-shrink-0 text-sm text-red-500 hover:text-red-600 font-medium transition-colors">
-                          Delete
+                        <button
+                          onClick={() => setClearAllOpen(true)}
+                          className="flex-shrink-0 text-sm text-red-500 hover:text-red-600 font-medium transition-colors"
+                        >
+                          Clear
                         </button>
                       </div>
                     </Section>
@@ -937,6 +1377,17 @@ export default function SettingsPage() {
 
         </div>
       </div>
+
+      <ConfirmModal
+        open={clearAllOpen}
+        onClose={() => setClearAllOpen(false)}
+        onConfirm={clearAllMemory}
+        title="Clear all AI-generated memories?"
+        description="This deactivates every business fact, contact insight, and agent memory Zuri has learned. Your messages, contacts, and conversations are untouched — Zuri will simply start learning again from here."
+        confirmLabel="Clear everything"
+        destructive
+        loading={clearingAll}
+      />
     </div>
   )
 }

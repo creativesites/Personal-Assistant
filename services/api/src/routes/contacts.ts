@@ -141,7 +141,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult] = await Promise.all([
       db.query(
-        `SELECT insight_key, insight_value, confidence, supporting_text, created_at
+        `SELECT id, insight_key, insight_value, confidence, supporting_text, created_at
          FROM contact_insights
          WHERE contact_id = $1 AND user_id = $2 AND is_active = TRUE
          ORDER BY confidence DESC NULLS LAST, created_at DESC
@@ -253,6 +253,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           updatedAt:          null,
         },
         insights: insights.rows.map((i: any) => ({
+          id:            i.id,
           key:           i.insight_key,
           value:         i.insight_value,
           confidence:    parseFloat(i.confidence ?? '0'),
@@ -672,6 +673,22 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       'DELETE FROM contact_context_pins WHERE id = $1 AND user_id = $2 AND contact_id = $3',
       [pinId, userId, id],
     );
+
+    return reply.send({ ok: true });
+  });
+
+  // ── DELETE /api/contacts/:id/insights/:insightId — soft-delete, matches
+  //     the contact_insights is_active convention used everywhere else ────
+  fastify.delete('/api/contacts/:id/insights/:insightId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, insightId } = request.params as { id: string; insightId: string };
+
+    const { rowCount } = await db.query(
+      `UPDATE contact_insights SET is_active = FALSE
+       WHERE id = $1 AND user_id = $2 AND contact_id = $3`,
+      [insightId, userId, id],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Insight not found' });
 
     return reply.send({ ok: true });
   });
