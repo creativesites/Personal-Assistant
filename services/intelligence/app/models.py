@@ -91,6 +91,21 @@ class ContactStructuredAttributes(BaseModel):
     notes: str = ''
 
 
+class AgentMemoryCandidate(BaseModel):
+    """A fact or experience the agent engine judges worth remembering from a
+    single interaction. Not strictly validated upstream (the agent's JSON
+    response is read via dict .get(), same as reply/confidence/tools), so
+    every field has a safe default and the writer tolerates partial data."""
+    memory_type: str = 'fact'  # fact|experience
+    scope: str = 'contact'     # contact|general — general = applies beyond this one contact
+    key: str = ''              # fact: short stable identifier, e.g. "negotiation_style"
+    value: str = ''            # fact: the learned value
+    situation: str = ''        # experience: what was happening
+    action_taken: str = ''     # experience: what the agent did
+    outcome: str = ''          # experience: what resulted
+    worked: bool | None = None # experience: was the outcome good? (biases future retrieval)
+
+
 class ContactProfileUpdate(BaseModel):
     personality_summary: str
     communication_style: str

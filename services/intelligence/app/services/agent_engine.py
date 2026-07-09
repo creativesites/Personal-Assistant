@@ -9,9 +9,25 @@ import structlog
 from ..ai.client import get_ai_client
 from ..config import settings
 from ..database import get_pool
+from ..models import AgentMemoryCandidate
 from ..queue import get_queue
+from .agent_memory import AgentMemoryService
 
 log = structlog.get_logger()
+_agent_memory = AgentMemoryService()
+
+
+def _format_agent_memories(memories: list[dict]) -> str:
+    lines = []
+    for m in memories:
+        if m['memory_type'] == 'experience':
+            outcome_note = ' (worked)' if m['worked'] else (' (did not work)' if m['worked'] is False else '')
+            lines.append(
+                f"- Situation: {m['situation']} | Did: {m['action_taken']} | Outcome: {m['outcome']}{outcome_note}"
+            )
+        else:
+            lines.append(f"- {m['memory_key']}: {m['memory_value']}")
+    return '\n'.join(lines)
 
 _ESCALATION_PROMPT = """\
 You are a classifier. Analyse the following message and determine whether it warrants escalation to a human operator.
@@ -46,6 +62,9 @@ You are an AI assistant acting as {agent_name} ({agent_type}).
 == Knowledge base context ==
 {kb_context}
 
+== What you remember from past interactions ==
+{agent_memory_context}
+
 == Conversation history (oldest first) ==
 {conversation_history}
 
@@ -59,6 +78,7 @@ You may optionally call one or more tools alongside your reply:
 Compose a single, natural reply and optionally call tools. Be concise. Stay within your defined role.
 Do not mention that you are an AI unless the contact asks directly.
 Respond in the same language as the latest message.
+Use what you remember from past interactions where relevant, but don't mention that you have "memory" explicitly.
 
 Respond ONLY with a JSON object — no markdown, no extra text:
 {{
@@ -67,10 +87,18 @@ Respond ONLY with a JSON object — no markdown, no extra text:
   "tools": [
     {{"name": "tool_name", "params": {{"key": "value"}}}}
   ],
-  "reasoning": "one sentence explaining your reply"
+  "reasoning": "one sentence explaining your reply",
+  "memories": [
+    {{"memory_type": "fact", "scope": "contact", "key": "snake_case_key", "value": "what you learned"}},
+    {{"memory_type": "experience", "scope": "contact", "situation": "what was happening",
+      "action_taken": "what you did", "outcome": "what resulted", "worked": true}}
+  ]
 }}
 
-If no tools are needed, set "tools" to [].
+If no tools are needed, set "tools" to []. Only include "memories" entries for things genuinely worth
+remembering for future interactions (a preference, a negotiation pattern, an objection and how it was
+handled, a promise made) — most replies won't produce any. Use scope "general" only for something true
+of your role broadly, not specific to this one contact.
 """
 
 
@@ -247,6 +275,10 @@ async def handle_agent_message(
     from .business_facts import BusinessFactService
     business_facts = await BusinessFactService().get_approved_facts(user_id)
 
+    # Agent Memory — this agent's own persistent memory (facts + past
+    # experiences), scoped to this contact plus anything general to the role.
+    agent_memories = await _agent_memory.retrieve(agent_id, contact_id, message_body, limit=5)
+
     # Build prompt components
     contact_context_parts = []
     if contact_profile:
@@ -267,6 +299,8 @@ async def handle_agent_message(
         facts_text = '\n'.join(f"[Business fact] {f['fact_key']}: {f['fact_value']}" for f in business_facts)
         kb_context = f'{kb_context}\n\n{facts_text}'
 
+    agent_memory_context = _format_agent_memories(agent_memories) or '(nothing remembered yet)'
+
     history_lines = [
         f"[{msg['sender_type']}]: {msg['body']}"
         for msg in recent_messages
@@ -286,6 +320,7 @@ async def handle_agent_message(
         system_prompt=agent_system_prompt,
         contact_context=contact_context,
         kb_context=kb_context,
+        agent_memory_context=agent_memory_context,
         conversation_history=conversation_history,
         latest_message=message_body,
         available_tools=available_tools,
@@ -305,6 +340,7 @@ async def handle_agent_message(
         confidence = float(reply_data.get('confidence', 0.8))
         tools_to_run = reply_data.get('tools', []) or []
         reasoning = str(reply_data.get('reasoning', ''))
+        memories_raw = reply_data.get('memories', []) or []
     except Exception as exc:
         log.warning('agent_json_parse_failed', error=str(exc), agent_id=agent_id)
         # Fallback to plain text generation
@@ -313,6 +349,14 @@ async def handle_agent_message(
         confidence = 0.7
         tools_to_run = []
         reasoning = 'fallback plain text generation'
+        memories_raw = []
+
+    memory_candidates: list[AgentMemoryCandidate] = []
+    for raw in memories_raw:
+        try:
+            memory_candidates.append(AgentMemoryCandidate(**raw))
+        except Exception as exc:
+            log.warning('agent_memory_candidate_invalid', error=str(exc), agent_id=agent_id)
 
     if not reply_text:
         log.warning('agent_empty_reply', agent_id=agent_id)
@@ -353,6 +397,9 @@ async def handle_agent_message(
             confidence,
             executed_tools,
         )
+
+    if memory_candidates:
+        await _agent_memory.record_candidates(agent_id, user_id, contact_id, str(action_id), memory_candidates)
 
     log.info(
         'agent_reply_generated',

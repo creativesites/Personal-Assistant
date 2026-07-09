@@ -513,6 +513,76 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ── GET /api/agents/:id/memories — read-only view of what the agent has
+  //     learned. No approve/reject workflow (unlike business facts) — an
+  //     agent's own trust_level already gates what it acts on; this is
+  //     transparency, not a moderation queue. ───────────────────────────────
+
+  fastify.get(
+    '/api/agents/:id/memories',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const query = request.query as Record<string, string>
+
+      const { rows: [existing] } = await db.query<{ id: string }>(
+        'SELECT id FROM agents WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Agent not found' })
+
+      const filters: string[] = ['agent_id = $1', 'is_active = TRUE']
+      const params: unknown[] = [id]
+      let idx = 2
+
+      if (query.contact_id) {
+        filters.push(`contact_id = $${idx++}`)
+        params.push(query.contact_id)
+      }
+      if (query.memory_type) {
+        filters.push(`memory_type = $${idx++}`)
+        params.push(query.memory_type)
+      }
+
+      const { rows } = await db.query<{
+        id: string; contact_id: string | null; memory_type: string
+        memory_key: string | null; memory_value: string | null
+        situation: string | null; action_taken: string | null; outcome: string | null
+        worked: boolean | null; confidence: string; evidence_count: number
+        created_at: string; updated_at: string
+      }>(
+        `SELECT id, contact_id, memory_type, memory_key, memory_value,
+                situation, action_taken, outcome, worked, confidence, evidence_count,
+                created_at, updated_at
+         FROM agent_memories
+         WHERE ${filters.join(' AND ')}
+         ORDER BY confidence DESC, updated_at DESC
+         LIMIT 200`,
+        params,
+      )
+
+      return reply.send({
+        memories: rows.map((m) => ({
+          id: m.id,
+          contactId: m.contact_id,
+          scope: m.contact_id ? 'contact' : 'general',
+          memoryType: m.memory_type,
+          key: m.memory_key,
+          value: m.memory_value,
+          situation: m.situation,
+          actionTaken: m.action_taken,
+          outcome: m.outcome,
+          worked: m.worked,
+          confidence: Number(m.confidence),
+          evidenceCount: m.evidence_count,
+          createdAt: m.created_at,
+          updatedAt: m.updated_at,
+        })),
+      })
+    },
+  )
+
   // ── POST /api/agents/:id/assignments ─────────────────────────────────────
 
   fastify.post(
