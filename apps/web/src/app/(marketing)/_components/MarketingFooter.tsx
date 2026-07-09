@@ -4,6 +4,7 @@ import { Phone, Mail } from 'lucide-react'
 const LINKS = {
   Product: [
     { label: 'How it works', href: '/how-it-works' },
+    { label: 'Zuri Marketing', href: '/social-commerce' },
     { label: 'Pricing', href: '/pricing' },
     { label: 'Privacy', href: '/privacy' },
   ],
