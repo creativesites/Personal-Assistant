@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
 import {
-  ArrowRight, Check, Package, Sparkles, Image as ImageIcon, Video, Send,
-  BarChart3, Repeat, Facebook, Instagram, Music2, MessageCircle,
+  ArrowRight, Package, Sparkles, Image as ImageIcon, Video, Send,
+  BarChart3, Repeat, Globe, Camera, Music2, MessageCircle,
 } from 'lucide-react'
 
 export const metadata: Metadata = {
@@ -62,8 +62,8 @@ const WORKFLOW = [
 ]
 
 const PLATFORMS = [
-  { icon: Facebook, label: 'Facebook', note: 'Pages, Marketplace-style posts & Groups content' },
-  { icon: Instagram, label: 'Instagram', note: 'Feed posts, carousels & Reels' },
+  { icon: Globe, label: 'Facebook', note: 'Pages, Marketplace-style posts & Groups content' },
+  { icon: Camera, label: 'Instagram', note: 'Feed posts, carousels & Reels' },
   { icon: Music2, label: 'TikTok', note: 'AI-written scripts today, native publishing as platform access rolls out' },
   { icon: MessageCircle, label: 'WhatsApp', note: 'Where it all closes — powered by the Zuri you already use' },
 ]
