@@ -9,8 +9,10 @@ from ..queue import publish_event
 from ..memory.conversation_memory import get_conversation_memory
 from .web_search import get_web_search
 from .knowledge_retriever import retrieve_relevant_chunks
+from .business_facts import BusinessFactService
 
 log = structlog.get_logger()
+_business_facts = BusinessFactService()
 
 
 class ReplyGenerator:
@@ -145,6 +147,17 @@ class ReplyGenerator:
         except Exception as exc:
             log.warning('kb_retrieval_failed_in_reply_gen', error=str(exc))
 
+        # Business Memory — approved, auto-learned + human-curated facts
+        # (pricing, policies, hours, etc.), independent of the per-contact KB above.
+        facts_context = ''
+        try:
+            facts = await _business_facts.get_approved_facts(user_id)
+            if facts:
+                facts_text = '\n'.join(f"- {f['fact_key']}: {f['fact_value']}" for f in facts)
+                facts_context = f'\n\nKnown business facts:\n{facts_text}'
+        except Exception as exc:
+            log.warning('business_facts_retrieval_failed_in_reply_gen', error=str(exc))
+
         prompt = GENERATE_REPLIES.format(
             user_name=user_name,
             contact_name=contact_name,
@@ -155,7 +168,7 @@ class ReplyGenerator:
             body=body,
             sentiment=analysis.sentiment,
             intent=analysis.intent.primary,
-        ) + memory_context + search_context + kb_context
+        ) + memory_context + search_context + kb_context + facts_context
 
         raw = await client.complete_json([{'role': 'user', 'content': prompt}])
         suggestions_model = ReplySuggestions(**raw)

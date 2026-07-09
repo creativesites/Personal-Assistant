@@ -1,6 +1,6 @@
 # Memory Engine Plan
 
-Status: **Phase 0 and Phase 1 implemented** (see §6 for what shipped vs. what's still open). This doc is the design reference for turning Zuri from message-centric ("what did the last message say?") to memory-centric ("what does Zuri already know about this person, this business, and this relationship?"). It also covers adding Alibaba/Qwen as a second AI provider with free-tier rotation.
+Status: **Phases 0–2 implemented** (see §6 for what shipped vs. what's still open). This doc is the design reference for turning Zuri from message-centric ("what did the last message say?") to memory-centric ("what does Zuri already know about this person, this business, and this relationship?"). It also covers adding Alibaba/Qwen as a second AI provider with free-tier rotation.
 
 ---
 
@@ -283,4 +283,11 @@ This also gets real testing coverage per pool — vision/OCR models currently ha
 - Confidence/provenance: `contact_insights.evidence_count` and `.superseded_by` are now actually populated by `profiler.py` (were schema-only before).
 - User Memory v2: `services/intelligence/app/services/user_memory.py` mines `suggested_replies.status`/`.tone` into `approval_rate`/`tone_acceptance` (real data now). `frequently_edited_words` required adding the missing capture point — `suggested_replies.edited_text` column (migration `0028`) plus `POST /api/suggestions/:id/approve` now accepts an optional `editedText`; `reply-consumer.ts` no longer clobbers the `edited_and_sent` status back to `sent`. This signal starts empty and fills in as real edits happen going forward — it wasn't backfillable.
 
-**Not done yet (tracked for the phases above):** Business/Knowledge Memory (Phase 2), Agent/Experience Memory (Phase 3), retrieval unification and real consolidation scheduling (Phase 4), the memory transparency UI (Phase 5).
+**Phase 2:**
+- New `business_facts` table (migration `0029`) — the unified Business + Knowledge Memory fact store. Competing values for the same `fact_key` coexist as separate rows with independent confidence/evidence rather than one row being force-overwritten on every contradiction; readers take the highest-confidence *approved* row per key.
+- Extraction folded into the existing per-message analysis call, not a new LLM call: `MessageAnalysis.business_facts_mentioned` (new field, `models.py` + `ANALYSE_MESSAGE` prompt) is only populated when a message states a concrete business fact (price/policy/hours/etc.) — most messages produce none.
+- `services/intelligence/app/services/business_facts.py` — `record_candidates()` merges corroborating mentions (confidence +0.15/mention, capped 0.99) and auto-approves once a fact crosses confidence ≥0.9 *and* evidence_count ≥3 — the "82% → 91% → 99% → approved automatically" pattern from the brief. A human rejecting a candidate (`is_active=FALSE`) stops it from being reinforced by future mentions. Runs for historical messages too — unlike conversation memory, a business's chat history is exactly where its prices/policies were first stated, so backfill has real value here.
+- `get_approved_facts()` — current best value per key, wired into both `reply_gen.py` and `agent_engine.py` prompt context so replies/agents can actually use known pricing/policy facts, not just recall/regurgitate them from raw chat history.
+- API surface for the approval workflow: `services/api/src/routes/business-facts.ts` (`GET` list/filter by category/pending, `POST` manual entry — auto-approved since a human typed it, `PATCH` edit, `POST /:id/approve`, `POST /:id/reject`). **No dedicated frontend page yet** — that's explicitly Phase 5's "memory transparency UI" scope; today the approval workflow exists at the API level only, ready for a UI to call.
+
+**Not done yet (tracked for the phases above):** Agent/Experience Memory (Phase 3), retrieval unification and real consolidation scheduling (Phase 4), the memory transparency UI (Phase 5) — including the still-missing frontend for approving/rejecting business facts from Phase 2.

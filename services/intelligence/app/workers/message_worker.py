@@ -7,6 +7,7 @@ from ..services.reply_gen import ReplyGenerator
 from ..services.event_extractor import EventExtractor
 from ..services.health import RelationshipHealthService
 from ..services.orchestrator import route_message
+from ..services.business_facts import BusinessFactService
 from ..memory.conversation_memory import update_conversation_memory
 
 log = structlog.get_logger()
@@ -15,6 +16,7 @@ _analyser = MessageAnalyser()
 _reply_gen = ReplyGenerator()
 _extractor = EventExtractor()
 _health_svc = RelationshipHealthService()
+_business_facts = BusinessFactService()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue  = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
@@ -44,6 +46,14 @@ async def _process(job, token: str):
     )
 
     await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
+
+    # Business facts are mined from history too — unlike conversation memory,
+    # this is durable knowledge, and a business's chat history is exactly
+    # where its prices/policies were originally stated.
+    if analysis.business_facts_mentioned:
+        await _business_facts.record_candidates(
+            user_id, message_id, analysis.business_facts_mentioned,
+        )
 
     # Historical messages: skip reply generation, agent routing, and conversation
     # memory entirely — that memory represents "current" state, not backfill.

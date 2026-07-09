@@ -242,6 +242,11 @@ async def handle_agent_message(
         limit=5,
     )
 
+    # Business Memory — approved facts (pricing, policies, hours, etc.), same
+    # store used by reply_gen.py, folded into the KB context block below.
+    from .business_facts import BusinessFactService
+    business_facts = await BusinessFactService().get_approved_facts(user_id)
+
     # Build prompt components
     contact_context_parts = []
     if contact_profile:
@@ -258,6 +263,9 @@ async def handle_agent_message(
         if kb_chunks
         else '(no knowledge base context available)'
     )
+    if business_facts:
+        facts_text = '\n'.join(f"[Business fact] {f['fact_key']}: {f['fact_value']}" for f in business_facts)
+        kb_context = f'{kb_context}\n\n{facts_text}'
 
     history_lines = [
         f"[{msg['sender_type']}]: {msg['body']}"

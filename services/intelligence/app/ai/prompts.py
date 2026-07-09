@@ -22,7 +22,8 @@ Return ONLY valid JSON in exactly this format:
   "requires_response": false,
   "response_urgency": "low|medium|high|urgent",
   "promises_detected": [{{"text": "", "type": "commitment|deadline|offer|plan"}}],
-  "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}]
+  "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}],
+  "business_facts_mentioned": [{{"key": "snake_case_fact_name", "value": "the stated fact", "category": "product|pricing|shipping|refund_policy|faq|hours|inventory|promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other"}}]
 }}
 
 Important for events_detected:
@@ -30,6 +31,11 @@ Important for events_detected:
 - Resolve all relative dates ("tomorrow", "next Friday", "in 3 days") to absolute YYYY-MM-DD dates using today's date above.
 - If a date cannot be determined, set date to null.
 - Birthdays and anniversaries should always have is_recurring=true.
+
+Important for business_facts_mentioned:
+- Only include this when a concrete business fact is explicitly stated — an exact price, a policy, a product name, operating hours, a shipping rule, etc.
+- Leave this empty for personal/social messages with no commercial content — most messages will have none.
+- fact_key should be a short, stable, reusable identifier for the *thing* the fact describes (e.g. "world_cup_jersey_price", "refund_window_days", "shop_hours"), not the specific value, so mentions of the same fact from different messages merge together.
 """
 
 GENERATE_REPLIES = """\

@@ -32,6 +32,13 @@ class EventItem(BaseModel):
     is_recurring: bool = False
 
 
+class BusinessFactMention(BaseModel):
+    key: str
+    value: str
+    category: str = 'other'  # product|pricing|shipping|refund_policy|faq|hours|inventory|
+                              # promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other
+
+
 class MessageAnalysis(BaseModel):
     sentiment: str  # positive|negative|neutral|mixed
     sentiment_score: float = Field(ge=0.0, le=1.0)
@@ -44,6 +51,7 @@ class MessageAnalysis(BaseModel):
     response_urgency: str = 'low'  # low|medium|high|urgent
     promises_detected: list[PromiseItem] = Field(default_factory=list)
     events_detected: list[EventItem] = Field(default_factory=list)
+    business_facts_mentioned: list[BusinessFactMention] = Field(default_factory=list)
 
 
 class ReplySuggestion(BaseModel):
