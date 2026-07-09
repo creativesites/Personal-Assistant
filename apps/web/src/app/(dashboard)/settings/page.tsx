@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { ModeBadge, PageHeader, Tabs, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/components/ui'
-import { Briefcase, Users, Zap, AlertTriangle } from 'lucide-react'
+import { Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
@@ -49,6 +49,19 @@ const MODE_OPTIONS: {
     Icon: Zap,
   },
 ]
+
+const SOCIAL_PLATFORMS: { value: 'facebook' | 'instagram' | 'tiktok'; label: string; Icon: React.ElementType }[] = [
+  { value: 'facebook', label: 'Facebook', Icon: Globe },
+  { value: 'instagram', label: 'Instagram', Icon: Camera },
+  { value: 'tiktok', label: 'TikTok', Icon: Music2 },
+]
+
+interface SocialAccount {
+  id: string
+  platform: 'facebook' | 'instagram' | 'tiktok'
+  accountName: string | null
+  status: string
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -162,6 +175,50 @@ export default function SettingsPage() {
   const [byokApiKey, setByokApiKey] = useState('')
   const [savingByok, setSavingByok] = useState(false)
   const [enterpriseLoaded, setEnterpriseLoaded] = useState(false)
+
+  const marketingAccess = session.data?.marketingAccess ?? 'none'
+  const hasMarketingAccess = marketingAccess === 'beta' || marketingAccess === 'enabled'
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([])
+  const [socialLoaded, setSocialLoaded] = useState(false)
+  const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null)
+  const [connectAccountName, setConnectAccountName] = useState('')
+
+  const loadSocialAccounts = async () => {
+    if (!token || socialLoaded) return
+    setSocialLoaded(true)
+    try {
+      const data = await apiClient<{ accounts: SocialAccount[] }>('/api/social-accounts', { token })
+      setSocialAccounts(data.accounts)
+    } catch { /* ignore */ }
+  }
+
+  const connectSocialAccount = async (platform: string) => {
+    if (!token || !connectAccountName.trim()) return
+    try {
+      const data = await apiClient<{ account: SocialAccount }>('/api/social-accounts', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ platform, accountName: connectAccountName.trim() }),
+      })
+      setSocialAccounts(a => [data.account, ...a])
+      setConnectingPlatform(null)
+      setConnectAccountName('')
+      addToast({ variant: 'success', title: `${platform} connected` })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to connect account', description: 'Please try again.' })
+    }
+  }
+
+  const disconnectSocialAccount = async (id: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/social-accounts/${id}`, { method: 'DELETE', token })
+      setSocialAccounts(a => a.filter(acc => acc.id !== id))
+      addToast({ variant: 'success', title: 'Account disconnected' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to disconnect account' })
+    }
+  }
 
   const loadEnterprise = async () => {
     if (!token || enterpriseLoaded) return
@@ -516,6 +573,7 @@ export default function SettingsPage() {
     if (id === 'auto_responses' && !autoResponseLoaded) loadAutoResponse()
     if (id === 'memory' && !memoryTabLoaded) loadMemoryTab()
     if (id === 'privacy' && !retentionLoaded) loadRetention()
+    if (id === 'connected_accounts' && !socialLoaded) loadSocialAccounts()
   }
 
   const tabs = [
@@ -526,6 +584,7 @@ export default function SettingsPage() {
     { id: 'memory',         label: 'Memory' },
     { id: 'privacy',        label: 'Privacy' },
     { id: 'enterprise',     label: 'Enterprise' },
+    ...(hasMarketingAccess ? [{ id: 'connected_accounts', label: 'Connected Accounts' }] : []),
   ]
 
   return (
@@ -1098,6 +1157,70 @@ export default function SettingsPage() {
                       </div>
                       <a href="/settings/integrations" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">Configure →</a>
                     </div>
+                  </div>
+                )}
+
+                {/* ── Connected Accounts tab (Zuri Marketing) ── */}
+                {currentTab === 'connected_accounts' && (
+                  <div className="space-y-4 pt-2">
+                    <Section title="Social Accounts">
+                      <div className="px-5 py-4 space-y-3">
+                        <p className="text-xs text-gray-400">
+                          Connect the accounts Studio posts to. Real OAuth for Facebook, Instagram
+                          and TikTok isn&apos;t wired up yet — connecting here records the account so
+                          you can build and test the rest of the publishing flow now.
+                        </p>
+                        {SOCIAL_PLATFORMS.map(({ value, label, Icon }) => {
+                          const connected = socialAccounts.filter(a => a.platform === value)
+                          return (
+                            <div key={value} className="border border-gray-200 rounded-lg p-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Icon className="w-4 h-4 text-gray-500" />
+                                <span className="text-sm font-medium text-gray-800">{label}</span>
+                              </div>
+                              {connected.map(acc => (
+                                <div key={acc.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 mb-2">
+                                  <span className="text-sm text-gray-700">{acc.accountName}</span>
+                                  <button onClick={() => disconnectSocialAccount(acc.id)} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                                    Disconnect
+                                  </button>
+                                </div>
+                              ))}
+                              {connectingPlatform === value ? (
+                                <div className="flex gap-2">
+                                  <input
+                                    value={connectAccountName}
+                                    onChange={e => setConnectAccountName(e.target.value)}
+                                    placeholder="Page or account name"
+                                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                  />
+                                  <button
+                                    disabled={!connectAccountName.trim()}
+                                    onClick={() => connectSocialAccount(value)}
+                                    className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                                  >
+                                    Connect
+                                  </button>
+                                  <button
+                                    onClick={() => { setConnectingPlatform(null); setConnectAccountName('') }}
+                                    className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => setConnectingPlatform(value)}
+                                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                                >
+                                  + Connect {label} account
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </Section>
                   </div>
                 )}
 

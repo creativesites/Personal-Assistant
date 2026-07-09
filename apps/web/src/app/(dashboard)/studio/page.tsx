@@ -2,11 +2,11 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { Send, Sparkles, Radio, Link2, Check, ChevronDown, ChevronUp, Copy } from 'lucide-react'
+import { Send, Sparkles, Radio, Link2, Check, ChevronDown, ChevronUp, Copy, X } from 'lucide-react'
 import { useZuriSession, setStoredMarketingAccess } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
-import { Button, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
+import { Badge, Button, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,34 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   description: 'Product description',
   caption: 'Social caption',
   video_script: 'Video script',
+}
+
+interface SocialAccount {
+  id: string
+  platform: string
+  accountName: string | null
+  status: string
+}
+
+interface SocialPost {
+  id: string
+  productName: string | null
+  platform: string
+  accountName: string | null
+  caption: string
+  status: string
+  scheduledAt: string | null
+  errorMessage: string | null
+  createdAt: string
+}
+
+const POST_STATUS_BADGE: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
+  draft: 'default',
+  scheduled: 'info',
+  sending: 'warning',
+  sent: 'success',
+  failed: 'error',
+  cancelled: 'default',
 }
 
 // ─── Waitlist pitch (marketing_access = none | waitlisted) ───────────────────
@@ -240,6 +268,158 @@ function ProductCard({ product }: { product: Product }) {
   )
 }
 
+function PostComposer({ products, accounts, onCreated }: { products: Product[]; accounts: SocialAccount[]; onCreated: () => void }) {
+  const { addToast } = useToast()
+  const session = useZuriSession()
+  const token = session.data?.accessToken
+  const [productId, setProductId] = useState('')
+  const [socialAccountId, setSocialAccountId] = useState(accounts[0]?.id ?? '')
+  const [caption, setCaption] = useState('')
+  const [scheduledAt, setScheduledAt] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = useCallback(async () => {
+    if (!token || !socialAccountId || !caption.trim()) return
+    setSaving(true)
+    try {
+      await apiClient('/api/social-posts', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          productId: productId || undefined,
+          socialAccountId,
+          caption: caption.trim(),
+          scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : new Date().toISOString(),
+        }),
+      })
+      setCaption('')
+      setScheduledAt('')
+      onCreated()
+      addToast({ variant: 'success', title: 'Post scheduled' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to schedule post', description: 'Please try again.' })
+    } finally {
+      setSaving(false)
+    }
+  }, [token, productId, socialAccountId, caption, scheduledAt, onCreated, addToast])
+
+  if (accounts.length === 0) {
+    return (
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+        Connect a social account in <Link href="/settings" className="text-indigo-600 hover:text-indigo-700 font-medium">Settings</Link> before scheduling a post.
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <select
+          value={productId}
+          onChange={(e) => setProductId(e.target.value)}
+          className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="">No product</option>
+          {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select
+          value={socialAccountId}
+          onChange={(e) => setSocialAccountId(e.target.value)}
+          className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.platform} — {a.accountName}</option>)}
+        </select>
+      </div>
+      <textarea
+        value={caption}
+        onChange={(e) => setCaption(e.target.value)}
+        placeholder="Caption"
+        rows={2}
+        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="datetime-local"
+          value={scheduledAt}
+          onChange={(e) => setScheduledAt(e.target.value)}
+          className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <Button onClick={submit} loading={saving} disabled={!socialAccountId || !caption.trim()}>
+          {scheduledAt ? 'Schedule post' : 'Post now'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function SocialPostRow({ post, onCancelled }: { post: SocialPost; onCancelled: () => void }) {
+  const { addToast } = useToast()
+  const session = useZuriSession()
+  const token = session.data?.accessToken
+  const [cancelling, setCancelling] = useState(false)
+
+  const cancel = useCallback(async () => {
+    if (!token) return
+    setCancelling(true)
+    try {
+      await apiClient(`/api/social-posts/${post.id}/cancel`, { method: 'POST', token })
+      onCancelled()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to cancel post' })
+    } finally {
+      setCancelling(false)
+    }
+  }, [token, post.id, onCancelled, addToast])
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <Badge variant={POST_STATUS_BADGE[post.status] ?? 'default'}>{post.status}</Badge>
+            <span className="text-xs text-gray-400 capitalize">{post.platform}{post.productName ? ` · ${post.productName}` : ''}</span>
+          </div>
+          <p className="text-xs text-gray-600 truncate">{post.caption}</p>
+          {post.errorMessage && <p className="text-xs text-red-500 mt-1">{post.errorMessage}</p>}
+        </div>
+        {['draft', 'scheduled'].includes(post.status) && (
+          <button onClick={cancel} disabled={cancelling} className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Cancel">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ScheduledPostsSection({ products }: { products: Product[] }) {
+  const session = useZuriSession()
+  const token = session.data?.accessToken
+  const { data: accountsData, loading: accountsLoading } = useApi<{ accounts: SocialAccount[] }>('/api/social-accounts', token)
+  const { data: postsData, loading: postsLoading, refetch } = useApi<{ posts: SocialPost[] }>('/api/social-posts', token)
+  const accounts = accountsData?.accounts ?? []
+  const posts = postsData?.posts ?? []
+
+  return (
+    <section>
+      <h2 className="text-sm font-semibold text-gray-900 mb-3">Scheduled Posts</h2>
+      <div className="space-y-3">
+        {accountsLoading ? <SkeletonCard /> : <PostComposer products={products} accounts={accounts} onCreated={refetch} />}
+
+        {postsLoading ? (
+          <SkeletonCard />
+        ) : posts.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-2">No posts scheduled yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {posts.map((p) => <SocialPostRow key={p.id} post={p} onCancelled={refetch} />)}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function ComingSoonCard({ icon: Icon, title, description }: { icon: React.FC<{ className?: string }>; title: string; description: string }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5 opacity-70">
@@ -287,18 +467,20 @@ function StudioHub() {
           </div>
         </section>
 
+        <ScheduledPostsSection products={products} />
+
         <section>
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Coming to Studio</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ComingSoonCard
               icon={Radio}
-              title="Scheduled Posts"
-              description="Queue posts across Facebook, Instagram and TikTok and track what's live."
+              title="Funnel analytics"
+              description="See which posts turn into leads and sales, right in Analytics."
             />
             <ComingSoonCard
               icon={Link2}
-              title="Connected Accounts"
-              description="Link your social accounts from Settings once publishing is live."
+              title="Real OAuth connections"
+              description="Facebook/Instagram/TikTok login instead of manually naming an account."
             />
           </div>
         </section>

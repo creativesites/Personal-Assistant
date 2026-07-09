@@ -1,6 +1,7 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireMarketingAccess } from '../lib/marketing-access'
 
 type ProductRow = {
   id: string
@@ -25,18 +26,6 @@ function toApiShape(g: GenerationRow) {
     output: g.output,
     model: g.model,
     createdAt: g.created_at,
-  }
-}
-
-// Same gate as products.ts — content generation is a Zuri Marketing feature.
-async function requireMarketingAccess(request: FastifyRequest, reply: FastifyReply) {
-  const { userId } = request.user as { userId: string }
-  const { rows: [user] } = await db.query<{ marketing_access: string }>(
-    `SELECT COALESCE(marketing_access, 'none') AS marketing_access FROM users WHERE id = $1`,
-    [userId],
-  )
-  if (!user || !['beta', 'enabled'].includes(user.marketing_access)) {
-    return reply.code(403).send({ error: 'Zuri Marketing is not enabled for this account yet' })
   }
 }
 

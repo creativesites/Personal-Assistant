@@ -25,6 +25,8 @@ import { businessFactsRoutes } from './routes/business-facts';
 import { memoryRoutes } from './routes/memory';
 import { productsRoutes } from './routes/products';
 import { contentGenerationsRoutes } from './routes/content-generations';
+import { socialAccountsRoutes } from './routes/social-accounts';
+import { socialPostsRoutes } from './routes/social-posts';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -70,6 +72,8 @@ export async function buildApp() {
   await fastify.register(memoryRoutes);
   await fastify.register(productsRoutes);
   await fastify.register(contentGenerationsRoutes);
+  await fastify.register(socialAccountsRoutes);
+  await fastify.register(socialPostsRoutes);
 
   return fastify;
 }

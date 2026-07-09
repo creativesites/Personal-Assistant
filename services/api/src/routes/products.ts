@@ -1,7 +1,8 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireMarketingAccess } from '../lib/marketing-access'
 
 const createBody = z.object({
   name: z.string().min(1).max(255),
@@ -51,20 +52,6 @@ function toApiShape(p: ProductRow) {
     status: p.status,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
-  }
-}
-
-// Gates every route in this plugin on marketing_access, since the Studio
-// product catalog is a Zuri Marketing feature, not part of Zuri WhatsApp.
-// See docs/ZURI_MARKETING_EXPANSION.md §12.3.
-async function requireMarketingAccess(request: FastifyRequest, reply: FastifyReply) {
-  const { userId } = request.user as { userId: string }
-  const { rows: [user] } = await db.query<{ marketing_access: string }>(
-    `SELECT COALESCE(marketing_access, 'none') AS marketing_access FROM users WHERE id = $1`,
-    [userId],
-  )
-  if (!user || !['beta', 'enabled'].includes(user.marketing_access)) {
-    return reply.code(403).send({ error: 'Zuri Marketing is not enabled for this account yet' })
   }
 }
 
