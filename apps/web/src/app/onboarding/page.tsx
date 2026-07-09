@@ -195,11 +195,26 @@ export default function OnboardingPage() {
   }
 
   const startWithPhoneCode = async () => {
-    const digits = phoneNumber.replace(/\D/g, '')
-    if (!digits || digits.length < 7) {
-      setPhoneError('Enter your full phone number with country code, e.g. +263771234567')
+    const trimmed = phoneNumber.trim()
+    const digits = trimmed.replace(/\D/g, '')
+
+    if (!digits) {
+      setPhoneError('Enter your phone number')
       return
     }
+    if (digits.startsWith('0')) {
+      setPhoneError('Remove the leading 0 and add your country code — e.g. +263771234567')
+      return
+    }
+    if (digits.length < 10) {
+      setPhoneError('Include your country code — e.g. +263771234567 for Zimbabwe')
+      return
+    }
+    if (digits.length > 15) {
+      setPhoneError('That number looks too long — check it and try again')
+      return
+    }
+
     await startConnection(digits)
   }
 

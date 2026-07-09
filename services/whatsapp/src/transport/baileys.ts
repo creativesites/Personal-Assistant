@@ -106,16 +106,17 @@ export class BaileysTransport extends WhatsAppTransport {
   }
 
   private async requestPairingCodeWithRetry(phone: string, maxAttempts = 3): Promise<string> {
+    const digits = phone.replace(/\D/g, '');
+    console.log(`[baileys:${this.userId}] requesting pairing code for number: ${digits} (${digits.length} digits)`);
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         if (!this.sock) throw new Error('Socket not ready');
-        const digits = phone.replace(/\D/g, '');
         const code = await this.sock.requestPairingCode(digits);
         console.log(`[baileys:${this.userId}] pairing code generated (attempt ${attempt})`);
         this.emitLinkCode(code);
         return code;
       } catch (err) {
-        console.error(`[baileys:${this.userId}] requestPairingCode failed (attempt ${attempt}):`, err);
+        console.error(`[baileys:${this.userId}] requestPairingCode failed (attempt ${attempt}, number: ${digits}):`, err);
         if (attempt === maxAttempts) throw err;
         await new Promise(r => setTimeout(r, 2000 * attempt)); // backoff
       }
