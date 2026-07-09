@@ -2,6 +2,7 @@ import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_PROACTIVE_SUGGESTION
 from ..database import get_pool
+from ..memory import retrieval_service as memory
 
 log = structlog.get_logger()
 
@@ -90,17 +91,19 @@ class ProactiveService:
                 f"{days_silent} days ago" if days_silent is not None else "unknown"
             )
 
-            # Fetch recent context
-            pool2 = await get_pool()
-            async with pool2.acquire() as conn:
-                snapshot = await conn.fetchrow(
-                    """SELECT summary FROM context_snapshots
-                       WHERE contact_id = $1 AND user_id = $2 AND is_current = true
-                       ORDER BY created_at DESC LIMIT 1""",
-                    contact_id, user_id,
-                )
-
-            context = snapshot['summary'] if snapshot else 'No recent context available'
+            # Recent context — via the shared retrieval service, not the
+            # context_snapshots table (defined in schema, never written by any
+            # code, so this always fell back to 'No recent context available').
+            contact_summary_data = await memory.get_contact_summary(user_id, contact_id)
+            rel_mem_text = memory.format_relationship_memory(
+                await memory.get_relationship_memory(user_id, contact_id)
+            )
+            context_parts = [
+                contact_summary_data['personality_summary'] or '',
+                contact_summary_data['current_life_context'] or '',
+                rel_mem_text,
+            ]
+            context = '\n'.join(p for p in context_parts if p) or 'No recent context available'
 
             prompt = GENERATE_PROACTIVE_SUGGESTION.format(
                 user_name=user_name,

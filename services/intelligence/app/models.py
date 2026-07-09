@@ -91,6 +91,18 @@ class ContactStructuredAttributes(BaseModel):
     notes: str = ''
 
 
+class AgentPattern(BaseModel):
+    key: str
+    value: str
+
+
+class AgentPatternSynthesis(BaseModel):
+    """Nightly-consolidation output: durable, cross-interaction lessons
+    distilled from many individual 'experience' memories — see
+    services/intelligence/app/services/consolidation.py."""
+    patterns: list[AgentPattern] = Field(default_factory=list)
+
+
 class AgentMemoryCandidate(BaseModel):
     """A fact or experience the agent engine judges worth remembering from a
     single interaction. Not strictly validated upstream (the agent's JSON

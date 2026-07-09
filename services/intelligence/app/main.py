@@ -10,11 +10,15 @@ from .routes.knowledge import router as knowledge_router
 from .routes.conversation import router as conversation_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
-from .workers.daily_worker import create_proactive_worker, run_daily_scheduler, run_temporal_scheduler, run_world_knowledge_scheduler
+from .workers.daily_worker import (
+    create_proactive_worker, run_daily_scheduler, run_temporal_scheduler,
+    run_world_knowledge_scheduler, run_consolidation_scheduler,
+)
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
 from .workers.world_knowledge_worker import create_world_knowledge_worker
 from .workers.agent_worker import create_agent_worker, create_kb_worker
+from .workers.consolidation_worker import create_consolidation_worker
 
 logger = structlog.get_logger()
 
@@ -32,15 +36,17 @@ async def lifespan(app: FastAPI):
     world_knowledge_worker = create_world_knowledge_worker()
     agent_worker = create_agent_worker()
     kb_worker = create_kb_worker()
+    consolidation_worker = create_consolidation_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
     temporal_task = asyncio.create_task(run_temporal_scheduler())
     world_knowledge_task = asyncio.create_task(run_world_knowledge_scheduler())
+    consolidation_task = asyncio.create_task(run_consolidation_scheduler())
 
     yield
 
-    for task in (scheduler_task, temporal_task, world_knowledge_task):
+    for task in (scheduler_task, temporal_task, world_knowledge_task, consolidation_task):
         task.cancel()
         try:
             await task
@@ -55,6 +61,7 @@ async def lifespan(app: FastAPI):
     await world_knowledge_worker.close()
     await agent_worker.close()
     await kb_worker.close()
+    await consolidation_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

@@ -193,6 +193,27 @@ Capture how this person naturally writes. Return ONLY valid JSON:
 }}
 """
 
+SYNTHESIZE_AGENT_PATTERNS = """\
+You are reviewing {agent_name}'s past interactions to find durable, generalizable
+lessons — not one-off details about a single contact.
+
+Past experiences ({count} total):
+{experiences_text}
+
+Identify up to 3 recurring patterns worth remembering long-term — things that would
+help {agent_name} handle similar future situations better. Only include a pattern if
+it is genuinely supported by multiple experiences above, not a single occurrence.
+
+Return ONLY valid JSON:
+{{
+  "patterns": [
+    {{"key": "snake_case_key", "value": "the generalizable lesson"}}
+  ]
+}}
+
+If nothing is genuinely recurring, return {{"patterns": []}}.
+"""
+
 MATCH_NEWS_TO_CONTACT = """\
 Does any of these news headlines clearly match the interests of {contact_name}?
 

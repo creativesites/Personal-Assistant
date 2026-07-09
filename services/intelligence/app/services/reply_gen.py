@@ -6,13 +6,10 @@ from ..config import settings
 from ..database import get_pool
 from ..models import MessageAnalysis, ReplySuggestions
 from ..queue import publish_event
-from ..memory.conversation_memory import get_conversation_memory
+from ..memory import retrieval_service as memory
 from .web_search import get_web_search
-from .knowledge_retriever import retrieve_relevant_chunks
-from .business_facts import BusinessFactService
 
 log = structlog.get_logger()
-_business_facts = BusinessFactService()
 
 
 class ReplyGenerator:
@@ -25,33 +22,11 @@ class ReplyGenerator:
         body: str,
         analysis: MessageAnalysis,
     ) -> list[dict]:
+        voice = await memory.get_user_voice(user_id)
+        contact = await memory.get_contact_summary(user_id, contact_id)
+
         pool = await get_pool()
         async with pool.acquire() as conn:
-            user = await conn.fetchrow(
-                "SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1",
-                user_id,
-            )
-            contact = await conn.fetchrow(
-                "SELECT COALESCE(custom_name, display_name, phone_number, 'Unknown') AS name"
-                ' FROM contacts WHERE id = $1',
-                contact_id,
-            )
-            rel = await conn.fetchrow(
-                'SELECT relationship_type FROM relationships WHERE user_id = $1 AND contact_id = $2',
-                user_id,
-                contact_id,
-            )
-            comm_profile = await conn.fetchrow(
-                'SELECT writing_style, common_phrases, formality_score'
-                ' FROM user_communication_profiles WHERE user_id = $1',
-                user_id,
-            )
-            contact_profile = await conn.fetchrow(
-                'SELECT personality_summary, current_life_context'
-                ' FROM contact_profiles WHERE contact_id = $1 AND user_id = $2',
-                contact_id,
-                user_id,
-            )
             recent = await conn.fetch(
                 """
                 SELECT sender_type, body FROM messages
@@ -61,26 +36,19 @@ class ReplyGenerator:
                 conversation_id,
             )
 
-        user_name = user['name'] if user else 'User'
-        contact_name = contact['name'] if contact else 'Contact'
-        relationship_type = rel['relationship_type'] if rel else 'acquaintance'
+        user_name = voice['user_name']
+        contact_name = contact['contact_name']
+        relationship_type = contact['relationship_type']
 
-        user_style: str
-        if comm_profile and comm_profile['writing_style']:
-            style_data = comm_profile['writing_style']
+        if voice['writing_style']:
+            style_data = voice['writing_style']
             user_style = json.dumps(style_data) if isinstance(style_data, dict) else str(style_data)
         else:
             user_style = 'casual, friendly, concise'
 
-        contact_summary = ''
-        if contact_profile:
-            parts = [
-                contact_profile['personality_summary'] or '',
-                contact_profile['current_life_context'] or '',
-            ]
-            contact_summary = ' '.join(p for p in parts if p).strip()
-        if not contact_summary:
-            contact_summary = f'A {relationship_type}'
+        contact_summary = ' '.join(
+            p for p in (contact['personality_summary'] or '', contact['current_life_context'] or '') if p
+        ).strip() or f'A {relationship_type}'
 
         context = '\n'.join(
             f"[{r['sender_type']}]: {r['body']}" for r in reversed(list(recent))
@@ -92,7 +60,7 @@ class ReplyGenerator:
         # pending promises, recent decisions), cheaper and more current than
         # re-deriving all of this from raw messages on every call.
         memory_context = ''
-        convo_memory = await get_conversation_memory(conversation_id)
+        convo_memory = await memory.get_conversation_state(conversation_id)
         memory_lines = []
         if convo_memory.get('current_topic'):
             memory_lines.append(f"Current topic: {convo_memory['current_topic']}")
@@ -108,6 +76,18 @@ class ReplyGenerator:
             memory_lines.append(f'Outstanding promises: {promises_text}')
         if memory_lines:
             memory_context = '\n\nConversation memory:\n' + '\n'.join(memory_lines)
+
+        # Relationship memory — longer-horizon than conversation memory above
+        # (outstanding promises spanning the whole relationship, recurring
+        # themes, important dates), aggregated purely from past messages.
+        relationship_context = ''
+        try:
+            rel_mem = await memory.get_relationship_memory(user_id, contact_id)
+            rel_text = memory.format_relationship_memory(rel_mem)
+            if rel_text:
+                relationship_context = f'\n\nRelationship memory:\n{rel_text}'
+        except Exception as exc:
+            log.warning('relationship_memory_retrieval_failed_in_reply_gen', error=str(exc))
 
         # Live web search for factual questions
         search_context = ''
@@ -135,12 +115,7 @@ class ReplyGenerator:
         # Knowledge base retrieval — inject business-specific knowledge
         kb_context = ''
         try:
-            kb_chunks = await retrieve_relevant_chunks(
-                user_id=user_id,
-                agent_id=None,
-                query=body[:500],
-                limit=3,
-            )
+            kb_chunks = await memory.get_kb_chunks(user_id, body[:500], agent_id=None, limit=3)
             if kb_chunks:
                 kb_text = '\n'.join(f"- {c['content'][:400]}" for c in kb_chunks)
                 kb_context = f'\n\nRelevant knowledge base context:\n{kb_text}'
@@ -151,9 +126,8 @@ class ReplyGenerator:
         # (pricing, policies, hours, etc.), independent of the per-contact KB above.
         facts_context = ''
         try:
-            facts = await _business_facts.get_approved_facts(user_id)
-            if facts:
-                facts_text = '\n'.join(f"- {f['fact_key']}: {f['fact_value']}" for f in facts)
+            facts_text = memory.format_business_facts(await memory.get_business_facts(user_id))
+            if facts_text:
                 facts_context = f'\n\nKnown business facts:\n{facts_text}'
         except Exception as exc:
             log.warning('business_facts_retrieval_failed_in_reply_gen', error=str(exc))
@@ -168,7 +142,7 @@ class ReplyGenerator:
             body=body,
             sentiment=analysis.sentiment,
             intent=analysis.intent.primary,
-        ) + memory_context + search_context + kb_context + facts_context
+        ) + memory_context + relationship_context + search_context + kb_context + facts_context
 
         raw = await client.complete_json([{'role': 'user', 'content': prompt}])
         suggestions_model = ReplySuggestions(**raw)

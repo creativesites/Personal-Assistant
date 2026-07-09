@@ -9,6 +9,7 @@ import structlog
 from ..ai.client import get_ai_client
 from ..config import settings
 from ..database import get_pool
+from ..memory import retrieval_service as memory
 from ..models import AgentMemoryCandidate
 from ..queue import get_queue
 from .agent_memory import AgentMemoryService
@@ -164,25 +165,6 @@ async def handle_agent_message(
         )
         contact_id = conversation['contact_id'] if conversation else None
 
-        # Fetch contact profile if available
-        contact_profile = None
-        contact_name = 'Contact'
-        if contact_id:
-            contact_row = await conn.fetchrow(
-                "SELECT COALESCE(custom_name, display_name, phone_number, 'Unknown') AS name"
-                ' FROM contacts WHERE id = $1',
-                contact_id,
-            )
-            if contact_row:
-                contact_name = contact_row['name']
-
-            contact_profile = await conn.fetchrow(
-                'SELECT personality_summary, current_life_context, communication_style'
-                ' FROM contact_profiles WHERE contact_id = $1 AND user_id = $2',
-                contact_id,
-                user_id,
-            )
-
         # Count messages sent today to respect max_messages_per_day
         today_count = await conn.fetchval(
             """
@@ -261,22 +243,22 @@ async def handle_agent_message(
         )
         return {'action': 'escalated', 'escalated': True, 'reason': escalation_reason}
 
-    # Retrieve KB context
-    from .knowledge_retriever import retrieve_relevant_chunks
-    kb_chunks = await retrieve_relevant_chunks(
-        user_id=user_id,
-        agent_id=agent_id,
-        query=message_body,
-        limit=5,
-    )
+    # Contact summary, KB chunks, Business Memory, Agent Memory, and Relationship
+    # Memory all go through the shared retrieval service (memory/retrieval_service.py)
+    # instead of each being fetched ad-hoc here.
+    contact_name = 'Contact'
+    contact_profile = None
+    rel_mem_text = ''
+    if contact_id:
+        contact_summary_data = await memory.get_contact_summary(user_id, contact_id)
+        contact_name = contact_summary_data['contact_name']
+        contact_profile = contact_summary_data
+        rel_mem_text = memory.format_relationship_memory(
+            await memory.get_relationship_memory(user_id, contact_id)
+        )
 
-    # Business Memory — approved facts (pricing, policies, hours, etc.), same
-    # store used by reply_gen.py, folded into the KB context block below.
-    from .business_facts import BusinessFactService
-    business_facts = await BusinessFactService().get_approved_facts(user_id)
-
-    # Agent Memory — this agent's own persistent memory (facts + past
-    # experiences), scoped to this contact plus anything general to the role.
+    kb_chunks = await memory.get_kb_chunks(user_id, message_body, agent_id=agent_id, limit=5)
+    business_facts = await memory.get_business_facts(user_id)
     agent_memories = await _agent_memory.retrieve(agent_id, contact_id, message_body, limit=5)
 
     # Build prompt components
@@ -288,6 +270,8 @@ async def handle_agent_message(
             contact_context_parts.append(f"Life context: {contact_profile['current_life_context']}")
         if contact_profile['communication_style']:
             contact_context_parts.append(f"Communication style: {contact_profile['communication_style']}")
+    if rel_mem_text:
+        contact_context_parts.append(f'Relationship memory:\n{rel_mem_text}')
     contact_context = '\n'.join(contact_context_parts) if contact_context_parts else f'Name: {contact_name}'
 
     kb_context = (
@@ -295,8 +279,8 @@ async def handle_agent_message(
         if kb_chunks
         else '(no knowledge base context available)'
     )
-    if business_facts:
-        facts_text = '\n'.join(f"[Business fact] {f['fact_key']}: {f['fact_value']}" for f in business_facts)
+    facts_text = memory.format_business_facts(business_facts)
+    if facts_text:
         kb_context = f'{kb_context}\n\n{facts_text}'
 
     agent_memory_context = _format_agent_memories(agent_memories) or '(nothing remembered yet)'
