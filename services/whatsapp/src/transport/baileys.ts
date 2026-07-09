@@ -105,6 +105,24 @@ export class BaileysTransport extends WhatsAppTransport {
     return await this.sock.requestPairingCode(digits);
   }
 
+  private async requestPairingCodeWithRetry(phone: string, maxAttempts = 3): Promise<string> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (!this.sock) throw new Error('Socket not ready');
+        const digits = phone.replace(/\D/g, '');
+        const code = await this.sock.requestPairingCode(digits);
+        console.log(`[baileys:${this.userId}] pairing code generated (attempt ${attempt})`);
+        this.emitLinkCode(code);
+        return code;
+      } catch (err) {
+        console.error(`[baileys:${this.userId}] requestPairingCode failed (attempt ${attempt}):`, err);
+        if (attempt === maxAttempts) throw err;
+        await new Promise(r => setTimeout(r, 2000 * attempt)); // backoff
+      }
+    }
+    throw new Error('Failed to generate pairing code');
+  }
+
   private async _boot(): Promise<void> {
     // For phone-code pairing, always start fresh — stale auth files have
     // creds.registered = true which blocks requestPairingCode entirely.
@@ -133,16 +151,16 @@ export class BaileysTransport extends WhatsAppTransport {
     this.sock = sock;
     sock.ev.on('creds.update', saveCreds);
 
-    // For phone-code pairing: call requestPairingCode immediately — before QR is generated.
-    // Auth was cleared above so creds are always fresh at this point.
+    // For phone-code pairing: call requestPairingCode with retry after a short handshake delay.
     if (this.pairingPhone) {
-      const digits = this.pairingPhone.replace(/\D/g, '');
-      sock.requestPairingCode(digits).then(code => {
-        console.log(`[baileys:${this.userId}] pairing code generated`);
-        this.emitLinkCode(code);
-      }).catch(err => {
-        console.error(`[baileys:${this.userId}] requestPairingCode failed:`, err);
-      });
+      setTimeout(async () => {
+        try {
+          await this.requestPairingCodeWithRetry(this.pairingPhone!);
+        } catch (err) {
+          console.error(`[baileys:${this.userId}] pairing code retry exhausted:`, err);
+          this.emitDisconnected('bad_session');
+        }
+      }, 1500); // small delay for initial handshake
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -339,7 +357,7 @@ export class BaileysTransport extends WhatsAppTransport {
         const ext = mimeToExt(mediaMimeType ?? '');
         // Sanitise message ID for use as filename
         const safeId = (msg.key.id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-        const fileName = `${safeId}.${ext}`;
+        const fileName = `\( {safeId}. \){ext}`;
         const filePath = path.join(this.mediaDir, fileName);
         await fs.writeFile(filePath, buffer as Buffer);
         mediaUrl = `/api/media/${fileName}`;
@@ -445,4 +463,4 @@ export class BaileysTransport extends WhatsAppTransport {
       this._reconnectTimer = null;
     }
   }
-}
+        }
