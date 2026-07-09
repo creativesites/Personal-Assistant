@@ -68,7 +68,7 @@ const PLATFORMS = [
   { icon: MessageCircle, label: 'WhatsApp', note: 'Where it all closes — powered by the Zuri you already use' },
 ]
 
-export default function SocialCommercePage() {
+export default function MarketingProductPage() {
   return (
     <div>
       {/* Hero */}
@@ -101,10 +101,10 @@ export default function SocialCommercePage() {
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link
-              href="/pricing"
+              href="/whatsapp"
               className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-white text-gray-700 font-semibold rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-base"
             >
-              See Zuri WhatsApp pricing
+              See Zuri WhatsApp
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

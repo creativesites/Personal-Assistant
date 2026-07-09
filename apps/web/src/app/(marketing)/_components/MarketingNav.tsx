@@ -4,10 +4,10 @@ import { useState } from 'react'
 import Link from 'next/link'
 
 const NAV_LINKS = [
+  { label: 'Zuri WhatsApp', href: '/whatsapp' },
+  { label: 'Zuri Marketing', href: '/marketing' },
   { label: 'How it works', href: '/how-it-works' },
-  { label: 'Marketing', href: '/social-commerce' },
   { label: 'Pricing', href: '/pricing' },
-  { label: 'Industries', href: '#industries' },
 ]
 
 export function MarketingNav() {
