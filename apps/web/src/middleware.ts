@@ -4,6 +4,8 @@ import { updateSession } from '@/utils/supabase/middleware'
 
 const isPublicRoute = createRouteMatcher([
   '/',
+  '/whatsapp(.*)',
+  '/marketing(.*)',
   '/how-it-works(.*)',
   '/pricing(.*)',
   '/privacy(.*)',
