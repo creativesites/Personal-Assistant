@@ -25,6 +25,9 @@ const loginBody = z.object({
 const updateMeBody = z.object({
   mode: z.enum(['business', 'personal', 'hybrid']).optional(),
   timezone: z.string().max(100).optional(),
+  // Self-service can only join/leave the waitlist — 'beta'/'enabled' is an
+  // admin-granted entitlement, not something a user can set on themselves.
+  marketingAccess: z.enum(['none', 'waitlisted']).optional(),
 });
 
 type UserRow = {
@@ -32,6 +35,7 @@ type UserRow = {
   email: string
   full_name: string
   mode: string
+  marketing_access: string
   is_admin: boolean
   onboarding_completed: boolean
   timezone?: string
@@ -58,13 +62,13 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
     try {
       let { rows: [user] } = await db.query<UserRow>(
-        'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, is_admin, onboarding_completed FROM users WHERE clerk_user_id = $1',
+        'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, COALESCE(marketing_access, \'none\') AS marketing_access, is_admin, onboarding_completed FROM users WHERE clerk_user_id = $1',
         [clerkUserId],
       )
 
       if (!user) {
         const { rows: [existing] } = await db.query<UserRow>(
-          'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, is_admin, onboarding_completed FROM users WHERE email = $1',
+          'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, COALESCE(marketing_access, \'none\') AS marketing_access, is_admin, onboarding_completed FROM users WHERE email = $1',
           [email],
         )
 
@@ -75,7 +79,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           const { rows: [created] } = await db.query<UserRow>(
             `INSERT INTO users (email, full_name, clerk_user_id)
              VALUES ($1, $2, $3)
-             RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode, is_admin, onboarding_completed`,
+             RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode, COALESCE(marketing_access, 'none') AS marketing_access, is_admin, onboarding_completed`,
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
@@ -107,6 +111,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           fullName: user.full_name,
           mode: user.mode ?? 'hybrid',
+          marketingAccess: user.marketing_access ?? 'none',
           isAdmin: user.is_admin ?? false,
           onboardingCompleted: user.onboarding_completed,
         },
@@ -218,9 +223,11 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         full_name: string;
         timezone: string;
         mode: string;
+        marketing_access: string;
         onboarding_completed: boolean;
       }>(
-        `SELECT id, email, full_name, timezone, COALESCE(mode, 'hybrid') AS mode, onboarding_completed
+        `SELECT id, email, full_name, timezone, COALESCE(mode, 'hybrid') AS mode,
+                COALESCE(marketing_access, 'none') AS marketing_access, onboarding_completed
          FROM users WHERE id = $1`,
         [userId]
       );
@@ -236,6 +243,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           fullName: user.full_name,
           timezone: user.timezone,
           mode: user.mode,
+          marketingAccess: user.marketing_access,
           onboardingCompleted: user.onboarding_completed,
         },
       });
@@ -267,6 +275,13 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         updates.push(`timezone = $${idx++}`)
         values.push(body.timezone)
       }
+      if (body.marketingAccess !== undefined) {
+        updates.push(`marketing_access = $${idx++}`)
+        values.push(body.marketingAccess)
+        if (body.marketingAccess === 'waitlisted') {
+          updates.push('marketing_waitlisted_at = NOW()')
+        }
+      }
 
       if (updates.length === 0) {
         return reply.code(400).send({ error: 'No fields to update' })
@@ -280,11 +295,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         email: string
         full_name: string
         mode: string
+        marketing_access: string
         timezone: string
         onboarding_completed: boolean
       }>(
         `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}
-         RETURNING id, email, full_name, mode, timezone, onboarding_completed`,
+         RETURNING id, email, full_name, mode, marketing_access, timezone, onboarding_completed`,
         values,
       )
 
@@ -298,6 +314,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           fullName: user.full_name,
           mode: user.mode,
+          marketingAccess: user.marketing_access,
           timezone: user.timezone,
           onboardingCompleted: user.onboarding_completed,
         },

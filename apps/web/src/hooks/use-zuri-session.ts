@@ -4,13 +4,21 @@ import { useAuth, useUser } from '@clerk/nextjs'
 import { useEffect, useRef, useState } from 'react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
+type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
 
 // Module-level cache keyed by Clerk userId so it survives re-renders
 // but clears automatically when a different user signs in.
-const _store: { userId: string; token: string; mode: WorkspaceMode; isAdmin: boolean } = {
+const _store: {
+  userId: string
+  token: string
+  mode: WorkspaceMode
+  marketingAccess: MarketingAccess
+  isAdmin: boolean
+} = {
   userId: '',
   token: '',
   mode: 'hybrid',
+  marketingAccess: 'none',
   isAdmin: false,
 }
 
@@ -23,6 +31,15 @@ export function setStoredMode(mode: WorkspaceMode) {
   _modeSubscribers.forEach((fn) => fn(mode))
 }
 
+// Subscribers get notified when marketingAccess changes via setStoredMarketingAccess
+type MarketingAccessSubscriber = (access: MarketingAccess) => void
+const _marketingAccessSubscribers = new Set<MarketingAccessSubscriber>()
+
+export function setStoredMarketingAccess(access: MarketingAccess) {
+  _store.marketingAccess = access
+  _marketingAccessSubscribers.forEach((fn) => fn(access))
+}
+
 export function useZuriSession() {
   const { isSignedIn, isLoaded: authLoaded } = useAuth()
   const { user, isLoaded: userLoaded } = useUser()
@@ -31,6 +48,9 @@ export function useZuriSession() {
   )
   const [mode, setMode] = useState<WorkspaceMode>(
     user?.id && _store.userId === user.id ? _store.mode : 'hybrid',
+  )
+  const [marketingAccess, setMarketingAccess] = useState<MarketingAccess>(
+    user?.id && _store.userId === user.id ? _store.marketingAccess : 'none',
   )
   const [isAdmin, setIsAdmin] = useState<boolean>(
     user?.id && _store.userId === user.id ? _store.isAdmin : false,
@@ -45,11 +65,19 @@ export function useZuriSession() {
     return () => { _modeSubscribers.delete(sub) }
   }, [])
 
+  // Subscribe to external marketingAccess changes (e.g. from the waitlist button)
+  useEffect(() => {
+    const sub: MarketingAccessSubscriber = (a) => setMarketingAccess(a)
+    _marketingAccessSubscribers.add(sub)
+    return () => { _marketingAccessSubscribers.delete(sub) }
+  }, [])
+
   useEffect(() => {
     if (!isSignedIn || !user) return
     if (_store.userId === user.id && _store.token) {
       setToken(_store.token)
       setMode(_store.mode)
+      setMarketingAccess(_store.marketingAccess)
       return
     }
     if (pending.current) return
@@ -64,9 +92,11 @@ export function useZuriSession() {
           _store.userId = user.id
           _store.token = data.token
           _store.mode = (data.user?.mode as WorkspaceMode) ?? 'business'
+          _store.marketingAccess = (data.user?.marketingAccess as MarketingAccess) ?? 'none'
           _store.isAdmin = data.user?.isAdmin ?? false
           setToken(data.token)
           setMode(_store.mode)
+          setMarketingAccess(_store.marketingAccess)
           setIsAdmin(_store.isAdmin)
         } else {
           setSyncFailed(true)
@@ -93,6 +123,7 @@ export function useZuriSession() {
       accessToken: token,
       syncFailed,
       mode,
+      marketingAccess,
       isAdmin,
       user: {
         id: user!.id,

@@ -23,6 +23,7 @@ import { calendarRoutes } from './routes/calendar';
 import { knowledgeRoutes } from './routes/knowledge';
 import { businessFactsRoutes } from './routes/business-facts';
 import { memoryRoutes } from './routes/memory';
+import { productsRoutes } from './routes/products';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -66,6 +67,7 @@ export async function buildApp() {
   await fastify.register(knowledgeRoutes);
   await fastify.register(businessFactsRoutes);
   await fastify.register(memoryRoutes);
+  await fastify.register(productsRoutes);
 
   return fastify;
 }

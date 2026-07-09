@@ -12,10 +12,11 @@ import {
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, UserCheck,
-  WifiOff, Loader2, ChevronLeft, ChevronRight
+  WifiOff, Loader2, ChevronLeft, ChevronRight, Send
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
+type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
 
 interface NavItem {
   href: string
@@ -28,6 +29,9 @@ interface NavItem {
 interface NavGroup {
   label?: string
   showForModes?: WorkspaceMode[]
+  // Hidden unless marketingAccess is one of these — Studio's nav group is
+  // gated on the entitlement, not on workspace mode. See ZURI_MARKETING_EXPANSION.md §12.
+  requiresMarketingAccess?: MarketingAccess[]
   items: NavItem[]
 }
 
@@ -70,6 +74,13 @@ const NAV_GROUPS: NavGroup[] = [
     showForModes: ['personal', 'hybrid'],
     items: [
       { href: '/relationships', label: 'Relationships', icon: HeartPulse },
+    ],
+  },
+  {
+    label: 'Marketing',
+    requiresMarketingAccess: ['waitlisted', 'beta', 'enabled'],
+    items: [
+      { href: '/studio', label: 'Studio', icon: Send },
     ],
   },
   {
@@ -191,6 +202,7 @@ function SidebarContents({
   pathname,
   email,
   mode,
+  marketingAccess,
   wa,
   onNav,
   onSignOut,
@@ -199,12 +211,16 @@ function SidebarContents({
   pathname: string
   email: string | undefined
   mode: WorkspaceMode
+  marketingAccess: MarketingAccess
   wa: WAStatus
   onNav: () => void
   onSignOut: () => void
   isMinimized?: boolean
 }) {
-  const visibleGroups = NAV_GROUPS.filter(g => !g.showForModes || g.showForModes.includes(mode))
+  const visibleGroups = NAV_GROUPS.filter(g =>
+    (!g.showForModes || g.showForModes.includes(mode)) &&
+    (!g.requiresMarketingAccess || g.requiresMarketingAccess.includes(marketingAccess)),
+  )
 
   return (
     <>
@@ -350,6 +366,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (session.status === 'unauthenticated') return null
 
   const mode: WorkspaceMode = session.data?.mode ?? 'business'
+  const marketingAccess: MarketingAccess = session.data?.marketingAccess ?? 'none'
   const handleSignOut = () => signOut({ redirectUrl: '/login' })
   const closeSidebar = () => setSidebarOpen(false)
 
@@ -398,6 +415,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           pathname={pathname}
           email={session.data?.user.email}
           mode={mode}
+          marketingAccess={marketingAccess}
           wa={wa}
           onNav={closeSidebar}
           onSignOut={handleSignOut}

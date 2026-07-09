@@ -1,7 +1,7 @@
 # Zuri Marketing Expansion: From WhatsApp CRM to Social Commerce Operating System
 
 **Date**: July 2026
-**Status**: Phase A (public marketing site) shipped and live. Phase B (the actual product — §10 below) is fully planned, not yet built. §12 covers how it integrates into the existing dashboard, since both products need to feel like one system, not two apps bolted together.
+**Status**: Phase A (public marketing site) shipped and live. Phase B, Phase 0 (foundation) shipped: `marketing_access` entitlement column + `products` table (migration `0031`), `/studio` dashboard route with the waitlist pitch (§12.3), Studio nav item gated on the entitlement (§12.4/12.6), `FeatureGate`'s `entitlements` prop wired to real data, and a minimal products API behind the `beta`/`enabled` gate. Content Generator, Scheduled Posts and Connected Accounts are still "coming soon" placeholders inside `/studio` — not yet built. §12 covers how it integrates into the existing dashboard, since both products need to feel like one system, not two apps bolted together.
 
 ---
 

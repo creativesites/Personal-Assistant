@@ -114,3 +114,5 @@ export enum EventType {
 }
 
 export type WorkspaceMode = 'business' | 'personal' | 'hybrid'
+
+export type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
