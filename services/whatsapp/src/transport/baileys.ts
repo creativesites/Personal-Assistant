@@ -176,6 +176,8 @@ export class BaileysTransport extends WhatsAppTransport {
         if (reason === 'logged_out') {
           this._clearQrTimer();
           this._status = 'idle';
+          // Clear stale auth so the next connect attempt starts fresh (shows QR / accepts phone code)
+          await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => { /* ignore */ });
           this.emitDisconnected('logged_out');
           return;
         }
