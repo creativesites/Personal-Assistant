@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import {
   ArrowRight, MessageCircle, Sparkles, Check, ShieldCheck, Users, Send,
+  Package, Repeat,
 } from 'lucide-react'
 
 export const metadata: Metadata = {
@@ -9,14 +10,26 @@ export const metadata: Metadata = {
   description: 'Zuri WhatsApp turns conversations into customers with AI reply suggestions and a smart CRM. Zuri Marketing turns one product into ready-to-post content for Facebook, Instagram, and TikTok — and tracks every lead all the way to a sale.',
 }
 
+const FUNNEL = [
+  { icon: Package, title: 'You have a product', description: 'A phone, a dress, a service — one photo is enough to start.' },
+  { icon: Send, title: 'Zuri Marketing gets you found', description: 'AI writes the captions and scripts, then schedules posts to Facebook, Instagram, and TikTok.' },
+  { icon: MessageCircle, title: 'Zuri WhatsApp closes the deal', description: 'Every reply drafted for you, every customer profile built automatically, right in your inbox.' },
+  { icon: Repeat, title: 'The customer comes back', description: 'Follow-ups and broadcasts bring them back — targeted by what they actually bought.' },
+]
+
 const PRODUCTS = [
   {
     name: 'Zuri WhatsApp',
     tag: 'Available now',
     icon: MessageCircle,
     headline: 'Reply smarter, sell more — right inside WhatsApp.',
-    description: 'AI reply suggestions that sound like you, automatic follow-ups, contact profiles built from every conversation, and a CRM that never lets a lead go cold.',
-    points: ['AI reply drafts in seconds', 'Contact profiles & lead scoring', 'Team inbox & broadcasts'],
+    description: "This is Zuri's CRM and AI assistant for the conversations that actually close deals. It reads your WhatsApp chats, drafts replies that sound like you, remembers every customer, and nudges you before a lead goes cold.",
+    points: [
+      'AI reply drafts in seconds, in your own voice',
+      'Contact profiles & lead scoring built automatically',
+      'Automatic follow-up reminders — never lose a lead to a slow reply',
+      'Team inbox, broadcasts, and revenue analytics',
+    ],
     href: '/whatsapp',
     cta: 'Explore Zuri WhatsApp',
     accent: 'from-indigo-600 to-indigo-700',
@@ -26,10 +39,15 @@ const PRODUCTS = [
     tag: 'Early access',
     icon: Sparkles,
     headline: 'One product upload. A full sales funnel out.',
-    description: 'AI writes your captions, builds your video scripts, and schedules posts across Facebook, Instagram, and TikTok — then tracks every lead all the way to a WhatsApp sale.',
-    points: ['AI product descriptions & scripts', 'Scheduled multi-platform publishing', 'Post-to-sale funnel analytics'],
+    description: "This is Zuri's AI content and publishing engine — the part that gets customers to message you in the first place. Upload a product once and get everything a business normally spends hours making by hand.",
+    points: [
+      'AI-written captions, descriptions, and video scripts',
+      'AI-generated image variants from one product photo',
+      'Scheduled publishing to Facebook, Instagram, and TikTok',
+      'Funnel analytics: which posts actually produced sales',
+    ],
     href: '/marketing',
-    cta: 'See Zuri Marketing',
+    cta: 'Explore Zuri Marketing',
     accent: 'from-gray-800 to-gray-900',
   },
 ]
@@ -71,58 +89,120 @@ export default function UnifiedHomePage() {
           </h1>
 
           <p className="text-lg md:text-xl text-gray-500 leading-relaxed max-w-2xl mx-auto mb-4">
-            Zuri is the AI system that runs both sides of how small businesses actually sell: getting discovered on
-            Facebook, Instagram, and TikTok, and closing the deal on WhatsApp.
+            Most small businesses in Zambia sell the same way: customers discover them on Facebook, Instagram, or
+            TikTok, then message them on WhatsApp to actually buy. Zuri is two AI products built for exactly that —
+            one for each half of the journey, sharing one system underneath.
           </p>
+          <p className="text-base text-gray-400 max-w-xl mx-auto mb-10">
+            Not sure where to start? Explore either product below — no sign-up needed to look around.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link
+              href="/whatsapp"
+              className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all duration-200 shadow-lg shadow-indigo-200 text-base"
+            >
+              Explore Zuri WhatsApp
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="/marketing"
+              className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-white text-gray-700 font-semibold rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-base"
+            >
+              Explore Zuri Marketing
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── The funnel — what these products actually do, together ────────── */}
+      <section className="py-16 md:py-20 px-4 md:px-6 bg-gray-50">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-3">How it fits together</p>
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+              Two products. One path from a product to a sale.
+            </h2>
+            <p className="text-gray-500 max-w-xl mx-auto text-lg">
+              You don&apos;t have to use both — plenty of businesses start with just one. But they&apos;re built to
+              work as a single system if you want the whole journey covered.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {FUNNEL.map((step, i) => {
+              const Icon = step.icon
+              return (
+                <div key={step.title} className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mb-4">
+                    <Icon className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <p className="font-semibold text-gray-900 text-sm mb-1.5">{step.title}</p>
+                  <p className="text-xs text-gray-500 leading-relaxed">{step.description}</p>
+                  {i < FUNNEL.length - 1 && (
+                    <ArrowRight className="hidden lg:block absolute top-1/2 -right-6 -translate-y-1/2 w-4 h-4 text-gray-300" />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </section>
 
       {/* ── Two products ─────────────────────────────────────────────────── */}
-      <section className="py-4 md:py-8 px-4 md:px-6">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-          {PRODUCTS.map((product) => {
-            const Icon = product.icon
-            return (
-              <div key={product.name} className="rounded-3xl border border-gray-100 shadow-sm hover:shadow-lg transition-shadow duration-200 overflow-hidden flex flex-col">
-                <div className={`bg-gradient-to-br ${product.accent} p-7 text-white`}>
-                  <div className="flex items-center justify-between mb-5">
-                    <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center">
-                      <Icon className="w-6 h-6" />
-                    </div>
-                    <span className="text-xs font-semibold uppercase tracking-widest bg-white/15 px-3 py-1.5 rounded-full">
-                      {product.tag}
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-bold mb-1">{product.name}</h2>
-                  <p className="text-sm text-white/80 leading-relaxed">{product.headline}</p>
-                </div>
+      <section className="py-20 md:py-28 px-4 md:px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-3">The two products</p>
+            <h2 className="text-3xl md:text-4xl font-bold text-gray-900">Pick where you want to start</h2>
+          </div>
 
-                <div className="bg-white p-7 flex-1 flex flex-col">
-                  <p className="text-sm text-gray-500 leading-relaxed mb-5">{product.description}</p>
-                  <ul className="space-y-2.5 mb-7 flex-1">
-                    {product.points.map((point) => (
-                      <li key={point} className="flex items-center gap-2.5 text-sm text-gray-600">
-                        <Check className="w-4 h-4 text-indigo-500 flex-shrink-0" />
-                        {point}
-                      </li>
-                    ))}
-                  </ul>
-                  <Link
-                    href={product.href}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-800 transition-colors text-sm"
-                  >
-                    {product.cta}
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {PRODUCTS.map((product) => {
+              const Icon = product.icon
+              return (
+                <div key={product.name} className="rounded-3xl border border-gray-100 shadow-sm hover:shadow-lg transition-shadow duration-200 overflow-hidden flex flex-col">
+                  <div className={`bg-gradient-to-br ${product.accent} p-7 text-white`}>
+                    <div className="flex items-center justify-between mb-5">
+                      <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center">
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-semibold uppercase tracking-widest bg-white/15 px-3 py-1.5 rounded-full">
+                        {product.tag}
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-bold mb-1">{product.name}</h3>
+                    <p className="text-sm text-white/80 leading-relaxed">{product.headline}</p>
+                  </div>
+
+                  <div className="bg-white p-7 flex-1 flex flex-col">
+                    <p className="text-sm text-gray-500 leading-relaxed mb-5">{product.description}</p>
+                    <ul className="space-y-2.5 mb-7 flex-1">
+                      {product.points.map((point) => (
+                        <li key={point} className="flex items-start gap-2.5 text-sm text-gray-600">
+                          <Check className="w-4 h-4 text-indigo-500 flex-shrink-0 mt-0.5" />
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                    <Link
+                      href={product.href}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-800 transition-colors text-sm"
+                    >
+                      {product.cta}
+                      <ArrowRight className="w-4 h-4" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       </section>
 
       {/* ── Why one system ───────────────────────────────────────────────── */}
-      <section className="py-20 md:py-28 px-4 md:px-6">
+      <section className="bg-gray-50 py-20 md:py-28 px-4 md:px-6">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
             <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-3">Why one system</p>
@@ -139,7 +219,7 @@ export default function UnifiedHomePage() {
             {WHY.map((item) => {
               const Icon = item.icon
               return (
-                <div key={item.title} className="p-6 rounded-2xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all duration-200">
+                <div key={item.title} className="p-6 rounded-2xl bg-white border border-gray-100 hover:border-indigo-200 transition-all duration-200 shadow-sm">
                   <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center mb-4">
                     <Icon className="w-5 h-5 text-indigo-600" />
                   </div>
@@ -156,31 +236,25 @@ export default function UnifiedHomePage() {
       <section className="py-20 md:py-28 px-4 md:px-6">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-gray-900 mb-5 leading-tight">
-            Start with what closes deals today.
-            <br />
-            <span className="text-indigo-600">Grow into the whole funnel.</span>
+            Ready to get started?
           </h2>
           <p className="text-gray-500 text-lg mb-8 leading-relaxed">
-            Zuri WhatsApp is ready today. Zuri Marketing rolls out to existing customers first — so the best time to
-            start is now.
+            Zuri WhatsApp is ready today, free for 30 days. Zuri Marketing rolls out to existing customers first.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link
-              href="/register"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-xl shadow-indigo-200 text-base"
-            >
-              Start free with Zuri WhatsApp
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="/marketing"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-gray-700 font-semibold rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-base"
-            >
-              Get early access to Zuri Marketing
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
+          <Link
+            href="/register"
+            className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-xl shadow-indigo-200 text-base"
+          >
+            Get started free
+            <ArrowRight className="w-4 h-4" />
+          </Link>
           <p className="text-gray-400 text-sm mt-4">30-day trial · No credit card · Cancel anytime</p>
+          <p className="text-gray-400 text-sm mt-6">
+            Still deciding?{' '}
+            <Link href="/whatsapp" className="text-indigo-600 font-medium hover:text-indigo-700">Explore Zuri WhatsApp</Link>
+            {' '}or{' '}
+            <Link href="/marketing" className="text-indigo-600 font-medium hover:text-indigo-700">Explore Zuri Marketing</Link>
+          </p>
         </div>
       </section>
     </div>
