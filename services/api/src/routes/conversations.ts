@@ -295,6 +295,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const slaBreachCount = parseInt(slaResult.rows[0]?.count ?? '0', 10);
     const vipCount = parseInt(healthResult.rows[0]?.count ?? '0', 10);
 
+    const items: string[] = [];
     if (highIntentCount > 0) {
       items.push(`${highIntentCount} conversation${highIntentCount !== 1 ? 's have' : ' has'} high buying intent`);
     }
