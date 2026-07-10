@@ -2,8 +2,8 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { Send, Sparkles, Link2, Check, ChevronDown, ChevronUp, Copy, X, BarChart3, Settings2, Users, ChevronRight } from 'lucide-react'
-import { useZuriSession, setStoredMarketingAccess } from '@/hooks/use-zuri-session'
+import { Sparkles, Link2, ChevronDown, ChevronUp, Copy, X, BarChart3, Settings2, Users, ChevronRight } from 'lucide-react'
+import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { Badge, Button, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
@@ -63,71 +63,7 @@ const POST_STATUS_BADGE: Record<string, 'default' | 'info' | 'success' | 'warnin
   cancelled: 'default',
 }
 
-// ─── Waitlist pitch (marketing_access = none | waitlisted) ───────────────────
-
-function WaitlistPitch({ waitlisted }: { waitlisted: boolean }) {
-  const { addToast } = useToast()
-  const session = useZuriSession()
-  const token = session.data?.accessToken
-  const [joining, setJoining] = useState(false)
-
-  const joinWaitlist = useCallback(async () => {
-    if (!token) return
-    setJoining(true)
-    try {
-      await apiClient('/api/users/me', {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({ marketingAccess: 'waitlisted' }),
-      })
-      setStoredMarketingAccess('waitlisted')
-      addToast({ variant: 'success', title: "You're on the list" })
-    } catch {
-      addToast({ variant: 'error', title: 'Could not join the waitlist', description: 'Please try again.' })
-    } finally {
-      setJoining(false)
-    }
-  }, [token, addToast])
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-2xl mx-auto p-4 md:p-6">
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center">
-          <div className="w-12 h-12 rounded-xl bg-indigo-50 flex items-center justify-center mx-auto mb-4">
-            <Send className="w-6 h-6 text-indigo-600" />
-          </div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Zuri Marketing is rolling out</h2>
-          <p className="text-sm text-gray-500 leading-relaxed max-w-md mx-auto mb-6">
-            One product in, a full sales funnel out — AI product descriptions, images and video
-            scripts, one-click posting to Facebook, Instagram and TikTok, and every lead landing in
-            the same contact list you already use for WhatsApp. Existing customers get first access
-            as it opens up.
-          </p>
-
-          {waitlisted ? (
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 text-green-700 text-sm font-medium">
-              <Check className="w-4 h-4" />
-              You're on the waitlist — we'll email you when Studio opens
-            </div>
-          ) : (
-            <Button onClick={joinWaitlist} loading={joining}>
-              <Send className="w-4 h-4" />
-              Join the waitlist
-            </Button>
-          )}
-
-          <div className="mt-6">
-            <Link href="/marketing" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
-              See what Zuri Marketing does →
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Products section (marketing_access = beta | enabled) ────────────────────
+// ─── Products section ─────────────────────────────────────────────────────────
 
 function AddProductForm({ onAdded }: { onAdded: () => void }) {
   const { addToast } = useToast()
@@ -560,7 +496,6 @@ function StudioHub() {
 
 export default function StudioPage() {
   const session = useZuriSession()
-  const marketingAccess = session.data?.marketingAccess ?? 'none'
   const isLoading = session.status === 'loading'
 
   if (isLoading) {
@@ -574,15 +509,10 @@ export default function StudioPage() {
     )
   }
 
-  const hasAccess = marketingAccess === 'beta' || marketingAccess === 'enabled'
-
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title="Studio"
-        description={hasAccess ? 'Zuri Marketing' : undefined}
-      />
-      {hasAccess ? <StudioHub /> : <WaitlistPitch waitlisted={marketingAccess === 'waitlisted'} />}
+      <PageHeader title="Studio" description="Zuri Marketing" />
+      <StudioHub />
     </div>
   )
 }
