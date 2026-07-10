@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useRef, useEffect } from 'react'
 import {
   Download,
   ExternalLink,
@@ -9,6 +10,8 @@ import {
   MapPin,
   Mic,
   Phone,
+  Play,
+  Pause,
 } from 'lucide-react'
 
 interface MessageContentMessage {
@@ -24,6 +27,119 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
 function mediaHref(path: string, token?: string | null): string {
   const base = `${API_BASE}${path}`
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+function CustomAudioPlayer({ src }: { src: string }) {
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [playbackRate, setPlaybackRate] = useState(1.0)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime)
+    const handleDurationChange = () => setDuration(audio.duration || 0)
+    const handleEnded = () => {
+      setIsPlaying(false)
+      setCurrentTime(0)
+    }
+
+    audio.addEventListener('play', handlePlay)
+    audio.addEventListener('pause', handlePause)
+    audio.addEventListener('timeupdate', handleTimeUpdate)
+    audio.addEventListener('durationchange', handleDurationChange)
+    audio.addEventListener('ended', handleEnded)
+
+    // Set initial values if media is cached/loaded
+    if (audio.readyState >= 1) {
+      setDuration(audio.duration || 0)
+    }
+
+    return () => {
+      audio.removeEventListener('play', handlePlay)
+      audio.removeEventListener('pause', handlePause)
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      audio.removeEventListener('durationchange', handleDurationChange)
+      audio.removeEventListener('ended', handleEnded)
+    }
+  }, [src])
+
+  const togglePlay = () => {
+    if (!audioRef.current) return
+    if (isPlaying) {
+      audioRef.current.pause()
+    } else {
+      audioRef.current.play().catch(() => {})
+    }
+  }
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!audioRef.current) return
+    const val = parseFloat(e.target.value)
+    audioRef.current.currentTime = val
+    setCurrentTime(val)
+  }
+
+  const toggleSpeed = () => {
+    if (!audioRef.current) return
+    let nextRate = 1.0
+    if (playbackRate === 1.0) nextRate = 1.5
+    else if (playbackRate === 1.5) nextRate = 2.0
+    else nextRate = 1.0
+
+    audioRef.current.playbackRate = nextRate
+    setPlaybackRate(nextRate)
+  }
+
+  const formatAudioTime = (sec: number) => {
+    if (isNaN(sec) || !isFinite(sec)) return '0:00'
+    const m = Math.floor(sec / 60)
+    const s = Math.floor(sec % 60)
+    return `${m}:${s < 10 ? '0' : ''}${s}`
+  }
+
+  return (
+    <div className="flex items-center gap-3 bg-indigo-50/50 border border-indigo-100/50 rounded-xl px-3 py-2 min-w-[240px] max-w-full shadow-sm">
+      <audio ref={audioRef} src={src} preload="metadata" />
+
+      {/* Play/Pause Button */}
+      <button
+        onClick={togglePlay}
+        className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 hover:bg-indigo-700 transition shadow-sm active:scale-95"
+      >
+        {isPlaying ? <Pause size={14} className="fill-white" /> : <Play size={14} className="fill-white ml-0.5" />}
+      </button>
+
+      {/* Slider / Progress */}
+      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+        <input
+          type="range"
+          min={0}
+          max={duration || 100}
+          value={currentTime}
+          onChange={handleSeek}
+          className="w-full h-1 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none"
+        />
+        <div className="flex items-center justify-between text-[10px] text-neutral-400 font-medium tabular-nums">
+          <span>{formatAudioTime(currentTime)}</span>
+          <span>{formatAudioTime(duration || 0)}</span>
+        </div>
+      </div>
+
+      {/* Speed Multiplier Button */}
+      <button
+        onClick={toggleSpeed}
+        className="text-[10px] font-bold px-2 py-1 rounded-md bg-neutral-100 text-neutral-600 border border-neutral-200/80 hover:bg-neutral-200/50 hover:text-neutral-700 transition flex-shrink-0 tabular-nums"
+      >
+        {playbackRate}x
+      </button>
+    </div>
+  )
 }
 
 export function MessageContent({
@@ -115,7 +231,7 @@ export function MessageContent({
     if (href) {
       return (
         <div className="space-y-1.5">
-          <audio controls src={href} className="max-w-full h-9" style={{ minWidth: 180 }} />
+          <CustomAudioPlayer src={href} />
           {msg.transcription && <p className="text-xs italic text-gray-600">"{msg.transcription}"</p>}
         </div>
       )

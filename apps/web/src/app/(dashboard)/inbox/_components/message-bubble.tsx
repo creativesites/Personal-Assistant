@@ -61,7 +61,7 @@ export function MessageBubble({
   const hasTextHighlight = !!searchQuery.trim() && msg.messageType !== 'image' && msg.messageType !== 'video' && msg.messageType !== 'audio' && msg.messageType !== 'document'
 
   return (
-    <div className="mb-1">
+    <div className="mb-1 animate-message-entry">
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-2`}>
         <div
           onClick={() => msg.pendingSuggestions > 0 && onSelect()}
