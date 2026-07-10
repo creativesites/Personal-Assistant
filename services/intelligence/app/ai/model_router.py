@@ -19,7 +19,15 @@ log = structlog.get_logger()
 TOKEN_LIMIT = 1_000_000
 
 POOLS: dict[str, list[str]] = {
+    # Ordered: most free-tier headroom first, quality preserved throughout.
+    # qwen-turbo: ~2M free, very fast — ideal for per-message analysis.
+    # qwen-plus: ~4M free, good quality for reply generation / profiling.
+    # qwen-long: ~10M free, handles long conversation contexts well.
+    # Remaining are ~1M free each; quality escalates as the pool rotates.
     'text': [
+        'dashscope/qwen-turbo',
+        'dashscope/qwen-plus',
+        'dashscope/qwen-long',
         'dashscope/qwen-max',
         'dashscope/qwen3-max',
         'dashscope/qwen3.5-plus-2026-02-1',
@@ -68,6 +76,30 @@ async def get_active_model(pool: str) -> str | None:
     if idx >= len(models):
         return None
     return models[idx]
+
+
+async def force_advance(pool: str, model: str, reason: str = 'hard_error') -> str | None:
+    """Immediately advance the pool past `model` due to a hard error (403, quota, etc).
+    Returns the new active model, or None if the pool is exhausted."""
+    models = POOLS.get(pool, [])
+    try:
+        current_idx = models.index(model)
+    except ValueError:
+        return await get_active_model(pool)
+
+    next_idx = current_idx + 1
+    r = await _get_redis()
+    # Only advance if we haven't already passed this point (another worker may have)
+    existing = await r.get(_active_index_key(pool))
+    if existing is None or int(existing) <= current_idx:
+        await r.set(_active_index_key(pool), next_idx)
+
+    next_model = models[next_idx] if next_idx < len(models) else None
+    log.warning(
+        'ai_model_force_advanced', pool=pool,
+        from_model=model, to_model=next_model, reason=reason,
+    )
+    return next_model
 
 
 async def report_usage(pool: str, model: str, tokens: int) -> None:

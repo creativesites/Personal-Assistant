@@ -1,8 +1,10 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from bullmq import Queue
 from ..database import get_pool
 from ..ai.client import get_ai_client
+from ..queue import redis_conn_opts
 
 router = APIRouter(prefix='/internal/conversations', tags=['conversations'])
 
@@ -137,6 +139,37 @@ async def ask_ai(conversation_id: str, body: AskRequest):
     ])
 
     return {'answer': result}
+
+
+class AnalyseHistoryRequest(BaseModel):
+    user_id: str
+    contact_id: str
+    recent_count: int = 30
+
+
+@router.post('/{conversation_id}/analyse-history')
+async def analyse_history(conversation_id: str, body: AnalyseHistoryRequest):
+    """
+    Called by the WhatsApp service after historical sync for one chat.
+    Queues a contact profile rebuild and health recalculation based on
+    the most recent messages — no per-message AI calls needed.
+    """
+    profile_queue = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
+    temporal_queue = Queue('temporal.clock_check', {'connection': redis_conn_opts()})
+
+    await profile_queue.add('historical_profile', {
+        'contactId': body.contact_id,
+        'userId': body.user_id,
+        'conversationId': conversation_id,
+        'recentCount': body.recent_count,
+        'isHistorical': True,
+    })
+    await temporal_queue.add('cadence', {
+        'contactId': body.contact_id,
+        'userId': body.user_id,
+    })
+
+    return {'queued': True, 'conversationId': conversation_id}
 
 
 class AdvisorAskRequest(BaseModel):
