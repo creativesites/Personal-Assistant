@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 
-type SetupState = 'loading' | 'already-set' | 'ready' | 'claiming' | 'done' | 'error'
+type SetupState = 'loading' | 'ready' | 'claiming' | 'done' | 'error'
 
 export default function AdminSetupPage() {
   const session = useZuriSession()
   const router = useRouter()
   const [state, setState] = useState<SetupState>('loading')
   const [errorMsg, setErrorMsg] = useState('')
+  const [otherAdminsExist, setOtherAdminsExist] = useState(false)
 
   useEffect(() => {
     if (session.status === 'loading') return
@@ -24,15 +25,13 @@ export default function AdminSetupPage() {
       return
     }
 
+    // During the pre-launch testing phase, setup is not gated on whether an
+    // admin already exists — anyone who isn't already an admin can claim it.
+    // hasAdmin is shown as an FYI only, never blocks the button.
     apiClient<{ hasAdmin: boolean }>('/api/admin/setup-status')
-      .then((data) => {
-        if (data.hasAdmin) {
-          setState('already-set')
-        } else {
-          setState('ready')
-        }
-      })
-      .catch(() => setState('error'))
+      .then((data) => setOtherAdminsExist(data.hasAdmin))
+      .catch(() => { /* non-fatal — just skip the FYI note */ })
+      .finally(() => setState('ready'))
   }, [session.status, session.data?.isAdmin, router])
 
   const claimAdmin = async () => {
@@ -75,24 +74,6 @@ export default function AdminSetupPage() {
             </div>
           )}
 
-          {state === 'already-set' && (
-            <div className="text-center">
-              <div className="w-14 h-14 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-5">
-                <span className="text-3xl">🔒</span>
-              </div>
-              <h1 className="text-white font-bold text-xl mb-2">Admin already configured</h1>
-              <p className="text-gray-400 text-sm mb-6">
-                An admin account has already been set up. Sign in with the admin account to access the admin panel.
-              </p>
-              <button
-                onClick={() => router.push('/admin')}
-                className="w-full py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
-              >
-                Go to admin panel
-              </button>
-            </div>
-          )}
-
           {state === 'ready' && (
             <div>
               <div className="w-14 h-14 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-5">
@@ -100,8 +81,13 @@ export default function AdminSetupPage() {
               </div>
               <h1 className="text-white font-bold text-xl mb-2 text-center">Set up admin access</h1>
               <p className="text-gray-400 text-sm mb-6 text-center">
-                No admin account exists yet. Claim admin access for your current account to enable the admin panel.
+                Claim admin access for your current account to enable the admin panel.
               </p>
+              {otherAdminsExist && (
+                <p className="text-gray-500 text-xs mb-4 text-center">
+                  Other admin accounts already exist — this adds you as an additional admin.
+                </p>
+              )}
 
               {/* Current user info */}
               <div className="bg-gray-800 rounded-xl p-4 mb-6 border border-gray-700">

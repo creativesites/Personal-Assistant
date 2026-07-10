@@ -3,6 +3,8 @@
 **Date**: July 2026
 **Status**: Phase A (public marketing site) shipped and live. Phase B's original MVP scope (§10/Appendix: Product Catalog, AI Content Generator, Publishing & Scheduling, Dashboard Updates, Funnel Tracking) is fully shipped end to end, including the dashboard-integration half of "Dashboard Updates" that §12.5 originally only planned — see §13 for the build log and the one consistent, clearly-flagged gap across all of it (no real Meta/TikTok developer app). Now building into the Appendix's "Phase 2 Ideas" — first pick: Advanced analytics + recommendations, shipped (§13). §12 covers how it integrates into the existing dashboard, since both products need to feel like one system, not two apps bolted together.
 
+**Pre-launch testing override (temporary — see §13)**: `marketing_access` now defaults to `enabled` for every account (migration `0035`), and `/admin-setup` self-claims admin without checking whether one already exists. Both are deliberate, both need to be re-tightened before real end users onboard.
+
 ---
 
 ## 1. The Insight This Is Built On
@@ -270,6 +272,12 @@ This completes the Appendix's original Phase 1 MVP scope end to end, with real M
 **Dashboard integration (§12.5's "Dashboard Updates" — actually built, not just planned).** The main `/dashboard` page (Zuri WhatsApp's home) now fetches `/api/analytics/campaigns` when `marketing_access` is `beta`/`enabled` and shows a "Zuri Marketing" stat row (posts sent, leads, sales, top product) plus an "Open Studio" quick action — right next to the existing WhatsApp KPIs, same page, same `mode === 'hybrid'`-style conditional rendering already used there. Waitlisted accounts see a small teaser card instead. In the other direction, `/studio` itself gained an overview stat row (products, connected accounts, leads, sales — reusing the same `getCampaignStats()`-backed endpoint) and a Quick Actions section linking to Campaign analytics and Connected Accounts settings, plus an explicit "same Contacts list as WhatsApp" callout linking to `/contacts`. Neither page duplicates data or logic — both read from the same `/api/analytics/campaigns`/`/api/contacts` endpoints the other pages already use.
 
 **Phase 2 Ideas, first pick — Advanced analytics + recommendations.** Extended `getCampaignStats()` (shared by the campaigns GET and the new recommendations POST, so they never drift apart) with a `postingTimes` bucket (day-of-week × hour-of-day, ranked by attributed leads) and a `conversionRate` per product (`sales / leads`). Added `POST /internal/content/recommendations` in `services/intelligence` — takes the exact stats JSON the Campaigns page shows and asks the model for 3-5 specific, data-grounded suggestions (not generic advice); proxied through `POST /api/analytics/campaigns/recommendations`, on-demand rather than computed on every page load. The Campaigns page gets a "Best posting times" table and a "Generate recommendations" button + list.
+
+**Dashboard integration.** Main `/dashboard` shows a "Zuri Marketing" stat row + "Open Studio" quick action when `marketing_access` is `beta`/`enabled` (a waitlist teaser otherwise), reading the same `/api/analytics/campaigns` endpoint the Campaigns page uses. `/studio` itself gained an overview stat row, a Quick Actions section (Campaign analytics, Connected Accounts), and an explicit "same Contacts list as WhatsApp" callout. Neither page owns its own copy of the data.
+
+**Pre-launch testing overrides.** Two access-control relaxations, both explicitly temporary:
+- `/admin-setup`'s "no admin exists yet" gate was removed (`POST /api/admin/setup` no longer 409s if another admin already exists) — it had never actually worked for reaching admin in the first place, and during testing anyone should be able to self-claim. Admins can also now grant `marketing_access` directly per-user via `/admin/users/[id]`.
+- Migration `0035` sets `users.marketing_access`'s default to `'enabled'` and backfills every existing row, so Zuri Marketing is fully open to all accounts rather than gated behind admin promotion or the waitlist. The entitlement column, `FeatureGate`, and all the gating code built in §12 are untouched and still work — only the data changed, so re-tightening later is a one-line default change plus a backfill in the other direction, not a rebuild.
 
 ---
 

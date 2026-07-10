@@ -53,13 +53,10 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(409).send({ error: 'You are already an admin' })
       }
 
-      const { rows: [existing] } = await db.query<{ count: string }>(
-        'SELECT COUNT(*) AS count FROM users WHERE is_admin = true',
-      )
-      if (parseInt(existing.count, 10) > 0) {
-        return reply.code(409).send({ error: 'An admin account already exists' })
-      }
-
+      // Intentionally not gated on "no admin exists yet" during the pre-launch
+      // testing phase — anyone who visits /admin-setup and clicks through can
+      // self-claim admin. Re-add the single-admin-only check (see git history)
+      // before onboarding real end users.
       await db.query(
         'UPDATE users SET is_admin = true, updated_at = NOW() WHERE id = $1',
         [userId],
