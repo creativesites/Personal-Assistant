@@ -151,23 +151,62 @@ export class SessionManager {
     });
 
     transport.on('historical_batch', async (msgs: NormalisedMessage[]) => {
-      const BATCH = 50;
+      const PROGRESS_EVERY = 50;
+      // How many of the most-recent messages per conversation to queue for AI analysis.
+      // All messages are written to DB; only the last N are sent for profiling.
+      const ANALYSE_RECENT_PER_CHAT = 30;
+
       console.log(`[session] historical batch: ${msgs.length} messages for ${userId}`);
+
+      // ── Step 1: write all messages to DB, track unique conversations ─────────
+      // Map<conversationId, contactId> — last write wins (newest message's contactId)
+      const convMap = new Map<string, string>();
+
       for (let i = 0; i < msgs.length; i++) {
         try {
-          await this.handler.handleMessage(userId, msgs[i], true);
+          const result = await this.handler.writeHistoricalMessage(userId, msgs[i]);
+          if (result) {
+            convMap.set(result.conversationId, result.contactId);
+          }
         } catch (err) {
-          console.error(`[session] historical handleMessage failed userId=${userId}:`, err);
+          console.error(`[session] historical write failed userId=${userId}:`, err);
         }
-        // After every batch, publish progress so the inbox refreshes
-        if ((i + 1) % BATCH === 0 || i === msgs.length - 1) {
+
+        if ((i + 1) % PROGRESS_EVERY === 0 || i === msgs.length - 1) {
           await this.redis.publish(
             `history:progress:${userId}`,
             JSON.stringify({ processed: i + 1, total: msgs.length }),
-          ).catch(() => { /* ignore pub/sub errors */ });
+          ).catch(() => { /* ignore */ });
         }
       }
-      console.log(`[session] historical batch complete for ${userId}: ${msgs.length} messages written`);
+
+      // ── Step 2: queue ONE analysis job per conversation ──────────────────────
+      // The intelligence service fetches the last ANALYSE_RECENT_PER_CHAT messages
+      // itself; we just tell it which conversation to process.
+      const intelligenceUrl = process.env['INTELLIGENCE_SERVICE_URL'] ?? 'http://localhost:8000';
+      const internalSecret = process.env['INTERNAL_API_SECRET'] ?? '';
+
+      let analysed = 0;
+      for (const [conversationId, contactId] of convMap) {
+        try {
+          await fetch(`${intelligenceUrl}/internal/conversations/${conversationId}/analyse-history`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Internal-Secret': internalSecret,
+            },
+            body: JSON.stringify({ userId, contactId, recentCount: ANALYSE_RECENT_PER_CHAT }),
+          });
+          analysed++;
+        } catch (err) {
+          console.error(`[session] historical analyse failed conv=${conversationId}:`, err);
+        }
+      }
+
+      console.log(
+        `[session] historical sync complete for ${userId}: ` +
+        `${msgs.length} messages written, ${analysed}/${convMap.size} conversations queued for analysis`,
+      );
     });
 
     await transport.start();

@@ -43,7 +43,6 @@ export class MessageHandler {
 
     const contactId = await this.upsertContact(userId, msg.jid, msg.displayName);
 
-    // Preview text for conversation list
     const previewText =
       msg.body?.slice(0, 200) ??
       MEDIA_PREVIEW[msg.messageType] ??
@@ -53,53 +52,75 @@ export class MessageHandler {
       userId, contactId, msg.jid, previewText, timestamp,
     );
 
-    // Resolve quoted message UUID if we have the WhatsApp message ID
     const quotedMessageId = msg.quotedWaMessageId
       ? await this.resolveQuotedMessageId(conversationId, msg.quotedWaMessageId)
       : null;
 
     const messageId = await this.insertMessage(
-      conversationId,
-      msg.waMessageId,
-      senderType,
-      msg.messageType,
-      msg.body,
-      timestamp,
-      msg.mediaUrl ?? null,
-      msg.mediaMimeType ?? null,
-      quotedMessageId,
+      conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
+      timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
     );
 
-    if (!messageId) return; // duplicate
+    if (!messageId) return;
 
     await this.incomingQueue.add(
       QUEUE_NAMES.MESSAGES_INCOMING,
       {
-        userId,
-        conversationId,
-        messageId,
-        contactId,
-        senderType,
-        messageType: msg.messageType,
-        body: msg.body ?? undefined,
-        whatsappTimestamp: timestamp.toISOString(),
-        isHistorical,
+        userId, conversationId, messageId, contactId, senderType,
+        messageType: msg.messageType, body: msg.body ?? undefined,
+        whatsappTimestamp: timestamp.toISOString(), isHistorical,
       },
       { removeOnComplete: { count: 100 } },
     );
 
-    // Skip real-time push for historical messages — they're bulk-processed in background
     if (!isHistorical) {
       await this.redis.publish(
         `message:new:${userId}`,
         JSON.stringify({
           messageId, conversationId, contactId,
           senderType, messageType: msg.messageType, body: msg.body,
-          mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
-          timestamp,
+          mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType, timestamp,
         }),
       );
     }
+  }
+
+  /**
+   * Write a historical message to the DB only — no queue push, no real-time pub/sub.
+   * Returns the conversation and contact IDs so the caller can batch-queue
+   * one analysis job per conversation after all messages are written.
+   * Returns null if the message was a duplicate (already in DB).
+   */
+  async writeHistoricalMessage(
+    userId: string,
+    msg: NormalisedMessage,
+  ): Promise<{ conversationId: string; contactId: string } | null> {
+    const senderType = msg.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
+    const timestamp = new Date(msg.timestampMs);
+
+    const contactId = await this.upsertContact(userId, msg.jid, msg.displayName);
+
+    const previewText =
+      msg.body?.slice(0, 200) ??
+      MEDIA_PREVIEW[msg.messageType] ??
+      null;
+
+    const conversationId = await this.upsertConversation(
+      userId, contactId, msg.jid, previewText, timestamp,
+    );
+
+    const quotedMessageId = msg.quotedWaMessageId
+      ? await this.resolveQuotedMessageId(conversationId, msg.quotedWaMessageId)
+      : null;
+
+    const messageId = await this.insertMessage(
+      conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
+      timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
+    );
+
+    if (!messageId) return null; // duplicate
+
+    return { conversationId, contactId };
   }
 
   private async resolveQuotedMessageId(

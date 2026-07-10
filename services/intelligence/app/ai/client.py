@@ -4,9 +4,27 @@ import base64
 import litellm
 import structlog
 from ..config import settings
-from .model_router import get_active_model, report_usage
+from .model_router import get_active_model, report_usage, force_advance
 
 log = structlog.get_logger()
+
+_HARD_FAIL_CODES = {403, 401, 402}
+_QUOTA_PHRASES = (
+    'quota', 'exhausted', 'insufficient_quota', 'free trial',
+    'rate limit', 'too many requests', 'billing', 'access denied',
+)
+
+
+def _is_hard_error(exc: Exception) -> bool:
+    """True if this error means the model/key is dead — advance the pool."""
+    msg = str(exc).lower()
+    status = getattr(exc, 'status_code', None) or getattr(exc, 'code', None)
+    if status in _HARD_FAIL_CODES:
+        return True
+    if any(phrase in msg for phrase in _QUOTA_PHRASES):
+        return True
+    return False
+
 
 # True when a private Alibaba MaaS workspace is configured.
 # We prefer the OpenAI-compatible endpoint because LiteLLM's dashscope/
@@ -91,43 +109,92 @@ class AIClient:
         except Exception as exc:
             log.warning('ai_usage_report_failed', model=model, error=str(exc))
 
+    async def _call_with_failover(
+        self,
+        messages: list[dict],
+        pool: str,
+        model: str | None,
+        *,
+        json_mode: bool = False,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ):
+        """Call litellm with automatic pool advance on hard errors (403, quota, etc).
+        After 3 consecutive hard failures on dashscope, falls back to Gemini."""
+        attempted: set[str] = set()
+        consecutive_hard_failures = 0
+        _GEMINI_FALLBACK_AFTER = 3
+
+        for _ in range(20):  # generous upper bound
+            m = await self._resolve_model(model, pool)
+
+            # Dashscope pool exhausted — fall back to Gemini
+            if consecutive_hard_failures >= _GEMINI_FALLBACK_AFTER or m in attempted:
+                gemini = _normalize_model(settings.default_ai_model)
+                if gemini.startswith('gemini/') and settings.google_ai_api_key:
+                    log.warning(
+                        'ai_gemini_fallback', pool=pool,
+                        reason=f'{consecutive_hard_failures} consecutive hard failures',
+                    )
+                    try:
+                        kwargs: dict = dict(
+                            model=gemini, messages=messages,
+                            temperature=temperature, max_tokens=max_tokens,
+                        )
+                        if json_mode:
+                            kwargs['response_format'] = {'type': 'json_object'}
+                        response = await litellm.acompletion(**kwargs)
+                        return gemini, response
+                    except Exception as exc:
+                        log.error('ai_gemini_fallback_failed', error=str(exc))
+                        raise
+                raise RuntimeError(f'All models in pool "{pool}" failed and no Gemini key configured')
+
+            attempted.add(m)
+            extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
+            effective_model = extra.pop('_override_model', m)
+            kwargs = dict(
+                model=effective_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **extra,
+            )
+            if json_mode:
+                kwargs['response_format'] = {'type': 'json_object'}
+
+            try:
+                response = await litellm.acompletion(**kwargs)
+                await self._report_usage(m, pool, response)
+                return m, response
+            except Exception as exc:
+                log.error('ai_completion_failed', model=m, error=str(exc))
+                if _is_hard_error(exc) and m.startswith('dashscope/'):
+                    consecutive_hard_failures += 1
+                    next_m = await force_advance(pool, m, reason=str(exc)[:120])
+                    model = None  # let _resolve_model pick next active model
+                    log.info('ai_failover', pool=pool, next_model=next_m,
+                             consecutive_failures=consecutive_hard_failures)
+                    continue
+                raise  # transient / unexpected — don't loop
+
+        raise RuntimeError(f'All models in pool "{pool}" failed or exhausted')
+
     async def complete_json(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
     ) -> dict:
-        m = await self._resolve_model(model, pool)
-        extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
-        # _override_model switches the provider; pop it so it's not passed to litellm
-        effective_model = extra.pop('_override_model', m)
-        try:
-            response = await litellm.acompletion(
-                model=effective_model,
-                messages=messages,
-                response_format={'type': 'json_object'},
-                temperature=0.3,
-                max_tokens=2048,
-                **extra,
-            )
-            await self._report_usage(m, pool, response)
-            content = response.choices[0].message.content or '{}'
-            return json.loads(content)
-        except Exception as exc:
-            log.error('ai_completion_failed', model=m, error=str(exc))
-            raise
+        _, response = await self._call_with_failover(
+            messages, pool, model, json_mode=True, temperature=0.3, max_tokens=2048,
+        )
+        content = response.choices[0].message.content or '{}'
+        return json.loads(content)
 
     async def complete_text(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
     ) -> str:
-        m = await self._resolve_model(model, pool)
-        extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
-        effective_model = extra.pop('_override_model', m)
-        response = await litellm.acompletion(
-            model=effective_model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1024,
-            **extra,
+        _, response = await self._call_with_failover(
+            messages, pool, model, temperature=0.7, max_tokens=1024,
         )
-        await self._report_usage(m, pool, response)
         return response.choices[0].message.content or ''
 
     async def extract_image_text(
