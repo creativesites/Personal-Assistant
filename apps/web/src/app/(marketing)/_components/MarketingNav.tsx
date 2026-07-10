@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useAuth } from '@clerk/nextjs'
 
 const NAV_LINKS = [
   { label: 'Zuri WhatsApp', href: '/whatsapp' },
@@ -12,6 +13,7 @@ const NAV_LINKS = [
 
 export function MarketingNav() {
   const [open, setOpen] = useState(false)
+  const { isSignedIn } = useAuth()
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
@@ -41,15 +43,26 @@ export function MarketingNav() {
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 transition-colors px-3 py-2">
-              Sign in
-            </Link>
-            <Link
-              href="/register"
-              className="text-sm bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors font-semibold shadow-sm"
-            >
-              Get started free
-            </Link>
+            {isSignedIn ? (
+              <Link
+                href="/dashboard"
+                className="text-sm bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors font-semibold shadow-sm"
+              >
+                Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 transition-colors px-3 py-2">
+                  Sign in
+                </Link>
+                <Link
+                  href="/register"
+                  className="text-sm bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors font-semibold shadow-sm"
+                >
+                  Get started free
+                </Link>
+              </>
+            )}
           </div>
 
           <button
@@ -79,18 +92,32 @@ export function MarketingNav() {
               </Link>
             ))}
             <div className="pt-3 space-y-2">
-              <Link
-                href="/login"
-                className="block text-center py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/register"
-                className="block text-center py-3 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors font-semibold"
-              >
-                Get started free
-              </Link>
+              {isSignedIn ? (
+                <Link
+                  href="/dashboard"
+                  onClick={() => setOpen(false)}
+                  className="block text-center py-3 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors font-semibold"
+                >
+                  Dashboard
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setOpen(false)}
+                    className="block text-center py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Sign in
+                  </Link>
+                  <Link
+                    href="/register"
+                    onClick={() => setOpen(false)}
+                    className="block text-center py-3 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors font-semibold"
+                  >
+                    Get started free
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}

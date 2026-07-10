@@ -5,6 +5,7 @@ import {
   ShoppingBag, Wrench, Stethoscope, Building2, UtensilsCrossed,
   Plane, Scale, GraduationCap, Smartphone, CreditCard,
 } from 'lucide-react'
+import { AuthCta } from '../_components/AuthCta'
 
 export const metadata: Metadata = {
   title: 'Zuri WhatsApp — AI-Powered WhatsApp CRM for Growing Businesses',
@@ -78,6 +79,8 @@ const PRICING = [
     ],
     cta: 'Start free trial',
     href: '/register',
+    dashboardCta: 'Go to Dashboard',
+    dashboardHref: '/dashboard',
     highlight: false,
   },
   {
@@ -95,6 +98,8 @@ const PRICING = [
     ],
     cta: 'Start free trial',
     href: '/register',
+    dashboardCta: 'Go to Dashboard',
+    dashboardHref: '/dashboard',
     highlight: true,
   },
   {
@@ -112,6 +117,8 @@ const PRICING = [
     ],
     cta: 'Contact us',
     href: '/contact',
+    dashboardCta: 'Contact us',
+    dashboardHref: '/contact',
     highlight: false,
   },
 ]
@@ -198,13 +205,11 @@ export default function WhatsAppProductPage() {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start mb-8">
-              <Link
-                href="/register"
+              <AuthCta
                 className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all duration-200 shadow-lg shadow-indigo-200 text-base"
-              >
-                Start free — no credit card
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+                loggedOut={{ href: '/register', children: <>Start free — no credit card<ArrowRight className="w-4 h-4" /></> }}
+                loggedIn={{ href: '/dashboard', children: <>Go to Dashboard<ArrowRight className="w-4 h-4" /></> }}
+              />
               <Link
                 href="/how-it-works"
                 className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-white text-gray-700 font-semibold rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-base"
@@ -332,16 +337,15 @@ export default function WhatsAppProductPage() {
                   ))}
                 </ul>
 
-                <Link
-                  href={plan.href}
+                <AuthCta
                   className={`block text-center py-3.5 rounded-xl font-semibold text-sm transition-colors ${
                     plan.highlight
                       ? 'bg-white text-indigo-600 hover:bg-indigo-50'
                       : 'bg-indigo-600 text-white hover:bg-indigo-700'
                   }`}
-                >
-                  {plan.cta}
-                </Link>
+                  loggedOut={{ href: plan.href, children: plan.cta }}
+                  loggedIn={{ href: plan.dashboardHref, children: plan.dashboardCta }}
+                />
               </div>
             ))}
           </div>
@@ -407,13 +411,11 @@ export default function WhatsAppProductPage() {
           <p className="text-gray-500 text-lg mb-8 leading-relaxed">
             Join businesses across Zambia using Zuri to respond faster, close more deals, and keep every customer happy.
           </p>
-          <Link
-            href="/register"
+          <AuthCta
             className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-xl shadow-indigo-200 text-base"
-          >
-            Start your free trial
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+            loggedOut={{ href: '/register', children: <>Start your free trial<ArrowRight className="w-4 h-4" /></> }}
+            loggedIn={{ href: '/dashboard', children: <>Go to Dashboard<ArrowRight className="w-4 h-4" /></> }}
+          />
           <p className="text-gray-400 text-sm mt-4">30-day trial · No credit card · Cancel anytime</p>
         </div>
       </section>
