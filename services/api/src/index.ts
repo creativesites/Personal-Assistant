@@ -5,6 +5,7 @@ import { redis } from './lib/redis';
 import { redisSub, startRedisSubscriber } from './lib/redis-subscriber';
 import { setupSocket } from './lib/socket';
 import { config } from './config';
+import { startSocialPublishWorker } from './workers/social-publish-worker';
 
 async function main() {
   const app = await buildApp();
@@ -26,8 +27,12 @@ async function main() {
   startRedisSubscriber(io);
   app.log.info('Redis subscriber running');
 
+  const socialPublishWorker = startSocialPublishWorker(app.log);
+  app.log.info('Social publish worker running');
+
   const shutdown = async () => {
     app.log.info('Shutting down...');
+    socialPublishWorker.stop();
     await app.close();
     redisSub.disconnect();
     await redis.quit();

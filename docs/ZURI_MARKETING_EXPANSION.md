@@ -1,7 +1,7 @@
 # Zuri Marketing Expansion: From WhatsApp CRM to Social Commerce Operating System
 
 **Date**: July 2026
-**Status**: Phase A (public marketing site) shipped and live. Phase B, Phase 0 (foundation) shipped: `marketing_access` entitlement column + `products` table (migration `0031`), `/studio` dashboard route with the waitlist pitch (§12.3), Studio nav item gated on the entitlement (§12.4/12.6), `FeatureGate`'s `entitlements` prop wired to real data, and a minimal products API behind the `beta`/`enabled` gate. Content Generator, Scheduled Posts and Connected Accounts are still "coming soon" placeholders inside `/studio` — not yet built. §12 covers how it integrates into the existing dashboard, since both products need to feel like one system, not two apps bolted together.
+**Status**: Phase A (public marketing site) shipped and live. Phase B's original MVP scope (§10/Appendix: Product Catalog, AI Content Generator, Publishing & Scheduling, Dashboard Updates, Funnel Tracking) is fully shipped end to end — see §13 for the build log and the one consistent, clearly-flagged gap across all of it (no real Meta/TikTok developer app). Now building into the Appendix's "Phase 2 Ideas" — first pick: Advanced analytics + recommendations (§13). §12 covers how it integrates into the existing dashboard, since both products need to feel like one system, not two apps bolted together.
 
 ---
 
@@ -253,6 +253,24 @@ No separate "Zuri Marketing dashboard" with its own shell, its own contacts list
 
 ---
 
+## 13. Build Log
+
+**Phase 0 — Foundation.** `marketing_access` entitlement column + `products` table (migration `0031`), `/studio` dashboard route with the waitlist pitch (§12.3), Studio nav item gated on the entitlement (§12.4/12.6), `FeatureGate`'s `entitlements` prop wired to real data, and a minimal products API behind the `beta`/`enabled` gate.
+
+**Phase 1 — AI Content Generator.** `content_generations` audit-trail table (migration `0032`), a `services/intelligence` route (`POST /internal/content/generate`, via `AIClient`/`model_router`) that turns a product into a description, a social caption, and a video script, an API proxy that persists each as its own row, and a live "Generate content" flow inside `/studio`'s product cards.
+
+**Phase 2 — Publishing & Scheduling.** `social_accounts` + `social_posts` tables (migration `0033`, same draft/scheduled/sending/sent/failed/cancelled lifecycle as `broadcasts`), API routes for connecting accounts and creating/scheduling/cancelling posts, a minute-by-minute polling worker (`services/api/src/workers/social-publish-worker.ts` — a plain sleep-and-check loop matching this codebase's existing house style rather than a BullMQ repeatable job) that publishes due posts, a Settings "Connected Accounts" tab, and a "Scheduled Posts" composer + list inside `/studio`.
+**Caveat**: no Meta/TikTok developer app is configured anywhere in this repo, so real OAuth and real Graph API publishing are not wired end to end — connecting an account records a row directly (no OAuth redirect), and the publish worker's Facebook code path only calls the real Graph API when `social_accounts.access_token` is non-null, which today it never is; every publish currently succeeds via a mock `platformPostId`. The full pipeline (data model, UI, scheduling, status transitions, retry/cancel) is real and testable today — swapping in real credentials later only touches the connect flow and `access_token`.
+
+**Phase 3 — Funnel Tracking.** `contacts.source_product_id`/`source_social_post_id` (migration `0034`) let a contact be attributed to the product/post that brought them in — set manually (in the contact's Edit panel, gated on `marketing_access`) since there's no live click-tracking to do it automatically. `GET /api/analytics/campaigns` aggregates leads and sales per sent post and per product, surfaced in a "Campaigns" tab added to all 11 existing Analytics pages' sub-nav.
+**Caveat**: what's shown is real attribution data (leads/sales a human tagged), not real engagement metrics (reach/likes/comments/video views) — those require live Graph API Insights calls this repo has no credentials for, so they were deliberately not fabricated.
+
+This completes the Appendix's original Phase 1 MVP scope end to end, with real Meta/TikTok credentials being the one consistently-flagged gap across all of it.
+
+**Phase 2 Ideas, first pick — Advanced analytics + recommendations.** Extended `getCampaignStats()` (shared by the campaigns GET and the new recommendations POST, so they never drift apart) with a `postingTimes` bucket (day-of-week × hour-of-day, ranked by attributed leads) and a `conversionRate` per product (`sales / leads`). Added `POST /internal/content/recommendations` in `services/intelligence` — takes the exact stats JSON the Campaigns page shows and asks the model for 3-5 specific, data-grounded suggestions (not generic advice); proxied through `POST /api/analytics/campaigns/recommendations`, on-demand rather than computed on every page load. The Campaigns page gets a "Best posting times" table and a "Generate recommendations" button + list.
+
+---
+
 ## Appendix: Original July 2026 Draft (superseded by the above, kept for history)
 
 ### Vision
@@ -267,7 +285,7 @@ Transform Zuri from a WhatsApp-centric AI Relationship OS into a full Social Com
 
 ### Phase 2 Ideas (as originally drafted)
 - Full ad management (Marketing API)
-- Advanced analytics + recommendations
+- ✅ Advanced analytics + recommendations — shipped, see §13
 - TikTok deeper integration
 - Inventory → accounting sync
 - Multi-business / team features

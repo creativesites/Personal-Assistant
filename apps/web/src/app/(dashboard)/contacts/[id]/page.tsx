@@ -55,6 +55,10 @@ interface ContactDetail {
   pipelineStage?: string
   leadScore: number
   source: string
+  sourceProductId?: string | null
+  sourceProductName?: string | null
+  sourceSocialPostId?: string | null
+  sourceSocialPostCaption?: string | null
   avatarUrl: string | null
   lastMessageAt: string | null
   createdAt: string
@@ -971,12 +975,21 @@ interface EditForm {
   name: string; phoneNumber: string; email: string; company: string
   jobTitle: string; industry: string; website: string; notes: string
   customerStatus: string; pipelineStage: string; leadScore: string
+  sourceProductId: string; sourceSocialPostId: string
 }
 
 function EditSlideOver({ contact, token, onClose, onSaved }: {
   contact: ContactDetail; token: string; onClose: () => void; onSaved: () => void
 }) {
   const { addToast } = useToast()
+  const session = useZuriSession()
+  const hasMarketingAccess = session.data?.marketingAccess === 'beta' || session.data?.marketingAccess === 'enabled'
+  const { data: productsData } = useApi<{ products: { id: string; name: string }[] }>(
+    hasMarketingAccess ? '/api/products' : null, token,
+  )
+  const { data: postsData } = useApi<{ posts: { id: string; platform: string; caption: string }[] }>(
+    hasMarketingAccess ? '/api/social-posts' : null, token,
+  )
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<EditForm>({
     name:           contact.customName ?? contact.displayName ?? '',
@@ -990,6 +1003,8 @@ function EditSlideOver({ contact, token, onClose, onSaved }: {
     customerStatus: contact.customerStatus ?? 'contact',
     pipelineStage:  contact.pipelineStage ?? '',
     leadScore:      String(contact.leadScore ?? 0),
+    sourceProductId:    contact.sourceProductId ?? '',
+    sourceSocialPostId: contact.sourceSocialPostId ?? '',
   })
 
   const set = (field: keyof EditForm) => (
@@ -1013,6 +1028,10 @@ function EditSlideOver({ contact, token, onClose, onSaved }: {
           customerStatus: form.customerStatus,
           pipelineStage:  form.pipelineStage || null,
           leadScore:      parseInt(form.leadScore) || 0,
+          ...(hasMarketingAccess ? {
+            sourceProductId:    form.sourceProductId || null,
+            sourceSocialPostId: form.sourceSocialPostId || null,
+          } : {}),
         }),
       })
       addToast({ variant: 'success', title: 'Contact saved' })
@@ -1089,6 +1108,30 @@ function EditSlideOver({ contact, token, onClose, onSaved }: {
               </label>
             </div>
           </div>
+          {hasMarketingAccess && (
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-3">Lead Source</p>
+              <p className="text-xs text-gray-400 mb-3">
+                Which product or post brought this contact in — set manually since there's no live click-tracking yet.
+              </p>
+              <div className="space-y-3">
+                <label className="block"><span className={labelCls}>Product</span>
+                  <select value={form.sourceProductId} onChange={set('sourceProductId')} className={inputCls}>
+                    <option value="">None</option>
+                    {(productsData?.products ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
+                <label className="block"><span className={labelCls}>Social post</span>
+                  <select value={form.sourceSocialPostId} onChange={set('sourceSocialPostId')} className={inputCls}>
+                    <option value="">None</option>
+                    {(postsData?.posts ?? []).map(p => (
+                      <option key={p.id} value={p.id}>{p.platform} — {p.caption.slice(0, 40)}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
           <div>
             <label className="block"><span className={labelCls}>Notes</span>
               <textarea value={form.notes} onChange={set('notes')} rows={4}
