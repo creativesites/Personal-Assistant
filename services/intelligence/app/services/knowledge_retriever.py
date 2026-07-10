@@ -6,10 +6,16 @@ for agent context injection during autonomous response generation.
 """
 
 import re
+import csv
+import io
+from pathlib import Path
 import structlog
 import httpx
 import numpy as np
+import pdfplumber
+from openpyxl import load_workbook
 from ..ai.client import get_ai_client
+from ..config import settings
 from ..database import get_pool
 
 log = structlog.get_logger()
@@ -90,6 +96,68 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _safe_storage_path(storage_path: str) -> Path:
+    path = Path(storage_path)
+    if not path.is_absolute():
+        path = Path(settings.kb_storage_dir) / path
+    resolved = path.resolve()
+    root = Path(settings.kb_storage_dir).resolve()
+    if root not in resolved.parents and resolved != root:
+        raise ValueError('Document storage path is outside KB storage directory')
+    return resolved
+
+
+def _extract_pdf_text(file_path: Path) -> str:
+    pages: list[str] = []
+    with pdfplumber.open(str(file_path)) as pdf:
+        for idx, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ''
+            if text.strip():
+                pages.append(f'=== Page {idx} ===\n{text.strip()}')
+    return '\n\n'.join(pages)
+
+
+def _extract_workbook_text(file_path: Path) -> str:
+    workbook = load_workbook(filename=str(file_path), read_only=True, data_only=True)
+    sections: list[str] = []
+    for sheet in workbook.worksheets:
+        rows: list[str] = []
+        for row in sheet.iter_rows(values_only=True):
+            values = [str(cell).strip() for cell in row if cell is not None and str(cell).strip()]
+            if values:
+                rows.append(' | '.join(values))
+        if rows:
+            sections.append(f"=== Sheet: {sheet.title} ===\n" + '\n'.join(rows))
+    workbook.close()
+    return '\n\n'.join(sections)
+
+
+def _extract_csv_text(file_path: Path) -> str:
+    raw = file_path.read_text(encoding='utf-8', errors='ignore')
+    rows = csv.reader(io.StringIO(raw))
+    return '\n'.join(' | '.join(cell.strip() for cell in row if cell.strip()) for row in rows)
+
+
+async def _extract_file_text(source_type: str, storage_path: str, mime_type: str | None) -> str:
+    file_path = _safe_storage_path(storage_path)
+    if not file_path.exists():
+        raise ValueError('Uploaded file is missing from KB storage')
+
+    if source_type == 'pdf':
+        return _extract_pdf_text(file_path)
+    if source_type == 'excel':
+        return _extract_workbook_text(file_path)
+    if source_type == 'csv':
+        return _extract_csv_text(file_path)
+    if source_type == 'image':
+        client = get_ai_client()
+        return await client.extract_image_text(
+            image_bytes=file_path.read_bytes(),
+            mime_type=mime_type or 'image/jpeg',
+        )
+    return file_path.read_text(encoding='utf-8', errors='ignore')
+
+
 async def process_document(document_id: str, user_id: str) -> None:
     """
     Process a KB document by chunking its content and generating embeddings.
@@ -108,7 +176,8 @@ async def process_document(document_id: str, user_id: str) -> None:
     async with pool.acquire() as conn:
         doc = await conn.fetchrow(
             """
-            SELECT id, user_id, agent_id, title, source_type, source_url, raw_content, status
+            SELECT id, user_id, agent_id, title, source_type, source_url,
+                   raw_content, storage_path, mime_type, status
             FROM kb_documents
             WHERE id = $1 AND user_id = $2
             """,
@@ -144,8 +213,30 @@ async def process_document(document_id: str, user_id: str) -> None:
                     document_id,
                 )
 
+        if not raw_content.strip() and doc['storage_path']:
+            raw_content = await _extract_file_text(
+                doc['source_type'],
+                doc['storage_path'],
+                doc['mime_type'],
+            )
+            word_count = len(raw_content.split())
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE kb_documents
+                    SET raw_content = $1, word_count = $2, extracted_at = NOW(), updated_at = NOW()
+                    WHERE id = $3
+                    """,
+                    raw_content,
+                    word_count,
+                    document_id,
+                )
+
         if not raw_content.strip():
             raise ValueError('Document has no text content to process')
+
+        async with pool.acquire() as conn:
+            await conn.execute('DELETE FROM kb_chunks WHERE document_id = $1', document_id)
 
         chunks = _split_into_chunks(raw_content)
         if not chunks:
@@ -226,8 +317,8 @@ async def retrieve_relevant_chunks(
     Retrieve the most semantically relevant KB chunks for a query.
 
     Generates a query embedding, then performs a cosine-distance vector search
-    against kb_chunks for the user (optionally scoped to a specific agent's
-    documents or the global KB).
+    against kb_chunks for the user. Agent lookups include agent-specific docs,
+    global docs, and general company/business docs.
 
     Returns a list of dicts with 'content' and 'score' keys, sorted by
     relevance descending. Returns an empty list if embeddings are unavailable
@@ -242,10 +333,10 @@ async def retrieve_relevant_chunks(
         query_embedding = await client.embed(query[:2000])
     except Exception as exc:
         log.warning('kb_query_embed_failed', error=str(exc))
-        return []
+        query_embedding = None
 
     if query_embedding is None:
-        return []
+        return await _keyword_retrieve(user_id, agent_id, query, limit)
 
     query_vec = np.array(
         query_embedding if isinstance(query_embedding, list) else list(query_embedding),
@@ -258,12 +349,18 @@ async def retrieve_relevant_chunks(
             # Include chunks from this agent's documents and the global KB (agent_id IS NULL)
             rows = await conn.fetch(
                 """
-                SELECT kc.content, 1 - (kc.embedding <-> $1) AS score
+                SELECT kc.content, 1 - (kc.embedding <-> $1) AS score,
+                       kd.id AS document_id, kd.title AS document_title,
+                       kd.source_type, kd.category
                 FROM kb_chunks kc
                 JOIN kb_documents kd ON kd.id = kc.document_id
                 WHERE kc.user_id = $2
                   AND kc.embedding IS NOT NULL
-                  AND (kd.agent_id = $3 OR kd.agent_id IS NULL)
+                  AND (
+                    kd.agent_id = $3
+                    OR kd.agent_id IS NULL
+                    OR kd.category ILIKE ANY(ARRAY['company','business','policies','products','pricing'])
+                  )
                   AND kd.status = 'ready'
                 ORDER BY kc.embedding <-> $1
                 LIMIT $4
@@ -276,7 +373,9 @@ async def retrieve_relevant_chunks(
         else:
             rows = await conn.fetch(
                 """
-                SELECT kc.content, 1 - (kc.embedding <-> $1) AS score
+                SELECT kc.content, 1 - (kc.embedding <-> $1) AS score,
+                       kd.id AS document_id, kd.title AS document_title,
+                       kd.source_type, kd.category
                 FROM kb_chunks kc
                 JOIN kb_documents kd ON kd.id = kc.document_id
                 WHERE kc.user_id = $2
@@ -290,7 +389,24 @@ async def retrieve_relevant_chunks(
                 limit,
             )
 
-    results = [{'content': row['content'], 'score': float(row['score'])} for row in rows]
+        if rows:
+            doc_ids = list({row['document_id'] for row in rows})
+            await conn.execute(
+                'UPDATE kb_documents SET used_count = used_count + 1, last_used_at = NOW() WHERE id = ANY($1::uuid[])',
+                doc_ids,
+            )
+
+    results = [
+        {
+            'content': row['content'],
+            'score': float(row['score']),
+            'document_id': str(row['document_id']),
+            'document_title': row['document_title'],
+            'source_type': row['source_type'],
+            'category': row['category'],
+        }
+        for row in rows
+    ]
 
     log.debug(
         'kb_chunks_retrieved',
@@ -301,6 +417,51 @@ async def retrieve_relevant_chunks(
     )
 
     return results
+
+
+async def _keyword_retrieve(user_id: str, agent_id: str | None, query: str, limit: int) -> list[dict]:
+    terms = [term for term in re.findall(r'[A-Za-z0-9]{3,}', query.lower())[:8]]
+    if not terms:
+        return []
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT kc.content,
+                   0.35::float AS score,
+                   kd.id AS document_id,
+                   kd.title AS document_title,
+                   kd.source_type,
+                   kd.category
+            FROM kb_chunks kc
+            JOIN kb_documents kd ON kd.id = kc.document_id
+            WHERE kc.user_id = $1
+              AND kd.status = 'ready'
+              AND ($2::uuid IS NULL OR kd.agent_id = $2 OR kd.agent_id IS NULL)
+              AND EXISTS (
+                SELECT 1 FROM unnest($3::text[]) term
+                WHERE kc.content ILIKE '%' || term || '%'
+              )
+            ORDER BY kd.updated_at DESC, kc.chunk_index ASC
+            LIMIT $4
+            """,
+            user_id,
+            agent_id,
+            terms,
+            limit,
+        )
+
+    return [
+        {
+            'content': row['content'],
+            'score': float(row['score']),
+            'document_id': str(row['document_id']),
+            'document_title': row['document_title'],
+            'source_type': row['source_type'],
+            'category': row['category'],
+        }
+        for row in rows
+    ]
 
 
 async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[dict]:

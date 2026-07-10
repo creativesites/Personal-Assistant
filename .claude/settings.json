@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(psql postgresql://zuri:zuridev@localhost:5432/zuri_dev -c \"SELECT user_id, status, last_connected_at, updated_at FROM whatsapp_instances ORDER BY updated_at DESC LIMIT 5;\")",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

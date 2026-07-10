@@ -1,5 +1,6 @@
 import json
 import os
+import base64
 import litellm
 import structlog
 from ..config import settings
@@ -7,12 +8,47 @@ from .model_router import get_active_model, report_usage
 
 log = structlog.get_logger()
 
+# True when a private Alibaba MaaS workspace is configured.
+# We prefer the OpenAI-compatible endpoint because LiteLLM's dashscope/
+# provider ignores api_base and always dials the public DashScope URL.
+_USE_ALIBABA_CUSTOM_ENDPOINT = bool(
+    settings.alibaba_ai_api_key
+    and (settings.alibaba_openai_compatible_host or settings.alibaba_api_host)
+)
+
 
 def _normalize_model(model: str) -> str:
     """Ensure provider prefix is present for Gemini models used via AI Studio."""
     if model.startswith('gemini-'):
         return f'gemini/{model}'
     return model
+
+
+def _build_dashscope_kwargs(model: str) -> dict:
+    """
+    Route dashscope/ models through the Alibaba MaaS OpenAI-compatible endpoint.
+
+    LiteLLM's built-in dashscope/ provider hardcodes the public DashScope base
+    URL and silently ignores api_base overrides, so we switch to the openai/
+    provider (which fully supports api_base) and point it at the
+    /compatible-mode/v1 path of the private workspace.
+
+    Falls back to standard dashscope/ routing (DASHSCOPE_API_KEY) if no
+    custom endpoint is configured.
+    """
+    if not _USE_ALIBABA_CUSTOM_ENDPOINT:
+        return {}  # standard dashscope/ routing — nothing extra needed
+
+    # Prefer the OpenAI-compatible path; fall back to api_host if only that is set
+    base = settings.alibaba_openai_compatible_host or settings.alibaba_api_host
+
+    # LiteLLM openai/ provider: strip the dashscope/ prefix
+    model_name = model.split('/', 1)[-1]
+    return {
+        '_override_model': f'openai/{model_name}',
+        'api_base': base,
+        'api_key': settings.alibaba_ai_api_key,
+    }
 
 
 class AIClient:
@@ -23,8 +59,15 @@ class AIClient:
             litellm.openai_key = settings.openai_api_key
         if settings.google_ai_api_key:
             os.environ['GEMINI_API_KEY'] = settings.google_ai_api_key
-        if settings.dashscope_api_key:
+        # Only set the standard DASHSCOPE_API_KEY when NOT using the custom endpoint
+        if settings.dashscope_api_key and not _USE_ALIBABA_CUSTOM_ENDPOINT:
             os.environ['DASHSCOPE_API_KEY'] = settings.dashscope_api_key
+
+        if _USE_ALIBABA_CUSTOM_ENDPOINT:
+            log.info(
+                'alibaba_maas_endpoint_active',
+                host=settings.alibaba_openai_compatible_host,
+            )
 
         # Silence noisy litellm logging
         litellm.set_verbose = False
@@ -36,6 +79,7 @@ class AIClient:
         return routed or _normalize_model(settings.default_ai_model)
 
     async def _report_usage(self, model: str, pool: str, response) -> None:
+        # model is the original dashscope/ name; track under that for pool rotation
         if not model.startswith('dashscope/'):
             return
         usage = getattr(response, 'usage', None)
@@ -51,13 +95,17 @@ class AIClient:
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
     ) -> dict:
         m = await self._resolve_model(model, pool)
+        extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
+        # _override_model switches the provider; pop it so it's not passed to litellm
+        effective_model = extra.pop('_override_model', m)
         try:
             response = await litellm.acompletion(
-                model=m,
+                model=effective_model,
                 messages=messages,
                 response_format={'type': 'json_object'},
                 temperature=0.3,
                 max_tokens=2048,
+                **extra,
             )
             await self._report_usage(m, pool, response)
             content = response.choices[0].message.content or '{}'
@@ -70,13 +118,50 @@ class AIClient:
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
     ) -> str:
         m = await self._resolve_model(model, pool)
+        extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
+        effective_model = extra.pop('_override_model', m)
         response = await litellm.acompletion(
-            model=m,
+            model=effective_model,
             messages=messages,
             temperature=0.7,
             max_tokens=1024,
+            **extra,
         )
         await self._report_usage(m, pool, response)
+        return response.choices[0].message.content or ''
+
+    async def extract_image_text(
+        self,
+        *,
+        image_bytes: bytes,
+        mime_type: str,
+        prompt: str | None = None,
+    ) -> str:
+        m = await self._resolve_model(None, 'ocr')
+        extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
+        effective_model = extra.pop('_override_model', m)
+        data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        response = await litellm.acompletion(
+            model=effective_model,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'text',
+                        'text': prompt or (
+                            'Extract all readable text from this business document/image. '
+                            'Preserve prices, product names, contact details, policies, dates, '
+                            'tables, labels, addresses, and phone numbers. Return plain text only.'
+                        ),
+                    },
+                    {'type': 'image_url', 'image_url': {'url': data_url}},
+                ],
+            }],
+            temperature=0.1,
+            max_tokens=4096,
+            **extra,
+        )
+        await self._report_usage(m, 'ocr', response)
         return response.choices[0].message.content or ''
 
     async def embed(self, text: str) -> list[float] | None:

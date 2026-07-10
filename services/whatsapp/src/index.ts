@@ -14,14 +14,18 @@ async function main() {
   await redis.connect();
   redis.on('error', (err) => console.error('Redis error:', err));
 
-  const createTransport: TransportFactory = (userId, phoneNumber) =>
-    new BaileysTransport(userId, config.SESSIONS_DIR, phoneNumber);
+  const createTransport: TransportFactory = (userId, phoneNumber, forceNewQR) =>
+    new BaileysTransport(userId, config.SESSIONS_DIR, phoneNumber, forceNewQR);
 
   const sessionManager = new SessionManager(db, redis, config.REDIS_URL, createTransport);
 
   const app = await buildApp(sessionManager);
 
   const replyWorker = startReplyConsumer(sessionManager, db, config.REDIS_URL);
+
+  await sessionManager.resetStaleStates().catch((err: Error) =>
+    app.log.error({ err }, 'resetStaleStates failed'),
+  );
 
   sessionManager.restoreAll().catch((err: Error) =>
     app.log.error({ err }, 'Session restore failed'),
@@ -32,6 +36,11 @@ async function main() {
 
   const shutdown = async () => {
     app.log.info('Shutting down...');
+    try {
+      await sessionManager.stopAll();
+    } catch (err) {
+      app.log.error({ err }, 'Error stopping session manager');
+    }
     await replyWorker.close();
     await app.close();
     await redis.quit();

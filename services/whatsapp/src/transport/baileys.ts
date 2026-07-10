@@ -46,18 +46,49 @@ function mimeToExt(mime: string): string {
   return MIME_TO_EXT[mime] ?? MIME_TO_EXT[mime.split(';')[0].trim()] ?? 'bin';
 }
 
+class WriteQueue {
+  private promise: Promise<void> = Promise.resolve();
+  private pendingCount = 0;
+
+  enqueue(fn: () => Promise<void> | void): Promise<void> {
+    this.pendingCount++;
+    const nextPromise = this.promise.then(async () => {
+      try {
+        await fn();
+      } catch (err) {
+        console.error('[write-queue] write failed:', err);
+      } finally {
+        this.pendingCount--;
+      }
+    });
+    this.promise = nextPromise;
+    return nextPromise;
+  }
+
+  async wait(): Promise<void> {
+    await this.promise;
+  }
+
+  getPendingCount(): number {
+    return this.pendingCount;
+  }
+}
+
 export class BaileysTransport extends WhatsAppTransport {
   readonly userId: string;
   private sock: WASocket | null = null;
   private _status: TransportStatus = 'idle';
   private _stopping = false;
   private _reconnectCount = 0;
+  private _badSessionCount = 0;
+  private readonly writeQueue = new WriteQueue();
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _qrTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly authPath: string;
   private readonly mediaDir: string;
+  private static cachedVersion: [number, number, number] | null = null;
 
-  constructor(userId: string, private readonly sessionsDir: string, private readonly pairingPhone?: string) {
+  constructor(userId: string, private readonly sessionsDir: string, private readonly pairingPhone?: string, private readonly forceNewQR = false) {
     super();
     this.userId = userId;
     this.authPath = path.join(sessionsDir, userId);
@@ -79,13 +110,36 @@ export class BaileysTransport extends WhatsAppTransport {
   async start(): Promise<void> {
     this._stopping = false;
     this._status = 'connecting';
+    // Clear stale auth once at session start — not on every internal reconnect.
+    // forceNewQR: user-triggered fresh connect. pairingPhone: creds.registered blocks requestPairingCode.
+    if (this.forceNewQR || this.pairingPhone) {
+      await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => {});
+    }
     await this._boot();
+  }
+
+  private async getBaileysVersion(): Promise<[number, number, number]> {
+    if (BaileysTransport.cachedVersion) {
+      return BaileysTransport.cachedVersion;
+    }
+    try {
+      const result = await fetchLatestBaileysVersion();
+      BaileysTransport.cachedVersion = result.version;
+      return result.version;
+    } catch (err) {
+      console.warn(`[baileys:${this.userId}] failed to fetch latest version, using fallback:`, err);
+      return [2, 3000, 1015920080];
+    }
   }
 
   async stop(): Promise<void> {
     this._stopping = true;
     this._clearQrTimer();
     this._clearReconnectTimer();
+
+    // Wait for any pending writes to finish
+    await this.writeQueue.wait();
+
     if (this.sock) {
       try { this.sock.ws.close(); } catch { /* ignore */ }
       this.sock = null;
@@ -125,19 +179,7 @@ export class BaileysTransport extends WhatsAppTransport {
   }
 
   private async _boot(): Promise<void> {
-    // For phone-code pairing, always start fresh — stale auth files have
-    // creds.registered = true which blocks requestPairingCode entirely.
-    if (this.pairingPhone) {
-      await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => {});
-    }
-
-    let version: [number, number, number];
-    try {
-      const result = await fetchLatestBaileysVersion();
-      version = result.version;
-    } catch {
-      version = [2, 3000, 1015920080];
-    }
+    const version = await this.getBaileysVersion();
 
     const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
 
@@ -147,15 +189,22 @@ export class BaileysTransport extends WhatsAppTransport {
       printQRInTerminal: false,
       logger: P({ level: 'silent' }),
       browser: ['Zuri', 'Chrome', '120.0.0'],
+      syncFullHistory: true,
     });
 
     this.sock = sock;
-    sock.ev.on('creds.update', saveCreds);
+
+    // Queue credential updates to prevent write race conditions
+    sock.ev.on('creds.update', () => {
+      if (sock !== this.sock) return;
+      this.writeQueue.enqueue(saveCreds);
+    });
 
     // For phone-code pairing: call requestPairingCode with retry after a short handshake delay.
     if (this.pairingPhone) {
       setTimeout(async () => {
         try {
+          if (sock !== this.sock) return;
           await this.requestPairingCodeWithRetry(this.pairingPhone!);
         } catch (err) {
           console.error(`[baileys:${this.userId}] pairing code retry exhausted:`, err);
@@ -165,6 +214,8 @@ export class BaileysTransport extends WhatsAppTransport {
     }
 
     sock.ev.on('connection.update', async (update) => {
+      if (sock !== this.sock) return;
+
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -181,6 +232,7 @@ export class BaileysTransport extends WhatsAppTransport {
         this._clearQrTimer();
         this._clearReconnectTimer();
         this._reconnectCount = 0;
+        this._badSessionCount = 0;
         this._status = 'connected';
         const raw = sock.user?.id ?? '';
         const phone = raw.split(':')[0].split('@')[0];
@@ -189,23 +241,43 @@ export class BaileysTransport extends WhatsAppTransport {
 
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-        const reason = this._mapReason(statusCode);
 
-        // Terminal conditions — need a new QR scan
-        if (reason === 'logged_out') {
+        if (statusCode === DisconnectReason.loggedOut) {
           this._clearQrTimer();
           this._status = 'idle';
-          // Clear stale auth so the next connect attempt starts fresh (shows QR / accepts phone code)
           await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => { /* ignore */ });
           this.emitDisconnected('logged_out');
           return;
         }
-        if (reason === 'bad_session') {
+
+        if (statusCode === DisconnectReason.connectionReplaced) {
           this._clearQrTimer();
+          this._clearReconnectTimer();
           this._status = 'idle';
-          await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => { /* ignore */ });
-          this.emitDisconnected('bad_session');
+          console.log(`[baileys:${this.userId}] connection replaced by another client. Stopping reconnect.`);
+          this.emitDisconnected('replaced');
           return;
+        }
+
+        if (statusCode === DisconnectReason.restartRequired) {
+          console.log(`[baileys:${this.userId}] server requested restart — reconnecting immediately`);
+          this._reconnectTimer = setTimeout(() => {
+            if (!this._stopping) this._boot().catch(console.error);
+          }, 500);
+          return;
+        }
+
+        if (statusCode === DisconnectReason.badSession) {
+          this._badSessionCount++;
+          console.warn(`[baileys:${this.userId}] bad_session received (attempt ${this._badSessionCount}/3)`);
+          if (this._badSessionCount > 3) {
+            this._clearQrTimer();
+            this._status = 'idle';
+            await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => { /* ignore */ });
+            this.emitDisconnected('bad_session');
+            return;
+          }
+          // Fall through to reconnect as network drop
         }
 
         if (this._stopping) return;
@@ -214,7 +286,7 @@ export class BaileysTransport extends WhatsAppTransport {
         const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, this._reconnectCount), RECONNECT_MAX_MS);
         this._reconnectCount++;
         this._status = 'connecting';
-        console.log(`[baileys:${this.userId}] network drop — reconnecting in ${Math.round(delay / 1000)}s (attempt ${this._reconnectCount})`);
+        console.log(`[baileys:${this.userId}] network drop (status ${statusCode}) — reconnecting in ${Math.round(delay / 1000)}s (attempt ${this._reconnectCount})`);
         this._reconnectTimer = setTimeout(() => {
           if (!this._stopping) this._boot().catch(console.error);
         }, delay);
@@ -222,6 +294,7 @@ export class BaileysTransport extends WhatsAppTransport {
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (sock !== this.sock) return;
       if (type !== 'notify') return;
       for (const msg of messages) {
         try {
@@ -235,9 +308,16 @@ export class BaileysTransport extends WhatsAppTransport {
 
     // Historical messages delivered on first connect — normalise then emit as a single batch
     // so the session manager can process them sequentially (avoid DB pool exhaustion).
-    sock.ev.on('messaging-history.set', async ({ messages }) => {
+    sock.ev.on('messaging-history.set', async ({ chats, contacts, messages }) => {
+      if (sock !== this.sock) return;
+
+      console.log(`[baileys:${this.userId}] historical sync: ${messages?.length ?? 0} messages, ${chats?.length ?? 0} chats`);
+
+      if (chats && chats.length > 0) {
+        this.emit('phone_chats', chats);
+      }
+
       if (!messages || messages.length === 0) return;
-      console.log(`[baileys:${this.userId}] historical sync: ${messages.length} raw messages`);
       const batch: import('./types').NormalisedMessage[] = [];
       for (const msg of messages) {
         try {
@@ -438,6 +518,7 @@ export class BaileysTransport extends WhatsAppTransport {
     switch (statusCode) {
       case DisconnectReason.loggedOut: return 'logged_out';
       case DisconnectReason.badSession: return 'bad_session';
+      case DisconnectReason.connectionReplaced: return 'replaced';
       default: return 'network';
     }
   }

@@ -163,24 +163,15 @@ export class MessageHandler {
   ): Promise<string> {
     const preview = lastPreview?.slice(0, 500) ?? null;
 
-    const { rows: [existing] } = await this.db.query<{ id: string }>(
-      `SELECT id FROM conversations WHERE user_id = $1 AND whatsapp_chat_id = $2`,
-      [userId, chatId],
-    );
-
-    if (existing) {
-      await this.db.query(
-        `UPDATE conversations
-         SET last_message_at = $1, last_message_preview = $2, updated_at = NOW()
-         WHERE id = $3`,
-        [timestamp, preview, existing.id],
-      );
-      return existing.id;
-    }
-
+    // Use ON CONFLICT to avoid race conditions when concurrent historical batches
+    // process messages from the same chat simultaneously.
     const { rows: [conv] } = await this.db.query<{ id: string }>(
       `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
        VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
+         last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at),
+         last_message_preview = EXCLUDED.last_message_preview,
+         updated_at = NOW()
        RETURNING id`,
       [userId, contactId, chatId, timestamp, preview],
     );

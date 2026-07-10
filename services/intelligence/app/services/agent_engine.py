@@ -5,17 +5,20 @@ Handles autonomous conversation responses for configured agents.
 Called by agent_worker when a new message arrives for an agent-assigned conversation.
 """
 
+import json
+
 import structlog
 from ..ai.client import get_ai_client
-from ..config import settings
 from ..database import get_pool
 from ..memory import retrieval_service as memory
 from ..models import AgentMemoryCandidate
-from ..queue import get_queue
+from ..queue import publish_event
+from .auto_response import AutoResponseService
 from .agent_memory import AgentMemoryService
 
 log = structlog.get_logger()
 _agent_memory = AgentMemoryService()
+_auto_response = AutoResponseService()
 
 
 def _format_agent_memories(memories: list[dict]) -> str:
@@ -80,6 +83,9 @@ Compose a single, natural reply and optionally call tools. Be concise. Stay with
 Do not mention that you are an AI unless the contact asks directly.
 Respond in the same language as the latest message.
 Use what you remember from past interactions where relevant, but don't mention that you have "memory" explicitly.
+Treat knowledge base content as the source of truth for company facts, prices, policies, services, hours,
+locations, product details, and user-specific business information. If the knowledge base does not contain
+the answer to a factual company question, say you will confirm rather than inventing details.
 
 Respond ONLY with a JSON object — no markdown, no extra text:
 {{
@@ -274,11 +280,12 @@ async def handle_agent_message(
         contact_context_parts.append(f'Relationship memory:\n{rel_mem_text}')
     contact_context = '\n'.join(contact_context_parts) if contact_context_parts else f'Name: {contact_name}'
 
-    kb_context = (
-        '\n\n'.join(f"[KB] {c['content']}" for c in kb_chunks)
-        if kb_chunks
-        else '(no knowledge base context available)'
-    )
+    kb_context = '(no knowledge base context available)'
+    if kb_chunks:
+        kb_context = '\n\n'.join(
+            f"[KB: {c.get('document_title', 'Untitled')} | score={c.get('score', 0):.2f}]\n{c['content']}"
+            for c in kb_chunks
+        )
     facts_text = memory.format_business_facts(business_facts)
     if facts_text:
         kb_context = f'{kb_context}\n\n{facts_text}'
@@ -395,7 +402,9 @@ async def handle_agent_message(
         message_length=len(reply_text),
     )
 
-    # Enqueue send job for autonomous and delegated trust levels
+    # Enqueue send job for autonomous and delegated trust levels. Lower-trust
+    # agents create normal suggested replies, and user Auto-send settings can
+    # promote that draft to an actual WhatsApp send.
     if trust_level in ('autonomous', 'delegated'):
         async with pool.acquire() as conn:
             contact_row = await conn.fetchrow(
@@ -410,16 +419,13 @@ async def handle_agent_message(
                 action_id=str(action_id),
             )
         else:
-            send_queue = get_queue('send.reply')
-            await send_queue.add(
-                'send',
-                {
-                    'userId': user_id,
-                    'messageId': message_id,
-                    'suggestedReplyId': None,
-                    'recipientJid': recipient_jid,
-                    'text': reply_text,
-                },
+            await _auto_response.enqueue_send(
+                user_id=user_id,
+                message_id=message_id,
+                suggested_reply_id=None,
+                recipient_jid=recipient_jid,
+                text=reply_text,
+                job_name='agent_send',
             )
             log.info(
                 'agent_send_job_enqueued',
@@ -427,6 +433,64 @@ async def handle_agent_message(
                 conversation_id=conversation_id,
                 trust_level=trust_level,
             )
+    else:
+        async with pool.acquire() as conn:
+            suggestion_id = await conn.fetchval(
+                """
+                INSERT INTO suggested_replies (message_id, suggestion_text, tone, reasoning)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+                """,
+                message_id,
+                reply_text,
+                agent['tone'] or 'professional',
+                reasoning or f"Agent {agent['name']} draft. Trust: {trust_level}.",
+            )
+
+        decision = await _auto_response.evaluate(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            contact_id=contact_id,
+            message_body=message_body,
+        )
+        if decision.should_send and decision.recipient_jid:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE suggested_replies
+                    SET status = 'approved', updated_at = NOW()
+                    WHERE id = $1 AND status = 'pending'
+                    """,
+                    suggestion_id,
+                )
+            await _auto_response.enqueue_send(
+                user_id=user_id,
+                message_id=message_id,
+                suggested_reply_id=str(suggestion_id),
+                recipient_jid=decision.recipient_jid,
+                text=reply_text,
+                delay_seconds=decision.delay_seconds,
+                job_name='agent_auto_send',
+            )
+            log.info(
+                'agent_auto_response_send_enqueued',
+                agent_id=agent_id,
+                suggestion_id=str(suggestion_id),
+                delay_seconds=decision.delay_seconds,
+            )
+        else:
+            log.info(
+                'agent_suggestion_created',
+                agent_id=agent_id,
+                suggestion_id=str(suggestion_id),
+                reason=decision.reason,
+                approval_mode=decision.approval_mode,
+            )
+
+        await publish_event(
+            f'suggestion:ready:{user_id}',
+            json.dumps({'messageId': message_id, 'count': 1, 'agentId': agent_id}),
+        )
 
     return {
         'action': 'responded',

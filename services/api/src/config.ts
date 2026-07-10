@@ -10,6 +10,7 @@ const envSchema = z.object({
   INTELLIGENCE_SERVICE_URL: z.string().url().default('http://localhost:8000'),
   INTERNAL_API_SECRET: z.string().default(''),
   CORS_ORIGIN: z.string().default(''),
+  KB_STORAGE_DIR: z.string().default('/app/kb-storage'),
 });
 
 export const config = envSchema.parse(process.env);

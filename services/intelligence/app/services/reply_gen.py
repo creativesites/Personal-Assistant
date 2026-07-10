@@ -7,12 +7,16 @@ from ..database import get_pool
 from ..models import MessageAnalysis, ReplySuggestions
 from ..queue import publish_event
 from ..memory import retrieval_service as memory
+from .auto_response import AutoResponseService
 from .web_search import get_web_search
 
 log = structlog.get_logger()
 
 
 class ReplyGenerator:
+    def __init__(self) -> None:
+        self._auto_response = AutoResponseService()
+
     async def generate(
         self,
         message_id: str,
@@ -148,18 +152,72 @@ class ReplyGenerator:
         suggestions_model = ReplySuggestions(**raw)
 
         pool = await get_pool()
+        inserted_suggestions = []
         async with pool.acquire() as conn:
             for s in suggestions_model.suggestions:
-                await conn.execute(
+                suggestion_id = await conn.fetchval(
                     'INSERT INTO suggested_replies (message_id, suggestion_text, tone, reasoning)'
-                    ' VALUES ($1, $2, $3, $4)',
+                    ' VALUES ($1, $2, $3, $4) RETURNING id',
                     message_id,
                     s.text,
                     s.tone,
                     s.reasoning,
                 )
+                inserted_suggestions.append({
+                    'id': str(suggestion_id),
+                    'text': s.text,
+                    'tone': s.tone,
+                    'reasoning': s.reasoning,
+                })
 
         log.info('replies_generated', message_id=message_id, count=len(suggestions_model.suggestions))
+
+        if inserted_suggestions:
+            decision = await self._auto_response.evaluate(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                contact_id=contact_id,
+                message_body=body,
+            )
+
+            if decision.should_send and decision.recipient_jid:
+                selected = inserted_suggestions[0]
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE suggested_replies
+                        SET status = CASE
+                              WHEN id = $2::uuid THEN 'approved'::reply_status
+                              ELSE 'dismissed'::reply_status
+                            END,
+                            updated_at = NOW()
+                        WHERE message_id = $1 AND status = 'pending'
+                        """,
+                        message_id,
+                        selected['id'],
+                    )
+
+                await self._auto_response.enqueue_send(
+                    user_id=user_id,
+                    message_id=message_id,
+                    suggested_reply_id=selected['id'],
+                    recipient_jid=decision.recipient_jid,
+                    text=selected['text'],
+                    delay_seconds=decision.delay_seconds,
+                )
+                log.info(
+                    'auto_response_send_enqueued',
+                    message_id=message_id,
+                    suggestion_id=selected['id'],
+                    delay_seconds=decision.delay_seconds,
+                )
+            else:
+                log.info(
+                    'auto_response_not_sent',
+                    message_id=message_id,
+                    reason=decision.reason,
+                    approval_mode=decision.approval_mode,
+                )
 
         await publish_event(
             f'suggestion:ready:{user_id}',

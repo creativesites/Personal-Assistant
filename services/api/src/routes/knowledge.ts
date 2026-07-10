@@ -4,6 +4,9 @@ import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { Queue } from 'bullmq'
 import { config } from '../config'
+import * as crypto from 'crypto'
+import * as fs from 'fs/promises'
+import * as path from 'path'
 
 // ─── BullMQ KB queue (mirrors pattern from agents.ts) ────────────────────────
 
@@ -510,7 +513,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
-      const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+      const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
 
       let data: any
       try {
@@ -532,6 +535,12 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       const filename: string = data.filename ?? ''
       const mimetype: string = data.mimetype ?? ''
       const fileSizeBytes = buf.length
+      const fields = data.fields ?? {}
+      const fieldValue = (name: string): string | undefined => {
+        const field = fields[name]
+        const value = Array.isArray(field) ? field[0]?.value : field?.value
+        return typeof value === 'string' && value.trim() ? value.trim() : undefined
+      }
 
       const isPdf =
         mimetype === 'application/pdf' ||
@@ -547,54 +556,43 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
         mimetype === 'text/csv' ||
         filename.toLowerCase().endsWith('.csv')
 
-      if (!isPdf && !isExcel && !isCsv) {
-        return reply.code(400).send({ error: 'Unsupported file type. Accepted: PDF, Excel (.xlsx/.xls), CSV' })
+      const isImage = mimetype.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(filename)
+
+      if (!isPdf && !isExcel && !isCsv && !isImage) {
+        return reply.code(400).send({ error: 'Unsupported file type. Accepted: PDF, image, Excel (.xlsx/.xls), CSV' })
       }
 
-      let rawContent = ''
-      let sourceType = 'text'
+      const sourceType = isPdf ? 'pdf' : isExcel ? 'excel' : isCsv ? 'csv' : 'image'
+      const title = (fieldValue('title') ?? filename.replace(/\.[^.]+$/, '')) || 'Uploaded file'
+      const category = fieldValue('category') ?? null
+      const tags = (fieldValue('tags') ?? '')
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+      const ext = path.extname(filename).toLowerCase() || (isImage ? '.jpg' : '')
+      const safeFileName = `${userId}/${crypto.randomUUID()}${ext}`
+      const storagePath = path.join(config.KB_STORAGE_DIR, safeFileName)
 
-      if (isPdf) {
-        sourceType = 'pdf'
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const pdfParse = require('pdf-parse')
-          const parsed = await pdfParse(buf)
-          rawContent = parsed.text ?? ''
-        } catch (err: any) {
-          return reply.code(500).send({ error: 'Failed to parse PDF', detail: err.message })
-        }
-      } else if (isExcel) {
-        sourceType = 'excel'
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const XLSX = require('xlsx')
-          const workbook = XLSX.read(buf, { type: 'buffer' })
-          const lines: string[] = []
-          for (const sheetName of workbook.SheetNames) {
-            const sheet = workbook.Sheets[sheetName]
-            const csv: string = XLSX.utils.sheet_to_csv(sheet)
-            lines.push(`=== Sheet: ${sheetName} ===`)
-            lines.push(csv)
-          }
-          rawContent = lines.join('\n')
-        } catch (err: any) {
-          return reply.code(500).send({ error: 'Failed to parse Excel file', detail: err.message })
-        }
-      } else if (isCsv) {
-        sourceType = 'csv'
-        rawContent = buf.toString('utf8')
-      }
-
-      const wordCount = rawContent.split(/\s+/).filter(Boolean).length
-      const title = filename.replace(/\.[^.]+$/, '') || 'Uploaded file'
+      await fs.mkdir(path.dirname(storagePath), { recursive: true })
+      await fs.writeFile(storagePath, buf)
 
       const { rows: [doc] } = await db.query<{ id: string; created_at: string }>(
         `INSERT INTO kb_documents
-           (user_id, title, source_type, raw_content, word_count, file_size_bytes, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'processing')
+           (user_id, title, source_type, source_url, storage_path, mime_type,
+            category, tags, file_size_bytes, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'processing')
          RETURNING id, created_at`,
-        [userId, title, sourceType, rawContent, wordCount, fileSizeBytes],
+        [
+          userId,
+          title,
+          sourceType,
+          `local://${safeFileName}`,
+          storagePath,
+          mimetype || null,
+          category,
+          tags,
+          fileSizeBytes,
+        ],
       )
 
       try {
@@ -606,7 +604,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(201).send({
         id: doc.id,
         createdAt: doc.created_at,
-        extractedWords: wordCount,
+        status: 'processing',
       })
     },
   )

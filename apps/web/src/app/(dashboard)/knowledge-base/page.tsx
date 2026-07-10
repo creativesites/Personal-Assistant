@@ -7,7 +7,7 @@ import {
   FileText, Globe, FileEdit, BookOpen, Table, Upload, Link2,
   Sparkles, Search, RefreshCw, Trash2, Eye, RotateCcw,
   AlertTriangle, X, ChevronRight, File as FileIcon, Send, Database,
-  Layers, Clock, Tag, CheckCircle, AlertCircle, Loader2,
+  Layers, Clock, Tag, CheckCircle, AlertCircle, Loader2, Image as ImageIcon,
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -97,6 +97,7 @@ function TypeIcon({ type, className = 'w-4 h-4' }: { type: string; className?: s
     case 'text':   return <FileEdit className={`${className} text-green-500`} />
     case 'excel':  return <Table className={`${className} text-emerald-600`} />
     case 'csv':    return <Table className={`${className} text-gray-500`} />
+    case 'image':  return <ImageIcon className={`${className} text-pink-500`} />
     case 'notion': return <BookOpen className={`${className} text-purple-500`} />
     default:       return <FileIcon className={`${className} text-gray-400`} />
   }
@@ -256,13 +257,21 @@ function UploadModal({
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,.xlsx,.xls,.csv"
+            accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
             className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
           />
           {file ? (
             <div className="flex items-center justify-center gap-3">
-              <TypeIcon type={file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.csv') ? 'csv' : 'excel'} className="w-6 h-6" />
+              <TypeIcon
+                type={
+                  file.type.startsWith('image/') ? 'image'
+                    : file.name.endsWith('.pdf') ? 'pdf'
+                      : file.name.endsWith('.csv') ? 'csv'
+                        : 'excel'
+                }
+                className="w-6 h-6"
+              />
               <div className="text-left">
                 <p className="text-sm font-medium text-gray-900 truncate max-w-[200px]">{file.name}</p>
                 <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
@@ -271,7 +280,7 @@ function UploadModal({
           ) : (
             <>
               <Upload className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm font-medium text-gray-700">Drop PDF, Excel or CSV here</p>
+              <p className="text-sm font-medium text-gray-700">Drop PDF, image, Excel or CSV here</p>
               <p className="text-xs text-gray-400 mt-1">or click to browse files</p>
             </>
           )}

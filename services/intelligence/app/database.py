@@ -16,7 +16,7 @@ async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         ssl = 'require' if 'supabase.com' in settings.database_url else None
-        _pool = await asyncpg.create_pool(settings.database_url, init=_init_conn, ssl=ssl)
+        _pool = await asyncpg.create_pool(settings.database_url, init=_init_conn, ssl=ssl, min_size=1, max_size=5)
     return _pool
 
 
