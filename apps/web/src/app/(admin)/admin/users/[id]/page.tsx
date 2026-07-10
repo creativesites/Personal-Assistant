@@ -8,7 +8,7 @@ import { apiClient } from '@/lib/api'
 
 interface UserDetail {
   user: {
-    id: string; email: string; name: string | null; mode: string; timezone: string
+    id: string; email: string; name: string | null; mode: string; marketingAccess: string; timezone: string
     isAdmin: boolean; onboardingCompleted: boolean; suspended: boolean
     createdAt: string; plan: string
     whatsapp: { status: string; phone: string | null; lastConnectedAt: string | null; reconnectCount: number }
@@ -18,6 +18,7 @@ interface UserDetail {
 }
 
 const PLAN_OPTIONS = ['free', 'pro', 'business'] as const
+const MARKETING_ACCESS_OPTIONS = ['none', 'waitlisted', 'beta', 'enabled'] as const
 
 export default function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -80,6 +81,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
             {[
               { label: 'Email', value: user.email },
               { label: 'Mode', value: user.mode },
+              { label: 'Zuri Marketing', value: user.marketingAccess },
               { label: 'Timezone', value: user.timezone || '—' },
               { label: 'Onboarded', value: user.onboardingCompleted ? 'Yes' : 'No' },
               { label: 'Joined', value: new Date(user.createdAt).toLocaleDateString() },
@@ -153,6 +155,27 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
                     } disabled:opacity-50`}
                   >
                     {plan}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Zuri Marketing access */}
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Zuri Marketing access</p>
+              <div className="flex gap-2">
+                {MARKETING_ACCESS_OPTIONS.map((access) => (
+                  <button
+                    key={access}
+                    disabled={saving === 'marketingAccess' || user.marketingAccess === access}
+                    onClick={() => patch({ marketingAccess: access }, 'marketingAccess')}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors capitalize ${
+                      user.marketingAccess === access
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                    } disabled:opacity-50`}
+                  >
+                    {access}
                   </button>
                 ))}
               </div>
