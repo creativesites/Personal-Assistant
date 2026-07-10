@@ -4,6 +4,7 @@ import {
   ArrowRight, MessageCircle, Sparkles, Check, ShieldCheck, Users, Send,
   Package, Repeat,
 } from 'lucide-react'
+import { AuthCta } from './_components/AuthCta'
 
 export const metadata: Metadata = {
   title: 'Zuri — From First Message to Repeat Customer',
@@ -32,6 +33,8 @@ const PRODUCTS = [
     ],
     href: '/whatsapp',
     cta: 'Explore Zuri WhatsApp',
+    dashboardHref: '/dashboard',
+    dashboardCta: 'Go to Dashboard',
     accent: 'from-indigo-600 to-indigo-700',
   },
   {
@@ -48,6 +51,8 @@ const PRODUCTS = [
     ],
     href: '/marketing',
     cta: 'Explore Zuri Marketing',
+    dashboardHref: '/studio',
+    dashboardCta: 'Open Studio',
     accent: 'from-gray-800 to-gray-900',
   },
 ]
@@ -98,20 +103,16 @@ export default function UnifiedHomePage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link
-              href="/whatsapp"
+            <AuthCta
               className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all duration-200 shadow-lg shadow-indigo-200 text-base"
-            >
-              Explore Zuri WhatsApp
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="/marketing"
+              loggedOut={{ href: '/whatsapp', children: <>Explore Zuri WhatsApp<ArrowRight className="w-4 h-4" /></> }}
+              loggedIn={{ href: '/dashboard', children: <>Go to Dashboard<ArrowRight className="w-4 h-4" /></> }}
+            />
+            <AuthCta
               className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-white text-gray-700 font-semibold rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-base"
-            >
-              Explore Zuri Marketing
-              <ArrowRight className="w-4 h-4" />
-            </Link>
+              loggedOut={{ href: '/marketing', children: <>Explore Zuri Marketing<ArrowRight className="w-4 h-4" /></> }}
+              loggedIn={{ href: '/studio', children: <>Open Studio<ArrowRight className="w-4 h-4" /></> }}
+            />
           </div>
         </div>
       </section>
@@ -186,13 +187,11 @@ export default function UnifiedHomePage() {
                         </li>
                       ))}
                     </ul>
-                    <Link
-                      href={product.href}
+                    <AuthCta
                       className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-800 transition-colors text-sm"
-                    >
-                      {product.cta}
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
+                      loggedOut={{ href: product.href, children: <>{product.cta}<ArrowRight className="w-4 h-4" /></> }}
+                      loggedIn={{ href: product.dashboardHref, children: <>{product.dashboardCta}<ArrowRight className="w-4 h-4" /></> }}
+                    />
                   </div>
                 </div>
               )
@@ -241,13 +240,11 @@ export default function UnifiedHomePage() {
           <p className="text-gray-500 text-lg mb-8 leading-relaxed">
             Zuri WhatsApp is ready today, free for 30 days. Zuri Marketing rolls out to existing customers first.
           </p>
-          <Link
-            href="/register"
+          <AuthCta
             className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-xl shadow-indigo-200 text-base"
-          >
-            Get started free
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+            loggedOut={{ href: '/register', children: <>Get started free<ArrowRight className="w-4 h-4" /></> }}
+            loggedIn={{ href: '/dashboard', children: <>Go to Dashboard<ArrowRight className="w-4 h-4" /></> }}
+          />
           <p className="text-gray-400 text-sm mt-4">30-day trial · No credit card · Cancel anytime</p>
           <p className="text-gray-400 text-sm mt-6">
             Still deciding?{' '}

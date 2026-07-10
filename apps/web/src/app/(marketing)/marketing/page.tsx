@@ -4,6 +4,7 @@ import {
   ArrowRight, Package, Sparkles, Image as ImageIcon, Video, Send,
   BarChart3, Repeat, Globe, Camera, Music2, MessageCircle,
 } from 'lucide-react'
+import { AuthCta } from '../_components/AuthCta'
 
 export const metadata: Metadata = {
   title: 'Zuri Marketing — AI content, scheduling & funnel analytics for Facebook, Instagram, TikTok & WhatsApp',
@@ -93,13 +94,11 @@ export default function MarketingProductPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-8">
-            <Link
-              href="/register"
+            <AuthCta
               className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all duration-200 shadow-lg shadow-indigo-200 text-base"
-            >
-              Get early access
-              <ArrowRight className="w-4 h-4" />
-            </Link>
+              loggedOut={{ href: '/register', children: <>Get early access<ArrowRight className="w-4 h-4" /></> }}
+              loggedIn={{ href: '/studio', children: <>Open Studio<ArrowRight className="w-4 h-4" /></> }}
+            />
             <Link
               href="/whatsapp"
               className="inline-flex items-center justify-center gap-2 px-7 py-4 bg-white text-gray-700 font-semibold rounded-xl border border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-base"
@@ -237,13 +236,11 @@ export default function MarketingProductPage() {
             Zuri Marketing rolls out to existing customers first. The best way to be ready is to already be running
             your WhatsApp on Zuri.
           </p>
-          <Link
-            href="/register"
+          <AuthCta
             className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-indigo-600 font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-lg text-base"
-          >
-            Start free today
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+            loggedOut={{ href: '/register', children: <>Start free today<ArrowRight className="w-4 h-4" /></> }}
+            loggedIn={{ href: '/studio', children: <>Open Studio<ArrowRight className="w-4 h-4" /></> }}
+          />
           <p className="text-indigo-300 text-sm mt-4">No credit card required · Set up in 60 seconds</p>
         </div>
       </section>
