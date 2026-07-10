@@ -8,10 +8,13 @@ from .model_router import get_active_model, report_usage, force_advance
 
 log = structlog.get_logger()
 
-_HARD_FAIL_CODES = {403, 401, 402}
+_HARD_FAIL_CODES = {401, 402, 403}
 _QUOTA_PHRASES = (
     'quota', 'exhausted', 'insufficient_quota', 'free trial',
     'rate limit', 'too many requests', 'billing', 'access denied',
+    # credential / key errors — treat as hard fail so Gemini fallback kicks in
+    'missing credentials', 'no api_key', 'api_key', 'api key',
+    'authentication', 'unauthorized', 'dashscopeexception',
 )
 
 
