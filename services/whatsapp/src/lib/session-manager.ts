@@ -1,5 +1,8 @@
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { config } from '../config';
 import { MessageHandler } from './message-handler';
 import type {
   WhatsAppTransport,
@@ -18,6 +21,9 @@ interface SessionEntry {
 export class SessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly handler: MessageHandler;
+  // Prevent repeated sync triggers from rapid phone_chats events.
+  // Maps userId → timestamp of last trigger. Cleared on service restart.
+  private readonly syncTriggerCooldown = new Map<string, number>();
 
   constructor(
     private readonly db: Pool,
@@ -28,13 +34,19 @@ export class SessionManager {
     this.handler = new MessageHandler(db, redis, redisUrl);
   }
 
-  async startSession(userId: string, phoneNumber?: string): Promise<void> {
-    if (this.sessions.has(userId)) {
-      throw new Error('Session already active for this user');
+  async startSession(userId: string, phoneNumber?: string, forceNewQR = false): Promise<void> {
+    const existing = this.sessions.get(userId);
+    if (existing) {
+      if (existing.transport.getStatus() === 'connected') {
+        throw new Error('Session already active for this user');
+      }
+      // Stuck in reconnect loop — stop and replace with a fresh session
+      await existing.transport.stop();
+      this.sessions.delete(userId);
     }
 
     const instanceId = await this.upsertInstance(userId, 'connecting');
-    const transport = this.createTransport(userId, phoneNumber);
+    const transport = this.createTransport(userId, phoneNumber, forceNewQR);
     this.sessions.set(userId, { transport, instanceId });
 
     transport.on('link_code', async (code: string) => {
@@ -81,8 +93,33 @@ export class SessionManager {
           `whatsapp:connected:${userId}`,
           JSON.stringify({ userId, instanceId, phoneNumber }),
         );
+
+        // On reconnect (no phone_chats event): trigger sync if never done before.
+        // phone_chats-based triggers handle the normal first-connect case via checkAndTriggerSync.
+        const { rows: [anyJob] } = await this.db.query<{ id: string }>(
+          `SELECT id FROM sync_jobs WHERE user_id = $1 LIMIT 1`,
+          [userId],
+        );
+        if (!anyJob) {
+          const COOLDOWN_MS = 5 * 60 * 1000;
+          const lastTrigger = this.syncTriggerCooldown.get(userId) ?? 0;
+          if (Date.now() - lastTrigger >= COOLDOWN_MS) {
+            console.log(`[session-manager] no sync job found for ${userId} on connect — triggering`);
+            this.syncTriggerCooldown.set(userId, Date.now());
+            await this.redis.publish(`history:sync:trigger:${userId}`, JSON.stringify({ userId }));
+          }
+        }
       } catch (err) {
         console.error(`[session] connected DB update failed userId=${userId}:`, err);
+      }
+    });
+
+    transport.on('phone_chats', async (chats: any[]) => {
+      try {
+        console.log(`[session-manager] received phone_chats event for ${userId}: ${chats.length} chats`);
+        await this.checkAndTriggerSync(userId, chats);
+      } catch (err) {
+        console.error(`[session-manager] error in phone_chats handler for ${userId}:`, err);
       }
     });
 
@@ -90,9 +127,11 @@ export class SessionManager {
       this.sessions.delete(userId);
       try {
         await this.redis.del(`wa:qr:${userId}`);
-        // 'logged_out' and 'bad_session' are the only terminal states emitted now.
-        // Mark logged_out so restoreAll skips it (would need a new QR).
-        const dbStatus = reason === 'logged_out' ? 'logged_out' : 'error';
+        let dbStatus = 'error';
+        if (reason === 'logged_out') dbStatus = 'logged_out';
+        else if (reason === 'replaced') dbStatus = 'disconnected';
+        else if (reason === 'timeout') dbStatus = 'disconnected';
+
         await this.db.query(
           `UPDATE whatsapp_instances SET status = $1, updated_at = NOW() WHERE id = $2`,
           [dbStatus, instanceId],
@@ -149,6 +188,21 @@ export class SessionManager {
     await this.redis.publish(`whatsapp:disconnected:${userId}`, userId).catch(() => { /* ignore */ });
   }
 
+  async stopAll(): Promise<void> {
+    console.log(`[session-manager] stopping all active sessions (${this.sessions.size})...`);
+    const promises: Promise<void>[] = [];
+    for (const [userId, entry] of this.sessions.entries()) {
+      promises.push(
+        entry.transport.stop().catch((err) => {
+          console.error(`[session-manager] failed to stop transport for ${userId}:`, err);
+        })
+      );
+    }
+    await Promise.all(promises);
+    this.sessions.clear();
+    console.log(`[session-manager] all sessions stopped.`);
+  }
+
   async sendMessage(userId: string, jid: string, text: string): Promise<void> {
     const entry = this.sessions.get(userId);
     if (!entry) throw new Error(`No active session for user ${userId}`);
@@ -172,29 +226,124 @@ export class SessionManager {
     return code;
   }
 
+  async resetStaleStates(): Promise<void> {
+    const result = await this.db.query(
+      `UPDATE whatsapp_instances
+       SET status = 'disconnected', qr_code = NULL, link_code = NULL,
+           link_code_expires_at = NULL, updated_at = NOW()
+       WHERE status IN ('connecting', 'qr_pending', 'link_code_pending')`
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`[session-manager] reset ${result.rowCount} stale session(s) to disconnected`);
+    }
+  }
+
   async restoreAll(): Promise<void> {
     // Restore every user that was ever connected and hasn't explicitly logged out.
     // Baileys will reuse the saved auth files — no QR scan needed.
-    const { rows } = await this.db.query<{ user_id: string }>(
-      `SELECT DISTINCT ON (user_id) user_id
+    const { rows } = await this.db.query<{ user_id: string, id: string }>(
+      `SELECT DISTINCT ON (user_id) user_id, id
        FROM whatsapp_instances
-       WHERE status NOT IN ('logged_out')
+       WHERE status = 'connected'
        ORDER BY user_id, last_connected_at DESC NULLS LAST`,
     );
-    for (const { user_id } of rows) {
+
+    console.log(`[session-manager] found ${rows.length} sessions to restore`);
+
+    for (const { user_id, id } of rows) {
       if (this.sessions.has(user_id)) continue;
-      this.startSession(user_id).catch((err: Error) => {
-        console.error(`[session] restore failed for ${user_id}:`, err.message);
-      });
+
+      // Verify files exist on disk before restoring
+      const authPath = path.join(config.SESSIONS_DIR, user_id);
+      const credsPath = path.join(authPath, 'creds.json');
+      let hasCreds = false;
+      try {
+        const stats = await fs.stat(credsPath);
+        hasCreds = stats.isFile() && stats.size > 0;
+      } catch {
+        hasCreds = false;
+      }
+
+      if (!hasCreds) {
+        console.warn(`[session-manager] credentials not found on disk for user ${user_id}, marking status as disconnected`);
+        await this.db.query(
+          `UPDATE whatsapp_instances SET status = 'disconnected', updated_at = NOW() WHERE id = $1`,
+          [id],
+        );
+        continue;
+      }
+
+      try {
+        console.log(`[session-manager] restoring session for user ${user_id}...`);
+        await this.startSession(user_id);
+        // Small delay to serialize startup and prevent DB/CPU spikes
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      } catch (err: any) {
+        console.error(`[session-manager] restore failed for ${user_id}:`, err.message);
+      }
     }
   }
 
   status(userId: string): 'connected' | 'disconnected' {
-    return this.sessions.has(userId) ? 'connected' : 'disconnected';
+    const entry = this.sessions.get(userId);
+    if (!entry) return 'disconnected';
+    return entry.transport.getStatus() === 'connected' ? 'connected' : 'disconnected';
   }
 
   activeCount(): number {
     return this.sessions.size;
+  }
+
+  async checkAndTriggerSync(userId: string, phoneChats: { id: string }[]): Promise<void> {
+    try {
+      // Debounce: don't trigger more than once per 5 minutes per user in this process.
+      // phone_chats fires many times as Baileys delivers multiple history batches.
+      const COOLDOWN_MS = 5 * 60 * 1000;
+      const lastTrigger = this.syncTriggerCooldown.get(userId) ?? 0;
+      if (Date.now() - lastTrigger < COOLDOWN_MS) {
+        console.log(`[session-manager] sync trigger debounced for ${userId} (last trigger <5m ago)`);
+        return;
+      }
+
+      const phoneChatCount = phoneChats.length;
+
+      // Get DB chats count
+      const { rows: [dbChats] } = await this.db.query<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM conversations WHERE user_id = $1`,
+        [userId],
+      );
+      const dbChatCount = parseInt(dbChats.count, 10);
+
+      // Check for any active or running sync job (pending, running, etc. — not completed/failed)
+      const { rows: [activeJob] } = await this.db.query<{ id: string }>(
+        `SELECT id FROM sync_jobs WHERE user_id = $1 AND status NOT IN ('completed', 'failed') LIMIT 1`,
+        [userId],
+      );
+
+      // Check if they ever completed a sync job
+      const { rows: [completedJob] } = await this.db.query<{ status: string }>(
+        `SELECT status FROM sync_jobs WHERE user_id = $1 AND status = 'completed' LIMIT 1`,
+        [userId],
+      );
+
+      console.log(`[session-manager] sync check for ${userId}: phone=${phoneChatCount} db=${dbChatCount} activeJob=${!!activeJob} everCompleted=${!!completedJob}`);
+
+      if (activeJob) {
+        console.log(`[session-manager] sync already in progress for ${userId}, skipping trigger`);
+        return;
+      }
+
+      // Trigger if: never synced, OR DB has meaningfully fewer chats than phone
+      const needsSync = !completedJob || dbChatCount < phoneChatCount;
+
+      if (needsSync) {
+        console.log(`[session-manager] triggering history sync for ${userId}`);
+        this.syncTriggerCooldown.set(userId, Date.now());
+        await this.redis.publish(`history:sync:trigger:${userId}`, JSON.stringify({ userId }));
+      }
+    } catch (err) {
+      console.error(`[session-manager] checkAndTriggerSync failed for ${userId}:`, err);
+    }
   }
 
   private async upsertInstance(userId: string, status: string): Promise<string> {

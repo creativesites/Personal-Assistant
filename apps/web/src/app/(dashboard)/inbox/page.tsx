@@ -3,19 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Search, ChevronLeft, Zap, RefreshCw, X, MessageSquare,
-  AlertCircle, Send, Paperclip, Smile, Archive, StickyNote,
+  AlertCircle, Archive, StickyNote,
   ExternalLink, ChevronRight, TrendingUp, Clock, Flame, Star,
   AlertTriangle, Calendar, DollarSign, CheckCircle, XCircle,
-  Sparkles, Brain, Bell, Tag, Edit3, Copy, UserPlus, CreditCard,
+  Sparkles, Brain, Bell, Tag, Edit3, Copy, CreditCard,
   UserCheck, FileText, WifiOff, Lightbulb, Activity,
-  ShoppingCart, MessageCircle, MapPin, Download, Film,
-  Image, Phone, Mic, Target, Hash, BarChart2,
-  ChevronDown, Heart, TrendingDown, Wand2,
+  MessageCircle, MapPin, Download,
+  Target, BarChart2,
+  Heart, TrendingDown, Wand2,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { Avatar, EmptyState, HealthBar, SkeletonListItem } from '@/components/ui'
+import { Avatar, EmptyState, SkeletonListItem } from '@/components/ui'
+import { MessageContent } from './_components/message-content'
+import { ReplyDock } from './_components/reply-dock'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -246,13 +248,6 @@ const MOCK_ACTIONS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
-
-function mediaHref(path: string, token?: string | null): string {
-  const base = `${API_BASE}${path}`
-  return token ? `${base}?token=${encodeURIComponent(token)}` : base
-}
-
 function formatTime(ts: string | null) {
   if (!ts) return ''
   const d = new Date(ts)
@@ -277,133 +272,6 @@ function getGreeting() {
   if (h < 12) return 'Good morning'
   if (h < 17) return 'Good afternoon'
   return 'Good evening'
-}
-
-// ─── MessageContent ───────────────────────────────────────────────────────────
-
-function MessageContent({ msg, token, isUser }: { msg: Message; token?: string | null; isUser: boolean }) {
-  const mType = msg.messageType ?? 'text'
-  const textClass = `leading-relaxed whitespace-pre-wrap text-sm ${isUser ? 'text-white' : 'text-gray-900'}`
-
-  if (mType === 'deleted') {
-    return (
-      <p className={`italic opacity-60 text-sm ${isUser ? 'text-indigo-200' : 'text-gray-400'}`}>
-        This message was deleted
-      </p>
-    )
-  }
-
-  if (mType === 'location' && msg.body) {
-    try {
-      const loc = JSON.parse(msg.body) as { lat: number; lng: number; name?: string; address?: string }
-      const mapsUrl = `https://maps.google.com/?q=${loc.lat},${loc.lng}`
-      return (
-        <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
-          className={`flex items-center gap-2 text-sm underline-offset-2 hover:underline ${isUser ? 'text-indigo-100' : 'text-indigo-600'}`}>
-          <MapPin size={14} className="flex-shrink-0" />
-          <span>{loc.name ?? loc.address ?? `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`}</span>
-          <ExternalLink size={10} className="flex-shrink-0 opacity-60" />
-        </a>
-      )
-    } catch {
-      return <p className={textClass}>{msg.body}</p>
-    }
-  }
-
-  if (mType === 'contact_card') {
-    return (
-      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-700'}`}>
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-indigo-500' : 'bg-gray-100'}`}>
-          <Phone size={13} className={isUser ? 'text-white' : 'text-gray-500'} />
-        </div>
-        <span>{msg.body ?? 'Contact card'}</span>
-      </div>
-    )
-  }
-
-  if (mType === 'image' || mType === 'sticker') {
-    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
-    if (href) {
-      return (
-        <div className="space-y-1">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={href} alt={msg.body ?? 'Image'} className="max-w-[220px] rounded-lg object-cover" style={{ maxHeight: 220 }} />
-          {msg.body && <p className={textClass}>{msg.body}</p>}
-        </div>
-      )
-    }
-    return (
-      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
-        <Image size={14} />
-        <span>{msg.body ?? (mType === 'sticker' ? 'Sticker' : 'Photo')}</span>
-      </div>
-    )
-  }
-
-  if (mType === 'video') {
-    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
-    if (href) {
-      return (
-        <div className="space-y-1">
-          <video src={href} controls className="max-w-[220px] rounded-lg" style={{ maxHeight: 180 }} />
-          {msg.body && <p className={textClass}>{msg.body}</p>}
-        </div>
-      )
-    }
-    return (
-      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
-        <Film size={14} />
-        <span>{msg.body ?? 'Video'}</span>
-      </div>
-    )
-  }
-
-  if (mType === 'audio') {
-    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
-    if (href) {
-      return (
-        <div className="space-y-1.5">
-          <audio controls src={href} className="max-w-full h-9" style={{ minWidth: 180 }} />
-          {msg.transcription && (
-            <p className={`text-xs italic ${isUser ? 'text-indigo-200' : 'text-gray-500'}`}>
-              "{msg.transcription}"
-            </p>
-          )}
-        </div>
-      )
-    }
-    return (
-      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
-        <Mic size={14} />
-        <span>Voice message</span>
-      </div>
-    )
-  }
-
-  if (mType === 'document') {
-    const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
-    const fileName = msg.body ?? msg.mediaMimeType?.split('/')[1] ?? 'Document'
-    if (href) {
-      return (
-        <a href={href} download target="_blank" rel="noopener noreferrer"
-          className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border transition-colors ${
-            isUser ? 'bg-indigo-500 border-indigo-400 text-white hover:bg-indigo-400' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-          }`}>
-          <FileText size={14} className="flex-shrink-0" />
-          <span className="truncate max-w-[160px]">{fileName}</span>
-          <Download size={12} className="flex-shrink-0 ml-auto opacity-70" />
-        </a>
-      )
-    }
-    return (
-      <div className={`flex items-center gap-2 text-sm ${isUser ? 'text-indigo-100' : 'text-gray-500'}`}>
-        <FileText size={14} />
-        <span>{fileName}</span>
-      </div>
-    )
-  }
-
-  return <p className={textClass}>{msg.body ?? ''}</p>
 }
 
 // ─── ScoreRing ────────────────────────────────────────────────────────────────
@@ -1402,6 +1270,61 @@ function IntelPanel({
   )
 }
 
+// ─── SyncBanner ───────────────────────────────────────────────────────────────
+
+function SyncBanner({
+  syncing,
+  done,
+  convCount,
+  onDismiss,
+}: {
+  syncing: boolean
+  done: boolean
+  convCount: number
+  onDismiss: () => void
+}) {
+  if (!syncing && !done) return null
+
+  if (done) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border-b border-emerald-100 animate-in fade-in duration-300">
+        <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+          <CheckCircle size={10} className="text-white" />
+        </div>
+        <span className="text-xs text-emerald-700 flex-1 font-medium">
+          Sync complete — {convCount.toLocaleString()} conversation{convCount !== 1 ? 's' : ''} ready
+        </span>
+        <button onClick={onDismiss} className="text-emerald-400 hover:text-emerald-600 transition-colors p-0.5">
+          <X size={12} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-3 py-2.5 bg-indigo-50 border-b border-indigo-100">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
+          <span className="text-xs font-semibold text-indigo-800">Syncing WhatsApp history</span>
+        </div>
+        {convCount > 0 && (
+          <span className="text-[10px] text-indigo-500 font-medium tabular-nums">
+            {convCount.toLocaleString()} conv{convCount !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+      {/* Indeterminate progress bar */}
+      <div className="h-1 bg-indigo-100 rounded-full overflow-hidden relative">
+        <div className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-indigo-300 via-indigo-500 to-indigo-300 rounded-full animate-[indeterminate_1.4s_ease-in-out_infinite]" />
+      </div>
+      <p className="text-[10px] text-indigo-500 mt-1.5 leading-none">
+        Loading conversations as we go — keep working normally
+      </p>
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 type MobileView = 'list' | 'thread' | 'intel'
@@ -1457,6 +1380,13 @@ export default function InboxPage() {
   const [aiActionResult, setAIActionResult] = useState<{ label: string; text: string } | null>(null)
   const [aiAskInput, setAIAskInput] = useState('')
 
+  // Sync progress — tracks background WhatsApp history sync
+  const [syncing, setSyncing] = useState(false)
+  const [syncDone, setSyncDone] = useState(false)
+  const [syncConvCount, setSyncConvCount] = useState(0)
+  const syncDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const syncDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const selectedIdRef = useRef<string | null>(null)
   const selectedMsgIdRef = useRef<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -1470,6 +1400,7 @@ export default function InboxPage() {
     try {
       const data = await apiClient<{ conversations: Conversation[] }>('/api/conversations', { token })
       setConversations(data.conversations)
+      setSyncConvCount(data.conversations.length)
       setError(false)
     } catch {
       setError(true)
@@ -1507,7 +1438,27 @@ export default function InboxPage() {
     loadBriefing()
     const socket = getSocket(token)
     socket.on('message:new', loadConversations)
-    socket.on('history:progress', loadConversations)
+
+    const handleSyncProgress = () => {
+      // Show the syncing banner
+      setSyncing(true)
+      setSyncDone(false)
+      // Reload conversations so new ones appear as they're written
+      loadConversations().then(() => {
+        setSyncConvCount(prev => prev) // trigger re-read from conversations state after load
+      })
+      // Reset the "done" timer — if no new progress events for 5s, declare sync complete
+      if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
+      if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
+      syncDoneTimerRef.current = setTimeout(() => {
+        setSyncing(false)
+        setSyncDone(true)
+        loadConversations()
+        syncDismissTimerRef.current = setTimeout(() => setSyncDone(false), 4000)
+      }, 5000)
+    }
+    socket.on('history:progress', handleSyncProgress)
+
     socket.on('suggestion:ready', (payload: string) => {
       try {
         const data = JSON.parse(payload)
@@ -1520,8 +1471,10 @@ export default function InboxPage() {
     })
     return () => {
       socket.off('message:new', loadConversations)
-      socket.off('history:progress', loadConversations)
+      socket.off('history:progress', handleSyncProgress)
       socket.off('suggestion:ready')
+      if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
+      if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
     }
   }, [token, loadConversations, loadBriefing])
 
@@ -1595,7 +1548,7 @@ export default function InboxPage() {
     setActionLoading(id)
     await apiClient(`/api/suggestions/${id}/approve`, {
       method: 'POST', token,
-      ...(customText ? { body: JSON.stringify({ text: customText }) } : {}),
+      ...(customText ? { body: JSON.stringify({ editedText: customText }) } : {}),
     })
     setSuggestions(prev => prev.filter(s => s.id !== id))
     setActionLoading(null); setEditingSuggId(null)
@@ -1699,6 +1652,47 @@ export default function InboxPage() {
     }
   }
 
+  const runManualAnalysis = async (scope: 'latest' | 'recent') => {
+    if (!selectedId || !token) return
+    const actionKey = scope === 'latest' ? 'analyze-latest' : 'analyze-recent'
+    setAIActionLoading(actionKey)
+    try {
+      const data = await apiClient<{ queuedMessages: number; profileQueued: boolean; suggestionsEnabled: boolean }>(
+        `/api/conversations/${selectedId}/analyze`,
+        {
+          method: 'POST',
+          token,
+          body: JSON.stringify({
+            scope,
+            includeProfile: scope === 'recent',
+            includeSuggestions: true,
+          }),
+        },
+      )
+
+      setAIActionResult({
+        label: scope === 'latest' ? 'Latest Message Queued' : 'Intelligence Refresh Queued',
+        text: `${data.queuedMessages} message${data.queuedMessages === 1 ? '' : 's'} queued for analysis${data.profileQueued ? ' and profile refresh' : ''}. New suggestions and insights will appear when processing finishes.`,
+      })
+      loadContext(selectedId)
+      if (contact?.id) {
+        apiClient<{ contact: ContactDetail }>(`/api/contacts/${contact.id}`, { token })
+          .then(d => setContactDetail(d.contact))
+          .catch(() => {})
+        apiClient<{ promises: ContactPromise[] }>(`/api/contacts/${contact.id}/promises`, { token })
+          .then(d => setPromises(d.promises ?? []))
+          .catch(() => setPromises([]))
+      }
+    } catch {
+      setAIActionResult({
+        label: 'Analysis Failed',
+        text: 'Could not queue analysis. Check that Redis and the intelligence worker are running.',
+      })
+    } finally {
+      setAIActionLoading(null)
+    }
+  }
+
   // ── Filtering ────────────────────────────────────────────────────────────────
 
   const filtered = conversations.filter(c => {
@@ -1774,6 +1768,14 @@ export default function InboxPage() {
             </a>
           </div>
         </div>
+
+        {/* Sync progress banner */}
+        <SyncBanner
+          syncing={syncing}
+          done={syncDone}
+          convCount={syncConvCount}
+          onDismiss={() => setSyncDone(false)}
+        />
 
         {/* Search */}
         {showSearch && (
@@ -1971,7 +1973,7 @@ export default function InboxPage() {
 >
   {/* Modern High-Fidelity Overlay Tint */}
   {/* This mask dims the background pattern slightly so the text remains incredibly comfortable to read */}
-  <div className="absolute inset-0 bg-[#eae6df]/85 dark:bg-[#0b141a]/95 pointer-events-none mix-blend-normal" />
+  <div className="absolute inset-0 bg-[#f7f4ee]/90 pointer-events-none mix-blend-normal" />
 
                 {/* Message stream */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 z-10">
@@ -2000,16 +2002,16 @@ export default function InboxPage() {
                                 onClick={() => msg.pendingSuggestions > 0 && selectMessage(msg.id)}
                                 className={`max-w-[85%] md:max-w-sm ${msg.pendingSuggestions > 0 ? 'cursor-pointer' : ''}`}
                               >
-                                <div className={`px-3 py-1.5 text-[15px] shadow-[0_1px_0.5px_rgba(0,0,0,0.08)] relative leading-snug ${
+                                <div className={`px-3 py-2 text-[15px] shadow-[0_1px_1px_rgba(15,23,42,0.08)] relative leading-snug border ${
                                   isUser ? 'rounded-lg rounded-tr-none' : 'rounded-lg rounded-tl-none'
                                 } ${
                                   isAuto
-                                    ? 'bg-gradient-to-br from-[#E7FFDB] to-[#d8fbc2] text-[#111b21]'
+                                    ? 'bg-gradient-to-br from-emerald-50 to-lime-50 text-[#111b21] border-emerald-200'
                                     : isApproved
-                                    ? 'bg-[#E7FFDB] text-[#111b21] border-l-2 border-[#34b7f1]'
+                                    ? 'bg-emerald-50 text-[#111b21] border-emerald-200 border-l-2 border-l-sky-400'
                                     : isUser
-                                    ? 'bg-[#E7FFDB] text-[#111b21] text-black' // WhatsApp Light Mode Sent
-                                    : 'bg-[#f0f4f9] text-[#1f1f1f] text-black' // Cool Gemini Blue-Gray Received
+                                    ? 'bg-[#dcf8c6] text-[#111b21] border-[#cbeeb5]'
+                                    : 'bg-white text-[#111b21] border-gray-100'
                                 } ${msg.pendingSuggestions > 0 && selectedMsgId !== msg.id ? 'ring-1 ring-amber-400/60' : ''}
                                   ${selectedMsgId === msg.id ? 'ring-1 ring-[#34b7f1]/60' : ''}`}
                                 >
@@ -2061,214 +2063,37 @@ export default function InboxPage() {
 
                 </div>
 
-                {/* Reply dock */}
-                <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
-
-                  {/* AI result card */}
-                  {aiActionResult && (
-                    <div className="mx-3 mt-2 bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
-                      <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-                        <div className="flex items-center gap-1.5">
-                          <Sparkles size={11} className="text-indigo-500" />
-                          <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wide">{aiActionResult.label}</p>
-                        </div>
-                        <button onClick={() => setAIActionResult(null)} className="p-0.5 text-indigo-300 hover:text-indigo-500 transition-colors">
-                          <X size={11} />
-                        </button>
-                      </div>
-                      <p className="px-3 pb-2.5 text-xs text-gray-700 leading-relaxed">{aiActionResult.text}</p>
-                      <div className="flex border-t border-indigo-100">
-                        <button
-                          onClick={() => { setDraft(aiActionResult.text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
-                          className="flex-1 text-[11px] font-semibold text-indigo-700 py-2 hover:bg-indigo-100 transition-colors"
-                        >
-                          Use as draft
-                        </button>
-                        <div className="w-px bg-indigo-100" />
-                        <button
-                          onClick={() => setAIActionResult(null)}
-                          className="flex-1 text-[11px] text-gray-500 py-2 hover:bg-gray-50 transition-colors"
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* AI Actions expanded panel */}
-                  {showAIActions && (
-                    <div className="mx-3 mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3 space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          onClick={aiSummarize}
-                          disabled={aiActionLoading === 'summarize'}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors"
-                        >
-                          {aiActionLoading === 'summarize' ? <RefreshCw size={10} className="animate-spin" /> : <FileText size={10} />}
-                          Summarize
-                        </button>
-                        <button
-                          onClick={aiFollowup}
-                          disabled={aiActionLoading === 'followup'}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 disabled:opacity-50 transition-colors"
-                        >
-                          {aiActionLoading === 'followup' ? <RefreshCw size={10} className="animate-spin" /> : <ChevronRight size={10} />}
-                          Follow-up draft
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={aiAskInput}
-                          onChange={e => setAIAskInput(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiAsk() } }}
-                          placeholder="Ask AI anything about this conversation…"
-                          className="flex-1 text-xs px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-gray-400"
-                        />
-                        <button
-                          onClick={aiAsk}
-                          disabled={!aiAskInput.trim() || aiActionLoading === 'ask'}
-                          className="flex items-center gap-1 px-3 py-2 text-[11px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 transition-colors"
-                        >
-                          {aiActionLoading === 'ask' ? <RefreshCw size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                          Ask
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Suggestion chips */}
-{suggestions.length > 0 && (
-  <div className="px-4 pt-4 pb-1 grid grid-cols-3 gap-3">
-    {suggestions.slice(0, 3).map(s => (
-      <button
-        key={s.id}
-        onClick={() => { setDraft(s.text); draftRef.current?.focus() }}
-        className={`
-          group relative rounded-2xl p-3 text-left transition-all duration-300 ease-out
-          border border-neutral-200/60 dark:border-neutral-800/60
-          bg-gradient-to-b from-white to-neutral-50/50 
-          dark:from-neutral-900 dark:to-neutral-950/50
-          shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)]
-          hover:shadow-[0_12px_20px_-8px_rgba(0,0,0,0.08)]
-          hover:-translate-y-0.5 hover:border-neutral-300 dark:hover:border-neutral-700
-          active:translate-y-0 active:scale-[0.98]
-          focus:outline-none focus:ring-2 focus:ring-indigo-500/20
-          ${TONE_STYLE[s.tone] ?? ''}
-        `}
-      >
-        {/* Premium Animated Hover Glow Effect */}
-        <div className="absolute inset-0 -z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-2xl pointer-events-none" />
-
-        <div className="flex items-center justify-between mb-1.5">
-          {/* Tone Badge */}
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium tracking-wide uppercase text-[9px] bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 dark:group-hover:bg-indigo-950/50 dark:group-hover:text-indigo-400 transition-colors duration-300">
-            <span className="h-1 w-1 rounded-full bg-neutral-400 group-hover:bg-indigo-500 transition-colors" />
-            {s.tone}
-          </span>
-          
-          {/* Confidence Score */}
-          {s.confidence != null && (
-            <span className="text-[10px] font-medium font-mono text-neutral-400 dark:text-neutral-500 group-hover:text-neutral-600 dark:group-hover:text-neutral-300 transition-colors">
-              {s.confidence}%
-            </span>
-          )}
-        </div>
-
-        {/* Suggestion Text */}
-        <p className="line-clamp-2 leading-relaxed text-[11px] font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-neutral-900 dark:group-hover:text-white transition-colors duration-300">
-          {s.text}
-        </p>
-      </button>
-    ))}
-  </div>
-)}
-{/* Composer */}
-<div className="px-4 pb-5 pt-2 bg-gradient-to-t from-white via-white to-transparent dark:from-neutral-950 dark:via-neutral-950">
-  <div className="flex flex-col gap-2.5">
-    {/* Main Input Capsule */}
-    <div className="group/input relative flex items-end gap-2 p-1.5 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-neutral-50/50 dark:bg-neutral-900/50 backdrop-blur-md focus-within:border-neutral-300 dark:focus-within:border-neutral-700 focus-within:bg-white dark:focus-within:bg-neutral-900 focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.2)] transition-all duration-300">
-      
-      {/* Attachment Button */}
-      <button className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 active:scale-95 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all flex-shrink-0 mb-0.5">
-        <Paperclip size={18} strokeWidth={2.2} />
-      </button>
-      
-      {/* Dynamic Textarea */}
-      <div className="flex-1 min-w-0 self-center py-1">
-        <textarea
-          ref={draftRef}
-          rows={1}
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendDraft() }
-          }}
-          placeholder="Type a message…"
-          className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none leading-relaxed align-middle"
-          style={{ minHeight: '24px', maxHeight: '140px' }}
-        />
-      </div>
-
-      {/* Emoji Picker Button */}
-      <button className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 active:scale-95 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all flex-shrink-0 mb-0.5">
-        <Smile size={18} strokeWidth={2.2} />
-      </button>
-
-      {/* Premium Send Button */}
-      <button
-        onClick={sendDraft}
-        disabled={!draft.trim()}
-        className={`
-          p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm
-          ${draft.trim() 
-            ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110' 
-            : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-600 cursor-not-allowed opacity-70'
-          }
-        `}
-      >
-        <Send size={15} strokeWidth={2.5} className={draft.trim() ? 'animate-pulse' : ''} />
-      </button>
-    </div>
-
-    {/* Footer Meta & Actions */}
-    <div className="flex items-center justify-between px-1">
-      <div className="flex items-center gap-3">
-        {selectedMsgId && (
-          <button
-            onClick={regenerate}
-            disabled={regenerating}
-            className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:opacity-80 font-semibold disabled:opacity-50 transition-opacity"
-          >
-            <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
-            {regenerating ? 'Generating…' : 'Regenerate'}
-          </button>
-        )}
-        
-        {/* Smart AI Action Trigger */}
-        <button
-          onClick={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
-          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-all ${
-            showAIActions 
-              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 ring-1 ring-indigo-500/20' 
-              : 'text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800/60 hover:bg-neutral-200'
-          }`}
-        >
-          <Sparkles size={12} className={showAIActions ? 'fill-indigo-500/20' : ''} />
-          <span>AI Actions</span>
-          <ChevronDown size={11} className={`transition-transform duration-300 ${showAIActions ? 'rotate-180' : ''}`} />
-        </button>
-      </div>
-      
-      {/* Desktop-only shortcut indicator (hidden on mobile) */}
-      <span className="hidden sm:inline-block text-[10px] font-medium font-mono text-neutral-400 dark:text-neutral-600 tracking-wider">
-        ⌘ + ↵
-      </span>
-    </div>
-  </div>
-</div>
-
-
-                </div>
+                <ReplyDock
+                  suggestions={suggestions}
+                  draft={draft}
+                  draftRef={draftRef}
+                  selectedMsgId={selectedMsgId}
+                  regenerating={regenerating}
+                  showAIActions={showAIActions}
+                  aiActionLoading={aiActionLoading}
+                  aiActionResult={aiActionResult}
+                  aiAskInput={aiAskInput}
+                  onDraftChange={setDraft}
+                  onSendDraft={sendDraft}
+                  onUseAIResult={(text) => {
+                    setDraft(text)
+                    setAIActionResult(null)
+                    setShowAIActions(false)
+                    setTimeout(() => draftRef.current?.focus(), 50)
+                  }}
+                  onDismissAIResult={() => setAIActionResult(null)}
+                  onToggleAIActions={() => {
+                    setShowAIActions(v => !v)
+                    setAIActionResult(null)
+                  }}
+                  onSummarize={aiSummarize}
+                  onFollowup={aiFollowup}
+                  onAsk={aiAsk}
+                  onAskInputChange={setAIAskInput}
+                  onRegenerate={regenerate}
+                  onAnalyzeLatest={() => runManualAnalysis('latest')}
+                  onAnalyzeRecent={() => runManualAnalysis('recent')}
+                />
               </div>
 
   

@@ -53,6 +53,9 @@ export default function OnboardingPage() {
   // 'qr' | 'phone' tracks which method was used to start the session.
   // 'choose' means we haven't started yet.
   const [connectMode, setConnectMode] = useState<'choose' | 'qr' | 'phone'>('choose')
+  // Only true after the user explicitly clicks to start — prevents stale backend
+  // states (connecting, qr_pending, link_code_pending) from hijacking the UI on page load.
+  const [userStarted, setUserStarted] = useState(false)
   // Controls the phone-input expansion inside the chooser (independent of connectMode).
   const [showPhoneInput, setShowPhoneInput] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState('')
@@ -61,6 +64,9 @@ export default function OnboardingPage() {
   const wasActiveRef = useRef(false)
   // Ref mirrors sessionInitiated state so the polling closure always reads fresh value.
   const sessionInitiatedRef = useRef(false)
+  // Set to true when router.push('/inbox') is called — prevents any state reset from
+  // transient status changes during the navigation transition.
+  const redirectingRef = useRef(false)
   const lastQrRef = useRef<string | null>(null)
   const qrTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -99,9 +105,11 @@ export default function OnboardingPage() {
     let cancelled = false
 
     const poll = async () => {
+      if (redirectingRef.current) return
       try {
         const s = await apiClient<WAStatus>('/api/whatsapp/status', { token })
         if (cancelled) return
+        if (redirectingRef.current) return
 
         setWaStatus(s)
 
@@ -124,6 +132,7 @@ export default function OnboardingPage() {
         }
 
         if (s.connected) {
+          redirectingRef.current = true
           markSessionInitiated(false)
           wasActiveRef.current = false
           clearQrTimer()
@@ -141,6 +150,7 @@ export default function OnboardingPage() {
           clearQrTimer()
           wasActiveRef.current = false
           markSessionInitiated(false)
+          setUserStarted(false)
           setConnectMode('choose'); setShowPhoneInput(false)
         }
 
@@ -151,6 +161,7 @@ export default function OnboardingPage() {
           clearQrTimer()
           wasActiveRef.current = false
           markSessionInitiated(false)
+          setUserStarted(false)
           setConnectMode('choose'); setShowPhoneInput(false)
         }
       } catch {
@@ -166,6 +177,7 @@ export default function OnboardingPage() {
   const startConnection = async (phone?: string) => {
     if (!token) return
     setIsStarting(true)
+    setUserStarted(true)
     setConnectError(null)
     setPhoneError(null)
     setQrData(null)
@@ -221,12 +233,16 @@ export default function OnboardingPage() {
   // ── Derived state ─────────────────────────────────────────────────────────
   const backendStatus = waStatus?.status ?? null
   const isConnected      = waStatus?.connected === true
-  const isQrReady        = backendStatus === 'qr_pending' && !!qrData
-  const isLinkCodeReady  = backendStatus === 'link_code_pending' && !!linkCodeData
+  // Only show active-session UI if the user explicitly clicked to start in this page view.
+  // This prevents stale backend states from hijacking the chooser on page load.
+  const isQrReady        = userStarted && backendStatus === 'qr_pending' && !!qrData
+  const isLinkCodeReady  = userStarted && backendStatus === 'link_code_pending' && !!linkCodeData
   const isConnectingPhase = isStarting
-    || backendStatus === 'connecting'
-    || (backendStatus === 'qr_pending' && !qrData)
-    || (backendStatus === 'link_code_pending' && !linkCodeData)
+    || (userStarted && (
+      backendStatus === 'connecting'
+      || (backendStatus === 'qr_pending' && !qrData)
+      || (backendStatus === 'link_code_pending' && !linkCodeData)
+    ))
   const hasError  = backendStatus === 'error' || !!connectError
   const isIdle    = waStatus !== null && !isConnectingPhase && !hasError
                     && !isQrReady && !isLinkCodeReady && !isConnected
@@ -595,7 +611,7 @@ export default function OnboardingPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => { setConnectMode('choose'); setConnectError(null) }}
+                  onClick={() => { setConnectMode('choose'); setConnectError(null); setUserStarted(false) }}
                   className="w-full py-3 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
                 >
                   Try again

@@ -26,6 +26,7 @@ export type TransportDisconnectReason =
   | 'bad_session'  // auth files corrupted — needs a new QR
   | 'timeout'      // QR was never scanned in the allowed window
   | 'network'      // all reconnect attempts exhausted
+  | 'replaced'     // session replaced by another connection — do NOT reconnect automatically
   | 'unknown';
 
 export type TransportStatus = 'idle' | 'connecting' | 'connected';
@@ -72,4 +73,4 @@ export abstract class WhatsAppTransport extends EventEmitter {
   protected emitLinkCode(code: string): void { this.emit('link_code', code); }
 }
 
-export type TransportFactory = (userId: string, phoneNumber?: string) => WhatsAppTransport;
+export type TransportFactory = (userId: string, phoneNumber?: string, forceNewQR?: boolean) => WhatsAppTransport;

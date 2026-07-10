@@ -505,6 +505,68 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
   // ── POST /api/conversations/:id/summarize ─────────────────────────────────
 
+  const manualAnalysisBody = z.object({
+    scope: z.enum(['latest', 'recent', 'all']).default('recent'),
+    includeProfile: z.boolean().default(true),
+    includeSuggestions: z.boolean().default(true),
+  });
+
+  // ── POST /api/conversations/:id/analyze ───────────────────────────────────
+
+  fastify.post('/api/conversations/:id/analyze', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = manualAnalysisBody.parse(request.body ?? {});
+
+    const { rows: [conv] } = await db.query(
+      `SELECT id, contact_id
+       FROM conversations
+       WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const limit = body.scope === 'latest' ? 1 : body.scope === 'recent' ? 25 : 200;
+    const { rows } = await db.query(
+      `SELECT id, sender_type, message_type, body, transcription, whatsapp_timestamp
+       FROM messages
+       WHERE conversation_id = $1 AND is_deleted = false
+       ORDER BY whatsapp_timestamp DESC
+       LIMIT $2`,
+      [id, limit],
+    );
+
+    for (const message of rows) {
+      await addToQueue(QUEUE_NAMES.MESSAGES_INCOMING, {
+        messageId: message.id,
+        userId,
+        contactId: conv.contact_id,
+        conversationId: id,
+        senderType: message.sender_type,
+        messageType: message.message_type,
+        body: message.body,
+        transcription: message.transcription,
+        whatsappTimestamp: message.whatsapp_timestamp,
+        isHistorical: !body.includeSuggestions,
+      });
+    }
+
+    if (body.includeProfile) {
+      await addToQueue(QUEUE_NAMES.ANALYSIS_CONTACT_PROFILE, {
+        contactId: conv.contact_id,
+        userId,
+        triggerMessageId: rows[0]?.id,
+      });
+    }
+
+    return reply.send({
+      ok: true,
+      queuedMessages: rows.length,
+      profileQueued: body.includeProfile,
+      suggestionsEnabled: body.includeSuggestions,
+    });
+  });
+
   fastify.post('/api/conversations/:id/summarize', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };

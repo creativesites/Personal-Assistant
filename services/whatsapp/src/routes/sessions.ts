@@ -5,6 +5,7 @@ import type { SessionManager } from '../lib/session-manager';
 const connectBody = z.object({
   userId: z.string().uuid(),
   phoneNumber: z.string().optional(),
+  forceNewQR: z.boolean().optional(),
 });
 
 const sendBody = z.object({
@@ -27,7 +28,9 @@ export function sessionRoutes(sessionManager: SessionManager) {
 
       // Normalize phone number — digits only, no + or spaces
       const phoneNumber = body.phoneNumber ? body.phoneNumber.replace(/\D/g, '') : undefined;
-      await sessionManager.startSession(body.userId, phoneNumber);
+      // User-initiated connects always force a fresh QR by default; restoreAll() does not.
+      const forceNewQR = body.forceNewQR ?? true;
+      await sessionManager.startSession(body.userId, phoneNumber, forceNewQR);
 
       return reply.code(202).send({
         message: 'Connection started. Listen for whatsapp:qr or whatsapp:link_code events.',
