@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..database import get_pool
@@ -5,10 +6,13 @@ from ..ai.client import get_ai_client
 
 router = APIRouter(prefix='/internal/conversations', tags=['conversations'])
 
+advisor_router = APIRouter(prefix='/internal/advisor', tags=['advisor'])
+
 
 class AskRequest(BaseModel):
     user_id: str
     question: str
+    session_id: Optional[str] = None
 
 
 async def _get_recent_messages(conversation_id: str, limit: int = 50) -> list[dict]:
@@ -129,6 +133,60 @@ async def ask_ai(conversation_id: str, body: AskRequest):
         {
             'role': 'user',
             'content': f'Conversation:\n{transcript}\n\nQuestion: {body.question}',
+        },
+    ])
+
+    return {'answer': result}
+
+
+class AdvisorAskRequest(BaseModel):
+    user_id: str
+    question: str
+    session_id: Optional[str] = None
+
+
+@advisor_router.post('/ask')
+async def advisor_ask(body: AdvisorAskRequest):
+    """Global advisor — answers questions about the user's full contact network."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT co.display_name, c.last_message_preview, c.unread_count,
+                      COALESCE(r.health_score, 50) AS health_score,
+                      c.last_message_at
+               FROM conversations c
+               JOIN contacts co ON co.id = c.contact_id
+               LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = c.user_id
+               WHERE c.user_id = $1 AND c.is_archived = false
+               ORDER BY c.last_message_at DESC NULLS LAST
+               LIMIT 20''',
+            body.user_id,
+        )
+
+    context_lines = []
+    for row in rows:
+        preview = (row['last_message_preview'] or '')[:100]
+        context_lines.append(
+            f"- {row['display_name']}: health={row['health_score']}%, "
+            f"unread={row['unread_count']}, last: \"{preview}\""
+        )
+    context = '\n'.join(context_lines) or 'No recent conversations found.'
+
+    ai = get_ai_client()
+    result = await ai.complete_text([
+        {
+            'role': 'system',
+            'content': (
+                'You are Zuri, an AI relationship intelligence assistant. '
+                'You have deep knowledge of the user\'s WhatsApp contacts and conversations. '
+                'Answer questions concisely and be specific. Reference contacts by name. '
+                'When drafting a message, write it naturally as a WhatsApp message — '
+                'no formal salutations, no quotation marks. Return only the draft text when asked to draft.'
+            ),
+        },
+        {
+            'role': 'user',
+            'content': f'Recent contacts context:\n{context}\n\nQuestion: {body.question}',
         },
     ])
 

@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
 import { config } from './config';
 import { healthRoutes } from './routes/health';
 import { authRoutes } from './routes/auth';
@@ -24,6 +25,7 @@ import { knowledgeRoutes } from './routes/knowledge';
 import { businessFactsRoutes } from './routes/business-facts';
 import { memoryRoutes } from './routes/memory';
 import { productsRoutes } from './routes/products';
+import { advisorRoutes } from './routes/advisor';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -44,6 +46,13 @@ export async function buildApp() {
 
   await fastify.register(jwt, {
     secret: config.JWT_SECRET,
+  });
+
+  await fastify.register(multipart, {
+    limits: {
+      fileSize: 25 * 1024 * 1024,
+      files: 1,
+    },
   });
 
   await fastify.register(healthRoutes);
@@ -68,6 +77,7 @@ export async function buildApp() {
   await fastify.register(businessFactsRoutes);
   await fastify.register(memoryRoutes);
   await fastify.register(productsRoutes);
+  await fastify.register(advisorRoutes);
 
   return fastify;
 }

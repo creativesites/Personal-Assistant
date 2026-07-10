@@ -284,51 +284,10 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const { userId } = request.user as { userId: string };
 
     const [waitingResult, intentResult, slaResult, healthResult] = await Promise.all([
-      // Conversations with unread messages (contact waiting for user reply)
-      db.query(
-        `SELECT COUNT(*) AS count
-         FROM conversations
-         WHERE user_id = $1 AND unread_count > 0 AND is_archived = false`,
-        [userId],
-      ),
-      // Conversations where latest contact message shows buying intent
-      db.query(
-        `SELECT COUNT(DISTINCT m.conversation_id) AS count
-         FROM messages m
-         JOIN message_analyses ma ON ma.message_id = m.id
-         JOIN conversations c ON c.id = m.conversation_id
-         WHERE c.user_id = $1
-           AND m.sender_type = 'contact'
-           AND ma.intent::text ILIKE '%buy%' OR ma.intent::text ILIKE '%order%' OR ma.intent::text ILIKE '%price%'
-         AND m.whatsapp_timestamp > NOW() - INTERVAL '48 hours'`,
-        [userId],
-      ),
-      // Conversations waiting more than 2 hours for a reply
-      db.query(
-        `SELECT COUNT(*) AS count
-         FROM (
-           SELECT DISTINCT ON (m.conversation_id) m.conversation_id,
-             EXTRACT(EPOCH FROM (NOW() - m.whatsapp_timestamp)) / 3600 AS hours_waiting
-           FROM messages m
-           JOIN conversations c ON c.id = m.conversation_id
-           LEFT JOIN message_analyses ma ON ma.message_id = m.id
-           WHERE c.user_id = $1 AND m.sender_type = 'contact'
-             AND (ma.requires_response = true OR ma.requires_response IS NULL)
-             AND c.unread_count > 0
-           ORDER BY m.conversation_id, m.whatsapp_timestamp DESC
-         ) waiting
-         WHERE hours_waiting > 2`,
-        [userId],
-      ),
-      // High-value contacts (high importance tier or high confidence insights)
-      db.query(
-        `SELECT COUNT(DISTINCT co.id) AS count,
-                COALESCE(SUM(r.health_score), 0) AS total_health
-         FROM contacts co
-         JOIN relationships r ON r.contact_id = co.id AND r.user_id = $1
-         WHERE r.importance_tier <= 2`,
-        [userId],
-      ),
+      db.query(`SELECT COUNT(*) AS count FROM conversations WHERE user_id = $1 AND unread_count > 0 AND is_archived = false`, [userId]),
+      db.query(`SELECT COUNT(DISTINCT m.conversation_id) AS count FROM messages m JOIN message_analyses ma ON ma.message_id = m.id JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.sender_type = 'contact' AND (ma.intent::text ILIKE '%buy%' OR ma.intent::text ILIKE '%order%' OR ma.intent::text ILIKE '%price%') AND m.whatsapp_timestamp > NOW() - INTERVAL '48 hours'`, [userId]),
+      db.query(`SELECT COUNT(*) AS count FROM (SELECT DISTINCT ON (m.conversation_id) m.conversation_id, EXTRACT(EPOCH FROM (NOW() - m.whatsapp_timestamp)) / 3600 AS hours_waiting FROM messages m JOIN conversations c ON c.id = m.conversation_id LEFT JOIN message_analyses ma ON ma.message_id = m.id WHERE c.user_id = $1 AND m.sender_type = 'contact' AND (ma.requires_response = true OR ma.requires_response IS NULL) AND c.unread_count > 0 ORDER BY m.conversation_id, m.whatsapp_timestamp DESC) waiting WHERE hours_waiting > 2`, [userId]),
+      db.query(`SELECT COUNT(DISTINCT co.id) AS count FROM contacts co JOIN relationships r ON r.contact_id = co.id AND r.user_id = $1 WHERE r.importance_tier <= 2`, [userId]),
     ]);
 
     const waitingCount = parseInt(waitingResult.rows[0]?.count ?? '0', 10);
@@ -336,11 +295,6 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const slaBreachCount = parseInt(slaResult.rows[0]?.count ?? '0', 10);
     const vipCount = parseInt(healthResult.rows[0]?.count ?? '0', 10);
 
-    // Build contextual briefing items
-    const items: string[] = [];
-    if (waitingCount > 0) {
-      items.push(`${waitingCount} customer${waitingCount !== 1 ? 's are' : ' is'} waiting for your reply`);
-    }
     if (highIntentCount > 0) {
       items.push(`${highIntentCount} conversation${highIntentCount !== 1 ? 's have' : ' has'} high buying intent`);
     }
@@ -649,6 +603,20 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       `UPDATE conversations SET is_archived = $1, updated_at = NOW()
        WHERE id = $2 AND user_id = $3`,
       [body.is_archived, id, userId],
+    );
+    if (result.rowCount === 0) return reply.code(404).send({ error: 'Conversation not found' });
+    return reply.send({ ok: true });
+  });
+
+  // ── Mark conversation as read ──────────────────────────────────────────────
+  fastify.post('/api/conversations/:id/read', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const result = await db.query(
+      `UPDATE conversations SET unread_count = 0, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2`,
+      [id, userId],
     );
     if (result.rowCount === 0) return reply.code(404).send({ error: 'Conversation not found' });
     return reply.send({ ok: true });

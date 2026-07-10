@@ -1,5 +1,6 @@
 import json
 import os
+import base64
 import litellm
 import structlog
 from ..config import settings
@@ -127,6 +128,40 @@ class AIClient:
             **extra,
         )
         await self._report_usage(m, pool, response)
+        return response.choices[0].message.content or ''
+
+    async def extract_image_text(
+        self,
+        *,
+        image_bytes: bytes,
+        mime_type: str,
+        prompt: str | None = None,
+    ) -> str:
+        m = await self._resolve_model(None, 'ocr')
+        extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
+        effective_model = extra.pop('_override_model', m)
+        data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        response = await litellm.acompletion(
+            model=effective_model,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'text',
+                        'text': prompt or (
+                            'Extract all readable text from this business document/image. '
+                            'Preserve prices, product names, contact details, policies, dates, '
+                            'tables, labels, addresses, and phone numbers. Return plain text only.'
+                        ),
+                    },
+                    {'type': 'image_url', 'image_url': {'url': data_url}},
+                ],
+            }],
+            temperature=0.1,
+            max_tokens=4096,
+            **extra,
+        )
+        await self._report_usage(m, 'ocr', response)
         return response.choices[0].message.content or ''
 
     async def embed(self, text: str) -> list[float] | None:

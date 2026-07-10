@@ -28,6 +28,7 @@ services:
       INTELLIGENCE_SERVICE_URL: http://intelligence:8000
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       MEDIA_DIR: /app/media
+      KB_STORAGE_DIR: /app/kb-storage
     depends_on:
       redis:
         condition: service_healthy
@@ -36,6 +37,7 @@ services:
       - "3000"
     volumes:
       - wa_media:/app/media
+      - kb_storage:/app/kb-storage
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 15s
@@ -79,12 +81,15 @@ services:
       SERP_API_KEY: ${SERP_API_KEY:-}
       PORT: 8000
       API_URL: http://api:3000
+      KB_STORAGE_DIR: /app/kb-storage
     depends_on:
       redis:
         condition: service_healthy
     restart: unless-stopped
     expose:
       - "8000"
+    volumes:
+      - kb_storage:/app/kb-storage
 
   nginx:
     image: nginx:1.27-alpine
@@ -101,3 +106,4 @@ volumes:
   redisdata:
   wa_sessions:
   wa_media:
+  kb_storage:
