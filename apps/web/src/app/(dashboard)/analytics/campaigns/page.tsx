@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Sparkles } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { apiClient } from '@/lib/api'
+import { apiClient, ApiError } from '@/lib/api'
+import { Button } from '@/components/ui'
 
 // ---------------------------------------------------------------------------
 // Sub-nav
@@ -74,12 +76,26 @@ interface CampaignProduct {
   name: string
   leads: number
   sales: number
+  conversionRate: number
+}
+
+interface CampaignPostingTime {
+  dayOfWeek: string
+  hourOfDay: number
+  leads: number
+  sales: number
 }
 
 interface CampaignsData {
   summary: { postsSent: number; totalLeads: number; totalSales: number }
   posts: CampaignPost[]
   products: CampaignProduct[]
+  postingTimes: CampaignPostingTime[]
+}
+
+function formatHour(hour: number): string {
+  const h = hour % 12 === 0 ? 12 : hour % 12
+  return `${h}${hour < 12 ? 'am' : 'pm'}`
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +118,9 @@ export default function CampaignsAnalyticsPage() {
 
   const [data, setData] = useState<CampaignsData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [recommendations, setRecommendations] = useState<string[] | null>(null)
+  const [loadingRecs, setLoadingRecs] = useState(false)
+  const [recsError, setRecsError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token || !hasAccess) { setLoading(false); return }
@@ -110,6 +129,23 @@ export default function CampaignsAnalyticsPage() {
       .catch(() => setData(null))
       .finally(() => setLoading(false))
   }, [token, hasAccess])
+
+  const generateRecommendations = useCallback(async () => {
+    if (!token) return
+    setLoadingRecs(true)
+    setRecsError(null)
+    try {
+      const res = await apiClient<{ recommendations: string[] }>('/api/analytics/campaigns/recommendations', {
+        method: 'POST',
+        token,
+      })
+      setRecommendations(res.recommendations)
+    } catch (err) {
+      setRecsError(err instanceof ApiError ? err.message : 'Failed to generate recommendations')
+    } finally {
+      setLoadingRecs(false)
+    }
+  }, [token])
 
   if (!hasAccess) {
     return (
@@ -210,12 +246,59 @@ export default function CampaignsAnalyticsPage() {
                   {data.products.map(pr => (
                     <div key={pr.id} className="px-5 py-3 flex items-center justify-between">
                       <span className="text-sm text-gray-800">{pr.name}</span>
-                      <span className="text-xs text-gray-500">{pr.leads} lead{pr.leads === 1 ? '' : 's'} · {pr.sales} sale{pr.sales === 1 ? '' : 's'}</span>
+                      <span className="text-xs text-gray-500">
+                        {pr.leads} lead{pr.leads === 1 ? '' : 's'} · {pr.sales} sale{pr.sales === 1 ? '' : 's'} · {pr.conversionRate}% conversion
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
+
+            {data.postingTimes.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <div className="p-5 border-b border-gray-100">
+                  <h2 className="text-sm font-semibold text-gray-900">Best posting times</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">When your sent posts generated the most attributed leads</p>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {data.postingTimes.map((t) => (
+                    <div key={`${t.dayOfWeek}-${t.hourOfDay}`} className="px-5 py-3 flex items-center justify-between">
+                      <span className="text-sm text-gray-800">{t.dayOfWeek}s around {formatHour(t.hourOfDay)}</span>
+                      <span className="text-xs text-gray-500">{t.leads} lead{t.leads === 1 ? '' : 's'} · {t.sales} sale{t.sales === 1 ? '' : 's'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Recommendations</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">AI suggestions based on the numbers above — not generic advice</p>
+                </div>
+                <Button size="sm" variant="secondary" onClick={generateRecommendations} loading={loadingRecs}>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {recommendations ? 'Regenerate' : 'Generate'}
+                </Button>
+              </div>
+              {recsError && <p className="text-xs text-red-500 mb-2">{recsError}</p>}
+              {recommendations && recommendations.length > 0 ? (
+                <ul className="space-y-2">
+                  {recommendations.map((r, i) => (
+                    <li key={i} className="text-sm text-gray-700 flex gap-2">
+                      <span className="text-indigo-400">•</span>
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : !recsError ? (
+                <p className="text-xs text-gray-400">
+                  Generate a fresh set of suggestions from your current leads/sales/posting-time data.
+                </p>
+              ) : null}
+            </div>
           </>
         ) : null}
       </div>

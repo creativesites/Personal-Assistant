@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..ai.client import get_ai_client
@@ -58,3 +59,38 @@ async def generate_content(body: GenerateRequest):
         'videoScript': result['video_script'],
         'model': model,
     }
+
+
+@router.post('/recommendations')
+async def generate_recommendations(stats: dict):
+    """`stats` is exactly the shape services/api's getCampaignStats() returns
+    (summary/posts/products/postingTimes) — passed through as-is rather than
+    a typed model so the prompt always reflects the same numbers the user
+    sees on the Campaigns page, with no risk of the two drifting apart."""
+    model = await get_active_model('text') or settings.default_ai_model
+    ai = get_ai_client()
+    result = await ai.complete_json(
+        [
+            {
+                'role': 'system',
+                'content': (
+                    'You are a marketing analyst for a small business selling on social media '
+                    'and WhatsApp. You will be given JSON data: sent social posts with their '
+                    'attributed leads/sales, product-level lead/sale counts and conversion '
+                    'rates, and which day-of-week/hour-of-day combinations produced the most '
+                    'leads. Write 3-5 short, specific, actionable recommendations based only on '
+                    'this data — no generic marketing advice. If a product or post has zero '
+                    'leads, that is itself worth flagging. Return ONLY a JSON object: '
+                    '{"recommendations": ["...", "..."]}'
+                ),
+            },
+            {'role': 'user', 'content': json.dumps(stats)},
+        ],
+        model=model,
+    )
+
+    recommendations = result.get('recommendations')
+    if not isinstance(recommendations, list) or not recommendations:
+        raise HTTPException(status_code=502, detail='Model did not return recommendations')
+
+    return {'recommendations': [str(r) for r in recommendations], 'model': model}
