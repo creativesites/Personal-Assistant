@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { Send, Sparkles, Radio, Link2, Check, ChevronDown, ChevronUp, Copy, X } from 'lucide-react'
+import { Send, Sparkles, Link2, Check, ChevronDown, ChevronUp, Copy, X, BarChart3, Settings2, Users, ChevronRight } from 'lucide-react'
 import { useZuriSession, setStoredMarketingAccess } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -435,6 +435,60 @@ function ComingSoonCard({ icon: Icon, title, description }: { icon: React.FC<{ c
   )
 }
 
+function ActionLink({ href, icon: Icon, title, description }: { href: string; icon: React.FC<{ className?: string }>; title: string; description: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200 hover:border-indigo-300 hover:shadow-sm transition-all group"
+    >
+      <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-gray-900">{title}</p>
+        <p className="text-xs text-gray-500 truncate">{description}</p>
+      </div>
+      <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
+    </Link>
+  )
+}
+
+interface CampaignsSummary {
+  postsSent: number
+  totalLeads: number
+  totalSales: number
+}
+
+function StudioOverview({ productCount }: { productCount: number }) {
+  const session = useZuriSession()
+  const token = session.data?.accessToken
+  const { data: campaigns } = useApi<{ summary: CampaignsSummary }>('/api/analytics/campaigns', token)
+  const { data: accountsData } = useApi<{ accounts: SocialAccount[] }>('/api/social-accounts', token)
+  const summary = campaigns?.summary
+  const connectedAccounts = accountsData?.accounts.length ?? 0
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div>
+        <p className="text-xl font-bold text-gray-900 tabular-nums">{productCount}</p>
+        <p className="text-xs text-gray-500 mt-0.5">Products</p>
+      </div>
+      <div>
+        <p className="text-xl font-bold text-gray-900 tabular-nums">{connectedAccounts}</p>
+        <p className="text-xs text-gray-500 mt-0.5">Connected accounts</p>
+      </div>
+      <div>
+        <p className="text-xl font-bold text-gray-900 tabular-nums">{summary?.totalLeads ?? 0}</p>
+        <p className="text-xs text-gray-500 mt-0.5">Leads from social</p>
+      </div>
+      <div>
+        <p className="text-xl font-bold text-gray-900 tabular-nums">{summary?.totalSales ?? 0}</p>
+        <p className="text-xs text-gray-500 mt-0.5">Sales attributed</p>
+      </div>
+    </div>
+  )
+}
+
 function StudioHub() {
   const session = useZuriSession()
   const token = session.data?.accessToken
@@ -444,6 +498,16 @@ function StudioHub() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
+        <StudioOverview productCount={products.length} />
+
+        <div className="flex items-start gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+          <Users className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-indigo-700 leading-relaxed">
+            Leads from these posts land in the same <Link href="/contacts" className="font-semibold underline hover:no-underline">Contacts</Link> list
+            you already use for WhatsApp — one CRM, not two.
+          </p>
+        </div>
+
         <section>
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Products</h2>
           <div className="space-y-3">
@@ -470,13 +534,16 @@ function StudioHub() {
         <ScheduledPostsSection products={products} />
 
         <section>
+          <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick Actions</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ActionLink href="/analytics/campaigns" icon={BarChart3} title="Campaign analytics" description="Full funnel: best posts, conversion rate, recommendations" />
+            <ActionLink href="/settings" icon={Settings2} title="Connected accounts" description="Manage Facebook, Instagram and TikTok connections" />
+          </div>
+        </section>
+
+        <section>
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Coming to Studio</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <ComingSoonCard
-              icon={Radio}
-              title="Funnel analytics"
-              description="See which posts turn into leads and sales, right in Analytics."
-            />
             <ComingSoonCard
               icon={Link2}
               title="Real OAuth connections"

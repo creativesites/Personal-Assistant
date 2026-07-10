@@ -17,6 +17,8 @@ import {
   ChevronRight,
   Smartphone,
   ArrowRight,
+  Send,
+  Radio,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -43,6 +45,13 @@ interface ProactiveSuggestion {
   title: string
   priority: number
   contact: { name: string; avatarUrl: string | null }
+}
+
+interface MarketingSummary {
+  postsSent: number
+  totalLeads: number
+  totalSales: number
+  topProduct: string | null
 }
 
 function timeAgo(ts: string | null) {
@@ -98,9 +107,12 @@ export default function DashboardPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const mode = session.data?.mode ?? 'business'
+  const marketingAccess = session.data?.marketingAccess ?? 'none'
+  const hasMarketingAccess = marketingAccess === 'beta' || marketingAccess === 'enabled'
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [proactive, setProactive] = useState<ProactiveSuggestion[]>([])
+  const [marketing, setMarketing] = useState<MarketingSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -116,6 +128,16 @@ export default function DashboardPage() {
       setLoading(false)
     })
   }, [token])
+
+  useEffect(() => {
+    if (!token || !hasMarketingAccess) return
+    apiClient<{
+      summary: { postsSent: number; totalLeads: number; totalSales: number }
+      products: { name: string }[]
+    }>('/api/analytics/campaigns', { token })
+      .then((data) => setMarketing({ ...data.summary, topProduct: data.products[0]?.name ?? null }))
+      .catch(() => setMarketing(null))
+  }, [token, hasMarketingAccess])
 
   const stats = useMemo(() => {
     const unread = conversations.reduce((s, c) => s + c.unreadCount, 0)
@@ -335,6 +357,52 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Zuri Marketing — same dashboard, same contacts, just a different funnel */}
+        {hasMarketingAccess && marketing && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-900">Zuri Marketing</h2>
+              <Link href="/studio" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
+                Open Studio <ArrowRight size={12} />
+              </Link>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xl font-bold text-gray-900 tabular-nums">{marketing.postsSent}</p>
+                <p className="text-xs text-gray-500 mt-0.5">Posts sent</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-gray-900 tabular-nums">{marketing.totalLeads}</p>
+                <p className="text-xs text-gray-500 mt-0.5">Leads from social</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold text-gray-900 tabular-nums">{marketing.totalSales}</p>
+                <p className="text-xs text-gray-500 mt-0.5">Sales attributed</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 truncate">{marketing.topProduct ?? '—'}</p>
+                <p className="text-xs text-gray-500 mt-0.5">Top product</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {marketingAccess === 'waitlisted' && (
+          <Link
+            href="/studio"
+            className="flex items-center gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100 hover:border-indigo-300 transition-colors"
+          >
+            <div className="w-10 h-10 rounded-lg bg-white text-indigo-600 flex items-center justify-center flex-shrink-0">
+              <Send size={18} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-900">You're on the Zuri Marketing waitlist</p>
+              <p className="text-xs text-gray-500">We'll email you when Studio opens — same contacts, same login.</p>
+            </div>
+            <ChevronRight size={16} className="text-indigo-400 flex-shrink-0" />
+          </Link>
+        )}
+
         {/* Quick actions */}
         <div>
           <h2 className="text-sm font-semibold text-gray-900 mb-3">Quick Actions</h2>
@@ -351,6 +419,9 @@ export default function DashboardPage() {
                 <QuickAction href="/relationships" Icon={Heart} label="Relationship Health" description="Track and nurture your network" iconBg="bg-rose-50" iconColor="text-rose-500" />
                 <QuickAction href="/proactive" Icon={Sparkles} label="Proactive Queue" description="AI-suggested follow-ups and nudges" iconBg="bg-indigo-50" iconColor="text-indigo-600" />
               </>
+            )}
+            {hasMarketingAccess && (
+              <QuickAction href="/studio" Icon={Radio} label="Zuri Marketing Studio" description="Products, AI content, and scheduled posts" iconBg="bg-pink-50" iconColor="text-pink-600" />
             )}
             <QuickAction href="/advisor" Icon={Brain} label="AI Advisor" description="Ask anything about your contacts" iconBg="bg-blue-50" iconColor="text-blue-600" />
             <QuickAction href="/settings" Icon={Settings} label="Settings" description="Configure workspace and AI behavior" iconBg="bg-gray-100" iconColor="text-gray-600" />
