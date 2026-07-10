@@ -1,10 +1,19 @@
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { db } from './db'
 
+// Pre-launch testing phase: Zuri Marketing is open to every account,
+// independent of whatever's actually stored in users.marketing_access (that
+// column, migrations 0031/0035, and every gate below are untouched and will
+// resume mattering the moment this is flipped back to false — see
+// docs/ZURI_MARKETING_EXPANSION.md).
+export const MARKETING_ACCESS_OPEN_FOR_TESTING = true
+
 // Shared gate for every Zuri Marketing route (products, content generation,
 // social accounts/posts) — none of it is reachable until an account is
 // rolled into beta. See docs/ZURI_MARKETING_EXPANSION.md §12.3.
 export async function requireMarketingAccess(request: FastifyRequest, reply: FastifyReply) {
+  if (MARKETING_ACCESS_OPEN_FOR_TESTING) return
+
   const { userId } = request.user as { userId: string }
   const { rows: [user] } = await db.query<{ marketing_access: string }>(
     `SELECT COALESCE(marketing_access, 'none') AS marketing_access FROM users WHERE id = $1`,

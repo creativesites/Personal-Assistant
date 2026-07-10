@@ -10,6 +10,7 @@ const patchUserBody = z.object({
   suspend: z.boolean().optional(),
   plan: z.enum(['free', 'pro', 'business']).optional(),
   isAdmin: z.boolean().optional(),
+  marketingAccess: z.enum(['none', 'waitlisted', 'beta', 'enabled']).optional(),
 })
 
 const patchFeaturesBody = z.object({
@@ -21,6 +22,7 @@ type AdminUserRow = {
   email: string
   full_name: string | null
   mode: string
+  marketing_access: string
   is_admin: boolean
   onboarding_completed: boolean
   suspended: boolean
@@ -51,13 +53,10 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(409).send({ error: 'You are already an admin' })
       }
 
-      const { rows: [existing] } = await db.query<{ count: string }>(
-        'SELECT COUNT(*) AS count FROM users WHERE is_admin = true',
-      )
-      if (parseInt(existing.count, 10) > 0) {
-        return reply.code(409).send({ error: 'An admin account already exists' })
-      }
-
+      // Intentionally not gated on "no admin exists yet" during the pre-launch
+      // testing phase — anyone who visits /admin-setup and clicks through can
+      // self-claim admin. Re-add the single-admin-only check (see git history)
+      // before onboarding real end users.
       await db.query(
         'UPDATE users SET is_admin = true, updated_at = NOW() WHERE id = $1',
         [userId],
@@ -152,6 +151,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       const { rows: users } = await db.query<AdminUserRow>(
         `SELECT
            u.id, u.email, u.full_name, COALESCE(u.mode, 'business') AS mode,
+           COALESCE(u.marketing_access, 'none') AS marketing_access,
            u.is_admin, u.onboarding_completed,
            COALESCE(u.suspended, false) AS suspended,
            u.created_at, u.updated_at AS last_active_at,
@@ -177,6 +177,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           email: u.email,
           name: u.full_name,
           mode: u.mode,
+          marketingAccess: u.marketing_access,
           isAdmin: u.is_admin,
           onboardingCompleted: u.onboarding_completed,
           suspended: u.suspended,
@@ -200,6 +201,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       const { rows: [user] } = await db.query<AdminUserRow & { timezone: string }>(
         `SELECT
            u.id, u.email, u.full_name, COALESCE(u.mode, 'business') AS mode,
+           COALESCE(u.marketing_access, 'none') AS marketing_access,
            u.is_admin, u.onboarding_completed,
            COALESCE(u.suspended, false) AS suspended,
            u.created_at, u.timezone,
@@ -240,6 +242,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           name: user.full_name,
           mode: user.mode,
+          marketingAccess: user.marketing_access,
           timezone: (user as any).timezone,
           isAdmin: user.is_admin,
           onboardingCompleted: user.onboarding_completed,
@@ -288,6 +291,10 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.isAdmin !== undefined) {
         updates.push(`is_admin = $${idx++}`)
         values.push(body.isAdmin)
+      }
+      if (body.marketingAccess !== undefined) {
+        updates.push(`marketing_access = $${idx++}`)
+        values.push(body.marketingAccess)
       }
 
       if (updates.length > 0) {

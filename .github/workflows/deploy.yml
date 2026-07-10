@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 concurrency:
   group: deploy-production
@@ -32,6 +33,16 @@ jobs:
 
             # Write .env from GitHub secret
             echo "${{ secrets.PROD_ENV }}" > .env
+
+            # Run pending DB migrations — db/ isn't baked into the api image,
+            # so this runs in a throwaway container against the checked-out
+            # repo instead. Must happen before the app containers restart so
+            # new code never runs against an old schema.
+            docker run --rm \
+              -v "$(pwd)":/app -w /app \
+              --env-file .env \
+              node:22-alpine \
+              sh -c "npm install pg --no-save --silent && node db/migrate.js"
 
             # Build updated images
             docker compose -f docker-compose.prod.yml build --no-cache api intelligence whatsapp

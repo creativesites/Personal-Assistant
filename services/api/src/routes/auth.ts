@@ -4,6 +4,12 @@ import { z } from 'zod';
 import { db } from '../lib/db';
 import { config } from '../config';
 import { authenticate } from '../plugins/authenticate';
+import { MARKETING_ACCESS_OPEN_FOR_TESTING } from '../lib/marketing-access';
+
+// See lib/marketing-access.ts — testing-phase override, independent of the DB value.
+function resolveMarketingAccess(dbValue: string | null | undefined): string {
+  return MARKETING_ACCESS_OPEN_FOR_TESTING ? 'enabled' : (dbValue ?? 'none')
+}
 
 const clerkSyncBody = z.object({
   clerkUserId: z.string().min(1),
@@ -111,7 +117,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           fullName: user.full_name,
           mode: user.mode ?? 'hybrid',
-          marketingAccess: user.marketing_access ?? 'none',
+          marketingAccess: resolveMarketingAccess(user.marketing_access),
           isAdmin: user.is_admin ?? false,
           onboardingCompleted: user.onboarding_completed,
         },
@@ -243,7 +249,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           fullName: user.full_name,
           timezone: user.timezone,
           mode: user.mode,
-          marketingAccess: user.marketing_access,
+          marketingAccess: resolveMarketingAccess(user.marketing_access),
           onboardingCompleted: user.onboarding_completed,
         },
       });
@@ -314,7 +320,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           email: user.email,
           fullName: user.full_name,
           mode: user.mode,
-          marketingAccess: user.marketing_access,
+          marketingAccess: resolveMarketingAccess(user.marketing_access),
           timezone: user.timezone,
           onboardingCompleted: user.onboarding_completed,
         },
