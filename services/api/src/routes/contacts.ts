@@ -107,6 +107,10 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         co.pipeline_stage,
         co.lead_score,
         co.source,
+        co.source_product_id,
+        pr.name AS source_product_name,
+        co.source_social_post_id,
+        sp.caption AS source_social_post_caption,
         co.last_message_at,
         co.created_at,
         r.id AS relationship_id,
@@ -133,6 +137,8 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       FROM contacts co
       LEFT JOIN relationships r     ON r.contact_id  = co.id AND r.user_id  = $2
       LEFT JOIN contact_profiles cp ON cp.contact_id = co.id AND cp.user_id = $2
+      LEFT JOIN products pr         ON pr.id = co.source_product_id
+      LEFT JOIN social_posts sp     ON sp.id = co.source_social_post_id
       WHERE co.id = $1 AND co.user_id = $2`,
       [id, userId],
     );
@@ -210,6 +216,10 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         pipelineStage:  contact.pipeline_stage,
         leadScore:      contact.lead_score,
         source:         contact.source,
+        sourceProductId:        contact.source_product_id,
+        sourceProductName:      contact.source_product_name,
+        sourceSocialPostId:     contact.source_social_post_id,
+        sourceSocialPostCaption: contact.source_social_post_caption,
         lastMessageAt:  contact.last_message_at,
         createdAt:      contact.created_at,
         tags:           tagsResult.rows.map((t: any) => t.tag),
@@ -358,6 +368,8 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       customerStatus: 'customer_status',
       pipelineStage:  'pipeline_stage',
       leadScore:      'lead_score',
+      sourceProductId:    'source_product_id',
+      sourceSocialPostId: 'source_social_post_id',
     };
 
     const sets: string[]    = [];

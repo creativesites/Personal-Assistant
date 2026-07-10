@@ -20,6 +20,7 @@ const SUB_NAV = [
   { href: '/analytics/predictions', label: 'Predictions' },
   { href: '/analytics/health', label: 'Health Score' },
   { href: '/analytics/roi', label: 'ROI' },
+  { href: '/analytics/campaigns', label: 'Campaigns' },
   { href: '/analytics/timeline', label: 'Timeline' },
   { href: '/analytics/reports', label: 'Reports' },
 ]

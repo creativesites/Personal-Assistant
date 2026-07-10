@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireMarketingAccess } from '../lib/marketing-access'
 
 const funnelStageBody = z.object({
   conversation_id: z.string().uuid(),
@@ -1651,6 +1652,89 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       )
 
       return reply.code(201).send({ id: event.id, createdAt: event.created_at })
+    },
+  )
+
+  // ── GET /api/analytics/campaigns — Zuri Marketing funnel: post → lead → sale ──
+  // Attribution is manual (contacts.source_social_post_id / source_product_id,
+  // set via PATCH /api/contacts/:id) since there's no live click-tracking —
+  // see docs/ZURI_MARKETING_EXPANSION.md §9/§12.5.
+  fastify.get(
+    '/api/analytics/campaigns',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const { rows: posts } = await db.query<{
+        id: string
+        platform: string
+        account_name: string | null
+        caption: string
+        status: string
+        sent_at: string | null
+        product_name: string | null
+        leads: string
+        sales: string
+      }>(
+        `SELECT
+           sp.id, sa.platform, sa.account_name, sp.caption, sp.status, sp.sent_at,
+           pr.name AS product_name,
+           COUNT(co.id) AS leads,
+           COUNT(co.id) FILTER (WHERE co.customer_status = 'customer') AS sales
+         FROM social_posts sp
+         JOIN social_accounts sa ON sa.id = sp.social_account_id
+         LEFT JOIN products pr ON pr.id = sp.product_id
+         LEFT JOIN contacts co ON co.source_social_post_id = sp.id AND co.user_id = sp.user_id
+         WHERE sp.user_id = $1 AND sp.status = 'sent'
+         GROUP BY sp.id, sa.platform, sa.account_name, sp.caption, sp.status, sp.sent_at, pr.name
+         ORDER BY sp.sent_at DESC`,
+        [userId],
+      )
+
+      const { rows: products } = await db.query<{
+        id: string
+        name: string
+        leads: string
+        sales: string
+      }>(
+        `SELECT pr.id, pr.name,
+                COUNT(co.id) AS leads,
+                COUNT(co.id) FILTER (WHERE co.customer_status = 'customer') AS sales
+         FROM products pr
+         LEFT JOIN contacts co ON co.source_product_id = pr.id AND co.user_id = pr.user_id
+         WHERE pr.user_id = $1
+         GROUP BY pr.id, pr.name
+         HAVING COUNT(co.id) > 0
+         ORDER BY COUNT(co.id) DESC`,
+        [userId],
+      )
+
+      const totalLeads = posts.reduce((sum, p) => sum + parseInt(p.leads, 10), 0)
+      const totalSales = posts.reduce((sum, p) => sum + parseInt(p.sales, 10), 0)
+
+      return reply.send({
+        summary: {
+          postsSent: posts.length,
+          totalLeads,
+          totalSales,
+        },
+        posts: posts.map((p) => ({
+          id: p.id,
+          platform: p.platform,
+          accountName: p.account_name,
+          caption: p.caption,
+          productName: p.product_name,
+          sentAt: p.sent_at,
+          leads: parseInt(p.leads, 10),
+          sales: parseInt(p.sales, 10),
+        })),
+        products: products.map((pr) => ({
+          id: pr.id,
+          name: pr.name,
+          leads: parseInt(pr.leads, 10),
+          sales: parseInt(pr.sales, 10),
+        })),
+      })
     },
   )
 }
