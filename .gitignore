@@ -82,6 +82,8 @@ apps/companion/local.properties
 # Certificates
 *.pem
 *.crt
+# Local deploy credentials (SSH keys, server config — never commit)
+.deploy-local/
 
 # managed by open-wa
 **.data.json
