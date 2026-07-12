@@ -106,11 +106,15 @@ export async function relationshipsRoutes(fastify: FastifyInstance): Promise<voi
     const { userId } = request.user as { userId: string }
     const { contactId } = request.params as { contactId: string }
 
-    // Ensure relationship row exists for this contact
+    // Ensure relationship row exists — join through contacts so we only insert
+    // if the contact actually belongs to this user (avoids FK violation on
+    // bad/foreign contactIds, ON CONFLICT handles race conditions)
     await db.query(`
       INSERT INTO relationships (user_id, contact_id, relationship_type, importance_tier, health_score, health_trend, is_auto_managed)
-      SELECT $1, $2, 'acquaintance', 3, 70, 'stable', true
-      WHERE NOT EXISTS (SELECT 1 FROM relationships WHERE contact_id = $2 AND user_id = $1)
+      SELECT $1, co.id, 'acquaintance', 3, 70, 'stable', true
+      FROM contacts co
+      WHERE co.id = $2 AND co.user_id = $1
+        AND NOT EXISTS (SELECT 1 FROM relationships WHERE contact_id = $2 AND user_id = $1)
       ON CONFLICT DO NOTHING
     `, [userId, contactId])
 
