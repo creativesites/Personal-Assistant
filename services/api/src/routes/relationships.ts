@@ -88,4 +88,25 @@ export async function relationshipsRoutes(fastify: FastifyInstance): Promise<voi
       })),
     })
   })
+
+  // ── "Analyze All Relationships" — manual, on-demand bulk recalculation ───
+  // Pure SQL on both ends (health.py/network_value.py make no LLM call), so
+  // this works purely from message history already on file — no dependency
+  // on WhatsApp being currently connected.
+  fastify.post('/api/relationships/analyze-all', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000'
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/relationship-health/recalculate-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' })
+      return reply.send(await res.json())
+    } catch {
+      return reply.code(502).send({ error: 'Intelligence service unavailable' })
+    }
+  })
 }

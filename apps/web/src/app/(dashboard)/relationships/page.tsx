@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Download, Gift, ShoppingCart, Sparkles, TrendingUp } from 'lucide-react'
+import { Download, Gift, Loader2, RefreshCw, ShoppingCart, Sparkles, TrendingUp } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
-import { Avatar, Badge, EmptyState, HealthBar, PageHeader, SkeletonCard } from '@/components/ui'
+import { apiClient } from '@/lib/api'
+import { Avatar, Badge, EmptyState, HealthBar, PageHeader, SkeletonCard, useToast } from '@/components/ui'
 import { downloadCsv } from '@/lib/export-csv'
 
 interface RelationshipItem {
@@ -64,13 +65,34 @@ const TREND: Record<string, { variant: 'success' | 'error' | 'default'; label: s
 export default function RelationshipsPage() {
   const session = useZuriSession()
   const router = useRouter()
+  const { addToast } = useToast()
   const token = session.data?.accessToken
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<FilterKey>('all')
   const [sort, setSort] = useState<SortKey>('health')
+  const [analyzing, setAnalyzing] = useState(false)
 
-  const { data, loading, error } = useApi<{ relationships: RelationshipItem[] }>('/api/relationships', token)
+  const { data, loading, error, refetch } = useApi<{ relationships: RelationshipItem[] }>('/api/relationships', token)
   const contacts = data?.relationships ?? []
+
+  // Pure SQL on both ends (no LLM call), so this works purely from message
+  // history already on file — independent of whether WhatsApp is currently
+  // connected. See docs/RELATIONSHIP_OS_PLAN.md — health.py/network_value.py.
+  const analyzeAll = async () => {
+    if (!token) return
+    setAnalyzing(true)
+    try {
+      const res = await apiClient<{ analyzedCount: number }>('/api/relationships/analyze-all', {
+        method: 'POST', token,
+      })
+      addToast({ variant: 'success', title: 'Relationships analyzed', description: `${res.analyzedCount} relationship${res.analyzedCount !== 1 ? 's' : ''} updated` })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to analyze relationships' })
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   const stats = useMemo(() => {
     const needsAttention = contacts.filter(
@@ -167,6 +189,15 @@ export default function RelationshipsPage() {
         >
           <Download size={14} />
           <span className="hidden sm:inline">Export</span>
+        </button>
+        <button
+          onClick={analyzeAll}
+          disabled={analyzing || contacts.length === 0}
+          title="Recalculate health and network/connection value for every relationship from message history already on file"
+          className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+        >
+          {analyzing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          <span className="hidden sm:inline">Analyze All</span>
         </button>
       </div>
 

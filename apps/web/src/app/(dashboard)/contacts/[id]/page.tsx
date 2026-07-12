@@ -1502,6 +1502,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [showTagInput, setShowTagInput] = useState(false)
   const [tagSaving,  setTagSaving]  = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
   // local AI profile copy for optimistic updates
   const [localProfile, setLocalProfile] = useState<ContactProfile | null>(null)
   const tabBarRef = useRef<HTMLDivElement>(null)
@@ -1553,6 +1554,25 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       addToast({ variant: 'error', title: 'Failed to queue profile rebuild' })
     } finally {
       setRebuilding(false)
+    }
+  }
+
+  // Manual, on-demand relationship health recalculation — pure DB computation
+  // (health.py has no LLM call), so this is fast and safe to run any time,
+  // unlike "Rebuild AI Profile" which re-queues messages for LLM re-analysis.
+  const analyzeRelationship = async () => {
+    if (!token) return
+    setAnalyzing(true)
+    try {
+      const res = await apiClient<{ healthScore: number }>(`/api/contacts/${id}/recalculate-health`, {
+        method: 'POST', token,
+      })
+      addToast({ variant: 'success', title: 'Relationship analyzed', description: `Health score: ${res.healthScore}/100` })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to analyze relationship' })
+    } finally {
+      setAnalyzing(false)
     }
   }
 
@@ -1665,6 +1685,19 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 <Sparkles size={14} />
               )}
               <span className="hidden md:inline">Rebuild AI Profile</span>
+            </button>
+            <button
+              onClick={analyzeRelationship}
+              disabled={analyzing}
+              title="Recalculate health score and network/connection value from message history already on file"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-600 border border-gray-200 bg-white rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {analyzing ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              <span className="hidden md:inline">Analyze Relationship</span>
             </button>
             <Link href="/inbox"
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
