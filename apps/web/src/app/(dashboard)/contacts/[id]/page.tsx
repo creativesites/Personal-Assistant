@@ -99,7 +99,7 @@ interface ContactDoc {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-type TabId = 'profile' | 'ai' | 'activity' | 'calendar' | 'docs' | 'messages'
+type TabId = 'profile' | 'ai' | 'activity' | 'calendar' | 'docs' | 'clocks' | 'messages'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'profile',   label: 'Profile'   },
@@ -107,6 +107,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'activity',  label: 'Activity'  },
   { id: 'calendar',  label: 'Calendar'  },
   { id: 'docs',      label: 'Docs'      },
+  { id: 'clocks',    label: 'Clocks'    },
   { id: 'messages',  label: 'Messages'  },
 ]
 
@@ -893,6 +894,101 @@ function DocumentsPanel({ contactId, token }: { contactId: string; token: string
 }
 
 // ─── MessagesTab ──────────────────────────────────────────────────────────────
+
+// Ported from the orphaned /relationships/[id] page (see docs/RELATIONSHIP_OS_PLAN.md
+// §3/§7) — this was the only place a user could see or pause their own
+// relationship clocks, but nothing linked to that route. Same data, same
+// toggle action, now living as a tab here instead of a second contact-detail page.
+interface RelationshipClock {
+  id: string
+  clockType: string
+  avgDaysBetweenMessages: number | null
+  stdDevDays: number | null
+  isActive: boolean
+  isManuallyConfigured: boolean
+  checkIntervalDays: number
+  lastNudgeAt: string | null
+  nudgeCount: number
+}
+
+const CLOCK_LABELS: Record<string, string> = {
+  dormancy_watch: 'Dormancy Watch',
+  weekly_touchpoint: 'Weekly Touchpoint',
+  daily_checkin: 'Daily Check-in',
+  post_event_followup: 'Post-event Follow-up',
+}
+
+function ClocksPanel({ contactId, token }: { contactId: string; token: string }) {
+  const { data, refetch } = useApi<{ clocks: RelationshipClock[] }>(`/api/contacts/${contactId}/clock`, token)
+  const clocks = data?.clocks ?? []
+  const [toggling, setToggling] = useState<string | null>(null)
+
+  const toggleClock = async (clockType: string, currentActive: boolean) => {
+    setToggling(clockType)
+    try {
+      await apiClient(`/api/contacts/${contactId}/clock/${clockType}`, {
+        method: 'PUT', token,
+        body: JSON.stringify({ isActive: !currentActive }),
+      })
+      refetch()
+    } finally {
+      setToggling(null)
+    }
+  }
+
+  if (clocks.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center">
+        <Clock size={28} className="text-gray-300 mx-auto mb-2" />
+        <p className="text-sm text-gray-500 font-medium">No relationship clocks yet</p>
+        <p className="text-xs text-gray-400 mt-0.5">Set up automatically as the temporal intelligence engine learns your cadence.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Relationship Clocks</p>
+        <p className="text-xs text-gray-400 mt-0.5">AI-learned timing for proactive suggestions.</p>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {clocks.map((clock) => (
+          <div key={clock.id} className="flex items-start gap-4 px-4 py-3.5">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <p className="text-sm font-medium text-gray-800">{CLOCK_LABELS[clock.clockType] || clock.clockType}</p>
+                {clock.isManuallyConfigured && <Badge variant="info">manual</Badge>}
+              </div>
+              {clock.avgDaysBetweenMessages != null && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Typical cadence: every {Math.round(clock.avgDaysBetweenMessages)} days
+                  {clock.stdDevDays != null && ` ±${Math.round(clock.stdDevDays)}d`}
+                </p>
+              )}
+              <p className="text-xs text-gray-400 mt-0.5">
+                Checks every {clock.checkIntervalDays} days
+                {clock.nudgeCount > 0 && ` · ${clock.nudgeCount} nudge${clock.nudgeCount !== 1 ? 's' : ''}`}
+                {clock.lastNudgeAt && ` · last ${formatDate(clock.lastNudgeAt)}`}
+              </p>
+            </div>
+            <button
+              onClick={() => toggleClock(clock.clockType, clock.isActive)}
+              disabled={toggling === clock.clockType}
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50 ${
+                clock.isActive
+                  ? 'bg-green-50 text-green-700 hover:bg-red-50 hover:text-red-600'
+                  : 'bg-gray-100 text-gray-500 hover:bg-green-50 hover:text-green-700'
+              }`}
+            >
+              {clock.isActive ? 'Active' : 'Paused'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function MessagesTab({ contactId, token }: { contactId: string; token: string }) {
   const { data, loading } = useApi<{ messages: Message[]; conversationId: string | null }>(
@@ -1803,6 +1899,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {/* ══ DOCS TAB ══ */}
             {activeTab === 'docs' && (
               <DocumentsPanel contactId={contact.id} token={token!} />
+            )}
+
+            {/* ══ CLOCKS TAB ══ */}
+            {activeTab === 'clocks' && (
+              <ClocksPanel contactId={contact.id} token={token!} />
             )}
 
             {/* ══ MESSAGES TAB ══ */}

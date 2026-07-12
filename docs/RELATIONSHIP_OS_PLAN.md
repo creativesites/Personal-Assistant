@@ -1,7 +1,7 @@
 # Zuri Relationship Operating System (rOS) — Master Plan
 
 **Date**: July 2026
-**Status**: Planning only — nothing in this document is built yet. This plan is grounded in an audit of what already exists (§2) so the build phases (§12) extend and reconcile real code rather than duplicating it.
+**Status**: Phase 0 (Foundation & Conflict Resolution, §12) shipped: `deals` table + backfill from `conversation_funnel_stages` (migration `0037`), a `deals` CRUD API that keeps `contacts.pipeline_stage` in sync as a cache and records `revenue_events` on close-won, the `customer_status` vocabulary mismatch between `leads.ts` and the Contacts UI is reconciled, and the orphaned `/relationships/[id]` page's Clocks tab is merged into `/contacts/[id]` (old route now redirects). §13's open decisions are resolved. This plan is grounded in an audit of what already exists (§2) so the build phases (§12) extend and reconcile real code rather than duplicating it.
 
 ---
 
@@ -401,6 +401,37 @@ Same ranked queue as §5.11, sorted by relationship importance_tier × health de
 
 Same `relationship_goals` table (§5.12), `goal_type` values: `reconnect`, `deepen_friendship`, `repair_rift`, `be_present`, `support_through_event`, `maintain_long_distance`.
 
+### 6.12 Romantic Relationship Mode
+
+Most personal-mode users will spend most of their time on two relationship types: partners and close friends. Both deserve first-class depth, not a generic "personal contact" treatment. For `relationship_type` values like `partner`/`spouse`/`dating`:
+
+- **Love language detection** — inferred into `contact_profiles.structured_attributes` the same way `buying_behaviour` is inferred for a business contact today: `{"loveLanguage": "acts_of_service", "confidence": 0.7}`, built from what they ask for and what they express appreciation for. No new extraction pipeline — the profiler already does this kind of pattern inference, this is one more field.
+- **Relationship milestones** — `contact_life_events.event_type` (§6.6) gains `first_date, anniversary, engagement, moved_in_together, married`, feeding a dedicated "Our Story" timeline distinct from the general one.
+- **Date night / quality time cadence** — reuses `relationship_clocks` exactly as-is: a touchpoint clock keyed to explicit "we should do X together" mentions and date-tagged calendar events, not just message frequency. Fires "It's been 3 weeks since your last date night" the same mechanism that already fires `dormancy_watch`.
+- **Conflict & repair support** — when `message_analyses.sentiment` shows a sharp dip (already computed per-message), the daily brief surfaces it gently and specifically: *"Things seemed tense with Sarah yesterday. Want help finding the right words to check in?"* — a drafted message the user reviews, never auto-sent. This is §6.8's drift-risk detector with romance-aware copy, not new sentiment infrastructure.
+- **Appreciation nudges** — periodic (not just reactive-to-conflict) gratitude-expression suggestions, timed by the same cadence learning so they don't feel scripted or repetitive.
+- `relationship_goals.goal_type` gains: `plan_date_night, express_appreciation, resolve_conflict, deepen_intimacy, plan_future_together`.
+
+### 6.13 Friendship Circle Features
+
+For `relationship_type = 'friend'`, personal mode leans on `relationship_connections` (§5.7) to build an actual social layer, not just per-contact management:
+
+- **Friend circles** — connections where `connection_type = 'friend_of'` between two people who both know the user render as a lightweight group ("Your Uni Friends," "Workmates"), inferred from repeated co-mentions rather than manually configured.
+- **Group hangout nudges** — *"You haven't organized a get-together with your close friends in 2 months"* — reads `dormancy_watch` across a *cluster* of connected friends rather than one relationship at a time.
+- **Milestone celebration relay** — when `contact_life_events` records an achievement for one friend, the brief nudges the user to loop in mutual friends: *"Have you told Grace that Peter got the promotion?"* — this is what actually makes someone feel like the connector in their friend group, and it's just one more read against `relationship_connections`.
+- **Reconnection framing with memory, not guilt** — pulls from `relationship_memory.shared_history_since`/`conversation_themes` instead of a flat "it's been a while": *"It's been 3 months since you and David last caught up — you two used to talk football every week."* Specificity over generic nagging is the whole difference between a nice feature and an annoying one.
+- `relationship_goals.goal_type` gains: `plan_hangout, introduce_to_friend_group, celebrate_milestone, be_there_during_hard_time, maintain_long_distance_friendship`.
+
+### 6.14 "Best Friend" Behaviors (cross-cutting, all personal relationships)
+
+The qualities that make Personal mode feel like a best friend rather than a CRM with softer copy — these are product principles §6.1–6.13 already implement, made explicit so they're not lost in implementation:
+
+- **Remembers so the user doesn't have to.** Every promise ("I'll ask them about X") surfaces again unprompted — `relationship_memory.outstanding_promises` is already extracted; it just needs a follow-up nudge wired into the Daily Brief that hasn't been built yet.
+- **Notices when something's off, not just when it's overdue.** Emotional-dip detection (§6.12) generalizes to every close relationship, not only romantic ones.
+- **Celebrates wins as they happen**, same-day, not in a batched weekly digest.
+- **Never guilt-trips, always contextualizes.** Every "it's been a while" includes *why it matters* and *an easy opener* — the §1 philosophy applied literally: what's happening, why, what to do next.
+- **Discreet by default.** Sentiment-dip and conflict detection is inherently sensitive. Every one of these behaviors must be silenceable per-relationship, reusing the Conversation Privacy Levels already specified for the Governance Engine in `PRODUCT_VISION.md`.
+
 ---
 
 ## 7. Hybrid Mode & Resolving the Orphaned Page
@@ -484,9 +515,11 @@ Cmd+K palette; CSV/Excel/PDF export; scheduled digest reports.
 
 ---
 
-## 13. Open Decisions
+## 13. Open Decisions — Resolved
 
-- **Deals migration**: does existing `conversation_funnel_stages` data get backfilled into `deals`, or does `deals` start empty and the old table just stops being written to? Recommend backfill — there's live pipeline data in it per the Business Intelligence Engine.
-- **Opportunity/Deal linkage direction**: should every `deal` require a source `opportunity`, or can deals be created directly (manual "Add Deal" button)? Recommend allowing both — not every sale starts from a detected signal.
-- **Pricing tier line**: `docs/PRODUCT_VISION.md` puts Business Graph, Deals, and Automation at Business+ only. Confirm Connection Value / Life Events / personal Opportunity Detection stay on the **free Personal tier** as designed here, since that's where the differentiation-for-individuals story lives.
-- **Command palette scope for v1**: full fuzzy search across every entity (contacts, deals, products, docs) is a bigger lift than a v1 needs — recommend starting with contact search + the 5-6 highest-value actions, expanding later.
+All four decided per the recommended path; Phase 0 (§12) is built against these:
+
+- **Deals migration** → **backfill.** Existing `conversation_funnel_stages` rows migrate into `deals` on the same contact; the old table stops receiving new writes but isn't dropped (historical read access preserved).
+- **Opportunity/Deal linkage** → **both allowed.** A deal can originate from a detected `opportunity` (§5.8) or be created directly via a manual "Add Deal" action — not gating deal creation behind detection.
+- **Pricing tier line** → **confirmed.** Connection Value, Life Events, and personal Opportunity Detection (§6.4, §6.6, §6.7) stay on the free Personal tier, unchanged from how §5/§6 already split business-vs-personal along `PRODUCT_VISION.md`'s existing matrix.
+- **Command palette v1 scope** → **contact search + top 5-6 actions first**, per §11; broader entity search (deals, products, docs) is a later iteration, not blocking Phase 6.

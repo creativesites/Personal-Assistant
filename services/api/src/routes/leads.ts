@@ -272,7 +272,13 @@ export async function leadsRoutes(fastify: FastifyInstance): Promise<void> {
       'new_lead', 'contacted', 'qualified', 'proposal',
       'negotiation', 'won', 'lost', null,
     ];
-    const validStatuses = ['lead', 'prospect', 'customer', 'churned', 'contact'];
+    // Matches CUSTOMER_STATUS_OPTIONS in apps/web/.../contacts/[id]/page.tsx —
+    // this validator used to be narrower than what the Contacts UI could
+    // actually set, silently rejecting valid statuses written from there.
+    const validStatuses = [
+      'contact', 'lead', 'prospect', 'customer', 'vip',
+      'supplier', 'employee', 'partner', 'personal', 'churned',
+    ];
 
     if (body.pipelineStage !== undefined && !validStages.includes(body.pipelineStage)) {
       return reply.code(400).send({ error: 'Invalid pipeline stage' });
