@@ -63,6 +63,31 @@ class ConnectionMention(BaseModel):
     supporting_text: str = ''
 
 
+class ProductMention(BaseModel):
+    """A product/service signal tied to a contact — see
+    docs/RELATIONSHIP_OS_PLAN.md §5.6. product_name is resolved against the
+    user's `products` catalog by name match; mentions of products that
+    aren't in the catalog are dropped, same discipline as ConnectionMention.
+    replacement_interval_days is only set when the product is a consumable
+    with a predictable replacement cycle (e.g. printer toner ~60 days) and
+    relation_type is 'purchased' — used to compute contact_products.
+    replacement_predicted_at, which later feeds a renewal_due opportunity."""
+    product_name: str
+    relation_type: str  # purchased|interested|quoted|recommended|mentioned
+    quantity: int = 1
+    replacement_interval_days: int | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class LifeEventMention(BaseModel):
+    """A major personal life event — see docs/RELATIONSHIP_OS_PLAN.md §6.6.
+    Distinct from EventItem (birthdays/meetings/routine calendar events):
+    this captures the handful of things worth a contact's own timeline."""
+    event_type: str  # new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business
+    title: str
+    date: str | None = None
+
+
 class MessageAnalysis(BaseModel):
     sentiment: str  # positive|negative|neutral|mixed
     sentiment_score: float = Field(ge=0.0, le=1.0)
@@ -78,6 +103,8 @@ class MessageAnalysis(BaseModel):
     business_facts_mentioned: list[BusinessFactMention] = Field(default_factory=list)
     opportunities_mentioned: list[OpportunityMention] = Field(default_factory=list)
     connections_mentioned: list[ConnectionMention] = Field(default_factory=list)
+    products_mentioned: list[ProductMention] = Field(default_factory=list)
+    life_events_mentioned: list[LifeEventMention] = Field(default_factory=list)
 
 
 class ReplySuggestion(BaseModel):

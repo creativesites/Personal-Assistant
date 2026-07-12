@@ -70,6 +70,7 @@ interface ContactDetail {
     importanceTier: number
     lastInteractionAt: string | null
     notes: string | null
+    networkValue: Record<string, unknown>
   }
   profile: ContactProfile
   insights: Array<{ key: string; value: string; confidence: number; supportingText: string | null; createdAt: string }>
@@ -79,6 +80,8 @@ interface ContactDetail {
   upcomingEvents: Array<{ id: string; eventType: string; title: string; eventDate: string | null; isRecurring: boolean; confidence: number }>
   opportunities: Array<{ id: string; opportunityType: string; title: string; description: string | null; estimatedValueCents: number | null; confidence: number; detectedAt: string }>
   connections: Array<{ id: string; connectionType: string; confidence: number; source: string; otherContactId: string; otherContactName: string | null }>
+  products: Array<{ id: string; productId: string; productName: string; relationType: string; quantity: number | null; warrantyExpiresAt: string | null; replacementPredictedAt: string | null }>
+  lifeEvents: Array<{ id: string; eventType: string; title: string; eventDate: string | null; createdAt: string }>
 }
 
 interface Task {
@@ -172,6 +175,24 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   delivery:         <Package size={15} className="text-amber-500" />,
   service_reminder: <Wrench size={15} className="text-gray-500" />,
   other:            <Bell size={15} className="text-gray-400" />,
+}
+
+// Major life events (docs/RELATIONSHIP_OS_PLAN.md §6.6) — distinct from
+// EVENT_ICONS above, which covers routine calendar events.
+const LIFE_EVENT_ICONS: Record<string, React.ReactNode> = {
+  new_job:         <BriefcaseIcon size={15} className="text-blue-500" />,
+  moved:           <MapPin size={15} className="text-sky-500" />,
+  had_child:       <PartyPopper size={15} className="text-pink-500" />,
+  got_married:     <Heart size={15} className="text-red-500" />,
+  health_issue:    <Bell size={15} className="text-orange-500" />,
+  loss:            <Bell size={15} className="text-gray-500" />,
+  achievement:     <Sparkles size={15} className="text-amber-500" />,
+  started_business:<Target size={15} className="text-teal-500" />,
+}
+
+const PRODUCT_RELATION_LABELS: Record<string, string> = {
+  purchased: 'Purchased', interested: 'Interested', quoted: 'Quoted',
+  recommended: 'Recommended', mentioned: 'Mentioned',
 }
 
 const CALENDAR_EVENT_TYPES = [
@@ -343,6 +364,61 @@ function FactorBreakdown({ factors }: { factors: unknown }) {
           {FACTOR_LABELS[key] ?? key} {value > 0 ? '+' : ''}{value.toFixed(1)}
         </span>
       ))}
+    </div>
+  )
+}
+
+function formatCents(cents: number) {
+  return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })
+}
+
+// Network Value (business) / Connection Value (personal) — see
+// docs/RELATIONSHIP_OS_PLAN.md §5.1/§6.4. Shape is decided server-side by
+// whichever signals a relationship actually has, so the frontend just
+// renders whichever keys are present rather than a mode flag.
+function NetworkValueCard({ value }: { value: Record<string, unknown> }) {
+  if (!value || Object.keys(value).length === 0) return null
+  const isBusiness = 'financialValueCents' in value
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+        <TrendingUp size={14} className="text-indigo-400" />
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          {isBusiness ? 'Network Value' : 'Connection Value'}
+        </p>
+        <span className="ml-auto text-sm font-bold text-gray-900">{String(value.overallScore ?? '—')}</span>
+      </div>
+      <div className="p-4 grid grid-cols-2 gap-3">
+        {isBusiness ? (
+          <>
+            <Stat label="Financial value" value={formatCents(Number(value.financialValueCents ?? 0))} />
+            <Stat label="Referral value" value={formatCents(Number(value.referralValueCents ?? 0))} />
+            <Stat label="Influence" value={`${value.influenceScore ?? '—'}/100`} />
+            <Stat label="Decision authority" value={String(value.decisionAuthority ?? '—')} capitalize />
+            <Stat label="Buy again" value={`${value.likelihoodToBuyAgain ?? '—'}%`} />
+            <Stat label="Referral probability" value={`${value.referralProbability ?? '—'}%`} />
+            <Stat label="Strategic value" value={String(value.strategicValue ?? '—').replace(/_/g, ' ')} capitalize />
+          </>
+        ) : (
+          <>
+            <Stat label="Closeness" value={`${value.closenessScore ?? '—'}/100`} />
+            <Stat label="Reciprocity" value={`${value.reciprocityScore ?? '—'}/100`} />
+            <Stat label="Support given" value={String(value.supportGivenCount ?? 0)} />
+            <Stat label="Support received" value={String(value.supportReceivedCount ?? 0)} />
+            <Stat label="Influence in your life" value={String(value.socialInfluenceInYourLife ?? '—')} capitalize />
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, capitalize }: { label: string; value: string; capitalize?: boolean }) {
+  return (
+    <div>
+      <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
+      <p className={`text-sm font-medium text-gray-800 ${capitalize ? 'capitalize' : ''}`}>{value}</p>
     </div>
   )
 }
@@ -1829,6 +1905,54 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                           </div>
                           <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
                         </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <NetworkValueCard value={contact.relationship.networkValue} />
+
+                {contact.products.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+                      <ShoppingCart size={14} className="text-indigo-400" />
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Products</p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {contact.products.map(p => (
+                        <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 leading-snug">
+                              {p.productName}{p.quantity && p.quantity > 1 ? ` ×${p.quantity}` : ''}
+                            </p>
+                            {p.replacementPredictedAt && (
+                              <p className="text-xs text-amber-600 mt-0.5">Replacement due {formatDate(p.replacementPredictedAt)}</p>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 flex-shrink-0">
+                            {PRODUCT_RELATION_LABELS[p.relationType] ?? p.relationType}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {contact.lifeEvents.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+                      <Sparkles size={14} className="text-indigo-400" />
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Life Events</p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {contact.lifeEvents.map(e => (
+                        <div key={e.id} className="flex items-center gap-3 px-4 py-3">
+                          {LIFE_EVENT_ICONS[e.eventType] ?? <Bell size={15} className="text-gray-400" />}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-800 leading-snug">{e.title}</p>
+                            {e.eventDate && <p className="text-xs text-gray-400 mt-0.5">{formatDate(e.eventDate)}</p>}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>

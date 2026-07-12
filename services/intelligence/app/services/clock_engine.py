@@ -4,8 +4,11 @@ from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_TEMPORAL_NUDGE
 from ..database import get_pool
 from ..memory import retrieval_service as memory
+from ..models import OpportunityMention
+from .opportunities import OpportunityService
 
 log = structlog.get_logger()
+_opportunities = OpportunityService()
 
 _VALID_SUGGESTION_TYPES = {
     'check_in', 'birthday_message', 'follow_up', 'congratulate',
@@ -241,3 +244,42 @@ class ClockEngine:
                 await self.evaluate_for_user(str(user['user_id']))
             except Exception as exc:
                 log.error('clock_user_failed', user_id=user['user_id'], error=str(exc))
+
+        try:
+            await self.check_product_replacements()
+        except Exception as exc:
+            log.error('product_replacement_check_failed', error=str(exc))
+
+    async def check_product_replacements(self) -> int:
+        """Wire replacement-date prediction into opportunities (§5.6/§5.8) —
+        this is the one place in the codebase that runs on a wall-clock
+        timer rather than reacting to an incoming message, so it's the
+        natural home for "is X's predicted replacement date coming up"
+        rather than a new scheduler. OpportunityService's own dedup (one
+        open renewal_due per contact within its shelf life) keeps this
+        idempotent across repeated 15-minute runs."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            due = await conn.fetch(
+                """SELECT cp.id, cp.user_id, cp.contact_id, cp.replacement_predicted_at, p.name AS product_name
+                   FROM contact_products cp
+                   JOIN products p ON p.id = cp.product_id
+                   WHERE cp.replacement_predicted_at IS NOT NULL
+                     AND cp.replacement_predicted_at <= CURRENT_DATE + INTERVAL '14 days'
+                     AND cp.replacement_predicted_at >= CURRENT_DATE - INTERVAL '3 days'""",
+            )
+
+        for row in due:
+            await _opportunities.record_candidates(
+                str(row['user_id']), str(row['contact_id']), f"replacement-{row['id']}",
+                [OpportunityMention(
+                    opportunity_type='renewal_due',
+                    title=f"{row['product_name']} likely needs replacing",
+                    description=f"Predicted replacement date: {row['replacement_predicted_at']}",
+                    confidence=0.6,
+                )],
+            )
+
+        if due:
+            log.info('product_replacements_checked', count=len(due))
+        return len(due)

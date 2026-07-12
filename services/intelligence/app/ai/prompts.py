@@ -25,7 +25,9 @@ Return ONLY valid JSON in exactly this format:
   "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}],
   "business_facts_mentioned": [{{"key": "snake_case_fact_name", "value": "the stated fact", "category": "product|pricing|shipping|refund_policy|faq|hours|inventory|promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other"}}],
   "opportunities_mentioned": [{{"opportunity_type": "buying_signal|expansion|referral_moment|renewal_due|life_event|reconnect_window|churn_risk|support_needed", "title": "brief title", "description": "1 sentence of context", "estimated_value_cents": null, "confidence": 0.0}}],
-  "connections_mentioned": [{{"other_person_name": "the other person's name as stated", "connection_type": "works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to", "confidence": 0.0, "supporting_text": "exact quote"}}]
+  "connections_mentioned": [{{"other_person_name": "the other person's name as stated", "connection_type": "works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to", "confidence": 0.0, "supporting_text": "exact quote"}}],
+  "products_mentioned": [{{"product_name": "the product/service name as stated", "relation_type": "purchased|interested|quoted|recommended|mentioned", "quantity": 1, "replacement_interval_days": null, "confidence": 0.0}}],
+  "life_events_mentioned": [{{"event_type": "new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business", "title": "brief title", "date": null}}]
 }}
 
 Important for events_detected:
@@ -47,6 +49,14 @@ Important for opportunities_mentioned:
 Important for connections_mentioned:
 - Only include this when the sender explicitly names another specific person and describes their relation to them — "my brother Peter", "I work with John at ABC Construction", "my wife Grace". Do not include vague references ("a friend", "someone").
 - other_person_name should be exactly the name as stated, so it can be matched against existing contacts.
+
+Important for products_mentioned:
+- Only include this when a specific product or service (not a generic category) is explicitly named — "the HP printer", "your logo design service". product_name should be stated plainly enough to match against a product catalog by name.
+- replacement_interval_days should only be set when relation_type is "purchased" AND the product is a consumable or wearable with a predictable replacement cycle (e.g. printer toner ~60 days, tyres ~365 days). Leave null for one-time or durable purchases.
+
+Important for life_events_mentioned:
+- Only include this for a major, one-off life event explicitly stated — a new job, moving house, having a child, getting married, a health issue, a bereavement, a personal achievement, starting a business. Do not include routine chat or minor updates.
+- date should be resolved to an absolute YYYY-MM-DD using today's date above if determinable, else null.
 """
 
 GENERATE_REPLIES = """\

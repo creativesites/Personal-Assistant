@@ -120,6 +120,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         COALESCE(r.health_trend, 'stable') AS health_trend,
         r.last_interaction_at,
         r.notes AS relationship_notes,
+        COALESCE(r.network_value, '{}') AS network_value,
         cp.personality_summary,
         cp.communication_style,
         cp.emotional_patterns,
@@ -145,7 +146,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (!contact) return reply.code(404).send({ error: 'Contact not found' });
 
-    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult, opportunitiesResult, connectionsResult] = await Promise.all([
+    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult, opportunitiesResult, connectionsResult, productsResult, lifeEventsResult] = await Promise.all([
       db.query(
         `SELECT id, insight_key, insight_value, confidence, supporting_text, created_at
          FROM contact_insights
@@ -219,6 +220,26 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
          LIMIT 20`,
         [id, userId],
       ),
+      db.query(
+        `SELECT cp.id, cp.relation_type, cp.quantity,
+                cp.warranty_expires_at::text AS warranty_expires_at,
+                cp.replacement_predicted_at::text AS replacement_predicted_at,
+                p.id AS product_id, p.name AS product_name
+         FROM contact_products cp
+         JOIN products p ON p.id = cp.product_id
+         WHERE cp.contact_id = $1 AND cp.user_id = $2
+         ORDER BY cp.updated_at DESC
+         LIMIT 20`,
+        [id, userId],
+      ),
+      db.query(
+        `SELECT id, event_type, title, event_date::text AS event_date, created_at
+         FROM contact_life_events
+         WHERE contact_id = $1 AND user_id = $2
+         ORDER BY COALESCE(event_date, created_at::date) DESC
+         LIMIT 20`,
+        [id, userId],
+      ),
     ]);
 
     return reply.send({
@@ -254,6 +275,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           healthTrend:       contact.health_trend,
           lastInteractionAt: contact.last_interaction_at,
           notes:             contact.relationship_notes,
+          networkValue:      contact.network_value,
         },
         profile: (contact.personality_summary || contact.preferences || contact.goals || contact.relationship_stage) ? {
           personalitySummary: contact.personality_summary,
@@ -338,6 +360,22 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           source:           c.source,
           otherContactId:   c.other_contact_id,
           otherContactName: c.other_contact_name,
+        })),
+        products: productsResult.rows.map((p: any) => ({
+          id:                     p.id,
+          productId:              p.product_id,
+          productName:            p.product_name,
+          relationType:           p.relation_type,
+          quantity:               p.quantity,
+          warrantyExpiresAt:      p.warranty_expires_at,
+          replacementPredictedAt: p.replacement_predicted_at,
+        })),
+        lifeEvents: lifeEventsResult.rows.map((e: any) => ({
+          id:        e.id,
+          eventType: e.event_type,
+          title:     e.title,
+          eventDate: e.event_date,
+          createdAt: e.created_at,
         })),
       },
     });

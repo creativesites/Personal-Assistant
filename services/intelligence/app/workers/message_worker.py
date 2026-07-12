@@ -10,6 +10,9 @@ from ..services.orchestrator import route_message
 from ..services.business_facts import BusinessFactService
 from ..services.opportunities import OpportunityService
 from ..services.connections import ConnectionService
+from ..services.contact_products import ContactProductService
+from ..services.life_events import LifeEventService
+from ..services.network_value import NetworkValueService
 from ..memory.conversation_memory import update_conversation_memory
 
 log = structlog.get_logger()
@@ -21,6 +24,9 @@ _health_svc = RelationshipHealthService()
 _business_facts = BusinessFactService()
 _opportunities = OpportunityService()
 _connections = ConnectionService()
+_contact_products = ContactProductService()
+_life_events = LifeEventService()
+_network_value = NetworkValueService()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue  = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
@@ -69,6 +75,17 @@ async def _process(job, token: str):
     if analysis.connections_mentioned:
         await _connections.record_candidates(
             user_id, contact_id, message_id, analysis.connections_mentioned,
+        )
+
+    # Products purchased/interested/quoted, and major personal life events —
+    # same one-more-structured-field pattern (see docs/RELATIONSHIP_OS_PLAN.md §5.6/§6.6).
+    if analysis.products_mentioned:
+        await _contact_products.record_mentions(
+            user_id, contact_id, message_id, analysis.products_mentioned,
+        )
+    if analysis.life_events_mentioned:
+        await _life_events.record_mentions(
+            user_id, contact_id, message_id, analysis.life_events_mentioned,
         )
 
     # Historical messages: skip reply generation, agent routing, and conversation
@@ -126,6 +143,11 @@ async def _process(job, token: str):
     health_interval = 20 if is_historical else 5
     if count % health_interval == 0:
         await _health_svc.recalculate(contact_id, user_id)
+        # Network/Connection Value (§5.1/§6.4) recomputed alongside health —
+        # it draws on the same relationship-level signals (deals, revenue,
+        # connections, message direction/sentiment), so there's no reason
+        # for it to run on a different cadence.
+        await _network_value.recompute(contact_id, user_id)
 
     # Update cadence model — offloaded to the temporal worker instead of running
     # inline, so a burst of messages doesn't serialize behind extra DB round-trips.
