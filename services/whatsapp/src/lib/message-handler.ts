@@ -24,6 +24,31 @@ const MEDIA_PREVIEW: Record<string, string> = {
   contact_card: '👤 Contact',
 };
 
+function derivePriority(row: {
+  sla_minutes: number | null;
+  latest_intent: string | null;
+  latest_urgency: string | null;
+  latest_sentiment: string | null;
+  lead_score: number | null;
+  requires_response: boolean | null;
+}): string | null {
+  const score = row.lead_score ?? 0;
+  const intent = (row.latest_intent ?? '').toLowerCase();
+  const urgency = row.latest_urgency;
+  const sentiment = row.latest_sentiment;
+  const sla = row.sla_minutes ?? 0;
+
+  if (intent.includes('buy') || intent.includes('order') || intent.includes('purchase') || intent.includes('price')) {
+    return score > 70 ? 'ready_to_buy' : 'hot_lead';
+  }
+  if (sentiment === 'negative') return 'dissatisfied';
+  if (urgency === 'urgent' || urgency === 'high') return 'needs_followup';
+  if (score > 80) return 'loyal';
+  if (row.requires_response && sla > 60) return 'waiting';
+  if (score > 65) return 'hot_lead';
+  return null;
+}
+
 export class MessageHandler {
   private readonly incomingQueue: Queue;
 
@@ -63,6 +88,15 @@ export class MessageHandler {
 
     if (!messageId) return;
 
+    if (!isHistorical && senderType === MessageSenderType.CONTACT) {
+      await this.db.query(
+        `UPDATE conversations
+         SET unread_count = unread_count + 1, updated_at = NOW()
+         WHERE id = $1`,
+        [conversationId],
+      );
+    }
+
     await this.incomingQueue.add(
       QUEUE_NAMES.MESSAGES_INCOMING,
       {
@@ -74,12 +108,23 @@ export class MessageHandler {
     );
 
     if (!isHistorical) {
+      const conversation = await this.getInboxConversation(userId, conversationId);
+      if (conversation) {
+        await this.redis.publish(
+          `conversation:upsert:${userId}`,
+          JSON.stringify({ conversation }),
+        ).catch(() => { /* ignore */ });
+      }
+
       await this.redis.publish(
         `message:new:${userId}`,
         JSON.stringify({
           messageId, conversationId, contactId,
           senderType, messageType: msg.messageType, body: msg.body,
-          mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType, timestamp,
+          mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
+          transcription: null,
+          quotedMessageId,
+          timestamp: timestamp.toISOString(),
         }),
       );
     }
@@ -121,6 +166,96 @@ export class MessageHandler {
     if (!messageId) return null; // duplicate
 
     return { conversationId, contactId };
+  }
+
+  async publishConversationUpsert(userId: string, conversationId: string): Promise<void> {
+    const conversation = await this.getInboxConversation(userId, conversationId);
+    if (!conversation) return;
+    await this.redis.publish(
+      `conversation:upsert:${userId}`,
+      JSON.stringify({ conversation }),
+    ).catch(() => { /* ignore */ });
+  }
+
+  private async getInboxConversation(userId: string, conversationId: string): Promise<Record<string, unknown> | null> {
+    const { rows: [r] } = await this.db.query<any>(
+      `WITH latest_contact_msg AS (
+        SELECT DISTINCT ON (m.conversation_id)
+          m.conversation_id,
+          (ma.intent->>'primary') AS intent,
+          ma.response_urgency,
+          ma.sentiment,
+          ma.requires_response,
+          EXTRACT(EPOCH FROM (NOW() - m.whatsapp_timestamp)) / 60 AS sla_minutes
+        FROM messages m
+        LEFT JOIN message_analyses ma ON ma.message_id = m.id
+        WHERE m.sender_type = 'contact' AND m.is_deleted = false
+        ORDER BY m.conversation_id, m.whatsapp_timestamp DESC
+      ),
+      lead_scores AS (
+        SELECT ci.contact_id, MAX(ci.confidence * 100) AS lead_score
+        FROM contact_insights ci
+        WHERE ci.user_id = $1 AND ci.is_active = true
+          AND (ci.insight_key ILIKE '%lead%' OR ci.insight_key ILIKE '%score%' OR ci.insight_key ILIKE '%intent%')
+        GROUP BY ci.contact_id
+      )
+      SELECT
+        c.id,
+        c.last_message_at,
+        c.last_message_preview,
+        c.unread_count,
+        co.id AS contact_id,
+        COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
+        co.avatar_url,
+        co.phone_number,
+        COALESCE(r.relationship_type, 'acquaintance') AS relationship_type,
+        COALESCE(r.health_score, 70) AS health_score,
+        COALESCE(r.importance_tier, 3) AS importance_tier,
+        COALESCE(ls.lead_score, 0) AS lead_score,
+        lcm.sla_minutes,
+        lcm.intent AS latest_intent,
+        lcm.response_urgency AS latest_urgency,
+        lcm.sentiment AS latest_sentiment,
+        lcm.requires_response
+      FROM conversations c
+      JOIN contacts co ON co.id = c.contact_id
+      LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = c.user_id
+      LEFT JOIN lead_scores ls ON ls.contact_id = co.id
+      LEFT JOIN latest_contact_msg lcm ON lcm.conversation_id = c.id
+      WHERE c.user_id = $1 AND c.id = $2 AND c.is_archived = false`,
+      [userId, conversationId],
+    );
+
+    if (!r) return null;
+
+    const priorityRow = {
+      sla_minutes: r.sla_minutes ? parseFloat(r.sla_minutes) : null,
+      latest_intent: r.latest_intent,
+      latest_urgency: r.latest_urgency,
+      latest_sentiment: r.latest_sentiment,
+      lead_score: r.lead_score ? parseFloat(r.lead_score) : null,
+      requires_response: r.requires_response,
+    };
+
+    return {
+      id: r.id,
+      lastMessageAt: r.last_message_at,
+      lastMessagePreview: r.last_message_preview,
+      unreadCount: r.unread_count,
+      contact: {
+        id: r.contact_id,
+        name: r.contact_name,
+        avatarUrl: r.avatar_url,
+        phone: r.phone_number,
+      },
+      relationshipType: r.relationship_type,
+      healthScore: r.health_score,
+      importanceTier: r.importance_tier,
+      leadScore: Math.min(100, Math.round(priorityRow.lead_score ?? 0)),
+      slaMinutes: priorityRow.sla_minutes ? Math.round(priorityRow.sla_minutes) : null,
+      sentiment: r.latest_sentiment ?? null,
+      aiPriority: derivePriority(priorityRow),
+    };
   }
 
   private async resolveQuotedMessageId(
@@ -191,7 +326,11 @@ export class MessageHandler {
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
          last_message_at = GREATEST(conversations.last_message_at, EXCLUDED.last_message_at),
-         last_message_preview = EXCLUDED.last_message_preview,
+         last_message_preview = CASE
+           WHEN conversations.last_message_at IS NULL OR EXCLUDED.last_message_at >= conversations.last_message_at
+           THEN EXCLUDED.last_message_preview
+           ELSE conversations.last_message_preview
+         END,
          updated_at = NOW()
        RETURNING id`,
       [userId, contactId, chatId, timestamp, preview],

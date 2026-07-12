@@ -56,11 +56,29 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
     const ext = path.extname(safeName).slice(1).toLowerCase();
     const contentType = EXT_TO_MIME[ext] ?? 'application/octet-stream';
     const stat = fs.statSync(filePath);
+    const range = request.headers.range;
 
     reply.header('Content-Type', contentType);
-    reply.header('Content-Length', stat.size);
     reply.header('Cache-Control', 'private, max-age=604800'); // 7 days
     reply.header('Accept-Ranges', 'bytes');
+
+    if (range) {
+      const match = range.match(/bytes=(\d*)-(\d*)/);
+      if (match) {
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? Math.min(parseInt(match[2], 10), stat.size - 1) : stat.size - 1;
+        if (start <= end && start < stat.size) {
+          reply.code(206);
+          reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+          reply.header('Content-Length', end - start + 1);
+          return reply.send(fs.createReadStream(filePath, { start, end }));
+        }
+      }
+      reply.header('Content-Range', `bytes */${stat.size}`);
+      return reply.code(416).send();
+    }
+
+    reply.header('Content-Length', stat.size);
 
     return reply.send(fs.createReadStream(filePath));
   });

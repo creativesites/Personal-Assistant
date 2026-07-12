@@ -31,10 +31,13 @@ Return ONLY valid JSON in exactly this format:
 }}
 
 Important for events_detected:
-- If the sender mentions it is their birthday today or tomorrow, add a birthday event with is_recurring=true and set date to the actual calendar date (use today's date above to resolve "today"/"tomorrow").
-- Resolve all relative dates ("tomorrow", "next Friday", "in 3 days") to absolute YYYY-MM-DD dates using today's date above.
-- If a date cannot be determined, set date to null.
+- Be highly aggressive in extracting events. If either party mentions a meeting, a follow-up call, a task, a deadline, a birthday, a travel plan, a reconnect opportunity, or any future plan (e.g. "I'll call you next Thursday", "let's check back on Monday", "can you send the document tomorrow?", "I will send it next week"), you MUST extract it as an event.
+- Resolve all relative dates ("tomorrow", "next Friday", "in 3 days", "next week", "Monday morning") to absolute YYYY-MM-DD dates using today's date above. If only a week is mentioned, use the starting day or Monday of that week.
+- If a specific hour/time is mentioned or implied (e.g. "2pm", "morning"), you can output dates and set timezone-aware times if possible, or keep date as YYYY-MM-DD. If no date can be resolved at all, set date to null.
+- Set "type" to: "birthday", "anniversary", "meeting", "deadline", "travel", "appointment", "celebration", "other". Map generic calls or follow-ups to "appointment" or "meeting". Map tasks/obligations to "deadline".
 - Birthdays and anniversaries should always have is_recurring=true.
+- Ensure the "title" is descriptive and includes the contact name if they are the subject (e.g. "Follow up call with Winston" or "Send invoice to Winston").
+
 
 Important for business_facts_mentioned:
 - Only include this when a concrete business fact is explicitly stated — an exact price, a policy, a product name, operating hours, a shipping rule, etc.

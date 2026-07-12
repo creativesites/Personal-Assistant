@@ -438,7 +438,7 @@ export class BaileysTransport extends WhatsAppTransport {
         const ext = mimeToExt(mediaMimeType ?? '');
         // Sanitise message ID for use as filename
         const safeId = (msg.key.id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-        const fileName = `\( {safeId}. \){ext}`;
+        const fileName = `${safeId}.${ext}`;
         const filePath = path.join(this.mediaDir, fileName);
         await fs.writeFile(filePath, buffer as Buffer);
         mediaUrl = `/api/media/${fileName}`;

@@ -167,6 +167,7 @@ export class SessionManager {
           const result = await this.handler.writeHistoricalMessage(userId, msgs[i]);
           if (result) {
             convMap.set(result.conversationId, result.contactId);
+            await this.handler.publishConversationUpsert(userId, result.conversationId);
           }
         } catch (err) {
           console.error(`[session] historical write failed userId=${userId}:`, err);
@@ -175,7 +176,14 @@ export class SessionManager {
         if ((i + 1) % PROGRESS_EVERY === 0 || i === msgs.length - 1) {
           await this.redis.publish(
             `history:progress:${userId}`,
-            JSON.stringify({ processed: i + 1, total: msgs.length }),
+            JSON.stringify({
+              status: 'running',
+              phase: 'importing',
+              processedMessages: i + 1,
+              totalMessages: msgs.length,
+              processed: i + 1,
+              total: msgs.length,
+            }),
           ).catch(() => { /* ignore */ });
         }
       }
@@ -189,6 +197,18 @@ export class SessionManager {
       let analysed = 0;
       for (const [conversationId, contactId] of convMap) {
         try {
+          await this.redis.publish(
+            `history:progress:${userId}`,
+            JSON.stringify({
+              status: 'running',
+              phase: 'analysing',
+              conversationId,
+              processedConversations: analysed,
+              totalConversations: convMap.size,
+              processedMessages: msgs.length,
+              totalMessages: msgs.length,
+            }),
+          ).catch(() => { /* ignore */ });
           await fetch(`${intelligenceUrl}/internal/conversations/${conversationId}/analyse-history`, {
             method: 'POST',
             headers: {
@@ -198,10 +218,23 @@ export class SessionManager {
             body: JSON.stringify({ userId, contactId, recentCount: ANALYSE_RECENT_PER_CHAT }),
           });
           analysed++;
+          await this.handler.publishConversationUpsert(userId, conversationId);
         } catch (err) {
           console.error(`[session] historical analyse failed conv=${conversationId}:`, err);
         }
       }
+
+      await this.redis.publish(
+        `history:progress:${userId}`,
+        JSON.stringify({
+          status: 'completed',
+          phase: 'complete',
+          processedConversations: analysed,
+          totalConversations: convMap.size,
+          processedMessages: msgs.length,
+          totalMessages: msgs.length,
+        }),
+      ).catch(() => { /* ignore */ });
 
       console.log(
         `[session] historical sync complete for ${userId}: ` +

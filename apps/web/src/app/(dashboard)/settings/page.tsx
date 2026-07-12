@@ -65,28 +65,28 @@ interface SocialAccount {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="px-5 py-3 border-b border-gray-100">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
+    <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-slate-300/80">
+      <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{title}</p>
       </div>
-      <div className="divide-y divide-gray-50">{children}</div>
+      <div className="divide-y divide-slate-100/80">{children}</div>
     </div>
   )
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between px-5 py-3">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm text-gray-900 font-medium">{value}</span>
+    <div className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/30 transition-colors">
+      <span className="text-sm font-medium text-slate-500">{label}</span>
+      <span className="text-sm font-semibold text-slate-900">{value}</span>
     </div>
   )
 }
 
 function Toggle({ enabled }: { enabled: boolean }) {
   return (
-    <div className={`w-10 h-6 rounded-full flex items-center px-1 cursor-not-allowed opacity-60 transition-colors ${enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}>
-      <div className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+    <div className={`w-10 h-6 rounded-full flex items-center px-1 cursor-not-allowed opacity-75 transition-all ${enabled ? 'bg-indigo-600 shadow-inner' : 'bg-slate-200'}`}>
+      <div className={`w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-300 ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
     </div>
   )
 }
@@ -334,7 +334,14 @@ export default function SettingsPage() {
   }
 
   const saveAutoResponse = async () => {
-    if (!token) return
+    if (!token) {
+      addToast({
+        variant: 'error',
+        title: 'Session Syncing',
+        description: 'Your authentication token is still syncing. Please wait a moment and try again.',
+      })
+      return
+    }
     setSavingAutoResponse(true)
     try {
       await apiClient('/api/settings/auto-response', {
@@ -569,12 +576,23 @@ export default function SettingsPage() {
 
   const handleTabChange = (id: string) => {
     setActiveTab(id)
-    if (id === 'enterprise' && !enterpriseLoaded) loadEnterprise()
-    if (id === 'auto_responses' && !autoResponseLoaded) loadAutoResponse()
-    if (id === 'memory' && !memoryTabLoaded) loadMemoryTab()
-    if (id === 'privacy' && !retentionLoaded) loadRetention()
-    if (id === 'connected_accounts' && !socialLoaded) loadSocialAccounts()
   }
+
+  // Reactive data loader: triggers automatically when token resolves or tab switches
+  useEffect(() => {
+    if (!token) return
+    if (activeTab === 'enterprise' && !enterpriseLoaded) {
+      loadEnterprise()
+    } else if (activeTab === 'auto_responses' && !autoResponseLoaded) {
+      loadAutoResponse()
+    } else if (activeTab === 'memory' && !memoryTabLoaded) {
+      loadMemoryTab()
+    } else if (activeTab === 'privacy' && !retentionLoaded) {
+      loadRetention()
+    } else if (activeTab === 'connected_accounts' && !socialLoaded) {
+      loadSocialAccounts()
+    }
+  }, [token, activeTab, enterpriseLoaded, autoResponseLoaded, memoryTabLoaded, retentionLoaded, socialLoaded])
 
   const tabs = [
     { id: 'account',        label: 'Account' },

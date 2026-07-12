@@ -15,6 +15,7 @@ export function startRedisSubscriber(io: Server): void {
   redisSub.psubscribe(
     'whatsapp:*',
     'message:new:*',
+    'conversation:*',
     'suggestion:ready:*',
     'history:progress:*',
     'history:sync:trigger:*',

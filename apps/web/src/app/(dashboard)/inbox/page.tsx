@@ -26,6 +26,39 @@ import { AI_PRIORITY, FILTERS } from './_lib/constants'
 type MobileView = 'list' | 'thread' | 'intel'
 type FilterId = typeof FILTERS[number]['id']
 
+interface SyncState {
+  active: boolean
+  done: boolean
+  phase: 'idle' | 'importing' | 'analysing' | 'complete' | 'failed' | 'cancelled'
+  jobId?: string | null
+  processedMessages?: number
+  totalMessages?: number
+  processedConversations?: number
+  totalConversations?: number
+  currentChatName?: string | null
+  conversationId?: string | null
+}
+
+function parseSocketPayload<T>(payload: T | string): T {
+  return typeof payload === 'string' ? JSON.parse(payload) as T : payload
+}
+
+function sortConversations(list: Conversation[]) {
+  return [...list].sort((a, b) => {
+    if (a.unreadCount > 0 && b.unreadCount === 0) return -1
+    if (a.unreadCount === 0 && b.unreadCount > 0) return 1
+    const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0
+    const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0
+    return bt - at
+  })
+}
+
+function upsertConversation(list: Conversation[], conversation: Conversation) {
+  const index = list.findIndex(c => c.id === conversation.id)
+  const next = index === -1 ? [conversation, ...list] : [...list.slice(0, index), conversation, ...list.slice(index + 1)]
+  return sortConversations(next)
+}
+
 export default function InboxPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
@@ -88,6 +121,7 @@ export default function InboxPage() {
   const [syncing, setSyncing] = useState(false)
   const [syncDone, setSyncDone] = useState(false)
   const [syncConvCount, setSyncConvCount] = useState(0)
+  const [syncState, setSyncState] = useState<SyncState>({ active: false, done: false, phase: 'idle' })
   const syncDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const syncDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -139,6 +173,44 @@ export default function InboxPage() {
     }
   }, [token])
 
+  const loadSyncStatus = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{ sync: null | {
+        jobId: string
+        status: string
+        phase?: SyncState['phase']
+        totalConversations?: number
+        processedConversations?: number
+        totalMessages?: number
+        processedMessages?: number
+        currentChatName?: string | null
+        completedAt?: string | null
+      } }>('/api/inbox/sync-status', { token })
+      const sync = data.sync
+      if (!sync) {
+        setSyncState({ active: false, done: false, phase: 'idle' })
+        setSyncing(false)
+        return
+      }
+      const done = sync.status === 'completed'
+      const active = sync.status === 'running' || sync.status === 'pending'
+      setSyncState({
+        active,
+        done,
+        phase: done ? 'complete' : sync.phase ?? (active ? 'analysing' : 'idle'),
+        jobId: sync.jobId,
+        totalConversations: sync.totalConversations,
+        processedConversations: sync.processedConversations,
+        totalMessages: sync.totalMessages,
+        processedMessages: sync.processedMessages,
+        currentChatName: sync.currentChatName,
+      })
+      setSyncing(active)
+      setSyncDone(done && Boolean(sync.completedAt))
+    } catch {}
+  }, [token])
+
   useEffect(() => {
     const defaultTitle = 'Inbox | Zuri'
     document.title = totalUnread > 0 ? `(${totalUnread}) ${defaultTitle}` : defaultTitle
@@ -151,11 +223,12 @@ export default function InboxPage() {
     if (!token) return
     loadConversations()
     loadBriefing()
+    loadSyncStatus()
     const socket = getSocket(token)
 
     const handleNewMessage = (payload: string) => {
       try {
-        const data = JSON.parse(payload) as {
+        const data = parseSocketPayload<{
           messageId: string
           conversationId: string
           contactId: string
@@ -164,8 +237,10 @@ export default function InboxPage() {
           body: string | null
           mediaUrl?: string | null
           mediaMimeType?: string | null
+          transcription?: string | null
+          quotedMessageId?: string | null
           timestamp: string
-        }
+        }>(payload)
 
         const isCurrentActive = selectedIdRef.current === data.conversationId
 
@@ -190,6 +265,8 @@ export default function InboxPage() {
               pendingSuggestions: 0,
               mediaUrl: data.mediaUrl ?? null,
               mediaMimeType: data.mediaMimeType ?? null,
+              transcription: data.transcription ?? null,
+              quotedMessageId: data.quotedMessageId ?? null,
             }
             return [...filtered, newMsg]
           })
@@ -224,14 +301,16 @@ export default function InboxPage() {
           target.lastMessagePreview = data.body || MEDIA_PREVIEW[data.messageType] || 'New message'
 
           if (!isCurrentActive && data.senderType === 'contact') {
-            target.unreadCount += 1
+            target.unreadCount = target.lastMessageAt === data.timestamp
+              ? Math.max(target.unreadCount, 1)
+              : target.unreadCount + 1
           } else {
             target.unreadCount = 0
           }
 
           const updatedList = [...prev]
           updatedList.splice(index, 1)
-          return [target, ...updatedList]
+          return sortConversations([target, ...updatedList])
         })
       } catch (err) {
         console.error('[inbox] error handling new message:', err)
@@ -240,24 +319,62 @@ export default function InboxPage() {
 
     socket.on('message:new', handleNewMessage)
 
-    const handleSyncProgress = () => {
-      setSyncing(true)
-      setSyncDone(false)
+    const handleConversationUpsert = (payload: string | { conversation: Conversation }) => {
+      try {
+        const data = parseSocketPayload<{ conversation: Conversation }>(payload)
+        if (!data.conversation) return
+        setConversations(prev => upsertConversation(prev, data.conversation))
+        if (selectedIdRef.current === data.conversation.id) {
+          setContact(prev => prev ?? data.conversation.contact)
+        }
+      } catch (err) {
+        console.error('[inbox] error handling conversation upsert:', err)
+      }
+    }
+
+    const handleConversationRead = (payload: string | { conversationId: string; unreadCount?: number }) => {
+      try {
+        const data = parseSocketPayload<{ conversationId: string; unreadCount?: number }>(payload)
+        setConversations(prev => prev.map(c => (
+          c.id === data.conversationId ? { ...c, unreadCount: data.unreadCount ?? 0 } : c
+        )))
+      } catch {}
+    }
+
+    socket.on('conversation:upsert', handleConversationUpsert)
+    socket.on('conversation:read', handleConversationRead)
+
+    const handleSyncProgress = (payload?: string | Partial<SyncState> & { status?: string; processed?: number; total?: number }) => {
+      const data = payload ? parseSocketPayload<Partial<SyncState> & { status?: string; processed?: number; total?: number }>(payload) : {}
+      const done = data.status === 'completed' || data.phase === 'complete'
+      setSyncState(prev => ({
+        ...prev,
+        active: !done,
+        done,
+        phase: done ? 'complete' : data.phase ?? prev.phase ?? 'analysing',
+        jobId: data.jobId ?? prev.jobId,
+        processedMessages: data.processedMessages ?? data.processed ?? prev.processedMessages,
+        totalMessages: data.totalMessages ?? data.total ?? prev.totalMessages,
+        processedConversations: data.processedConversations ?? prev.processedConversations,
+        totalConversations: data.totalConversations ?? prev.totalConversations,
+        currentChatName: data.currentChatName ?? prev.currentChatName,
+        conversationId: data.conversationId ?? prev.conversationId,
+      }))
+      setSyncing(!done)
+      setSyncDone(done)
       loadConversations()
       if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
       if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
-      syncDoneTimerRef.current = setTimeout(() => {
-        setSyncing(false)
-        setSyncDone(true)
+      if (done) {
         loadConversations()
         syncDismissTimerRef.current = setTimeout(() => setSyncDone(false), 4000)
-      }, 5000)
+      }
     }
     socket.on('history:progress', handleSyncProgress)
 
     socket.on('suggestion:ready', (payload: string) => {
       try {
-        const data = JSON.parse(payload)
+        const data = parseSocketPayload<{ messageId: string }>(payload)
         if (selectedIdRef.current && token) {
           apiClient<{ suggestions: Suggestion[] }>(`/api/messages/${data.messageId}/suggestions`, { token })
             .then(d => { setSuggestions(d.suggestions); setSelectedMsgId(data.messageId) })
@@ -266,14 +383,39 @@ export default function InboxPage() {
       } catch {}
     })
 
+    const reconcile = () => {
+      loadConversations()
+      loadSyncStatus()
+      if (selectedIdRef.current) {
+        const active = selectedIdRef.current
+        apiClient<{ messages: Message[]; contact: Contact }>(`/api/conversations/${active}/messages`, { token })
+          .then(data => {
+            if (selectedIdRef.current !== active) return
+            setMessages(data.messages)
+            setContact(data.contact)
+            setConversations(prev => prev.map(c => c.id === active ? { ...c, unreadCount: 0 } : c))
+          })
+          .catch(() => {})
+      }
+    }
+
+    socket.on('authenticated', reconcile)
+    socket.on('reconnect', reconcile)
+    socket.io.on('reconnect', reconcile)
+
     return () => {
       socket.off('message:new', handleNewMessage)
+      socket.off('conversation:upsert', handleConversationUpsert)
+      socket.off('conversation:read', handleConversationRead)
       socket.off('history:progress', handleSyncProgress)
       socket.off('suggestion:ready')
+      socket.off('authenticated', reconcile)
+      socket.off('reconnect', reconcile)
+      socket.io.off('reconnect', reconcile)
       if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
       if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
     }
-  }, [token, loadConversations, loadBriefing, totalUnread])
+  }, [token, loadConversations, loadBriefing, loadSyncStatus])
 
   useEffect(() => {
     const on = () => setIsOnline(true)
@@ -308,14 +450,19 @@ export default function InboxPage() {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const selectConversation = async (convId: string) => {
+    selectedIdRef.current = convId
+    selectedMsgIdRef.current = null
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
     setContactDetail(null); setLoadingMsgs(true); setMobileView('thread')
     setDraft(''); setAiTab('overview'); setContextData(null); setPromises([])
+    setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: 0 } : c))
     if (!token) return
-    const data = await apiClient<{ messages: Message[]; contact: Contact }>(
-      `/api/conversations/${convId}/messages`, { token }
-    )
-    setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
+    try {
+      const data = await apiClient<{ messages: Message[]; contact: Contact }>(
+        `/api/conversations/${convId}/messages`, { token }
+      )
+      if (selectedIdRef.current !== convId) return
+      setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
     if (data.contact?.id) {
       const contactId = data.contact.id
       apiClient<{ contact: ContactDetail }>(`/api/contacts/${contactId}`, { token })
@@ -328,8 +475,12 @@ export default function InboxPage() {
     const last = [...data.messages].reverse().find(m => m.pendingSuggestions > 0)
     if (last) {
       setSelectedMsgId(last.id)
-      apiClient<{ suggestions: Suggestion[] }>(`/api/messages/${last.id}/suggestions`, { token })
-        .then(d => setSuggestions(d.suggestions)).catch(() => {})
+        apiClient<{ suggestions: Suggestion[] }>(`/api/messages/${last.id}/suggestions`, { token })
+          .then(d => setSuggestions(d.suggestions)).catch(() => {})
+      }
+    } catch {
+      setLoadingMsgs(false)
+      setMessages([])
     }
   }
 
@@ -369,18 +520,24 @@ export default function InboxPage() {
   const sendDraft = async () => {
     if (!draft.trim() || !selectedId || !token) return
     const text = draft.trim(); setDraft('')
-    const tempMsg: Message = { id: `temp-${Date.now()}`, senderType: 'user', body: text, timestamp: new Date().toISOString(), pendingSuggestions: 0 }
+    const tempId = `temp-${Date.now()}`
+    const tempMsg: Message = { id: tempId, senderType: 'user', messageType: 'text', body: text, timestamp: new Date().toISOString(), pendingSuggestions: 0 }
     setMessages(prev => [...prev, tempMsg])
     try {
-      await apiClient(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text }) })
+      const data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text }) })
+      setMessages(prev => prev.map(m => m.id === tempId ? data.message : m))
+      if (data.conversation) setConversations(prev => upsertConversation(prev, data.conversation!))
     } catch {}
   }
 
   const sendDirect = async (text: string) => {
     if (!text.trim() || !selectedId || !token) throw new Error('Cannot send')
-    const tempMsg: Message = { id: `temp-${Date.now()}`, senderType: 'user', body: text.trim(), timestamp: new Date().toISOString(), pendingSuggestions: 0 }
+    const tempId = `temp-${Date.now()}`
+    const tempMsg: Message = { id: tempId, senderType: 'user', messageType: 'text', body: text.trim(), timestamp: new Date().toISOString(), pendingSuggestions: 0 }
     setMessages(prev => [...prev, tempMsg])
-    await apiClient(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text: text.trim() }) })
+    const data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text: text.trim() }) })
+    setMessages(prev => prev.map(m => m.id === tempId ? data.message : m))
+    if (data.conversation) setConversations(prev => upsertConversation(prev, data.conversation!))
   }
 
   const addNote = () => {
@@ -593,7 +750,21 @@ export default function InboxPage() {
           </div>
         </div>
 
-        <SyncBanner syncing={syncing} done={syncDone} convCount={syncConvCount} onDismiss={() => setSyncDone(false)} />
+        <SyncBanner
+          syncing={syncing}
+          done={syncDone}
+          convCount={syncConvCount}
+          phase={syncState.phase}
+          processedMessages={syncState.processedMessages}
+          totalMessages={syncState.totalMessages}
+          processedConversations={syncState.processedConversations}
+          totalConversations={syncState.totalConversations}
+          currentChatName={syncState.currentChatName}
+          onDismiss={() => {
+            setSyncDone(false)
+            setSyncState(prev => ({ ...prev, done: false }))
+          }}
+        />
 
         {/* Search */}
         {showSearch && (
@@ -683,9 +854,23 @@ export default function InboxPage() {
             />
           ) : (
             <div className="divide-y divide-gray-50/80">
-              {filtered.map(conv => (
-                <ConvRow key={conv.id} conv={conv} active={selectedId === conv.id} onClick={() => selectConversation(conv.id)} mode={mode} />
-              ))}
+              {filtered.map(conv => {
+                const rowActive = syncState.active && (
+                  syncState.conversationId === conv.id ||
+                  Boolean(syncState.currentChatName && conv.contact.name === syncState.currentChatName)
+                )
+                return (
+                  <ConvRow
+                    key={conv.id}
+                    conv={conv}
+                    active={selectedId === conv.id}
+                    onClick={() => selectConversation(conv.id)}
+                    mode={mode}
+                    syncing={rowActive && syncState.phase === 'importing'}
+                    analysing={rowActive && syncState.phase === 'analysing'}
+                  />
+                )
+              })}
             </div>
           )}
         </div>
@@ -717,9 +902,17 @@ export default function InboxPage() {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
-                  {contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
-                </p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
+                    {contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
+                  </p>
+                  {syncState.active && (syncState.conversationId === selectedId || syncState.currentChatName === contact.name) && (
+                    <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                      {syncState.phase === 'analysing' ? 'Analysing chat' : 'Syncing chat'}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 {/* Run Analysis button */}

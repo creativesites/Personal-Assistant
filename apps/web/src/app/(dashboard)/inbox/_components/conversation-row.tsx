@@ -6,11 +6,13 @@ import type { Conversation } from '../_types/inbox'
 import { AI_PRIORITY, SENTIMENT_DOT } from '../_lib/constants'
 import { formatTime, formatSLA } from '../_lib/utils'
 
-export function ConvRow({ conv, active, onClick, mode }: {
+export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false }: {
   conv: Conversation
   active: boolean
   onClick: () => void
   mode: string
+  syncing?: boolean
+  analysing?: boolean
 }) {
   const priority = conv.aiPriority ? AI_PRIORITY[conv.aiPriority] : null
   const PIcon = priority?.icon
@@ -61,6 +63,18 @@ export function ConvRow({ conv, active, onClick, mode }: {
             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md">
               <TrendingUp size={9} />
               {conv.leadScore}
+            </span>
+          )}
+          {syncing && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-md">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              Syncing
+            </span>
+          )}
+          {analysing && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 bg-violet-50 border border-violet-100 px-1.5 py-0.5 rounded-md">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+              Analysing
             </span>
           )}
         </div>

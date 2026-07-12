@@ -4,34 +4,9 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
+import { formatConversationRow, getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-/** Derive an AI priority label from DB-level data. */
-function derivePriority(row: {
-  sla_minutes: number | null;
-  latest_intent: string | null;
-  latest_urgency: string | null;
-  latest_sentiment: string | null;
-  lead_score: number | null;
-  requires_response: boolean | null;
-}): string | null {
-  const score = row.lead_score ?? 0;
-  const intent = (row.latest_intent ?? '').toLowerCase();
-  const urgency = row.latest_urgency;
-  const sentiment = row.latest_sentiment;
-  const sla = row.sla_minutes ?? 0;
-
-  if (intent.includes('buy') || intent.includes('order') || intent.includes('purchase') || intent.includes('price')) {
-    return score > 70 ? 'ready_to_buy' : 'hot_lead';
-  }
-  if (sentiment === 'negative') return 'dissatisfied';
-  if (urgency === 'urgent' || urgency === 'high') return 'needs_followup';
-  if (score > 80) return 'loyal';
-  if (row.requires_response && sla > 60) return 'waiting';
-  if (score > 65) return 'hot_lead';
-  return null;
-}
 
 export async function conversationsRoutes(fastify: FastifyInstance): Promise<void> {
 
@@ -94,36 +69,46 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       [userId],
     );
 
+    return reply.send({ conversations: rows.map(formatConversationRow) });
+  });
+
+  // ── GET /api/inbox/sync-status ────────────────────────────────────────────
+
+  fastify.get('/api/inbox/sync-status', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const { rows: [job] } = await db.query(
+      `SELECT id, status, total_conversations, processed_conversations,
+              total_messages, processed_messages, current_chat_name,
+              error_message, started_at, completed_at, updated_at
+       FROM sync_jobs
+       WHERE user_id = $1
+       ORDER BY
+         CASE WHEN status IN ('pending', 'running') THEN 0 ELSE 1 END,
+         updated_at DESC
+       LIMIT 1`,
+      [userId],
+    );
+
+    if (!job) {
+      return reply.send({ sync: null });
+    }
+
     return reply.send({
-      conversations: rows.map((r: any) => {
-        const priorityRow = {
-          sla_minutes: r.sla_minutes ? parseFloat(r.sla_minutes) : null,
-          latest_intent: r.latest_intent,
-          latest_urgency: r.latest_urgency,
-          latest_sentiment: r.latest_sentiment,
-          lead_score: r.lead_score ? parseFloat(r.lead_score) : null,
-          requires_response: r.requires_response,
-        };
-        return {
-          id: r.id,
-          lastMessageAt: r.last_message_at,
-          lastMessagePreview: r.last_message_preview,
-          unreadCount: r.unread_count,
-          contact: {
-            id: r.contact_id,
-            name: r.contact_name,
-            avatarUrl: r.avatar_url,
-            phone: r.phone_number,
-          },
-          relationshipType: r.relationship_type,
-          healthScore: r.health_score,
-          importanceTier: r.importance_tier,
-          leadScore: Math.min(100, Math.round(priorityRow.lead_score ?? 0)),
-          slaMinutes: priorityRow.sla_minutes ? Math.round(priorityRow.sla_minutes) : null,
-          sentiment: r.latest_sentiment ?? null,
-          aiPriority: derivePriority(priorityRow),
-        };
-      }),
+      sync: {
+        jobId: job.id,
+        status: job.status,
+        phase: job.status === 'completed' ? 'complete' : job.status === 'running' ? 'analysing' : job.status,
+        totalConversations: job.total_conversations,
+        processedConversations: job.processed_conversations,
+        totalMessages: job.total_messages,
+        processedMessages: job.processed_messages,
+        currentChatName: job.current_chat_name,
+        errorMessage: job.error_message,
+        startedAt: job.started_at,
+        completedAt: job.completed_at,
+        updatedAt: job.updated_at,
+      },
     });
   });
 
@@ -182,7 +167,8 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     ]);
 
     // Mark conversation as read
-    await db.query('UPDATE conversations SET unread_count = 0 WHERE id = $1', [id]);
+    await db.query('UPDATE conversations SET unread_count = 0, updated_at = NOW() WHERE id = $1', [id]);
+    await publishInboxEvent(userId, 'conversation:read', { conversationId: id, unreadCount: 0 });
 
     return reply.send({
       messages: messagesResult.rows.map((m: any) => ({
@@ -230,7 +216,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
     // Verify the conversation belongs to this user and get the contact JID
     const { rows: [conv] } = await db.query(
-      `SELECT c.id, c.whatsapp_chat_id, co.whatsapp_jid
+      `SELECT c.id, c.whatsapp_chat_id, c.contact_id, co.whatsapp_jid
        FROM conversations c
        JOIN contacts co ON co.id = c.contact_id
        WHERE c.id = $1 AND c.user_id = $2`,
@@ -267,15 +253,36 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       text,
     });
 
-    return reply.code(201).send({
-      message: {
-        id: msg.id,
-        senderType: 'user',
-        body: text,
-        timestamp: now.toISOString(),
-        pendingSuggestions: 0,
-      },
+    const message = {
+      id: msg.id,
+      senderType: 'user',
+      messageType: 'text',
+      body: text,
+      timestamp: now.toISOString(),
+      pendingSuggestions: 0,
+      mediaUrl: null,
+      mediaMimeType: null,
+      transcription: null,
+    };
+
+    const conversation = await getInboxConversation(userId, id);
+    if (conversation) {
+      await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+    }
+    await publishInboxEvent(userId, 'message:new', {
+      messageId: msg.id,
+      conversationId: id,
+      contactId: conv.contact_id,
+      senderType: 'user',
+      messageType: 'text',
+      body: text,
+      mediaUrl: null,
+      mediaMimeType: null,
+      transcription: null,
+      timestamp: now.toISOString(),
     });
+
+    return reply.code(201).send({ message, conversation });
   });
 
   // ── GET /api/inbox/briefing ────────────────────────────────────────────────
@@ -940,6 +947,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       [id, userId],
     );
     if (result.rowCount === 0) return reply.code(404).send({ error: 'Conversation not found' });
+    await publishInboxEvent(userId, 'conversation:read', { conversationId: id, unreadCount: 0 });
     return reply.send({ ok: true });
   });
 }

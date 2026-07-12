@@ -34,6 +34,7 @@ function CustomAudioPlayer({ src }: { src: string }) {
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1.0)
+  const [error, setError] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -48,12 +49,14 @@ function CustomAudioPlayer({ src }: { src: string }) {
       setIsPlaying(false)
       setCurrentTime(0)
     }
+    const handleError = () => setError(true)
 
     audio.addEventListener('play', handlePlay)
     audio.addEventListener('pause', handlePause)
     audio.addEventListener('timeupdate', handleTimeUpdate)
     audio.addEventListener('durationchange', handleDurationChange)
     audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('error', handleError)
 
     // Set initial values if media is cached/loaded
     if (audio.readyState >= 1) {
@@ -66,8 +69,18 @@ function CustomAudioPlayer({ src }: { src: string }) {
       audio.removeEventListener('timeupdate', handleTimeUpdate)
       audio.removeEventListener('durationchange', handleDurationChange)
       audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('error', handleError)
     }
   }, [src])
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+        <Mic size={14} />
+        Voice note unavailable
+      </div>
+    )
+  }
 
   const togglePlay = () => {
     if (!audioRef.current) return
@@ -142,6 +155,31 @@ function CustomAudioPlayer({ src }: { src: string }) {
   )
 }
 
+function ImagePreview({ src, alt }: { src: string; alt: string }) {
+  const [error, setError] = useState(false)
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+        <Image size={14} />
+        <span>Photo unavailable</span>
+      </div>
+    )
+  }
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        onError={() => setError(true)}
+        loading="lazy"
+        className="max-w-[220px] rounded-lg object-cover"
+        style={{ maxHeight: 220 }}
+      />
+    </a>
+  )
+}
+
 export function MessageContent({
   msg,
   token,
@@ -194,8 +232,7 @@ export function MessageContent({
     if (href) {
       return (
         <div className="space-y-1">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={href} alt={msg.body ?? 'Image'} className="max-w-[220px] rounded-lg object-cover" style={{ maxHeight: 220 }} />
+          <ImagePreview src={href} alt={msg.body ?? 'Image'} />
           {msg.body && <p className={textClass}>{msg.body}</p>}
         </div>
       )
@@ -213,7 +250,7 @@ export function MessageContent({
     if (href) {
       return (
         <div className="space-y-1">
-          <video src={href} controls className="max-w-[220px] rounded-lg" style={{ maxHeight: 180 }} />
+          <video src={href} controls preload="metadata" className="max-w-[220px] rounded-lg bg-black" style={{ maxHeight: 180 }} />
           {msg.body && <p className={textClass}>{msg.body}</p>}
         </div>
       )
@@ -233,6 +270,7 @@ export function MessageContent({
         <div className="space-y-1.5">
           <CustomAudioPlayer src={href} />
           {msg.transcription && <p className="text-xs italic text-gray-600">"{msg.transcription}"</p>}
+          {!msg.transcription && <p className="text-[10px] font-medium text-gray-400">Voice note</p>}
         </div>
       )
     }

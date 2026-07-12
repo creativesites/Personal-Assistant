@@ -168,7 +168,18 @@ async function runSync(job: SyncJob, resumeFrom = 0, resumeMessages = 0): Promis
       // Push real-time progress so the inbox refreshes
       await redis.publish(
         `history:progress:${userId}`,
-        JSON.stringify({ processed: resumeFrom + localConvs, total: resumeFrom + conversations.length }),
+        JSON.stringify({
+          jobId: syncJobId,
+          status: 'running',
+          phase: 'analysing',
+          currentChatName: contact?.name ?? null,
+          processedConversations: resumeFrom + localConvs,
+          totalConversations: resumeFrom + conversations.length,
+          processedMessages,
+          totalMessages: undefined,
+          processed: resumeFrom + localConvs,
+          total: resumeFrom + conversations.length,
+        }),
       ).catch(() => { /* ignore */ });
     }
   }
@@ -199,6 +210,19 @@ async function runSync(job: SyncJob, resumeFrom = 0, resumeMessages = 0): Promis
       syncJobId,
     ],
   );
+
+  await redis.publish(
+    `history:progress:${userId}`,
+    JSON.stringify({
+      jobId: syncJobId,
+      status: wasCancelled ? 'cancelled' : 'completed',
+      phase: wasCancelled ? 'cancelled' : 'complete',
+      currentChatName: null,
+      processedConversations: resumeFrom + localConvs,
+      totalConversations: resumeFrom + conversations.length,
+      processedMessages,
+    }),
+  ).catch(() => { /* ignore */ });
 }
 
 export function cancelHistorySync(syncJobId: string): void {
