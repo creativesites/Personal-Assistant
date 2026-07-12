@@ -30,8 +30,10 @@ env/
 # Database
 *.sql.bak
 db/data/
-# open-wa session data (contains auth tokens)
+# open-wa / baileys session data (contains auth tokens — never commit)
 services/whatsapp/sessions/
+services/whatsapp/db/sessions/
+services/whatsapp/db/media/
 *.json.bak
 # Logs
 *.log
