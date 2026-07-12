@@ -315,6 +315,31 @@ function HealthRing({ score }: { score: number }) {
   )
 }
 
+const FACTOR_LABELS: Record<string, string> = {
+  recency: 'Recency', frequency: 'Frequency', sentiment: 'Tone',
+  responsiveness: 'Responsiveness', pipeline_velocity: 'Deal progress',
+}
+
+function FactorBreakdown({ factors }: { factors: unknown }) {
+  if (!factors || typeof factors !== 'object') return null
+  const weighted = (factors as { weighted?: Record<string, number> }).weighted
+  if (!weighted) return null
+  const entries = Object.entries(weighted).filter(([, v]) => Math.abs(v) >= 0.5)
+  if (entries.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-1.5">
+      {entries.map(([key, value]) => (
+        <span key={key}
+          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+            value > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'
+          }`}>
+          {FACTOR_LABELS[key] ?? key} {value > 0 ? '+' : ''}{value.toFixed(1)}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function CompletenessBar({ pct }: { pct: number }) {
   const color = pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-400' : 'bg-gray-300'
   return (
@@ -1530,6 +1555,14 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               </>
             )}
           </div>
+
+          {/* Why the health score is what it is — always tell them why */}
+          {contact.healthHistory[0]?.changeReason && (
+            <div className="flex items-start gap-1.5 mt-3 pt-3 border-t border-gray-50">
+              <Lightbulb size={12} className="text-amber-400 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-gray-500 leading-snug">{contact.healthHistory[0].changeReason}</p>
+            </div>
+          )}
         </div>
 
         {/* ── Tab bar ── */}
@@ -1700,6 +1733,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                                 <span className="text-xs text-gray-400">{formatDate(h.recordedAt)}</span>
                               </div>
                               {h.changeReason && <p className="text-sm text-gray-700 mt-0.5 leading-snug">{h.changeReason}</p>}
+                              <FactorBreakdown factors={h.factors} />
                             </div>
                           </div>
                         )

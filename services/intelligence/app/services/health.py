@@ -4,6 +4,38 @@ from ..database import get_pool
 
 log = structlog.get_logger()
 
+# Relative importance of each signal — see docs/RELATIONSHIP_OS_PLAN.md §5.1.
+# Each signal is normalized to -1.0..+1.0 before being weighted, so the sum of
+# weights bounds the maximum possible swing: at SCALE=30, a relationship
+# where every signal is maximally negative drops 30 points from base; every
+# signal maximally positive raises it 30 points.
+WEIGHTS = {
+    'recency': 0.30,
+    'frequency': 0.20,
+    'sentiment': 0.20,
+    'responsiveness': 0.15,
+    'pipeline_velocity': 0.15,
+}
+SCALE = 30
+BASE_SCORE = 70
+PROACTIVE_BONUS = 2
+
+STAGE_STALL_THRESHOLD_DAYS = {
+    'discovery': 14, 'qualified': 14, 'proposal': 21, 'negotiation': 14,
+}
+
+FACTOR_LABELS = {
+    'recency': 'time since last message',
+    'frequency': 'message frequency',
+    'sentiment': 'conversation tone',
+    'responsiveness': 'reply speed',
+    'pipeline_velocity': 'deal progress',
+}
+
+
+def _clamp(value: float, lo: float = -1.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, value))
+
 
 class RelationshipHealthService:
     async def recalculate(self, contact_id: str, user_id: str) -> int:
@@ -34,42 +66,169 @@ class RelationshipHealthService:
                 contact_id, user_id,
             )
 
+            week_count = await conn.fetchval(
+                """SELECT COUNT(*) FROM messages m
+                   JOIN conversations c ON c.id = m.conversation_id
+                   WHERE c.contact_id = $1 AND c.user_id = $2
+                     AND m.whatsapp_timestamp > NOW() - INTERVAL '7 days'""",
+                contact_id, user_id,
+            )
+
+            clock = await conn.fetchrow(
+                """SELECT avg_days_between_messages FROM relationship_clocks
+                   WHERE contact_id = $1 AND user_id = $2 AND clock_type = 'dormancy_watch'
+                   LIMIT 1""",
+                contact_id, user_id,
+            )
+
+            reply_latency = await conn.fetchrow(
+                """WITH ordered AS (
+                     SELECT m.whatsapp_timestamp, m.sender_type,
+                            LAG(m.whatsapp_timestamp) OVER (ORDER BY m.whatsapp_timestamp) AS prev_ts,
+                            LAG(m.sender_type) OVER (ORDER BY m.whatsapp_timestamp) AS prev_sender
+                     FROM messages m
+                     JOIN conversations c ON c.id = m.conversation_id
+                     WHERE c.contact_id = $1 AND c.user_id = $2 AND m.is_deleted = false
+                       AND m.whatsapp_timestamp > NOW() - INTERVAL '74 days'
+                   )
+                   SELECT
+                     AVG(EXTRACT(EPOCH FROM (whatsapp_timestamp - prev_ts)) / 3600)
+                       FILTER (WHERE sender_type = 'contact' AND prev_sender = 'user'
+                                 AND whatsapp_timestamp > NOW() - INTERVAL '14 days') AS recent_hours,
+                     AVG(EXTRACT(EPOCH FROM (whatsapp_timestamp - prev_ts)) / 3600)
+                       FILTER (WHERE sender_type = 'contact' AND prev_sender = 'user'
+                                 AND whatsapp_timestamp <= NOW() - INTERVAL '14 days') AS baseline_hours
+                   FROM ordered""",
+                contact_id, user_id,
+            )
+
+            open_deal = await conn.fetchrow(
+                """SELECT stage, entered_stage_at FROM deals
+                   WHERE contact_id = $1 AND user_id = $2 AND stage NOT IN ('closed_won', 'closed_lost')
+                   ORDER BY updated_at DESC LIMIT 1""",
+                contact_id, user_id,
+            )
+
+            recent_proactive = await conn.fetchval(
+                """SELECT COUNT(*) FROM proactive_queue
+                   WHERE contact_id = $1 AND user_id = $2 AND status IN ('approved', 'sent')
+                     AND updated_at > NOW() - INTERVAL '7 days'""",
+                contact_id, user_id,
+            )
 
         now = datetime.now(tz=timezone.utc)
         dormancy = rel['dormancy_alert_days'] or 30
         old_score = rel['health_score'] or 70
 
-        # Days since last message
         if last_msg and last_msg['whatsapp_timestamp']:
             days_silent = (now - last_msg['whatsapp_timestamp'].replace(tzinfo=timezone.utc)).days
         else:
             days_silent = 999
 
-        # Recency contribution (range: -30 to +20)
+        signals: dict[str, float] = {}
+        notes: dict[str, str] = {}
+
+        # Recency
         if days_silent <= 3:
-            recency = 20
+            signals['recency'] = 1.0
+            notes['recency'] = f'Messaged {days_silent} day(s) ago'
         elif days_silent <= 7:
-            recency = 10
+            signals['recency'] = 0.5
+            notes['recency'] = f'Last messaged {days_silent} days ago'
         elif days_silent <= dormancy:
-            recency = 0
+            signals['recency'] = 0.0
+            notes['recency'] = f'{days_silent} days since last message'
         elif days_silent <= dormancy * 2:
-            recency = -15
+            signals['recency'] = -0.5
+            notes['recency'] = f'{days_silent} days of silence — past the usual gap'
         else:
-            recency = -30
+            signals['recency'] = -1.0
+            notes['recency'] = f'{days_silent} days of silence — well past the usual gap'
 
-        # Sentiment contribution (range: -10 to +10)
+        # Sentiment
         avg_sent = float(last_msg['avg_sentiment'] or 0.5) if last_msg else 0.5
-        sentiment = int((avg_sent - 0.5) * 20)
+        signals['sentiment'] = _clamp((avg_sent - 0.5) * 2)
+        if signals['sentiment'] > 0.2:
+            notes['sentiment'] = 'Mostly positive tone recently'
+        elif signals['sentiment'] < -0.2:
+            notes['sentiment'] = 'Negative tone detected recently'
+        else:
+            notes['sentiment'] = 'Neutral tone recently'
 
-        new_score = max(0, min(100, 70 + recency + sentiment))
+        # Frequency — this week vs this relationship's own learned cadence
+        avg_days_between = float(clock['avg_days_between_messages']) if clock and clock['avg_days_between_messages'] else None
+        if avg_days_between and avg_days_between > 0:
+            expected_per_week = 7 / avg_days_between
+            actual_per_week = int(week_count or 0)
+            signals['frequency'] = _clamp((actual_per_week - expected_per_week) / max(expected_per_week, 1))
+            diff = actual_per_week - expected_per_week
+            if diff >= 1:
+                notes['frequency'] = f'More messages this week than usual ({actual_per_week} vs ~{expected_per_week:.0f})'
+            elif diff <= -1:
+                notes['frequency'] = f'Fewer messages this week than usual ({actual_per_week} vs ~{expected_per_week:.0f})'
+            else:
+                notes['frequency'] = 'Messaging at the usual rate'
+        else:
+            signals['frequency'] = 0.0
+            notes['frequency'] = 'Not enough history yet to know the usual rate'
 
-        # Trend
+        # Responsiveness — are their replies to the user slowing down
+        recent_hours = float(reply_latency['recent_hours']) if reply_latency and reply_latency['recent_hours'] else None
+        baseline_hours = float(reply_latency['baseline_hours']) if reply_latency and reply_latency['baseline_hours'] else None
+        if recent_hours is not None and baseline_hours is not None and baseline_hours > 0:
+            signals['responsiveness'] = _clamp((baseline_hours - recent_hours) / baseline_hours)
+            if signals['responsiveness'] < -0.2:
+                notes['responsiveness'] = 'Replies taking longer than usual'
+            elif signals['responsiveness'] > 0.2:
+                notes['responsiveness'] = 'Replying faster than usual'
+            else:
+                notes['responsiveness'] = 'Replying at the usual speed'
+        else:
+            signals['responsiveness'] = 0.0
+            notes['responsiveness'] = 'Not enough reply history yet'
+
+        # Pipeline velocity — business relationships with an open deal only
+        if open_deal:
+            threshold = STAGE_STALL_THRESHOLD_DAYS.get(open_deal['stage'], 14)
+            days_in_stage = (now - open_deal['entered_stage_at'].replace(tzinfo=timezone.utc)).days
+            signals['pipeline_velocity'] = _clamp((threshold - days_in_stage) / threshold)
+            if days_in_stage > threshold:
+                notes['pipeline_velocity'] = f"Deal stalled in {open_deal['stage']} for {days_in_stage} days"
+            else:
+                notes['pipeline_velocity'] = f"Deal progressing normally ({open_deal['stage']})"
+        else:
+            signals['pipeline_velocity'] = 0.0
+            notes['pipeline_velocity'] = 'No open deal'
+
+        weighted = {k: WEIGHTS[k] * signals[k] * SCALE for k in WEIGHTS}
+        proactive_bonus = PROACTIVE_BONUS if recent_proactive else 0
+        delta = sum(weighted.values()) + proactive_bonus
+
+        new_score = max(0, min(100, round(BASE_SCORE + delta)))
+
         if new_score > old_score + 3:
             trend = 'improving'
         elif new_score < old_score - 3:
             trend = 'declining'
         else:
             trend = 'stable'
+
+        # "Always tell them why" — pick the 1-2 factors that moved the score
+        # the most and phrase them in plain English, instead of a bare number.
+        top_factors = sorted(weighted.items(), key=lambda kv: abs(kv[1]), reverse=True)
+        top_factors = [(k, v) for k, v in top_factors if abs(v) >= 1]
+        if top_factors:
+            change_reason = '; '.join(notes[k] for k, _ in top_factors[:2])
+        else:
+            change_reason = 'Stable — no significant change in ' + ', '.join(FACTOR_LABELS.values())
+
+        contributing_factors = {
+            'signals': {k: round(v, 2) for k, v in signals.items()},
+            'weighted': {k: round(v, 2) for k, v in weighted.items()},
+            'notes': notes,
+            'proactiveBonus': proactive_bonus,
+            'summary': change_reason,
+        }
 
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -87,12 +246,13 @@ class RelationshipHealthService:
                 new_score, trend, rel['id'], contact_id, user_id,
             )
             if new_score != old_score:
+                import json
                 await conn.execute(
                     """INSERT INTO relationship_health_logs
-                       (relationship_id, health_score, previous_score, change_reason)
-                       VALUES ($1, $2, $3, $4)""",
-                    rel['id'], new_score, old_score, 'automated_recalculation',
+                       (relationship_id, health_score, previous_score, change_reason, contributing_factors)
+                       VALUES ($1, $2, $3, $4, $5)""",
+                    rel['id'], new_score, old_score, change_reason, json.dumps(contributing_factors),
                 )
 
-        log.info('health_recalculated', contact_id=contact_id, score=new_score, trend=trend)
+        log.info('health_recalculated', contact_id=contact_id, score=new_score, trend=trend, reason=change_reason)
         return new_score
