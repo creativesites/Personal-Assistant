@@ -77,6 +77,42 @@ function formatCents(cents: number) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })
 }
 
+// Health Rollup (docs/RELATIONSHIP_OS_PLAN.md §5.10/§6.9) — a composite
+// score across categories already computed piecemeal elsewhere; every
+// sub-score is nullable (e.g. no agents configured yet → automation is
+// null) rather than defaulting to 0, which would misleadingly read as bad.
+interface BusinessRollup {
+  sales: number | null
+  relationships: number | null
+  automation: number | null
+  customerSatisfaction: number | null
+  pipeline: number | null
+  knowledge: number | null
+  overall: number | null
+}
+interface PersonalRollup {
+  closeCircleHealth: number | null
+  dormantCount: number
+  upcomingEventsHandled: number | null
+  reciprocityBalance: number | null
+  overall: number | null
+}
+interface HealthRollup { business: BusinessRollup; personal: PersonalRollup }
+
+function rollupColor(score: number) {
+  return score >= 70 ? 'text-green-600' : score >= 40 ? 'text-amber-600' : 'text-red-500'
+}
+
+function RollupStat({ label, value, suffix = '' }: { label: string; value: number | null; suffix?: string }) {
+  if (value === null) return null
+  return (
+    <div>
+      <p className={`text-lg font-bold tabular-nums ${rollupColor(value)}`}>{value}{suffix}</p>
+      <p className="text-[10px] text-gray-500 mt-0.5">{label}</p>
+    </div>
+  )
+}
+
 function timeAgo(ts: string | null) {
   if (!ts) return ''
   const diff = Date.now() - new Date(ts).getTime()
@@ -136,6 +172,7 @@ export default function DashboardPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
   const [proactive, setProactive] = useState<ProactiveSuggestion[]>([])
   const [brief, setBrief] = useState<BriefData | null>(null)
+  const [rollup, setRollup] = useState<HealthRollup | null>(null)
   const [marketing, setMarketing] = useState<MarketingSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -146,11 +183,13 @@ export default function DashboardPage() {
       apiClient<{ contacts: Contact[] }>('/api/contacts', { token }),
       apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', { token }),
       apiClient<BriefData>('/api/proactive/brief', { token }),
-    ]).then(([convRes, contactRes, proRes, briefRes]) => {
+      apiClient<HealthRollup>('/api/analytics/health-rollup', { token }),
+    ]).then(([convRes, contactRes, proRes, briefRes, rollupRes]) => {
       if (convRes.status === 'fulfilled') setConversations(convRes.value.conversations)
       if (contactRes.status === 'fulfilled') setContacts(contactRes.value.contacts)
       if (proRes.status === 'fulfilled') setProactive(proRes.value.suggestions)
       if (briefRes.status === 'fulfilled') setBrief(briefRes.value)
+      if (rollupRes.status === 'fulfilled') setRollup(rollupRes.value)
       setLoading(false)
     })
   }, [token])
@@ -303,6 +342,50 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Health Rollup — composite score across categories already computed
+            piecemeal elsewhere; both shapes always fetched, shown per mode */}
+        {rollup && (
+          <div className="grid md:grid-cols-2 gap-4">
+            {(mode === 'business' || mode === 'hybrid') && rollup.business.overall !== null && (
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-gray-900">Business Health</h2>
+                  <span className={`text-2xl font-bold tabular-nums ${rollupColor(rollup.business.overall)}`}>
+                    {rollup.business.overall}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <RollupStat label="Sales" value={rollup.business.sales} />
+                  <RollupStat label="Relationships" value={rollup.business.relationships} />
+                  <RollupStat label="Pipeline" value={rollup.business.pipeline} />
+                  <RollupStat label="Automation" value={rollup.business.automation} />
+                  <RollupStat label="Satisfaction" value={rollup.business.customerSatisfaction} />
+                  <RollupStat label="Knowledge" value={rollup.business.knowledge} />
+                </div>
+              </div>
+            )}
+            {(mode === 'personal' || mode === 'hybrid') && rollup.personal.overall !== null && (
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-gray-900">Personal Health</h2>
+                  <span className={`text-2xl font-bold tabular-nums ${rollupColor(rollup.personal.overall)}`}>
+                    {rollup.personal.overall}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <RollupStat label="Close circle" value={rollup.personal.closeCircleHealth} />
+                  <RollupStat label="Events handled" value={rollup.personal.upcomingEventsHandled} suffix="%" />
+                  <RollupStat label="Reciprocity" value={rollup.personal.reciprocityBalance} />
+                  <div>
+                    <p className="text-lg font-bold tabular-nums text-gray-700">{rollup.personal.dormantCount}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Dormant</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -308,3 +308,18 @@ Generate a specific, actionable suggestion. Return ONLY valid JSON:
   "priority": 1-5
 }}
 """
+
+GENERATE_GOAL_NEXT_STEP = """\
+{user_name} has an explicit goal for their relationship with {contact_name}: "{goal_label}".
+{target_date_line}
+
+Relationship: {relationship_type} (health {health_score}/100, trend: {health_trend})
+Relevant context: {context}
+
+Given this specific goal — not generic relationship maintenance — what is the single most useful next step {user_name} should take? Be concrete and reference the goal directly.
+
+Return ONLY valid JSON:
+{{
+  "next_step": "1-2 sentences, specific and actionable, naming what to do and why it moves this particular goal forward"
+}}
+"""

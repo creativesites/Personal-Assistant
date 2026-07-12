@@ -1812,4 +1812,151 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       }
     },
   )
+
+  // ── GET /api/analytics/health-rollup (§5.10/§6.9) ────────────────────────
+  // A composite score across categories already computed piecemeal
+  // elsewhere (deals/revenue_events, health.py's per-relationship scores,
+  // agent_actions escalations, message_analyses sentiment, business_facts
+  // approval rate). One aggregation query per shape, not a new detector —
+  // both business and personal rollups are always returned; the frontend
+  // picks which to show per mode (or both, for hybrid).
+  fastify.get(
+    '/api/analytics/health-rollup',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const [dealsResult, automationResult, satisfactionResult, knowledgeResult, avgHealthResult, personalResult] = await Promise.all([
+        db.query(
+          `SELECT
+            COUNT(*) FILTER (WHERE stage = 'closed_won') AS won,
+            COUNT(*) FILTER (WHERE stage IN ('closed_won', 'closed_lost')) AS closed,
+            AVG(probability) FILTER (WHERE stage NOT IN ('closed_won', 'closed_lost')) AS avg_open_probability
+           FROM deals WHERE user_id = $1`,
+          [userId],
+        ),
+        db.query(
+          `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE aa.was_escalated) AS escalated
+           FROM agent_actions aa
+           JOIN agents a ON a.id = aa.agent_id
+           WHERE a.user_id = $1 AND aa.created_at > NOW() - INTERVAL '30 days'`,
+          [userId],
+        ),
+        db.query(
+          `SELECT
+            COUNT(*) FILTER (WHERE ma.sentiment = 'positive') AS positive,
+            COUNT(*) AS total
+           FROM messages m
+           JOIN conversations c ON c.id = m.conversation_id
+           JOIN message_analyses ma ON ma.message_id = m.id
+           WHERE c.user_id = $1 AND m.whatsapp_timestamp > NOW() - INTERVAL '30 days'`,
+          [userId],
+        ),
+        db.query(
+          `SELECT COUNT(*) FILTER (WHERE is_approved) AS approved, COUNT(*) AS total
+           FROM business_facts WHERE user_id = $1 AND is_active = TRUE`,
+          [userId],
+        ),
+        db.query(
+          `SELECT AVG(health_score) AS avg_health FROM relationships WHERE user_id = $1`,
+          [userId],
+        ),
+        db.query(
+          `WITH close_circle AS (
+             SELECT AVG(health_score) AS avg_health FROM relationships
+             WHERE user_id = $1 AND importance_tier IN (1, 2)
+           ),
+           dormant AS (
+             SELECT COUNT(*) AS count FROM relationships
+             WHERE user_id = $1 AND (last_interaction_at IS NULL OR last_interaction_at < NOW() - INTERVAL '30 days')
+           ),
+           events_window AS (
+             SELECT e.id, e.contact_id, e.event_date FROM events e
+             WHERE e.user_id = $1 AND e.event_type IN ('birthday', 'anniversary')
+               AND e.event_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE
+           ),
+           events_handled AS (
+             SELECT ew.id FROM events_window ew
+             WHERE EXISTS (
+               SELECT 1 FROM proactive_queue pq
+               WHERE pq.contact_id = ew.contact_id AND pq.user_id = $1
+                 AND pq.suggestion_type IN ('birthday_message', 'congratulate')
+                 AND pq.created_at::date BETWEEN ew.event_date - 3 AND ew.event_date + 3
+             )
+           ),
+           reciprocity AS (
+             SELECT AVG((network_value->>'reciprocityScore')::numeric) AS avg_reciprocity
+             FROM relationships WHERE user_id = $1 AND network_value ? 'reciprocityScore'
+           )
+           SELECT
+             (SELECT avg_health FROM close_circle) AS close_circle_health,
+             (SELECT count FROM dormant) AS dormant_count,
+             (SELECT COUNT(*) FROM events_window) AS events_total,
+             (SELECT COUNT(*) FROM events_handled) AS events_handled,
+             (SELECT avg_reciprocity FROM reciprocity) AS avg_reciprocity`,
+          [userId],
+        ),
+      ])
+
+      const deals = dealsResult.rows[0]
+      const automation = automationResult.rows[0]
+      const satisfaction = satisfactionResult.rows[0]
+      const knowledge = knowledgeResult.rows[0]
+      const avgHealth = avgHealthResult.rows[0]?.avg_health !== null ? Math.round(Number(avgHealthResult.rows[0].avg_health)) : null
+
+      const closedCount = parseInt(deals.closed, 10)
+      const salesScore = closedCount > 0 ? Math.round((parseInt(deals.won, 10) / closedCount) * 100) : null
+      const pipelineScore = deals.avg_open_probability !== null ? Math.round(Number(deals.avg_open_probability)) : null
+
+      const automationTotal = parseInt(automation.total, 10)
+      const automationScore = automationTotal > 0
+        ? Math.round((1 - parseInt(automation.escalated, 10) / automationTotal) * 100)
+        : null
+
+      const satisfactionTotal = parseInt(satisfaction.total, 10)
+      const customerSatisfactionScore = satisfactionTotal > 0
+        ? Math.round((parseInt(satisfaction.positive, 10) / satisfactionTotal) * 100)
+        : null
+
+      const knowledgeTotal = parseInt(knowledge.total, 10)
+      const knowledgeScore = knowledgeTotal > 0
+        ? Math.round((parseInt(knowledge.approved, 10) / knowledgeTotal) * 100)
+        : null
+
+      const businessScores = [salesScore, avgHealth, automationScore, customerSatisfactionScore, pipelineScore, knowledgeScore].filter(
+        (s): s is number => s !== null,
+      )
+
+      const personal = personalResult.rows[0]
+      const closeCircleHealth = personal.close_circle_health !== null ? Math.round(Number(personal.close_circle_health)) : null
+      const eventsTotal = parseInt(personal.events_total, 10)
+      const upcomingEventsHandled = eventsTotal > 0
+        ? Math.round((parseInt(personal.events_handled, 10) / eventsTotal) * 100)
+        : null
+      const reciprocityBalance = personal.avg_reciprocity !== null ? Math.round(Number(personal.avg_reciprocity)) : null
+
+      const personalScores = [closeCircleHealth, upcomingEventsHandled, reciprocityBalance].filter(
+        (s): s is number => s !== null,
+      )
+
+      return reply.send({
+        business: {
+          sales: salesScore,
+          relationships: avgHealth,
+          automation: automationScore,
+          customerSatisfaction: customerSatisfactionScore,
+          pipeline: pipelineScore,
+          knowledge: knowledgeScore,
+          overall: businessScores.length > 0 ? Math.round(businessScores.reduce((a, b) => a + b, 0) / businessScores.length) : null,
+        },
+        personal: {
+          closeCircleHealth,
+          dormantCount: parseInt(personal.dormant_count, 10),
+          upcomingEventsHandled,
+          reciprocityBalance,
+          overall: personalScores.length > 0 ? Math.round(personalScores.reduce((a, b) => a + b, 0) / personalScores.length) : null,
+        },
+      })
+    },
+  )
 }
