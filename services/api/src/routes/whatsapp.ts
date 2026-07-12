@@ -4,10 +4,28 @@ import { config } from '../config';
 import { authenticate } from '../plugins/authenticate';
 import { db } from '../lib/db';
 import { redis } from '../lib/redis';
+import { requireMarketingAccess } from '../lib/marketing-access';
 
 const connectBody = z.object({
   phoneNumber: z.string().optional(),
 });
+
+function normalizeCatalogProduct(product: any) {
+  const imageUrls = product?.imageUrls && typeof product.imageUrls === 'object'
+    ? Object.values(product.imageUrls).filter(Boolean)
+    : [];
+  return {
+    id: product?.id ?? null,
+    name: product?.name ?? 'Untitled product',
+    description: product?.description ?? null,
+    price: typeof product?.price === 'number' ? product.price : null,
+    currency: product?.currency ?? null,
+    retailerId: product?.retailerId ?? null,
+    availability: product?.availability ?? null,
+    imageUrls,
+    reviewStatus: product?.reviewStatus ?? null,
+  };
+}
 
 export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post(
@@ -156,6 +174,112 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
       } catch (err: any) {
         fastify.log.error({ err }, 'whatsapp/status: DB error');
         return reply.code(500).send({ error: 'Failed to fetch status', detail: err.message });
+      }
+    }
+  );
+
+  fastify.get(
+    '/api/whatsapp/catalog/products',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { limit, cursor } = z.object({
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+        cursor: z.string().optional(),
+      }).parse(request.query);
+
+      try {
+        const url = new URL(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/${userId}/catalog/products`);
+        if (limit) url.searchParams.set('limit', String(limit));
+        if (cursor) url.searchParams.set('cursor', cursor);
+        const res = await fetch(url);
+        const data = await res.json().catch(() => ({})) as any;
+        if (!res.ok) return reply.code(res.status).send(data);
+        return reply.send({
+          products: (data.products ?? []).map(normalizeCatalogProduct),
+          nextPageCursor: data.nextPageCursor,
+        });
+      } catch (err: any) {
+        fastify.log.error({ err }, 'whatsapp/catalog/products: whatsapp service unreachable');
+        return reply.code(503).send({ error: 'WhatsApp service unavailable', detail: err.message });
+      }
+    }
+  );
+
+  fastify.post(
+    '/api/products/:id/whatsapp-catalog',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { id } = request.params as { id: string };
+
+      const { rows: [product] } = await db.query<{
+        id: string;
+        name: string;
+        description: string | null;
+        price: string | null;
+        currency: string;
+        serial_number: string | null;
+      }>(
+        `SELECT id, name, description, price, currency, serial_number
+         FROM products
+         WHERE id = $1 AND user_id = $2 AND status != 'archived'`,
+        [id, userId],
+      );
+      if (!product) return reply.code(404).send({ error: 'Product not found' });
+      if (product.price === null) {
+        return reply.code(400).send({ error: 'Set a product price before adding it to WhatsApp Business catalog' });
+      }
+
+      try {
+        const res = await fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/${userId}/catalog/products`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: product.name,
+            description: product.description ?? '',
+            price: Number(product.price),
+            currency: product.currency,
+            retailerId: product.serial_number ?? product.id,
+          }),
+        });
+        const data = await res.json().catch(() => ({})) as any;
+        if (!res.ok) {
+          await db.query(
+            `UPDATE products
+             SET whatsapp_catalog_status = 'failed',
+                 whatsapp_catalog_error = $1,
+                 updated_at = NOW()
+             WHERE id = $2 AND user_id = $3`,
+            [data.error ?? `HTTP ${res.status}`, id, userId],
+          );
+          return reply.code(res.status).send(data);
+        }
+
+        const catalogProduct = normalizeCatalogProduct(data.product);
+        await db.query(
+          `UPDATE products
+           SET whatsapp_catalog_product_id = $1,
+               whatsapp_catalog_synced_at = NOW(),
+               whatsapp_catalog_status = 'synced',
+               whatsapp_catalog_error = NULL,
+               updated_at = NOW()
+           WHERE id = $2 AND user_id = $3`,
+          [catalogProduct.id, id, userId],
+        );
+
+        return reply.code(201).send({ product: catalogProduct });
+      } catch (err: any) {
+        await db.query(
+          `UPDATE products
+           SET whatsapp_catalog_status = 'failed',
+               whatsapp_catalog_error = $1,
+               updated_at = NOW()
+           WHERE id = $2 AND user_id = $3`,
+          [err.message, id, userId],
+        ).catch(() => {});
+        fastify.log.error({ err }, 'products/whatsapp-catalog: whatsapp service unreachable');
+        return reply.code(503).send({ error: 'WhatsApp service unavailable', detail: err.message });
       }
     }
   );

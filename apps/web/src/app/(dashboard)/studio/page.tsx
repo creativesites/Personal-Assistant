@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { Sparkles, Link2, ChevronDown, ChevronUp, Copy, X, BarChart3, Settings2, Users, ChevronRight } from 'lucide-react'
+import { Sparkles, Link2, ChevronDown, ChevronUp, Copy, X, BarChart3, Settings2, Users, ChevronRight, Store, RefreshCw } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -18,7 +18,37 @@ interface Product {
   currency: string
   quantity: number
   status: string
+  serialNumber: string | null
+  whatsappCatalogProductId: string | null
+  whatsappCatalogStatus: string
+  whatsappCatalogError: string | null
+  linkedContacts?: number
+  attributedLeads?: number
   createdAt: string
+}
+
+interface WhatsAppCatalogProduct {
+  id: string | null
+  name: string
+  description: string | null
+  price: number | null
+  currency: string | null
+  retailerId: string | null
+  availability: string | null
+  imageUrls: string[]
+  reviewStatus: Record<string, string> | null
+}
+
+interface ProductContact {
+  id: string
+  contactId: string
+  contactName: string
+  phone: string | null
+  customerStatus: string | null
+  pipelineStage: string | null
+  leadScore: number | null
+  relationType: string
+  quantity: number | null
 }
 
 interface Generation {
@@ -70,7 +100,11 @@ function AddProductForm({ onAdded }: { onAdded: () => void }) {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [price, setPrice] = useState('')
+  const [currency, setCurrency] = useState('ZMW')
+  const [quantity, setQuantity] = useState('1')
+  const [serialNumber, setSerialNumber] = useState('')
   const [saving, setSaving] = useState(false)
 
   const submit = useCallback(async () => {
@@ -82,37 +116,76 @@ function AddProductForm({ onAdded }: { onAdded: () => void }) {
         token,
         body: JSON.stringify({
           name: name.trim(),
+          description: description.trim() || undefined,
           price: price ? Number(price) : undefined,
+          currency: currency.trim() || 'ZMW',
+          quantity: quantity ? Number(quantity) : undefined,
+          serialNumber: serialNumber.trim() || undefined,
         }),
       })
       setName('')
+      setDescription('')
       setPrice('')
+      setCurrency('ZMW')
+      setQuantity('1')
+      setSerialNumber('')
       onAdded()
+      addToast({ variant: 'success', title: 'Product added' })
     } catch {
       addToast({ variant: 'error', title: 'Failed to add product', description: 'Please try again.' })
     } finally {
       setSaving(false)
     }
-  }, [token, name, price, onAdded, addToast])
+  }, [token, name, description, price, currency, quantity, serialNumber, onAdded, addToast])
 
   return (
-    <div className="flex flex-col sm:flex-row gap-2 p-4 rounded-xl border border-gray-200 bg-gray-50">
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Product name"
-        className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+    <div className="space-y-2 p-4 rounded-xl border border-gray-200 bg-gray-50">
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_92px] gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Product name"
+          className="px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <input
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder="Price"
+          inputMode="decimal"
+          className="px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <input
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+          placeholder="ZMW"
+          className="px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+      </div>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Description for CRM, content generation and WhatsApp catalog"
+        rows={2}
+        className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       />
-      <input
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        placeholder="Price (optional)"
-        inputMode="decimal"
-        className="w-full sm:w-36 px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      />
-      <Button onClick={submit} loading={saving} disabled={!name.trim()}>
-        Add
-      </Button>
+      <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_auto] gap-2">
+        <input
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+          placeholder="Qty"
+          inputMode="numeric"
+          className="px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <input
+          value={serialNumber}
+          onChange={(e) => setSerialNumber(e.target.value)}
+          placeholder="SKU / retailer ID"
+          className="px-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <Button onClick={submit} loading={saving} disabled={!name.trim()}>
+          Add product
+        </Button>
+      </div>
     </div>
   )
 }
@@ -138,17 +211,23 @@ function GeneratedContentCard({ generation }: { generation: Generation }) {
   )
 }
 
-function ProductCard({ product }: { product: Product }) {
+function ProductCard({ product, onChanged }: { product: Product; onChanged: () => void }) {
   const { addToast } = useToast()
   const session = useZuriSession()
   const token = session.data?.accessToken
   const [expanded, setExpanded] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [syncingCatalog, setSyncingCatalog] = useState(false)
   const { data, loading, refetch } = useApi<{ generations: Generation[] }>(
     expanded ? `/api/products/${product.id}/generations` : null,
     token,
   )
+  const { data: contactsData, loading: contactsLoading } = useApi<{ contacts: ProductContact[] }>(
+    expanded ? `/api/products/${product.id}/contacts` : null,
+    token,
+  )
   const generations = data?.generations ?? []
+  const contacts = contactsData?.contacts ?? []
 
   const generate = useCallback(async () => {
     if (!token) return
@@ -164,6 +243,22 @@ function ProductCard({ product }: { product: Product }) {
     }
   }, [token, product.id, refetch, addToast])
 
+  const addToWhatsAppCatalog = useCallback(async () => {
+    if (!token) return
+    setSyncingCatalog(true)
+    try {
+      await apiClient(`/api/products/${product.id}/whatsapp-catalog`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Added to WhatsApp catalog' })
+      onChanged()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'This requires a connected WhatsApp Business account.'
+      addToast({ variant: 'error', title: 'WhatsApp catalog sync failed', description: message })
+      onChanged()
+    } finally {
+      setSyncingCatalog(false)
+    }
+  }, [token, product.id, onChanged, addToast])
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="flex items-start justify-between gap-2">
@@ -172,6 +267,15 @@ function ProductCard({ product }: { product: Product }) {
           {product.price !== null && (
             <p className="text-xs text-gray-500 mt-1">{product.currency} {product.price.toLocaleString()}</p>
           )}
+          {product.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{product.description}</p>}
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            <Badge variant={product.whatsappCatalogStatus === 'synced' ? 'success' : product.whatsappCatalogStatus === 'failed' ? 'error' : 'default'}>
+              WA {product.whatsappCatalogStatus.replace(/_/g, ' ')}
+            </Badge>
+            {(product.linkedContacts ?? 0) > 0 && <Badge variant="info">{product.linkedContacts} CRM</Badge>}
+            {(product.attributedLeads ?? 0) > 0 && <Badge variant="purple">{product.attributedLeads} leads</Badge>}
+          </div>
+          {product.whatsappCatalogError && <p className="text-[11px] text-red-500 mt-1">{product.whatsappCatalogError}</p>}
         </div>
         <button
           onClick={() => setExpanded((e) => !e)}
@@ -188,6 +292,17 @@ function ProductCard({ product }: { product: Product }) {
             <Sparkles className="w-3.5 h-3.5" />
             {generations.length > 0 ? 'Regenerate content' : 'Generate content'}
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={addToWhatsAppCatalog}
+            loading={syncingCatalog}
+            disabled={product.price === null}
+            className="w-full"
+          >
+            <Store className="w-3.5 h-3.5" />
+            {product.whatsappCatalogProductId ? 'Re-sync WhatsApp catalog' : 'Add to WhatsApp catalog'}
+          </Button>
 
           {loading && !generating ? (
             <SkeletonCard />
@@ -198,9 +313,82 @@ function ProductCard({ product }: { product: Product }) {
           ) : !generating ? (
             <p className="text-xs text-gray-400 text-center py-2">No content generated yet.</p>
           ) : null}
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-700">CRM links</p>
+              <Link href="/contacts" className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">
+                Manage contacts
+              </Link>
+            </div>
+            {contactsLoading ? (
+              <div className="h-8 rounded-md bg-gray-200 animate-pulse" />
+            ) : contacts.length > 0 ? (
+              <div className="space-y-1.5">
+                {contacts.slice(0, 4).map((contact) => (
+                  <Link
+                    key={contact.id}
+                    href={`/contacts/${contact.contactId}`}
+                    className="flex items-center justify-between gap-2 rounded-md bg-white border border-gray-100 px-2 py-1.5 hover:border-indigo-200 transition-colors"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-gray-800 truncate">{contact.contactName}</span>
+                      <span className="block text-[10px] text-gray-400 capitalize">{contact.relationType.replace(/_/g, ' ')}</span>
+                    </span>
+                    {contact.leadScore != null && (
+                      <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5">
+                        {contact.leadScore}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">No CRM contacts linked yet. Zuri will also link products automatically when chats mention matching catalog items.</p>
+            )}
+          </div>
         </div>
       )}
     </div>
+  )
+}
+
+function WhatsAppCatalogSection() {
+  const session = useZuriSession()
+  const token = session.data?.accessToken
+  const { data, loading, error, refetch } = useApi<{ products: WhatsAppCatalogProduct[] }>('/api/whatsapp/catalog/products?limit=20', token)
+  const products = data?.products ?? []
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-900">WhatsApp Business Catalog</h2>
+        <button onClick={refetch} className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700">
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
+      </div>
+      {loading ? (
+        <SkeletonCard />
+      ) : error ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-700">
+          Connect a WhatsApp Business account to list catalog products here.
+        </div>
+      ) : products.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-2">No WhatsApp catalog products found.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {products.map((p, index) => (
+            <div key={p.id ?? index} className="rounded-xl border border-gray-200 bg-white p-3">
+              <p className="text-sm font-medium text-gray-900 truncate">{p.name}</p>
+              {p.price !== null && <p className="text-xs text-gray-500 mt-1">{p.currency} {p.price.toLocaleString()}</p>}
+              {p.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{p.description}</p>}
+              {p.retailerId && <p className="text-[10px] text-gray-400 mt-2">Retailer ID: {p.retailerId}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -461,11 +649,13 @@ function StudioHub() {
               />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {products.map((p) => <ProductCard key={p.id} product={p} />)}
+                {products.map((p) => <ProductCard key={p.id} product={p} onChanged={refetch} />)}
               </div>
             )}
           </div>
         </section>
+
+        <WhatsAppCatalogSection />
 
         <ScheduledPostsSection products={products} />
 

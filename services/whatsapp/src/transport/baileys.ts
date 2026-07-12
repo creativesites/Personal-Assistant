@@ -16,6 +16,7 @@ import { MessageType } from '@zuri/types';
 import {
   WhatsAppTransport,
   type NormalisedMessage,
+  type CatalogProductInput,
   type TransportDisconnectReason,
   type TransportStatus,
 } from './types';
@@ -150,6 +151,44 @@ export class BaileysTransport extends WhatsAppTransport {
   async sendText(jid: string, text: string): Promise<void> {
     if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
     await this.sock.sendMessage(jid, { text });
+  }
+
+  async listCatalogProducts(limit = 20, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    const sock = this.sock as unknown as {
+      getCatalog?: (opts: { limit?: number; cursor?: string }) => Promise<{ products: unknown[]; nextPageCursor?: string }>;
+    };
+    if (typeof sock.getCatalog !== 'function') {
+      throw new Error('WhatsApp catalog is not available for this session');
+    }
+    return await sock.getCatalog({ limit, cursor });
+  }
+
+  async createCatalogProduct(product: CatalogProductInput): Promise<unknown> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    const sock = this.sock as unknown as {
+      productCreate?: (create: {
+        name: string;
+        description: string;
+        price: number;
+        currency: string;
+        retailerId?: string;
+        originCountryCode: string | undefined;
+        images: unknown[];
+      }) => Promise<unknown>;
+    };
+    if (typeof sock.productCreate !== 'function') {
+      throw new Error('WhatsApp catalog is not available for this session');
+    }
+    return await sock.productCreate({
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      currency: product.currency,
+      retailerId: product.retailerId,
+      originCountryCode: undefined,
+      images: [],
+    });
   }
 
   async requestLinkCode(phoneNumber: string): Promise<string> {

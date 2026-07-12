@@ -13,6 +13,14 @@ const sendBody = z.object({
   text: z.string().min(1),
 });
 
+const catalogCreateBody = z.object({
+  name: z.string().min(1),
+  description: z.string().default(''),
+  price: z.number().nonnegative(),
+  currency: z.string().min(1).max(10),
+  retailerId: z.string().optional(),
+});
+
 const userIdParam = z.object({
   userId: z.string().uuid(),
 });
@@ -55,6 +63,31 @@ export function sessionRoutes(sessionManager: SessionManager) {
       const { jid, text } = sendBody.parse(request.body);
       await sessionManager.sendMessage(userId, jid, text);
       return reply.send({ sent: true });
+    });
+
+    fastify.get('/internal/sessions/:userId/catalog/products', async (request, reply) => {
+      const { userId } = userIdParam.parse(request.params);
+      const { limit, cursor } = z.object({
+        limit: z.coerce.number().int().min(1).max(100).optional(),
+        cursor: z.string().optional(),
+      }).parse(request.query);
+      try {
+        const catalog = await sessionManager.listCatalogProducts(userId, limit, cursor);
+        return reply.send(catalog);
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
+    });
+
+    fastify.post('/internal/sessions/:userId/catalog/products', async (request, reply) => {
+      const { userId } = userIdParam.parse(request.params);
+      const body = catalogCreateBody.parse(request.body);
+      try {
+        const product = await sessionManager.createCatalogProduct(userId, body);
+        return reply.code(201).send({ product });
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
     });
 
     fastify.post('/internal/sessions/request-link-code', async (request, reply) => {

@@ -8,6 +8,7 @@ import type {
   WhatsAppTransport,
   TransportFactory,
   NormalisedMessage,
+  CatalogProductInput,
   TransportDisconnectReason,
 } from '../transport/types';
 
@@ -279,6 +280,18 @@ export class SessionManager {
     const entry = this.sessions.get(userId);
     if (!entry) throw new Error(`No active session for user ${userId}`);
     await entry.transport.sendText(jid, text);
+  }
+
+  async listCatalogProducts(userId: string, limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    return await entry.transport.listCatalogProducts(limit, cursor);
+  }
+
+  async createCatalogProduct(userId: string, product: CatalogProductInput): Promise<unknown> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    return await entry.transport.createCatalogProduct(product);
   }
 
   async requestLinkCode(userId: string, phoneNumber: string): Promise<string> {

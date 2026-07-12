@@ -21,6 +21,14 @@ export interface NormalisedMessage {
   quotedWaMessageId: string | null;
 }
 
+export interface CatalogProductInput {
+  name: string;
+  description: string;
+  price: number;
+  currency: string;
+  retailerId?: string;
+}
+
 export type TransportDisconnectReason =
   | 'logged_out'   // user removed the linked device — needs a new QR
   | 'bad_session'  // auth files corrupted — needs a new QR
@@ -53,6 +61,12 @@ export abstract class WhatsAppTransport extends EventEmitter {
 
   /** Send a text message to a JID. */
   abstract sendText(jid: string, text: string): Promise<void>;
+
+  /** List products in the connected WhatsApp Business catalog, if available. */
+  abstract listCatalogProducts(limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }>;
+
+  /** Create a product in the connected WhatsApp Business catalog, if available. */
+  abstract createCatalogProduct(product: CatalogProductInput): Promise<unknown>;
 
   /**
    * Request a phone-number pairing code (alternative to QR).

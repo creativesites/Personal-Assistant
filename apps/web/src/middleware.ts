@@ -25,20 +25,27 @@ const isPublicRoute = createRouteMatcher([
   '/api/diagnostics/(.*)', // internal diagnostics
 ])
 
+// Auth pages that signed-in users should be bounced away from
+const isAuthRoute = createRouteMatcher(['/login(.*)', '/register(.*)'])
+
 const isApiRoute = createRouteMatcher(['/api/(.*)'])
 
 export default clerkMiddleware(async (auth, request) => {
-  updateSession(request)
+  await updateSession(request)
 
-  if (!isPublicRoute(request)) {
-    const { userId } = await auth()
-    if (!userId) {
-      // API routes: return 401 JSON instead of redirecting to /login
-      if (isApiRoute(request)) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-      return NextResponse.redirect(new URL('/login', request.url))
+  const { userId } = await auth()
+
+  // ── Authenticated user on login/register → send to inbox ─────────────────
+  if (userId && isAuthRoute(request)) {
+    return NextResponse.redirect(new URL('/inbox', request.url))
+  }
+
+  // ── Unauthenticated user on protected route → send to login ──────────────
+  if (!userId && !isPublicRoute(request)) {
+    if (isApiRoute(request)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 })
 
