@@ -152,6 +152,76 @@ npm run lint
 
 ---
 
+## Running Locally (step-by-step)
+
+### Prerequisites
+- Docker Desktop running
+- Node.js 22+
+- Python 3.12 with a `.venv` inside `services/intelligence/` (`python -m venv .venv && .venv/bin/pip install -r requirements.txt`)
+- Each service has its own `.env` — copy from `.env.example` if missing
+
+### 1 — Start infrastructure
+```bash
+docker compose up -d postgres redis
+```
+Redis and Postgres must be healthy before starting any service.
+
+### 2 — Start services (each in its own terminal, or background them)
+
+**API** (Node.js, port 3000):
+```bash
+npm run dev --workspace=services/api
+```
+
+**WhatsApp** (Node.js, port 3001):
+```bash
+npm run dev --workspace=services/whatsapp
+```
+
+**Intelligence** (Python, port 8000) — must use the `.venv` uvicorn, not system Python:
+```bash
+cd services/intelligence && .venv/bin/uvicorn app.main:app --reload --port 8000
+```
+
+**Web** (Next.js, port 3002):
+```bash
+npm run dev --workspace=apps/web
+```
+
+### 3 — Background all at once with log files
+```bash
+mkdir -p /tmp/zuri-logs
+npm run dev --workspace=services/api          > /tmp/zuri-logs/api.log 2>&1 &
+npm run dev --workspace=services/whatsapp     > /tmp/zuri-logs/whatsapp.log 2>&1 &
+npm run dev --workspace=apps/web              > /tmp/zuri-logs/web.log 2>&1 &
+cd services/intelligence && .venv/bin/uvicorn app.main:app --reload --port 8000 \
+  > /tmp/zuri-logs/intelligence.log 2>&1 & cd -
+```
+
+Tail any log:
+```bash
+tail -f /tmp/zuri-logs/api.log
+tail -f /tmp/zuri-logs/intelligence.log
+```
+
+### 4 — Verify everything is up
+```bash
+curl http://localhost:3000/health   # API
+curl http://localhost:3001/health   # WhatsApp
+curl http://localhost:8000/health   # Intelligence
+# Web: open http://localhost:3002
+```
+
+### Common startup issues
+| Symptom | Fix |
+|---------|-----|
+| Intelligence: `No module named uvicorn` | Use `.venv/bin/uvicorn`, not system Python |
+| API: DB connection timeout | Dev `.env` points to Supabase — needs internet, or switch to local postgres |
+| WhatsApp: `0 sessions to restore` | Normal in dev — connect a phone via the UI |
+| Port already in use | `lsof -ti:3000 | xargs kill` (replace port as needed) |
+
+---
+
 ## Production Infrastructure
 
 | Resource | Value |
@@ -193,6 +263,32 @@ Model selection for Qwen calls is routed through `services/intelligence/app/ai/m
 NEXT_PUBLIC_API_URL=http://47.84.205.81:5500
 API_URL=http://47.84.205.81:5500
 INTERNAL_API_SECRET=98c2ba10361bc6678f860c7b53d953ff
+```
+
+### SSH access to ECS
+
+SSH key is stored at `.deploy-local/claude-local.pem` (gitignored — never commit).
+
+```bash
+ssh -i .deploy-local/claude-local.pem root@47.84.205.81
+```
+
+### Deploy to production
+
+```bash
+# On the server — pull latest + rebuild changed services
+ssh -i .deploy-local/claude-local.pem root@47.84.205.81 \
+  "cd /opt/zuri && git pull origin main && \
+   docker compose -f docker-compose.prod.yml up --build -d"
+
+# Rebuild only specific services (faster)
+ssh -i .deploy-local/claude-local.pem root@47.84.205.81 \
+  "cd /opt/zuri && git pull origin main && \
+   docker compose -f docker-compose.prod.yml up --build -d --force-recreate intelligence api whatsapp"
+
+# Tail production logs
+ssh -i .deploy-local/claude-local.pem root@47.84.205.81 \
+  "docker compose -f /opt/zuri/docker-compose.prod.yml logs --tail=50 -f"
 ```
 
 ---
