@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
-import { ModeBadge, PageHeader, Tabs, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/components/ui'
-import { Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2 } from 'lucide-react'
+import { ModeBadge, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/components/ui'
+import {
+  Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2,
+  UserCircle, SlidersHorizontal, Brain, Bot, Database, ShieldCheck,
+  Building2, Link2, ChevronRight,
+} from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 
@@ -89,6 +93,17 @@ function Toggle({ enabled }: { enabled: boolean }) {
       <div className={`w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-300 ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
     </div>
   )
+}
+
+const TAB_ICONS: Record<string, React.ElementType> = {
+  account: UserCircle,
+  workspace: SlidersHorizontal,
+  intelligence: Brain,
+  auto_responses: Bot,
+  memory: Database,
+  privacy: ShieldCheck,
+  enterprise: Building2,
+  connected_accounts: Link2,
 }
 
 export default function SettingsPage() {
@@ -605,12 +620,105 @@ export default function SettingsPage() {
     ...(hasMarketingAccess ? [{ id: 'connected_accounts', label: 'Connected Accounts' }] : []),
   ]
 
-  return (
-    <div className="flex flex-col h-full">
-      <PageHeader title="Settings" />
+  const activeTabMeta = tabs.find(tab => tab.id === activeTab) ?? tabs[0]
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="max-w-xl mx-auto space-y-4">
+  return (
+    <div className="flex flex-col h-full bg-slate-50">
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 lg:px-8 lg:py-8">
+          <div className="mb-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="px-5 py-5 sm:px-6 lg:px-8">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.22em] text-indigo-500">Control Center</p>
+                  <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Settings</h1>
+                  <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                    Manage your workspace, automation, memory, privacy, integrations, and connected accounts.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-base font-bold text-white shadow-sm">
+                    {initials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {session.data?.user.name || session.data?.user.email}
+                    </p>
+                    {session.data?.user.name && (
+                      <p className="truncate text-xs text-slate-500">{session.data.user.email}</p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500 ring-1 ring-slate-200">Free plan</span>
+                      <ModeBadge mode={session.data?.mode ?? 'business'} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 bg-slate-50/80 px-2 py-2 lg:hidden">
+              <div className="flex gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                {tabs.map(tab => {
+                  const Icon = TAB_ICONS[tab.id] ?? SlidersHorizontal
+                  const selected = activeTab === tab.id
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => handleTabChange(tab.id)}
+                      className={`inline-flex min-h-10 flex-shrink-0 items-center gap-2 rounded-2xl px-3 text-xs font-bold transition-colors ${
+                        selected
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {tab.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="hidden lg:block">
+              <div className="sticky top-6 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
+                {tabs.map(tab => {
+                  const Icon = TAB_ICONS[tab.id] ?? SlidersHorizontal
+                  const selected = activeTab === tab.id
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => handleTabChange(tab.id)}
+                      className={`group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+                        selected ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
+                      }`}
+                    >
+                      <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${
+                        selected ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 group-hover:bg-white'
+                      }`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold">{tab.label}</span>
+                      </span>
+                      {selected && <ChevronRight className="h-4 w-4 flex-shrink-0" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </aside>
+
+            <main className="min-w-0">
+              <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm lg:hidden">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current section</p>
+                <p className="mt-0.5 text-sm font-semibold text-slate-900">{activeTabMeta?.label}</p>
+              </div>
+
+              <div className="mx-auto max-w-4xl space-y-4">
 
           {apiReachable === false && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
@@ -619,27 +727,9 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Profile card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
-            <div className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold text-gray-900 truncate">
-                {session.data?.user.name || session.data?.user.email}
-              </p>
-              {session.data?.user.name && (
-                <p className="text-sm text-gray-400 truncate">{session.data.user.email}</p>
-              )}
-              <div className="mt-1.5 flex items-center gap-2">
-                <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">Free plan</span>
-                <ModeBadge mode={session.data?.mode ?? 'business'} />
-              </div>
-            </div>
-          </div>
-
-          <Tabs tabs={tabs} activeTab={activeTab} onChange={handleTabChange}>
-            {(currentTab) => (
+          {(() => {
+            const currentTab = activeTab
+            return (
               <>
                 {/* ── Account tab ── */}
                 {currentTab === 'account' && (
@@ -1513,9 +1603,12 @@ export default function SettingsPage() {
                   </div>
                 )}
               </>
-            )}
-          </Tabs>
+            )
+          })()}
 
+              </div>
+            </main>
+          </div>
         </div>
       </div>
 
