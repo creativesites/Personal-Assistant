@@ -793,30 +793,121 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     }
   });
 
-  // ── POST /api/conversations/:id/ask ──────────────────────────────────────
+  // ── GET /api/conversations/:id/ask/messages ──────────────────────────────
+  // Returns the message history for the inbox AI chat session linked to this conversation.
 
-  fastify.post('/api/conversations/:id/ask', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/conversations/:id/ask/messages', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
-    const { question } = request.body as { question?: string };
-
-    if (!question?.trim()) return reply.code(400).send({ error: 'question is required' });
 
     const conv = await db.query('SELECT id FROM conversations WHERE id = $1 AND user_id = $2', [id, userId]);
     if (!conv.rows.length) return reply.code(404).send({ error: 'Not found' });
 
+    const { rows: [session] } = await db.query(
+      `SELECT id FROM advisor_sessions
+       WHERE user_id = $1 AND conversation_id = $2 AND is_archived = false
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, id],
+    );
+
+    if (!session) return reply.send({ messages: [], sessionId: null });
+
+    const { rows: messages } = await db.query(
+      `SELECT id, role, content, created_at
+       FROM advisor_messages
+       WHERE session_id = $1
+       ORDER BY created_at ASC`,
+      [session.id],
+    );
+
+    return reply.send({ messages, sessionId: session.id });
+  });
+
+  // ── POST /api/conversations/:id/ask ──────────────────────────────────────
+  // Sends a question to the AI, persists both the user query and AI response,
+  // and returns the answer. Creates an advisor session if one doesn't exist.
+
+  fastify.post('/api/conversations/:id/ask', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { question, sessionId: clientSessionId } = request.body as { question?: string; sessionId?: string };
+
+    if (!question?.trim()) return reply.code(400).send({ error: 'question is required' });
+
+    // Verify conversation ownership and get contact info
+    const { rows: [conv] } = await db.query(
+      `SELECT c.id, c.contact_id,
+              COALESCE(co.custom_name, co.display_name, co.phone_number, 'Contact') AS contact_name
+       FROM conversations c
+       JOIN contacts co ON co.id = c.contact_id
+       WHERE c.id = $1 AND c.user_id = $2`,
+      [id, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Not found' });
+
+    // Find or create advisor session for this conversation
+    let sessionId = clientSessionId ?? null;
+    if (!sessionId) {
+      const { rows: [existing] } = await db.query(
+        `SELECT id FROM advisor_sessions
+         WHERE user_id = $1 AND conversation_id = $2 AND is_archived = false
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId, id],
+      );
+      if (existing) {
+        sessionId = existing.id as string;
+      } else {
+        const { rows: [created] } = await db.query(
+          `INSERT INTO advisor_sessions (user_id, contact_id, conversation_id, title)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id`,
+          [userId, conv.contact_id, id, `Inbox Chat — ${conv.contact_name}`],
+        );
+        sessionId = created.id as string;
+      }
+    }
+
+    // Persist user message
+    await db.query(
+      `INSERT INTO advisor_messages (session_id, role, content) VALUES ($1, 'user', $2)`,
+      [sessionId, question.trim()],
+    );
+
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+    let answer = '';
     try {
       const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, question }),
+        body: JSON.stringify({ user_id: userId, question, session_id: sessionId }),
       });
-      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
-      return reply.send(await res.json());
+      if (res.ok) {
+        const data = await res.json() as { answer?: string };
+        answer = data.answer ?? 'I was unable to generate a response.';
+      } else {
+        answer = 'The AI service returned an error. Please try again.';
+      }
     } catch {
-      return reply.code(502).send({ error: 'Intelligence service unavailable' });
+      answer = 'Unable to reach the intelligence service. Please check that it is running.';
     }
+
+    // Persist assistant response
+    const { rows: [assistantMsg] } = await db.query(
+      `INSERT INTO advisor_messages (session_id, role, content)
+       VALUES ($1, 'assistant', $2)
+       RETURNING id, role, content, created_at`,
+      [sessionId, answer],
+    );
+
+    // Bump session counters
+    await db.query(
+      `UPDATE advisor_sessions
+       SET message_count = message_count + 2, updated_at = NOW()
+       WHERE id = $1`,
+      [sessionId],
+    );
+
+    return reply.send({ answer, sessionId, message: assistantMsg });
   });
 
   // ── Archive / unarchive ───────────────────────────────────────────────────

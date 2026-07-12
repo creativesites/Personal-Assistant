@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { RefObject } from 'react'
 import {
   Brain, X, RefreshCw, Edit3, Copy, ChevronRight, Calendar,
@@ -8,7 +8,7 @@ import {
   TrendingUp, TrendingDown, Activity, MessageCircle, MapPin,
   StickyNote, Lightbulb, Heart, Target, BarChart2, UserCheck,
   FileText, Download, Send, Sparkles, Zap, Search,
-  Tag, Mail, Building2, Briefcase,
+  Tag, Mail, Building2, Briefcase, History,
 } from 'lucide-react'
 import type {
   Contact, ContactDetail, Conversation, ConvContext, Message,
@@ -19,6 +19,7 @@ import { formatTime } from '../_lib/utils'
 import { ScoreRing } from './score-ring'
 import { ProactiveCard } from './proactive-card'
 import { InlineAICard, type AIInsight } from './inline-ai-card'
+import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
 
 export type AITab = 'overview' | 'memory' | 'activity' | 'chat' | 'files'
 
@@ -175,18 +176,46 @@ export function IntelPanel({
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [lastDraftText, setLastDraftText] = useState<string | null>(null)
   const [actioning, setActioning] = useState(false)
   const [activeUpdateForm, setActiveUpdateForm] = useState<UpdateAction | null>(null)
   const [updateInputValue, setUpdateInputValue] = useState('')
   const chatEndRef = useRef<HTMLDivElement>(null)
 
+  // Load persisted history when a conversation is selected
+  const loadChatHistory = useCallback(async (convId: string) => {
+    if (!token) return
+    setHistoryLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${convId}/ask/messages`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json() as { messages: Array<{ id: string; role: string; content: string; created_at: string }>; sessionId: string | null }
+        if (data.sessionId) setChatSessionId(data.sessionId)
+        if (data.messages.length > 0) {
+          setChatMessages(data.messages.map(m => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            timestamp: new Date(m.created_at),
+          })))
+        }
+      }
+    } catch { /* silent — history is optional */ }
+    finally { setHistoryLoading(false) }
+  }, [token])
+
   useEffect(() => {
     setChatMessages([])
     setChatInput('')
+    setChatSessionId(null)
     setLastDraftText(null)
     setActiveUpdateForm(null)
-  }, [selectedConv?.id])
+    if (selectedConv?.id) loadChatHistory(selectedConv.id)
+  }, [selectedConv?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (aiTab === 'chat') {
@@ -263,6 +292,47 @@ export function IntelPanel({
     }
   }
 
+  // Handle AI-embedded CRM action tags (lead score, pipeline stage, etc.)
+  const handleChatAction = async (action: ParsedAction) => {
+    if (!token || !contact?.id) return
+    const body: Record<string, unknown> = {}
+    let url = `${API_URL}/api/contacts/${contact.id}`
+    let method = 'PATCH'
+
+    switch (action.type) {
+      case 'lead_score':
+        body.leadScore = parseInt(action.params[0], 10)
+        break
+      case 'pipeline_stage':
+        body.pipelineStage = action.params[0]
+        break
+      case 'reply_draft':
+        // Use the draft widget's Send button → route through onSendDirect
+        if (action.params[1] && onSendDirect) {
+          await onSendDirect(action.params[1])
+          addSystemMsg(`✅ Message sent to ${contact.name?.split(' ')[0] ?? 'contact'}`, { isSuccess: true })
+        }
+        return
+      case 'reminder':
+        url = `${API_URL}/api/calendar/events`
+        method = 'POST'
+        body.title = action.params[0]
+        body.eventDate = action.params[1]
+        body.eventType = 'reminder'
+        body.contactId = contact.id
+        break
+      default:
+        return
+    }
+
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`Failed: ${res.status}`)
+  }
+
   const sendChat = async (text: string, isDraftHint = false) => {
     if (!token || !selectedConv?.id || !text.trim()) return
 
@@ -292,13 +362,15 @@ export function IntelPanel({
       const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ question: cleanText }),
+        body: JSON.stringify({ question: cleanText, sessionId: chatSessionId }),
       })
 
       let answer = ''
       if (res.ok) {
-        const data = await res.json() as { answer?: string }
+        const data = await res.json() as { answer?: string; sessionId?: string }
         answer = data.answer ?? 'No response.'
+        // Capture session ID returned by the API
+        if (data.sessionId && !chatSessionId) setChatSessionId(data.sessionId)
       } else {
         answer = 'AI service returned an error. Please try again.'
       }
@@ -898,35 +970,54 @@ export function IntelPanel({
 
             {/* Messages scroll area */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
-              {chatMessages.length === 0 && !activeUpdateForm ? (
+              {historyLoading ? (
+                <div className="flex flex-col items-center justify-center h-full gap-2">
+                  <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+                  <p className="text-[11px] text-gray-400">Loading history…</p>
+                </div>
+              ) : chatMessages.length === 0 && !activeUpdateForm ? (
                 <div className="flex flex-col items-center justify-center h-full text-center px-4 py-10">
                   <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center mb-3">
                     <Sparkles size={22} className="text-indigo-400" />
                   </div>
                   <p className="text-sm font-semibold text-gray-700 mb-1">AI Chat</p>
                   <p className="text-xs text-gray-400 leading-relaxed max-w-[200px]">
-                    Ask anything about this conversation. Type <span className="font-bold text-gray-600">"send"</span> to dispatch a drafted reply directly.
+                    Ask anything about this conversation. Zuri remembers every chat.
+                    Type <span className="font-bold text-gray-600">"send"</span> to dispatch a drafted reply directly.
                   </p>
                   {!selectedConv && <p className="text-[11px] text-amber-600 mt-3 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100">Select a conversation first</p>}
                 </div>
               ) : chatMessages.map(msg => (
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.role === 'assistant' && (
-                    <div className="w-5 h-5 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 mr-2 mt-0.5 flex-shrink-0">
+                    <div className="w-5 h-5 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
                       <Brain size={10} className="text-indigo-600" />
                     </div>
                   )}
-                  <div className={`max-w-[85%] flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className={`rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                      msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-sm'
-                        : msg.isSuccess ? 'bg-emerald-50 text-emerald-800 border border-emerald-100 rounded-bl-sm'
-                        : 'bg-gray-100 text-gray-800 rounded-bl-sm'
-                    }`}>
-                      {msg.content}
-                    </div>
+                  <div className={`max-w-[87%] flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    {msg.role === 'user' ? (
+                      <div className="rounded-2xl rounded-br-sm px-3 py-2 text-xs leading-relaxed bg-indigo-600 text-white">
+                        {msg.content}
+                      </div>
+                    ) : msg.isSuccess ? (
+                      <div className="rounded-2xl rounded-bl-sm px-3 py-2 text-xs leading-relaxed bg-emerald-50 text-emerald-800 border border-emerald-100">
+                        {msg.content}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl rounded-bl-sm px-3 py-2.5 bg-gray-50 border border-gray-100 w-full">
+                        <ChatFormatter
+                          content={msg.content}
+                          theme="light"
+                          contactName={contact?.name?.split(' ')[0]}
+                          onAction={handleChatAction}
+                          onSetDraft={onSetDraft}
+                          draftFocus={draftFocus}
+                        />
+                      </div>
+                    )}
 
-                    {/* Sendable draft preview */}
-                    {msg.role === 'assistant' && msg.draftText && (
+                    {/* Legacy draft extracted from pre-formatter messages */}
+                    {msg.role === 'assistant' && msg.draftText && !msg.content.includes('[ACTION: reply_draft') && (
                       <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 space-y-2">
                         <div className="flex items-center gap-1.5 mb-1">
                           <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center flex-shrink-0">
@@ -950,20 +1041,8 @@ export function IntelPanel({
                             className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1.5 bg-white text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">
                             <Edit3 size={9} />Edit
                           </button>
-                          <button onClick={() => navigator.clipboard.writeText(msg.draftText!)}
-                            className="flex items-center gap-1 text-[10px] font-medium px-2 py-1.5 text-emerald-600 hover:text-emerald-700 border border-emerald-200 bg-white rounded-lg hover:bg-emerald-50 transition-colors">
-                            <Copy size={9} />
-                          </button>
                         </div>
                       </div>
-                    )}
-
-                    {/* "Use as draft" for non-extracted drafts */}
-                    {msg.role === 'assistant' && msg.isDraft && !msg.draftText && (
-                      <button onClick={() => { onSetDraft(msg.content); draftFocus() }}
-                        className="flex items-center gap-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg border border-indigo-100 transition-colors">
-                        <Edit3 size={9} />Use as draft
-                      </button>
                     )}
                   </div>
                 </div>

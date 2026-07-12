@@ -109,8 +109,46 @@ async def generate_followup(conversation_id: str, user_id: str):
     return {'followup': result.strip().strip('"').strip("'")}
 
 
+
+ZURI_ACTION_INSTRUCTIONS = """
+You can embed interactive CRM action tags in your response when directly relevant. Use only IDs explicitly provided in context. Available tags:
+
+[ACTION: lead_score | <0-100> | <contact_id>]
+[ACTION: pipeline_stage | <lead|prospect|qualified|proposal|negotiation|closed_won|closed_lost> | <contact_id>]
+[ACTION: reply_draft | <contact_id> | <draft_message_text>]
+[ACTION: reminder | <title> | <YYYY-MM-DD>]
+
+Rules:
+- Only suggest one or two actions per response — don't overload.
+- Always write clean Markdown: use **bold**, bullet lists (- item), and headers (## Header) when helpful.
+- Never leave raw asterisks, loose formatting, or broken brackets.
+- When drafting a WhatsApp message, write it naturally — no formal salutations, no quotation marks around the text.
+"""
+
+
+async def _get_session_history(session_id: str) -> list[dict]:
+    """Fetch the last 10 messages from an advisor session for conversation context."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT role, content FROM advisor_messages
+               WHERE session_id = $1
+               ORDER BY created_at ASC
+               LIMIT 10''',
+            session_id,
+        )
+    history = []
+    for r in rows:
+        role = 'user' if r['role'] == 'user' else 'assistant'
+        history.append({'role': role, 'content': r['content']})
+    return history
+
+
 @router.post('/{conversation_id}/ask')
 async def ask_ai(conversation_id: str, body: AskRequest):
+    pool = await get_pool()
+
+    # Fetch recent WhatsApp messages for context
     messages = await _get_recent_messages(conversation_id, limit=30)
     if not messages:
         raise HTTPException(status_code=404, detail='No messages found')
@@ -122,21 +160,48 @@ async def ask_ai(conversation_id: str, body: AskRequest):
     )
     transcript = _format_transcript(messages, contact_name)
 
+    # Fetch contact ID and CRM details for action tag support
+    async with pool.acquire() as conn:
+        contact_row = await conn.fetchrow(
+            '''SELECT co.id AS contact_id, co.lead_score,
+                      co.pipeline_stage, co.customer_status
+               FROM conversations c
+               JOIN contacts co ON co.id = c.contact_id
+               WHERE c.id = $1''',
+            conversation_id,
+        )
+
+    contact_id = str(contact_row['contact_id']) if contact_row else None
+    crm_context = ''
+    if contact_id:
+        crm_context = (
+            f'\n\nContact CRM: contact_id={contact_id}, '
+            f'lead_score={contact_row.get("lead_score", 0)}, '
+            f'pipeline_stage={contact_row.get("pipeline_stage") or "unknown"}, '
+            f'status={contact_row.get("customer_status") or "contact"}'
+        )
+
+    # Load prior chat history for conversational memory
+    chat_history = []
+    if body.session_id:
+        chat_history = await _get_session_history(body.session_id)
+
+    system_prompt = (
+        'You are Zuri, an AI relationship intelligence assistant helping analyse a WhatsApp conversation. '
+        'Answer the user\'s question concisely and directly based on the conversation context. '
+        'Be specific and actionable. Reference the contact by name.\n'
+        + ZURI_ACTION_INSTRUCTIONS
+    )
+
+    prompt_messages = [{'role': 'system', 'content': system_prompt}]
+    prompt_messages.extend(chat_history)
+    prompt_messages.append({
+        'role': 'user',
+        'content': f'Conversation transcript:\n{transcript}{crm_context}\n\nQuestion: {body.question}',
+    })
+
     ai = get_ai_client()
-    result = await ai.complete_text([
-        {
-            'role': 'system',
-            'content': (
-                'You are an AI assistant helping analyse a WhatsApp conversation. '
-                'Answer the user\'s question concisely and directly based on the '
-                'conversation context. Be specific and actionable.'
-            ),
-        },
-        {
-            'role': 'user',
-            'content': f'Conversation:\n{transcript}\n\nQuestion: {body.question}',
-        },
-    ])
+    result = await ai.complete_text(prompt_messages)
 
     return {'answer': result}
 
@@ -184,8 +249,11 @@ async def advisor_ask(body: AdvisorAskRequest):
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            '''SELECT co.display_name, c.last_message_preview, c.unread_count,
+            '''SELECT co.id AS contact_id,
+                      COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+                      c.last_message_preview, c.unread_count,
                       COALESCE(r.health_score, 50) AS health_score,
+                      co.lead_score, co.pipeline_stage,
                       c.last_message_at
                FROM conversations c
                JOIN contacts co ON co.id = c.contact_id
@@ -200,27 +268,35 @@ async def advisor_ask(body: AdvisorAskRequest):
     for row in rows:
         preview = (row['last_message_preview'] or '')[:100]
         context_lines.append(
-            f"- {row['display_name']}: health={row['health_score']}%, "
+            f"- {row['contact_name']} (ID: {row['contact_id']}): "
+            f"health={row['health_score']}%, lead_score={row.get('lead_score') or 0}, "
+            f"stage={row.get('pipeline_stage') or 'unknown'}, "
             f"unread={row['unread_count']}, last: \"{preview}\""
         )
     context = '\n'.join(context_lines) or 'No recent conversations found.'
 
+    # Load prior chat history for conversational memory
+    chat_history = []
+    if body.session_id:
+        chat_history = await _get_session_history(body.session_id)
+
+    system_prompt = (
+        'You are Zuri, an AI relationship intelligence assistant. '
+        'You have deep knowledge of the user\'s WhatsApp contacts and conversations. '
+        'Answer questions concisely and be specific. Reference contacts by name. '
+        'When drafting a message, write it naturally as a WhatsApp message — '
+        'no formal salutations, no quotation marks. Return only the draft text when asked to draft.\n'
+        + ZURI_ACTION_INSTRUCTIONS
+    )
+
+    prompt_messages = [{'role': 'system', 'content': system_prompt}]
+    prompt_messages.extend(chat_history)
+    prompt_messages.append({
+        'role': 'user',
+        'content': f'Recent contacts context:\n{context}\n\nQuestion: {body.question}',
+    })
+
     ai = get_ai_client()
-    result = await ai.complete_text([
-        {
-            'role': 'system',
-            'content': (
-                'You are Zuri, an AI relationship intelligence assistant. '
-                'You have deep knowledge of the user\'s WhatsApp contacts and conversations. '
-                'Answer questions concisely and be specific. Reference contacts by name. '
-                'When drafting a message, write it naturally as a WhatsApp message — '
-                'no formal salutations, no quotation marks. Return only the draft text when asked to draft.'
-            ),
-        },
-        {
-            'role': 'user',
-            'content': f'Recent contacts context:\n{context}\n\nQuestion: {body.question}',
-        },
-    ])
+    result = await ai.complete_text(prompt_messages)
 
     return {'answer': result}

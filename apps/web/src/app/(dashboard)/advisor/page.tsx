@@ -11,6 +11,7 @@ import {
   Plus, Trash2, Copy, ThumbsUp, ThumbsDown
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -425,17 +426,31 @@ export default function AdvisorPage() {
                       <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">Z</div>
                     )}
                     <div className={`space-y-2 max-w-[88%] ${isUser ? 'order-1' : 'order-2'}`}>
-                      <div className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${isUser ? 'bg-indigo-600 text-white' : 'bg-slate-950 border border-slate-800 text-slate-200'}`}>
-                        {msg.content}
-                        <div className="text-[9px] text-slate-500 mt-1.5 flex items-center gap-2">
-                          {timeAgo(msg.timestamp)}
-                          {!isUser && (
-                            <div className="flex items-center gap-1 ml-auto">
-                              <button onClick={() => navigator.clipboard.writeText(msg.content)} className="p-0.5 hover:text-white" title="Copy"><Copy className="w-3 h-3" /></button>
-                              <button className="p-0.5 hover:text-emerald-400"><ThumbsUp className="w-3 h-3" /></button>
+                      <div className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                        isUser
+                          ? 'bg-indigo-600 text-white whitespace-pre-wrap'
+                          : 'bg-slate-950 border border-slate-800 text-slate-200'
+                      }`}>
+                        {isUser ? (
+                          <>{msg.content}<div className="text-[9px] text-indigo-300/70 mt-1.5">{timeAgo(msg.timestamp)}</div></>
+                        ) : (
+                          <>
+                            <ChatFormatter
+                              content={msg.content}
+                              theme="dark"
+                              onAction={async (_action: ParsedAction) => {
+                                // TODO: wire CRM actions through API when contact context is available
+                              }}
+                            />
+                            <div className="text-[9px] text-slate-500 mt-2 flex items-center gap-2">
+                              {timeAgo(msg.timestamp)}
+                              <div className="flex items-center gap-1 ml-auto">
+                                <button onClick={() => navigator.clipboard.writeText(msg.content)} className="p-0.5 hover:text-white" title="Copy"><Copy className="w-3 h-3" /></button>
+                                <button className="p-0.5 hover:text-emerald-400"><ThumbsUp className="w-3 h-3" /></button>
+                              </div>
                             </div>
-                          )}
-                        </div>
+                          </>
+                        )}
                       </div>
 
                       {/* WhatsApp draft preview */}

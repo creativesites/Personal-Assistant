@@ -259,7 +259,7 @@ export default function RelationshipsPage() {
               return (
                 <button
                   key={contact.id}
-                  onClick={() => router.push(`/contacts/${contact.id}`)}
+                  onClick={() => router.push(`/relationships/${contact.id}`)}
                   className="text-left bg-white rounded-xl border border-gray-200 p-4 hover:border-indigo-200 hover:shadow-md transition-all duration-200 group flex flex-col"
                 >
                   <div className="flex items-center gap-3 mb-3">
