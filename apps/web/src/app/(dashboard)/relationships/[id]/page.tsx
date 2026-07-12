@@ -18,6 +18,9 @@ import {
   TrendingUp,
   Calendar,
   ChevronRight,
+  MessageSquare,
+  Plus,
+  X,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
@@ -79,7 +82,7 @@ interface RelationshipGoal {
   achievedAt: string | null
 }
 
-type TabKey = 'overview' | 'health' | 'clocks' | 'goals'
+type TabKey = 'overview' | 'profile' | 'health' | 'clocks' | 'goals'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -131,6 +134,126 @@ function FactorBar({ label, value }: { label: string; value: number }) {
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="w-8 text-right text-gray-400">{pct}%</span>
+    </div>
+  )
+}
+
+// ─── Profile tab ──────────────────────────────────────────────────────────────
+
+interface ContactProfile {
+  personalitySummary: string | null
+  communicationStyle: string | null
+  currentLifeContext: string | null
+  preferences: string | null
+  buyingBehaviour: string | null
+  relationshipStage: string | null
+  moodBaseline: string | null
+}
+
+interface ContactDetail {
+  company: string | null
+  jobTitle: string | null
+  industry: string | null
+  email: string | null
+  website: string | null
+  notes: string | null
+  leadScore: number | null
+  profile: ContactProfile | null
+}
+
+function ProfileRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col sm:flex-row gap-1 py-2.5 border-b border-gray-50 last:border-0">
+      <span className="text-xs font-medium text-gray-400 sm:w-36 flex-shrink-0 capitalize">{label}</span>
+      <span className="text-xs text-gray-700 leading-relaxed flex-1">{value}</span>
+    </div>
+  )
+}
+
+function ProfileSection({ title, rows }: { title: string; rows: Array<{ label: string; value: string | null | undefined }> }) {
+  const visible = rows.filter(r => r.value != null && String(r.value).trim() !== '')
+  if (visible.length === 0) return null
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{title}</h3>
+      {visible.map(r => (
+        <ProfileRow key={r.label} label={r.label} value={String(r.value)} />
+      ))}
+    </div>
+  )
+}
+
+function ProfileTab({ contactId, token }: { contactId: string; token: string }) {
+  const { data, loading } = useApi<{ contact: ContactDetail }>(`/api/contacts/${contactId}`, token)
+  const contact = data?.contact
+  const p = contact?.profile
+
+  if (loading) return <div className="space-y-3">{Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}</div>
+
+  // Determine if there's any data to show
+  const hasIdentity = contact && [contact.company, contact.jobTitle, contact.industry, contact.email, contact.website].some(v => v != null && String(v).trim() !== '')
+  const hasPersonality = p && [p.personalitySummary, p.communicationStyle, p.moodBaseline, p.relationshipStage].some(v => v != null && String(v).trim() !== '')
+  const hasBusiness = p && [p.buyingBehaviour, p.preferences].some(v => v != null && String(v).trim() !== '')
+  const hasContext = (p?.currentLifeContext ?? contact?.notes) != null && [p?.currentLifeContext, contact?.notes].some(v => v != null && String(v).trim() !== '')
+
+  if (!contact || (!hasIdentity && !hasPersonality && !hasBusiness && !hasContext)) {
+    return (
+      <EmptyState
+        icon="👤"
+        title="No profile information yet"
+        description="No profile information available yet — connect WhatsApp and the AI will build this automatically."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Lead score pill */}
+      {contact.leadScore != null && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Lead score</span>
+          <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full text-xs font-medium">
+            {contact.leadScore}
+          </span>
+        </div>
+      )}
+
+      <ProfileSection
+        title="Identity"
+        rows={[
+          { label: 'Company', value: contact.company },
+          { label: 'Job title', value: contact.jobTitle },
+          { label: 'Industry', value: contact.industry },
+          { label: 'Email', value: contact.email },
+          { label: 'Website', value: contact.website },
+        ]}
+      />
+
+      <ProfileSection
+        title="Personality"
+        rows={[
+          { label: 'Personality', value: p?.personalitySummary },
+          { label: 'Communication', value: p?.communicationStyle },
+          { label: 'Mood baseline', value: p?.moodBaseline },
+          { label: 'Rel. stage', value: p?.relationshipStage },
+        ]}
+      />
+
+      <ProfileSection
+        title="Business context"
+        rows={[
+          { label: 'Buying behaviour', value: p?.buyingBehaviour },
+          { label: 'Preferences', value: p?.preferences },
+        ]}
+      />
+
+      <ProfileSection
+        title="Context"
+        rows={[
+          { label: 'Life context', value: p?.currentLifeContext },
+          { label: 'Notes', value: contact.notes },
+        ]}
+      />
     </div>
   )
 }
@@ -524,24 +647,85 @@ const GOAL_STATUS_STYLES: Record<RelationshipGoal['status'], { variant: 'success
   abandoned: { variant: 'error',   label: 'Abandoned' },
 }
 
+const GOAL_TYPES = [
+  { value: 'become_preferred_supplier', label: 'Become Preferred Supplier' },
+  { value: 'upsell',                    label: 'Upsell' },
+  { value: 'cross_sell',                label: 'Cross-sell' },
+  { value: 'renew_contract',            label: 'Renew Contract' },
+  { value: 'request_referral',          label: 'Request Referral' },
+  { value: 'recover_relationship',      label: 'Recover Relationship' },
+  { value: 'increase_spend',            label: 'Increase Spend' },
+  { value: 'schedule_meeting',          label: 'Schedule Meeting' },
+  { value: 'reconnect',                 label: 'Reconnect' },
+  { value: 'deepen_friendship',         label: 'Deepen Friendship' },
+  { value: 'repair_rift',               label: 'Repair Rift' },
+  { value: 'be_present',               label: 'Be Present' },
+  { value: 'support_through_event',     label: 'Support Through Event' },
+  { value: 'maintain_long_distance',    label: 'Maintain Long Distance' },
+  { value: 'plan_date_night',           label: 'Plan Date Night' },
+  { value: 'plan_hangout',              label: 'Plan Hangout' },
+]
+
 function GoalsTab({ contactId, token }: { contactId: string; token: string }) {
-  const { data, loading, error } = useApi<{ goals: RelationshipGoal[] }>(
+  const { addToast } = useToast()
+  const { data, loading, error, refetch } = useApi<{ goals: RelationshipGoal[] }>(
     `/api/relationships/${contactId}/goals`,
     token,
   )
   const goals = data?.goals ?? []
 
+  const [showForm, setShowForm]       = useState(false)
+  const [submitting, setSubmitting]   = useState(false)
+  const [goalType, setGoalType]       = useState(GOAL_TYPES[0].value)
+  const [customLabel, setCustomLabel] = useState('')
+  const [targetDate, setTargetDate]   = useState('')
+  const [mutating, setMutating]       = useState<Record<string, boolean>>({})
+
+  const submitGoal = async () => {
+    setSubmitting(true)
+    try {
+      await apiClient('/api/goals', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          contactId,
+          goalType,
+          customLabel: customLabel.trim() || undefined,
+          targetDate:  targetDate || undefined,
+        }),
+      })
+      addToast({ variant: 'success', title: 'Goal created' })
+      setShowForm(false)
+      setGoalType(GOAL_TYPES[0].value)
+      setCustomLabel('')
+      setTargetDate('')
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to create goal' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const patchGoal = async (goalId: string, status: 'achieved' | 'abandoned') => {
+    setMutating(prev => ({ ...prev, [goalId]: true }))
+    try {
+      await apiClient(`/api/goals/${goalId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ status }),
+      })
+      addToast({ variant: 'success', title: status === 'achieved' ? 'Goal achieved!' : 'Goal abandoned' })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update goal' })
+    } finally {
+      setMutating(prev => ({ ...prev, [goalId]: false }))
+    }
+  }
+
   if (loading) return <div className="space-y-3">{Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}</div>
   if (error) return <EmptyState icon="⚠️" title="Couldn't load goals" description="Check that the API is running." />
-  if (goals.length === 0) {
-    return (
-      <EmptyState
-        icon="🎯"
-        title="No goals set"
-        description="No goals set for this relationship yet."
-      />
-    )
-  }
 
   const grouped = GOAL_STATUS_ORDER.reduce<Record<RelationshipGoal['status'], RelationshipGoal[]>>(
     (acc, status) => {
@@ -553,6 +737,78 @@ function GoalsTab({ contactId, token }: { contactId: string; token: string }) {
 
   return (
     <div className="space-y-6">
+      {/* Add Goal button + inline form */}
+      <div>
+        {!showForm ? (
+          <button
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center gap-1.5 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Plus size={14} /> Add Goal
+          </button>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-semibold text-gray-800">New Goal</p>
+              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Goal type */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Goal type</label>
+              <select
+                value={goalType}
+                onChange={e => setGoalType(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {GOAL_TYPES.map(gt => (
+                  <option key={gt.value} value={gt.value}>{gt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Custom label */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Custom title <span className="text-gray-400">(optional)</span></label>
+              <input
+                type="text"
+                value={customLabel}
+                onChange={e => setCustomLabel(e.target.value)}
+                placeholder="Override the default title…"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Target date */}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Target date <span className="text-gray-400">(optional)</span></label>
+              <input
+                type="date"
+                value={targetDate}
+                onChange={e => setTargetDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <button
+              onClick={submitGoal}
+              disabled={submitting}
+              className="w-full inline-flex items-center justify-center gap-1.5 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              {submitting ? 'Saving…' : 'Create Goal'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Goal groups */}
+      {goals.length === 0 && !showForm && (
+        <EmptyState icon="🎯" title="No goals set" description="No goals set for this relationship yet." />
+      )}
+
       {GOAL_STATUS_ORDER.map(status => {
         const group = grouped[status]
         if (group.length === 0) return null
@@ -561,44 +817,69 @@ function GoalsTab({ contactId, token }: { contactId: string; token: string }) {
           <div key={status}>
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{style.label}</h3>
             <div className="space-y-3">
-              {group.map(goal => (
-                <div key={goal.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-gray-900">{goal.title}</p>
-                      {goal.description && (
-                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{goal.description}</p>
+              {group.map(goal => {
+                const isMutating = mutating[goal.id] ?? false
+                return (
+                  <div key={goal.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-gray-900">{goal.title}</p>
+                        {goal.description && (
+                          <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{goal.description}</p>
+                        )}
+                      </div>
+                      <Badge variant={style.variant}>{style.label}</Badge>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 capitalize">
+                        <Target size={9} /> {goal.goalType.replace(/_/g, ' ')}
+                      </span>
+                      {goal.targetDate && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                          <Calendar size={9} /> Target {formatDate(goal.targetDate)}
+                        </span>
+                      )}
+                      {goal.achievedAt && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-700">
+                          <Check size={9} /> Achieved {formatDate(goal.achievedAt)}
+                        </span>
                       )}
                     </div>
-                    <Badge variant={style.variant}>{style.label}</Badge>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 capitalize">
-                      <Target size={9} /> {goal.goalType.replace(/_/g, ' ')}
-                    </span>
-                    {goal.targetDate && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                        <Calendar size={9} /> Target {formatDate(goal.targetDate)}
-                      </span>
+                    {goal.aiNextStep && (
+                      <div className="mt-2 p-3 rounded-lg bg-indigo-50 border border-indigo-100">
+                        <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1 flex items-center gap-1">
+                          <Sparkles size={10} /> AI Next Step
+                        </p>
+                        <p className="text-xs text-indigo-700 leading-relaxed">{goal.aiNextStep}</p>
+                      </div>
                     )}
-                    {goal.achievedAt && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-50 text-green-700">
-                        <Check size={9} /> Achieved {formatDate(goal.achievedAt)}
-                      </span>
+
+                    {/* Achieve / Abandon actions — only on active goals */}
+                    {goal.status === 'active' && (
+                      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                        <button
+                          onClick={() => patchGoal(goal.id, 'achieved')}
+                          disabled={isMutating}
+                          className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-lg hover:bg-green-100 disabled:opacity-50 transition-colors"
+                        >
+                          {isMutating ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                          Achieve
+                        </button>
+                        <button
+                          onClick={() => patchGoal(goal.id, 'abandoned')}
+                          disabled={isMutating}
+                          className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 border border-red-200 px-2.5 py-1 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+                        >
+                          {isMutating ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+                          Abandon
+                        </button>
+                      </div>
                     )}
                   </div>
-
-                  {goal.aiNextStep && (
-                    <div className="mt-2 p-3 rounded-lg bg-indigo-50 border border-indigo-100">
-                      <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1 flex items-center gap-1">
-                        <Sparkles size={10} /> AI Next Step
-                      </p>
-                      <p className="text-xs text-indigo-700 leading-relaxed">{goal.aiNextStep}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )
@@ -611,6 +892,7 @@ function GoalsTab({ contactId, token }: { contactId: string; token: string }) {
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: 'Overview' },
+  { key: 'profile',  label: 'Profile' },
   { key: 'health',   label: 'Health History' },
   { key: 'clocks',   label: 'Clocks' },
   { key: 'goals',    label: 'Goals' },
@@ -711,15 +993,25 @@ export default function RelationshipDetailPage() {
               <Badge variant="default">{contact.customerStatus}</Badge>
             </div>
           </div>
-          <button
-            onClick={recalculate}
-            disabled={recalculating}
-            title="Recalculate health scores from message history"
-            className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            {recalculating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            <span className="hidden sm:inline text-xs">Recalculate</span>
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => router.push(`/inbox?contact=${id}`)}
+              title="Open conversation in inbox"
+              className="inline-flex items-center gap-1.5 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <MessageSquare size={14} />
+              <span className="hidden sm:inline text-xs">Open Chat</span>
+            </button>
+            <button
+              onClick={recalculate}
+              disabled={recalculating}
+              title="Recalculate health scores from message history"
+              className="inline-flex items-center gap-1.5 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              {recalculating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              <span className="hidden sm:inline text-xs">Recalculate</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -744,6 +1036,7 @@ export default function RelationshipDetailPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="max-w-2xl mx-auto">
           {tab === 'overview' && <OverviewTab contact={contact} />}
+          {tab === 'profile'  && <ProfileTab contactId={id} token={token} />}
           {tab === 'health'   && <HealthHistoryTab contactId={id} token={token} />}
           {tab === 'clocks'   && <ClocksTab contactId={id} token={token} />}
           {tab === 'goals'    && <GoalsTab contactId={id} token={token} />}
