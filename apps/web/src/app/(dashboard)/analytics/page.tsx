@@ -201,13 +201,13 @@ function EmptyState() {
       <span className="text-4xl" aria-hidden="true">📊</span>
       <h2 className="text-lg font-semibold text-gray-800">No data yet</h2>
       <p className="text-sm text-gray-500 max-w-sm">
-        Connect WhatsApp and start chatting — your dashboard will fill up within a day.
+        No data yet — insights appear here once conversations are analysed.
       </p>
       <Link
-        href="/onboarding"
+        href="/inbox"
         className="mt-2 inline-flex items-center justify-center h-11 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors"
       >
-        Connect WhatsApp
+        Go to Inbox
       </Link>
     </div>
   )
@@ -252,7 +252,7 @@ export default function AnalyticsExecutivePage() {
   }, [token])
 
   const d = data
-  const isEmpty = !loading && (!d || (d.kpis.totalConversations30d === 0 && d.kpis.activeContacts === 0))
+  const isEmpty = !loading && !d
 
   return (
     <div className="flex flex-col min-h-0">
