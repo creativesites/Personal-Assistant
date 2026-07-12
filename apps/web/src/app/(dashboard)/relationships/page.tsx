@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Gift, ShoppingCart, Sparkles, TrendingUp } from 'lucide-react'
+import { Download, Gift, ShoppingCart, Sparkles, TrendingUp } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { Avatar, Badge, EmptyState, HealthBar, PageHeader, SkeletonCard } from '@/components/ui'
+import { downloadCsv } from '@/lib/export-csv'
 
 interface RelationshipItem {
   id: string
@@ -150,6 +151,23 @@ export default function RelationshipsPage() {
           <option value="recent">Most recent</option>
           <option value="name">Name A–Z</option>
         </select>
+        <button
+          onClick={() => downloadCsv('relationship-feed.csv', filtered.map(c => ({
+            name: c.name,
+            relationshipType: c.relationshipType,
+            healthScore: c.healthScore,
+            healthTrend: c.healthTrend,
+            lastInteractionAt: c.lastInteractionAt,
+            revenueCents: c.revenueCents,
+            currentDealStage: c.currentDeal?.stage ?? '',
+          })))}
+          disabled={filtered.length === 0}
+          title="Export filtered view as CSV"
+          className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-600 hover:bg-gray-50 disabled:opacity-40 transition-colors"
+        >
+          <Download size={14} />
+          <span className="hidden sm:inline">Export</span>
+        </button>
       </div>
 
       {/* Filter pills */}

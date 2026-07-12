@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useZuriSession } from '@/hooks/use-zuri-session';
 import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { downloadCsv } from '@/lib/export-csv';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1076,6 +1077,25 @@ export default function LeadsPage() {
               <svg className={cn('w-5 h-5', loading && 'animate-spin')} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
+            </button>
+            <button
+              onClick={() => downloadCsv('leads.csv', filtered.map(l => ({
+                name: l.name,
+                phone: l.phone,
+                email: l.email,
+                company: l.company,
+                customerStatus: l.customerStatus,
+                pipelineStage: l.pipelineStage,
+                leadScore: l.leadScore,
+              })))}
+              disabled={filtered.length === 0}
+              title="Export filtered view as CSV"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-40"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              <span className="hidden sm:inline">Export</span>
             </button>
           </div>
         </div>

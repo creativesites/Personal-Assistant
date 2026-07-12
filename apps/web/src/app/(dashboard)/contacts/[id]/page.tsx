@@ -2,7 +2,7 @@
 
 import { use, useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Brain, TrendingUp, TrendingDown, Minus, MessageSquare, Phone, Mail, Globe,
   Building2, Briefcase, Star, Activity, ChevronRight, Zap, Clock, Heart, User,
@@ -1484,13 +1484,19 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const zuriSession  = useZuriSession()
   const token        = zuriSession.data?.accessToken
   const router       = useRouter()
+  const searchParams = useSearchParams()
   const { addToast } = useToast()
 
   const { data: contactData, loading, error, refetch } = useApi<{ contact: ContactDetail }>(
     `/api/contacts/${id}`, token,
   )
 
-  const [activeTab,  setActiveTab]  = useState<TabId>('profile')
+  // Deep-linkable initial tab (e.g. the Cmd+K palette's "Add Task" action
+  // routes here with ?tab=activity) — read once, TABS validates the value.
+  const requestedTab = searchParams.get('tab') as TabId | null
+  const [activeTab,  setActiveTab]  = useState<TabId>(
+    requestedTab && TABS.some(t => t.id === requestedTab) ? requestedTab : 'profile'
+  )
   const [showEdit,   setShowEdit]   = useState(false)
   const [tagInput,   setTagInput]   = useState('')
   const [showTagInput, setShowTagInput] = useState(false)

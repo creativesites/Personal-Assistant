@@ -570,6 +570,31 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     });
   });
 
+  // ── Run health recalculation on demand (Cmd+K palette, §11) ──────────────
+  fastify.post('/api/contacts/:id/recalculate-health', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [contact] } = await db.query(
+      'SELECT id FROM contacts WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!contact) return reply.code(404).send({ error: 'Contact not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/relationship-health/recalculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId: id, userId }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' });
+      return reply.send(await res.json());
+    } catch {
+      return reply.code(502).send({ error: 'Intelligence service unavailable' });
+    }
+  });
+
   // ── Add tag ────────────────────────────────────────────────────────────────
   fastify.post('/api/contacts/:id/tags', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };

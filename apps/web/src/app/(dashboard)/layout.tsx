@@ -7,6 +7,7 @@ import { useClerk } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
+import { CommandPalette } from '@/components/command-palette'
 import {
   LayoutDashboard, MessageSquare, Zap, Users, Flame, TrendingUp,
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
@@ -428,6 +429,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Premium mobile app bottom menu */}
       <MobileBottomNav mode={mode} pathname={pathname} onOpenMenu={() => setSidebarOpen(true)} />
+
+      {/* Cmd+K command palette (docs/RELATIONSHIP_OS_PLAN.md §11) */}
+      <CommandPalette />
     </div>
   )
 }
