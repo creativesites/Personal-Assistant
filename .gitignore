@@ -30,8 +30,10 @@ env/
 # Database
 *.sql.bak
 db/data/
-# open-wa session data (contains auth tokens)
+# open-wa / baileys session data (contains auth tokens — never commit)
 services/whatsapp/sessions/
+services/whatsapp/db/sessions/
+services/whatsapp/db/media/
 *.json.bak
 # Logs
 *.log
@@ -82,6 +84,8 @@ apps/companion/local.properties
 # Certificates
 *.pem
 *.crt
+# Local deploy credentials (SSH keys, server config — never commit)
+.deploy-local/
 
 # managed by open-wa
 **.data.json

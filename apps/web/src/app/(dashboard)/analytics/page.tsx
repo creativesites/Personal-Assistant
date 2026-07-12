@@ -5,6 +5,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Zap, X, Loader2 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
 // Sub-nav (scrollable on mobile)
@@ -201,13 +202,13 @@ function EmptyState() {
       <span className="text-4xl" aria-hidden="true">📊</span>
       <h2 className="text-lg font-semibold text-gray-800">No data yet</h2>
       <p className="text-sm text-gray-500 max-w-sm">
-        Connect WhatsApp and start chatting — your dashboard will fill up within a day.
+        No data yet — insights appear here once conversations are analysed.
       </p>
       <Link
-        href="/onboarding"
+        href="/inbox"
         className="mt-2 inline-flex items-center justify-center h-11 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition-colors"
       >
-        Connect WhatsApp
+        Go to Inbox
       </Link>
     </div>
   )
@@ -223,6 +224,11 @@ export default function AnalyticsExecutivePage() {
 
   const [data, setData] = useState<ExecutiveData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    try { return localStorage.getItem('zuri_analysis_banner_dismissed') === '1' } catch { return false }
+  })
+  const [analysisRunning, setAnalysisRunning] = useState(false)
+  const [analysisStatus, setAnalysisStatus] = useState<string | null>(null)
 
   const todayLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -251,8 +257,44 @@ export default function AnalyticsExecutivePage() {
     return () => { cancelled = true }
   }, [token])
 
+  const dismissBanner = () => {
+    setBannerDismissed(true)
+    try { localStorage.setItem('zuri_analysis_banner_dismissed', '1') } catch {}
+  }
+
+  const runBulkAnalysis = async () => {
+    if (!token || analysisRunning) return
+    setAnalysisRunning(true)
+    setAnalysisStatus(null)
+    try {
+      const convData = await apiClient<{ conversations: { id: string }[] }>(
+        '/api/conversations?limit=20', { token: token ?? undefined },
+      )
+      const convs = convData.conversations ?? []
+      if (convs.length === 0) {
+        setAnalysisStatus('No conversations found.')
+        return
+      }
+      setAnalysisStatus(`Queuing analysis for ${convs.length} conversations…`)
+      await Promise.allSettled(
+        convs.map(c =>
+          apiClient(`/api/conversations/${c.id}/analyze`, {
+            method: 'POST',
+            token: token ?? undefined,
+            body: JSON.stringify({ scope: 'recent', includeProfile: true, includeSuggestions: false }),
+          }),
+        ),
+      )
+      setAnalysisStatus(`Analysis queued for ${convs.length} conversations — data updates in a few minutes`)
+    } catch {
+      setAnalysisStatus('Failed to queue analysis — check that the intelligence service is running.')
+    } finally {
+      setAnalysisRunning(false)
+    }
+  }
+
   const d = data
-  const isEmpty = !loading && (!d || (d.kpis.totalConversations30d === 0 && d.kpis.activeContacts === 0))
+  const isEmpty = !loading && !d
 
   return (
     <div className="flex flex-col min-h-0">
@@ -281,6 +323,33 @@ export default function AnalyticsExecutivePage() {
               </div>
             )}
           </div>
+
+          {/* ── Analysis banner ─────────────────────────────────────── */}
+          {!bannerDismissed && (
+            <div className="flex items-start sm:items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex-col sm:flex-row">
+              <Zap size={16} className="text-indigo-500 flex-shrink-0 mt-0.5 sm:mt-0" />
+              <p className="flex-1 text-sm text-indigo-800 leading-snug">
+                {analysisStatus ?? 'Run a fresh analysis across all recent conversations to update your intelligence data.'}
+              </p>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={runBulkAnalysis}
+                  disabled={analysisRunning}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {analysisRunning ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                  Run Analysis
+                </button>
+                <button
+                  onClick={dismissBanner}
+                  className="p-1.5 text-indigo-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"
+                  title="Dismiss"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* ── Empty ───────────────────────────────────────────────── */}
           {isEmpty && <EmptyState />}

@@ -78,7 +78,6 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Marketing',
-    requiresMarketingAccess: ['waitlisted', 'beta', 'enabled'],
     items: [
       { href: '/studio', label: 'Studio', icon: Send },
     ],

@@ -506,13 +506,13 @@ function EmptyState() {
       <div className="text-5xl mb-4" role="img" aria-label="No data">📊</div>
       <h3 className="text-base font-semibold text-gray-900 mb-2">No leads tracked yet</h3>
       <p className="text-sm text-gray-500 max-w-xs">
-        Connect WhatsApp to start building your pipeline — leads will appear here as conversations are analysed.
+        No data yet — insights appear here once conversations are analysed.
       </p>
       <Link
-        href="/settings"
+        href="/inbox"
         className="mt-6 inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors min-h-[44px]"
       >
-        Connect WhatsApp
+        Go to Inbox
       </Link>
     </div>
   )
@@ -580,12 +580,7 @@ export default function SalesIntelligencePage() {
     load()
   }, [token])
 
-  const isEmpty =
-    !loading &&
-    !error &&
-    data !== null &&
-    data.kpis.totalLeads === 0 &&
-    data.topLeads.length === 0
+  const isEmpty = !loading && !error && data === null
 
   return (
     <div className="min-h-screen bg-gray-50">

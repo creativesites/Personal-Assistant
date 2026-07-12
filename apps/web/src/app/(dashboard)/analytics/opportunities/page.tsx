@@ -282,8 +282,14 @@ function EmptyState() {
       <span className="text-5xl select-none" aria-hidden="true">🎯</span>
       <h2 className="text-base font-semibold text-gray-800">No opportunities detected yet</h2>
       <p className="text-sm text-gray-500 max-w-sm">
-        Keep engaging with your leads — Zuri will surface revenue opportunities as it analyses your conversations.
+        No data yet — insights appear here once conversations are analysed.
       </p>
+      <Link
+        href="/inbox"
+        className="mt-2 inline-flex items-center justify-center h-11 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+      >
+        Go to Inbox
+      </Link>
     </div>
   )
 }
@@ -328,7 +334,7 @@ export default function OpportunitiesPage() {
   }, [token])
 
   const opportunities = data?.opportunities ?? []
-  const isEmpty = !loading && opportunities.length === 0
+  const isEmpty = !loading && data === null
   const totalValue = data?.totalEstimatedValue ?? 0
 
   return (

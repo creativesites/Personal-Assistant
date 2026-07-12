@@ -1171,6 +1171,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [tagInput,   setTagInput]   = useState('')
   const [showTagInput, setShowTagInput] = useState(false)
   const [tagSaving,  setTagSaving]  = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
   // local AI profile copy for optimistic updates
   const [localProfile, setLocalProfile] = useState<ContactProfile | null>(null)
   const tabBarRef = useRef<HTMLDivElement>(null)
@@ -1199,6 +1200,30 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
       await apiClient(`/api/contacts/${id}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE', token })
       refetch()
     } catch { addToast({ variant: 'error', title: 'Failed to remove tag' }) }
+  }
+
+  const rebuildAIProfile = async () => {
+    if (!token) return
+    setRebuilding(true)
+    try {
+      const convData = await apiClient<{ conversations: { id: string }[] }>(
+        `/api/conversations?contactId=${id}`, { token },
+      )
+      const convId = convData.conversations?.[0]?.id
+      if (!convId) {
+        addToast({ variant: 'error', title: 'No conversation found for this contact' })
+        return
+      }
+      await apiClient(
+        `/api/conversations/${convId}/analyze`,
+        { method: 'POST', token, body: JSON.stringify({ scope: 'all', includeProfile: true, includeSuggestions: false }) },
+      )
+      addToast({ variant: 'success', title: 'Profile rebuild queued — AI insights will update shortly' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to queue profile rebuild' })
+    } finally {
+      setRebuilding(false)
+    }
   }
 
   const archiveContact = async () => {
@@ -1298,6 +1323,19 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             <button onClick={() => setShowEdit(true)}
               className="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
               <Edit3 size={17} />
+            </button>
+            <button
+              onClick={rebuildAIProfile}
+              disabled={rebuilding}
+              title="Rebuild AI profile from all conversations"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {rebuilding ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Sparkles size={14} />
+              )}
+              <span className="hidden md:inline">Rebuild AI Profile</span>
             </button>
             <Link href="/inbox"
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">

@@ -9,7 +9,7 @@ import {
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { Avatar, EmptyState, SkeletonListItem } from '@/components/ui'
+import { Avatar, EmptyState, SkeletonListItem, useToast } from '@/components/ui'
 import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import type { AIInsight } from './_components/inline-ai-card'
@@ -31,6 +31,7 @@ export default function InboxPage() {
   const token = session.data?.accessToken
   const mode = session.data?.mode ?? 'business'
   const userName = (session.data?.user?.email ?? '').split('@')[0] || 'there'
+  const { addToast } = useToast()
 
   // Data
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -459,6 +460,22 @@ export default function InboxPage() {
     }
   }
 
+  const runHeaderAnalysis = async () => {
+    if (!selectedId || !token) return
+    setAnalysing(true)
+    try {
+      await apiClient(
+        `/api/conversations/${selectedId}/analyze`,
+        { method: 'POST', token, body: JSON.stringify({ scope: 'recent', includeProfile: true, includeSuggestions: true }) },
+      )
+      addToast({ variant: 'success', title: 'Analysis running — insights will update shortly' })
+    } catch {
+      addToast({ variant: 'error', title: 'Analysis failed — check that the intelligence service is running' })
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
   const runManualAnalysis = async (scope: 'latest' | 'recent') => {
     if (!selectedId || !token) return
     const actionKey = scope === 'latest' ? 'analyze-latest' : 'analyze-recent'
@@ -644,7 +661,7 @@ export default function InboxPage() {
 
         {/* Daily briefing */}
         {!briefingDismissed && mode !== 'personal' && (
-          <DailyBriefing name={userName} insights={briefingInsights} items={briefingItems} loading={briefingLoading} onDismiss={() => setBriefingDismissed(true)} />
+          <DailyBriefing name={userName} insights={briefingInsights} items={briefingItems} loading={briefingLoading} onDismiss={() => setBriefingDismissed(true)} onOpenConversation={selectConversation} />
         )}
 
         {/* Conversation list */}
@@ -705,6 +722,23 @@ export default function InboxPage() {
                 </p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Run Analysis button */}
+                <button
+                  onClick={runHeaderAnalysis}
+                  disabled={analysing || aiActionLoading === 'analyze-recent'}
+                  title="Run analysis on recent messages"
+                  className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all bg-gray-50 border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {(analysing || aiActionLoading === 'analyze-recent') ? (
+                    <svg className="animate-spin w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                  ) : (
+                    <Zap size={11} />
+                  )}
+                  Analyse
+                </button>
                 {/* Per-conversation auto-reply toggle */}
                 <button
                   onClick={() => setAutoReplyOverrides(prev => {

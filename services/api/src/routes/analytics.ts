@@ -172,8 +172,8 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       }>(
         `SELECT
            COUNT(*) AS total,
-           COUNT(*) FILTER (WHERE m.direction = 'inbound') AS inbound,
-           COUNT(*) FILTER (WHERE m.direction = 'outbound') AS outbound
+           COUNT(*) FILTER (WHERE m.sender_type = 'contact') AS inbound,
+           COUNT(*) FILTER (WHERE m.sender_type = 'user') AS outbound
          FROM messages m
          JOIN conversations c ON c.id = m.conversation_id
          WHERE c.user_id = $1
@@ -235,7 +235,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         `SELECT
            COUNT(*) FILTER (WHERE status = 'approved') AS approved,
            COUNT(*) AS total
-         FROM proactive_items
+         FROM proactive_queue
          WHERE user_id = $1
            AND created_at >= NOW() - INTERVAL '30 days'`,
         [userId],
@@ -299,34 +299,45 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       return reply.send({
-        period: '30d',
-        conversations: {
-          total: convTotal,
-          today: parseInt(convStats.today, 10),
-          avgPerDay: convStats.avg_per_day ? parseFloat(convStats.avg_per_day) : 0,
-          trend: convTrend,
+        kpis: {
+          totalConversations30d: convTotal,
+          totalConversationsTrend: parseFloat((convTrend * 100).toFixed(2)),
+          aiMessagesSent: aiDrafted,
+          aiAutomationRate: parseFloat((aiAutomationRate * 100).toFixed(2)),
+          activeContacts,
+          atRiskContacts,
+          avgResponseTimeMinutes: parseFloat(avgMinutes.toFixed(1)),
+          avgResponseTimeTrend: 0,
         },
-        messages: {
-          total: msgTotal,
-          inbound: parseInt(msgStats.inbound, 10),
-          outbound,
-          aiDrafted,
+        health: {
+          score: healthScore,
+          trend: 0,
+          components: [
+            { label: 'Conversations', score: Math.round(convHealth) },
+            { label: 'Response Speed', score: Math.round(rtHealth) },
+            { label: 'Contact Health', score: Math.round(contactHealth) },
+            { label: 'AI Adoption', score: Math.round(aiRateScore) },
+            { label: 'Proactive', score: Math.round(proactiveHealth) },
+          ],
         },
-        contacts: {
-          total: contactTotal,
-          newThisMonth: parseInt(contactStats.new_this_month, 10),
-          active: activeContacts,
-          atRisk: atRiskContacts,
-        },
-        responseTime: {
-          avgMinutes: parseFloat(avgMinutes.toFixed(1)),
-          p50Minutes: parseFloat(p50Minutes.toFixed(1)),
-          p95Minutes: parseFloat(p95Minutes.toFixed(1)),
-        },
-        aiAutomationRate,
-        healthScore,
-        topOpportunities,
-        alerts,
+        opportunities: topOpportunities.map((r) => {
+          const score = parseInt(String(r.estimatedValue / 1000), 10)
+          return {
+            id: r.contactId,
+            contactName: r.contactName,
+            reason: r.reason,
+            estimatedValue: 'K' + (r.estimatedValue / 1000).toLocaleString(),
+            urgency: (score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low') as 'high' | 'medium' | 'low',
+          }
+        }),
+        alerts: alerts.map((a, i) => ({
+          id: String(i),
+          severity: (a.severity === 'warning' ? 'medium' : a.severity === 'info' ? 'low' : a.severity) as 'high' | 'medium' | 'low',
+          message: a.message,
+          timestamp: new Date().toISOString(),
+        })),
+        aiRepliesSent: aiDrafted,
+        generatedAt: new Date().toISOString(),
       })
     },
   )
@@ -770,13 +781,13 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       )
 
       const { rows: recentRows } = await db.query<{
-        direction: string
+        sender_type: string
         body: string | null
         created_at: string
         contact_name: string | null
       }>(
         `SELECT
-           m.direction,
+           m.sender_type,
            m.body,
            m.created_at,
            COALESCE(c.custom_name, c.display_name) AS contact_name
@@ -784,7 +795,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
          JOIN conversations conv ON conv.id = m.conversation_id
          LEFT JOIN contacts c ON c.id = conv.contact_id
          WHERE conv.user_id = $1
-           AND m.direction = 'inbound'
+           AND m.sender_type = 'contact'
          ORDER BY m.created_at DESC
          LIMIT 20`,
         [userId],
@@ -1080,7 +1091,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       }>(
         `SELECT
            (SELECT COUNT(*) FROM suggested_replies WHERE user_id = $1 AND status IN ('approved','sent') AND created_at >= NOW() - INTERVAL '30 days') AS approved,
-           (SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.direction = 'outbound' AND m.created_at >= NOW() - INTERVAL '30 days') AS outbound`,
+           (SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.sender_type = 'user' AND m.created_at >= NOW() - INTERVAL '30 days') AS outbound`,
         [userId],
       )
 
@@ -1088,7 +1099,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         `SELECT
            COUNT(*) FILTER (WHERE status = 'approved') AS approved,
            COUNT(*) AS total
-         FROM proactive_items
+         FROM proactive_queue
          WHERE user_id = $1
            AND created_at >= NOW() - INTERVAL '30 days'`,
         [userId],
@@ -1194,7 +1205,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { rows: [proactiveRow] } = await db.query<{ approved: string }>(
         `SELECT COUNT(*) AS approved
-         FROM proactive_items
+         FROM proactive_queue
          WHERE user_id = $1
            AND status = 'approved'
            AND updated_at >= NOW() - INTERVAL '30 days'`,
@@ -1465,7 +1476,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { rows: [proactive] } = await db.query<{ approved_count: string }>(
         `SELECT COUNT(*) AS approved_count
-         FROM proactive_items
+         FROM proactive_queue
          WHERE user_id = $1
            AND status = 'approved'
            AND updated_at >= NOW() - INTERVAL '30 days'`,
@@ -1474,27 +1485,26 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { rows: [draftStats] } = await db.query<{
         ai_drafted: string
-        manual: string
+        total_outbound: string
       }>(
         `SELECT
-           COUNT(*) FILTER (WHERE suggested_reply_id IS NOT NULL) AS ai_drafted,
-           COUNT(*) FILTER (WHERE suggested_reply_id IS NULL) AS manual
-         FROM messages
-         WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = $1)
-           AND direction = 'outbound'
-           AND created_at >= NOW() - INTERVAL '30 days'`,
+           (SELECT COUNT(*) FROM suggested_replies WHERE user_id = $1 AND status IN ('approved','sent') AND created_at >= NOW() - INTERVAL '30 days') AS ai_drafted,
+           (SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.sender_type = 'user' AND m.created_at >= NOW() - INTERVAL '30 days') AS total_outbound`,
         [userId],
       )
+
+      const aiDrafted = parseInt(draftStats.ai_drafted, 10)
+      const totalOutbound = parseInt(draftStats.total_outbound, 10)
 
       return reply.send({
         suggestion_acceptance_rate: acceptanceRate,
         avg_response_time_seconds: responseTime.avg_seconds
           ? parseFloat(responseTime.avg_seconds)
           : null,
-        proactive_items_approved: parseInt(proactive.approved_count, 10),
+        proactive_queue_approved: parseInt(proactive.approved_count, 10),
         ai_drafted_vs_manual: {
-          ai_drafted: parseInt(draftStats.ai_drafted, 10),
-          manual: parseInt(draftStats.manual, 10),
+          ai_drafted: aiDrafted,
+          manual: totalOutbound - aiDrafted,
         },
         period: '30d',
       })

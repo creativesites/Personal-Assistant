@@ -39,7 +39,7 @@ const PRODUCTS = [
   },
   {
     name: 'Zuri Marketing',
-    tag: 'Early access',
+    tag: 'Available now',
     icon: Sparkles,
     headline: 'One product upload. A full sales funnel out.',
     description: "This is Zuri's AI content and publishing engine — the part that gets customers to message you in the first place. Upload a product once and get everything a business normally spends hours making by hand.",
@@ -238,7 +238,7 @@ export default function UnifiedHomePage() {
             Ready to get started?
           </h2>
           <p className="text-gray-500 text-lg mb-8 leading-relaxed">
-            Zuri WhatsApp is ready today, free for 30 days. Zuri Marketing rolls out to existing customers first.
+            Both products are ready today — free for 30 days, no credit card required.
           </p>
           <AuthCta
             className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-xl shadow-indigo-200 text-base"

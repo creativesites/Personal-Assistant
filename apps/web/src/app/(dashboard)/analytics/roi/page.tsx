@@ -307,14 +307,13 @@ function EmptyState() {
       <span className="text-5xl select-none" aria-hidden="true">📈</span>
       <h2 className="text-lg font-semibold text-gray-800">No ROI data yet</h2>
       <p className="text-sm text-gray-500 max-w-sm">
-        Connect WhatsApp and let Zuri handle some replies — your ROI report
-        populates automatically as Zuri works on your behalf.
+        No data yet — insights appear here once conversations are analysed.
       </p>
       <Link
-        href="/settings"
+        href="/inbox"
         className="mt-2 inline-flex items-center justify-center h-11 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
       >
-        Connect WhatsApp
+        Go to Inbox
       </Link>
     </div>
   )
@@ -377,7 +376,7 @@ export default function RoiDashboardPage() {
   }, [token])
 
   const d = data
-  const isEmptyState = !loading && (!d || isEmptyData(d))
+  const isEmptyState = !loading && !d
 
   const metrics: MetricConfig[] = d
     ? [
