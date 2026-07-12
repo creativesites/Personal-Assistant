@@ -283,11 +283,150 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get('/api/inbox/briefing', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
 
-    const [waitingResult, intentResult, slaResult, healthResult] = await Promise.all([
+    const [
+      waitingResult,
+      intentResult,
+      slaResult,
+      healthResult,
+      longestWaitResult,
+      hotLeadResult,
+      upcomingEventResult,
+      dormantVipResult,
+      healthDropResult,
+      frustratedResult,
+      proactiveResult,
+    ] = await Promise.all([
       db.query(`SELECT COUNT(*) AS count FROM conversations WHERE user_id = $1 AND unread_count > 0 AND is_archived = false`, [userId]),
       db.query(`SELECT COUNT(DISTINCT m.conversation_id) AS count FROM messages m JOIN message_analyses ma ON ma.message_id = m.id JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.sender_type = 'contact' AND (ma.intent::text ILIKE '%buy%' OR ma.intent::text ILIKE '%order%' OR ma.intent::text ILIKE '%price%') AND m.whatsapp_timestamp > NOW() - INTERVAL '48 hours'`, [userId]),
       db.query(`SELECT COUNT(*) AS count FROM (SELECT DISTINCT ON (m.conversation_id) m.conversation_id, EXTRACT(EPOCH FROM (NOW() - m.whatsapp_timestamp)) / 3600 AS hours_waiting FROM messages m JOIN conversations c ON c.id = m.conversation_id LEFT JOIN message_analyses ma ON ma.message_id = m.id WHERE c.user_id = $1 AND m.sender_type = 'contact' AND (ma.requires_response = true OR ma.requires_response IS NULL) AND c.unread_count > 0 ORDER BY m.conversation_id, m.whatsapp_timestamp DESC) waiting WHERE hours_waiting > 2`, [userId]),
       db.query(`SELECT COUNT(DISTINCT co.id) AS count FROM contacts co JOIN relationships r ON r.contact_id = co.id AND r.user_id = $1 WHERE r.importance_tier <= 2`, [userId]),
+      
+      // longest_wait: latest contact message per conversation where unread_count > 0, find the one with the most elapsed hours
+      db.query(`
+        SELECT * FROM (
+          SELECT DISTINCT ON (c.id)
+            c.id AS conversation_id,
+            COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+            EXTRACT(EPOCH FROM (NOW() - m.whatsapp_timestamp)) / 3600 AS hours_waiting
+          FROM conversations c
+          JOIN contacts co ON co.id = c.contact_id
+          JOIN messages m ON m.conversation_id = c.id
+          WHERE c.user_id = $1 
+            AND c.unread_count > 0 
+            AND c.is_archived = false
+            AND m.sender_type = 'contact'
+          ORDER BY c.id, m.whatsapp_timestamp DESC
+        ) q
+        ORDER BY hours_waiting DESC
+        LIMIT 1
+      `, [userId]),
+
+      // hot_lead: highest lead-score contact with recent buying intent in last 48h
+      db.query(`
+        SELECT 
+          c.id AS conversation_id,
+          COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+          co.lead_score
+        FROM messages m
+        JOIN message_analyses ma ON ma.message_id = m.id
+        JOIN conversations c ON c.id = m.conversation_id
+        JOIN contacts co ON co.id = c.contact_id
+        WHERE c.user_id = $1 
+          AND m.sender_type = 'contact'
+          AND (ma.intent::text ILIKE '%buy%' OR ma.intent::text ILIKE '%order%' OR ma.intent::text ILIKE '%price%')
+          AND m.whatsapp_timestamp > NOW() - INTERVAL '48 hours'
+        ORDER BY co.lead_score DESC, m.whatsapp_timestamp DESC
+        LIMIT 1
+      `, [userId]),
+
+      // upcoming_event: nearest event in events table within 7 days
+      db.query(`
+        SELECT 
+          e.title,
+          e.event_date,
+          COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+          co.id AS contact_id,
+          (e.event_date::date - CURRENT_DATE) AS days_until
+        FROM events e
+        JOIN contacts co ON co.id = e.contact_id
+        WHERE co.user_id = $1
+          AND e.event_date >= CURRENT_DATE
+          AND e.event_date <= CURRENT_DATE + INTERVAL '7 days'
+        ORDER BY e.event_date ASC
+        LIMIT 1
+      `, [userId]),
+
+      // dormant_vip: importance tier 1-2 contact with no message in >14 days
+      db.query(`
+        SELECT 
+          c.id AS conversation_id,
+          COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+          r.importance_tier,
+          EXTRACT(DAY FROM (NOW() - c.last_message_at)) AS days_silent
+        FROM relationships r
+        JOIN contacts co ON co.id = r.contact_id
+        JOIN conversations c ON c.contact_id = co.id AND c.user_id = $1
+        WHERE r.user_id = $1
+          AND r.importance_tier <= 2
+          AND c.last_message_at < NOW() - INTERVAL '14 days'
+          AND c.is_archived = false
+        ORDER BY c.last_message_at ASC
+        LIMIT 1
+      `, [userId]),
+
+      // health_drop: contact whose health score dropped >5 points this week
+      db.query(`
+        SELECT 
+          c.id AS conversation_id,
+          COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+          co.id AS contact_id,
+          r.health_score AS current_score,
+          (log_old.health_score - r.health_score) AS drop_amount
+        FROM relationships r
+        JOIN contacts co ON co.id = r.contact_id
+        JOIN conversations c ON c.contact_id = co.id AND c.user_id = $1
+        JOIN LATERAL (
+          SELECT hl.health_score
+          FROM relationship_health_logs hl
+          WHERE hl.relationship_id = r.id
+            AND hl.recorded_at >= NOW() - INTERVAL '7 days'
+          ORDER BY hl.recorded_at ASC
+          LIMIT 1
+        ) log_old ON true
+        WHERE r.user_id = $1
+          AND r.health_score < log_old.health_score - 5
+        ORDER BY (log_old.health_score - r.health_score) DESC
+        LIMIT 1
+      `, [userId]),
+
+      // frustrated_contact: contact whose latest message shows negative/frustrated sentiment
+      db.query(`
+        SELECT * FROM (
+          SELECT DISTINCT ON (c.id)
+            c.id AS conversation_id,
+            COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+            ma.sentiment,
+            m.whatsapp_timestamp
+          FROM conversations c
+          JOIN contacts co ON co.id = c.contact_id
+          JOIN messages m ON m.conversation_id = c.id
+          JOIN message_analyses ma ON ma.message_id = m.id
+          WHERE c.user_id = $1
+            AND m.sender_type = 'contact'
+            AND ma.sentiment IN ('negative', 'frustrated', 'angry')
+            AND m.whatsapp_timestamp > NOW() - INTERVAL '72 hours'
+          ORDER BY c.id, m.whatsapp_timestamp DESC
+        ) q
+        ORDER BY whatsapp_timestamp DESC
+        LIMIT 1
+      `, [userId]),
+
+      // proactive_count: count of pending items in proactive_queue
+      db.query(`
+        SELECT COUNT(*) AS count
+        FROM proactive_queue
+        WHERE user_id = $1 AND status = 'pending'
+      `, [userId]),
     ]);
 
     const waitingCount = parseInt(waitingResult.rows[0]?.count ?? '0', 10);
@@ -295,16 +434,106 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const slaBreachCount = parseInt(slaResult.rows[0]?.count ?? '0', 10);
     const vipCount = parseInt(healthResult.rows[0]?.count ?? '0', 10);
 
+    const insights: any[] = [];
     const items: string[] = [];
-    if (highIntentCount > 0) {
-      items.push(`${highIntentCount} conversation${highIntentCount !== 1 ? 's have' : ' has'} high buying intent`);
+
+    // Map longest_wait
+    if (longestWaitResult.rows.length > 0) {
+      const row = longestWaitResult.rows[0];
+      const hours = parseFloat(row.hours_waiting);
+      insights.push({
+        type: 'longest_wait',
+        urgency: hours > 4 ? 'critical' : 'high',
+        label: `${row.contact_name} is waiting`,
+        detail: `${Math.round(hours)}h without a reply`,
+        conversationId: row.conversation_id,
+      });
+      items.push(`${row.contact_name} has been waiting for ${Math.round(hours)} hours`);
     }
-    if (slaBreachCount > 0) {
-      items.push(`${slaBreachCount} conversation${slaBreachCount !== 1 ? 's have' : ' has'} been waiting over 2 hours`);
+
+    // Map frustrated_contact
+    if (frustratedResult.rows.length > 0) {
+      const row = frustratedResult.rows[0];
+      insights.push({
+        type: 'frustrated_contact',
+        urgency: 'high',
+        label: `${row.contact_name} seems frustrated`,
+        detail: `Latest message shows ${row.sentiment} sentiment`,
+        conversationId: row.conversation_id,
+      });
+      items.push(`${row.contact_name} seems frustrated or dissatisfied`);
     }
-    if (vipCount > 0) {
-      items.push(`${vipCount} VIP contact${vipCount !== 1 ? 's' : ''} in your network — keep relationships warm`);
+
+    // Map hot_lead
+    if (hotLeadResult.rows.length > 0) {
+      const row = hotLeadResult.rows[0];
+      insights.push({
+        type: 'hot_lead',
+        urgency: 'high',
+        label: `${row.contact_name} shows buying intent`,
+        detail: `Lead score ${row.lead_score} · recent purchase signal`,
+        conversationId: row.conversation_id,
+      });
+      items.push(`${row.contact_name} shows high buying intent (Lead Score: ${row.lead_score})`);
     }
+
+    // Map upcoming_event
+    if (upcomingEventResult.rows.length > 0) {
+      const row = upcomingEventResult.rows[0];
+      const days = parseInt(row.days_until, 10);
+      const daysStr = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `in ${days} days`;
+      insights.push({
+        type: 'upcoming_event',
+        urgency: 'high',
+        label: row.title,
+        detail: `${daysStr} · ${row.contact_name}`,
+        contactId: row.contact_id,
+      });
+      items.push(`Upcoming event "${row.title}" with ${row.contact_name} ${daysStr}`);
+    }
+
+    // Map dormant_vip
+    if (dormantVipResult.rows.length > 0) {
+      const row = dormantVipResult.rows[0];
+      const days = parseInt(row.days_silent, 10);
+      insights.push({
+        type: 'dormant_vip',
+        urgency: 'medium',
+        label: `${row.contact_name} has gone quiet`,
+        detail: `${days} days without contact — tier ${row.importance_tier} relationship`,
+        conversationId: row.conversation_id,
+      });
+      items.push(`VIP contact ${row.contact_name} has been quiet for ${days} days`);
+    }
+
+    // Map health_drop
+    if (healthDropResult.rows.length > 0) {
+      const row = healthDropResult.rows[0];
+      const drop = Math.round(parseFloat(row.drop_amount));
+      insights.push({
+        type: 'health_drop',
+        urgency: 'medium',
+        label: `${row.contact_name}'s relationship health dropped`,
+        detail: `Down ${drop} pts this week (${row.current_score}/100)`,
+        contactId: row.contact_id,
+        conversationId: row.conversation_id,
+      });
+      items.push(`${row.contact_name}'s relationship health dropped by ${drop} points`);
+    }
+
+    // Map proactive_queue
+    const proactiveCount = parseInt(proactiveResult.rows[0]?.count ?? '0', 10);
+    if (proactiveCount > 0) {
+      insights.push({
+        type: 'proactive_queue',
+        urgency: 'low',
+        label: `${proactiveCount} relationship nudge${proactiveCount !== 1 ? 's' : ''} ready`,
+        detail: `AI-drafted outreach actions waiting for review`,
+      });
+      items.push(`${proactiveCount} proactive outreach suggestions ready`);
+    }
+
+    // Default if no insights
     if (items.length === 0) {
       items.push('All caught up! No urgent conversations right now.');
     }
