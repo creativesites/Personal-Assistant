@@ -39,6 +39,30 @@ class BusinessFactMention(BaseModel):
                               # promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other
 
 
+class OpportunityMention(BaseModel):
+    """A structured opportunity signal detected in a single message — see
+    docs/RELATIONSHIP_OS_PLAN.md §5.8/§6.7. estimated_value_cents is left
+    None for personal-type opportunities (life_event, reconnect_window,
+    support_needed) since there's no commercial value to estimate."""
+    opportunity_type: str  # buying_signal|expansion|referral_moment|renewal_due|
+                            # life_event|reconnect_window|churn_risk|support_needed
+    title: str
+    description: str = ''
+    estimated_value_cents: int | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class ConnectionMention(BaseModel):
+    """A relationship-between-people signal — 'my brother Peter', 'I work
+    with John at ABC Construction' — see docs/RELATIONSHIP_OS_PLAN.md §5.7.
+    other_person_name is resolved against the user's other contacts by name
+    match; mentions of people who aren't existing contacts are dropped."""
+    other_person_name: str
+    connection_type: str  # works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    supporting_text: str = ''
+
+
 class MessageAnalysis(BaseModel):
     sentiment: str  # positive|negative|neutral|mixed
     sentiment_score: float = Field(ge=0.0, le=1.0)
@@ -52,6 +76,8 @@ class MessageAnalysis(BaseModel):
     promises_detected: list[PromiseItem] = Field(default_factory=list)
     events_detected: list[EventItem] = Field(default_factory=list)
     business_facts_mentioned: list[BusinessFactMention] = Field(default_factory=list)
+    opportunities_mentioned: list[OpportunityMention] = Field(default_factory=list)
+    connections_mentioned: list[ConnectionMention] = Field(default_factory=list)
 
 
 class ReplySuggestion(BaseModel):

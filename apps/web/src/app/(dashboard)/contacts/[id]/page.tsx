@@ -77,6 +77,8 @@ interface ContactDetail {
   stats: { totalMessages: number; sent: number; received: number }
   proactiveSuggestions: Array<{ id: string; suggestionType: string; title: string; body: string; draftMessage: string | null; priority: number }>
   upcomingEvents: Array<{ id: string; eventType: string; title: string; eventDate: string | null; isRecurring: boolean; confidence: number }>
+  opportunities: Array<{ id: string; opportunityType: string; title: string; description: string | null; estimatedValueCents: number | null; confidence: number; detectedAt: string }>
+  connections: Array<{ id: string; connectionType: string; confidence: number; source: string; otherContactId: string; otherContactName: string | null }>
 }
 
 interface Task {
@@ -139,17 +141,22 @@ const CUSTOMER_STATUS_OPTIONS = [
 
 const PIPELINE_STAGES = ['', 'New Lead', 'Contacted', 'Qualified', 'Negotiating', 'Won', 'Lost']
 
-const OPPORTUNITY_KEYS = ['buying_signal', 'purchase_intent', 'interest', 'opportunity', 'upsell', 'cross_sell', 'renewal', 'churn_risk']
+// Opportunity types come from the opportunities table (docs/RELATIONSHIP_OS_PLAN.md
+// §5.8/§6.7) — this superseded the old insight_key substring-matching convention.
+const OPPORTUNITY_TYPE_CONFIG: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
+  buying_signal:    { label: 'Buying signal',   cls: 'bg-amber-50 text-amber-700 border-amber-200',   Icon: Zap          },
+  expansion:        { label: 'Expansion',       cls: 'bg-green-50 text-green-700 border-green-200',   Icon: TrendingUp   },
+  referral_moment:  { label: 'Referral',        cls: 'bg-blue-50 text-blue-700 border-blue-200',      Icon: ShoppingCart },
+  renewal_due:      { label: 'Renewal due',     cls: 'bg-indigo-50 text-indigo-700 border-indigo-200',Icon: RefreshCw    },
+  life_event:       { label: 'Life event',      cls: 'bg-purple-50 text-purple-700 border-purple-200',Icon: Sparkles     },
+  reconnect_window: { label: 'Reconnect',       cls: 'bg-teal-50 text-teal-700 border-teal-200',      Icon: Target       },
+  churn_risk:       { label: 'Churn risk',      cls: 'bg-red-50 text-red-700 border-red-200',         Icon: Bell         },
+  support_needed:   { label: 'Support needed',  cls: 'bg-red-50 text-red-700 border-red-200',         Icon: Bell         },
+}
 
-const OPPORTUNITY_CONFIG: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
-  upsell:         { label: 'Upsell',      cls: 'bg-green-50 text-green-700 border-green-200',    Icon: TrendingUp   },
-  cross_sell:     { label: 'Cross-sell',  cls: 'bg-blue-50 text-blue-700 border-blue-200',       Icon: ShoppingCart },
-  renewal:        { label: 'Renewal',     cls: 'bg-indigo-50 text-indigo-700 border-indigo-200', Icon: RefreshCw    },
-  buying_signal:  { label: 'Buying',      cls: 'bg-amber-50 text-amber-700 border-amber-200',    Icon: Zap          },
-  purchase_intent:{ label: 'Intent',      cls: 'bg-amber-50 text-amber-700 border-amber-200',    Icon: Target       },
-  interest:       { label: 'Interest',    cls: 'bg-purple-50 text-purple-700 border-purple-200', Icon: Sparkles     },
-  opportunity:    { label: 'Opportunity', cls: 'bg-teal-50 text-teal-700 border-teal-200',       Icon: Target       },
-  churn_risk:     { label: 'Churn Risk',  cls: 'bg-red-50 text-red-700 border-red-200',          Icon: Bell         },
+const CONNECTION_TYPE_LABELS: Record<string, string> = {
+  works_with: 'works with', introduced_by: 'introduced by', owns: 'owns', refers_to: 'refers to',
+  family_of: 'family of', friend_of: 'friend of', married_to: 'married to',
 }
 
 const EVENT_ICONS: Record<string, React.ReactNode> = {
@@ -1417,7 +1424,6 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const completeness= calcCompleteness(contact)
   const phoneHidden = isPhoneRedundant(contact)
 
-  const opportunityFlags   = contact.insights.filter(i => OPPORTUNITY_KEYS.some(k => i.key.includes(k)))
   const buyingSignals      = contact.insights.filter(i => ['buying_signal','purchase_intent','interest','opportunity'].includes(i.key))
   const personalityInsights= contact.insights.filter(i => ['personality','communication_style','preference','behavior'].some(k => i.key.includes(k)))
   const otherInsights      = contact.insights.filter(i =>
@@ -1772,23 +1778,58 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                   />
                 ))}
 
-                {opportunityFlags.length > 0 && (
+                {contact.opportunities.length > 0 && (
                   <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
                     <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-100 bg-amber-50/50">
                       <Zap size={14} className="text-amber-500" />
-                      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Opportunity Flags</p>
+                      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Opportunities</p>
                     </div>
-                    <div className="p-4 flex flex-wrap gap-2">
-                      {opportunityFlags.map((insight, i) => {
-                        const config = Object.entries(OPPORTUNITY_CONFIG).find(([k]) => insight.key.includes(k))?.[1]
-                        if (!config) return null
-                        const Icon = config.Icon
+                    <div className="divide-y divide-amber-50">
+                      {contact.opportunities.map(opp => {
+                        const config = OPPORTUNITY_TYPE_CONFIG[opp.opportunityType]
+                        const Icon = config?.Icon ?? Zap
                         return (
-                          <span key={i} className={`inline-flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-full font-medium ${config.cls}`}>
-                            <Icon size={11} /> {insight.value.slice(0, 40)}{insight.value.length > 40 ? '…' : ''}
-                          </span>
+                          <div key={opp.id} className="flex items-start gap-3 px-4 py-3">
+                            <span className={`inline-flex items-center gap-1 text-[10px] border px-2 py-0.5 rounded-full font-medium flex-shrink-0 mt-0.5 ${config?.cls ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                              <Icon size={10} /> {config?.label ?? opp.opportunityType}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-800 leading-snug">{opp.title}</p>
+                              {opp.description && <p className="text-xs text-gray-400 mt-0.5">{opp.description}</p>}
+                              {opp.estimatedValueCents !== null && (
+                                <p className="text-xs font-medium text-green-600 mt-0.5">
+                                  {(opp.estimatedValueCents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })}
+                                </p>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 bg-gray-100 text-gray-500">
+                              {Math.round(opp.confidence * 100)}%
+                            </span>
+                          </div>
                         )
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {contact.connections.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+                      <User size={14} className="text-indigo-400" />
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Connected To</p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {contact.connections.map(c => (
+                        <Link key={c.id} href={`/contacts/${c.otherContactId}`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                          <div className="flex-1 min-w-0 text-sm">
+                            <span className="text-gray-800">{contact.name}</span>{' '}
+                            <span className="text-gray-400">{CONNECTION_TYPE_LABELS[c.connectionType] ?? c.connectionType.replace(/_/g, ' ')}</span>{' '}
+                            <span className="font-medium text-gray-900">{c.otherContactName}</span>
+                          </div>
+                          <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
+                        </Link>
+                      ))}
                     </div>
                   </div>
                 )}

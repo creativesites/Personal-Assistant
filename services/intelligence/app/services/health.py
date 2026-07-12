@@ -1,6 +1,8 @@
 import structlog
 from datetime import datetime, timezone
 from ..database import get_pool
+from .opportunities import OpportunityService
+from ..models import OpportunityMention
 
 log = structlog.get_logger()
 
@@ -230,6 +232,7 @@ class RelationshipHealthService:
             'summary': change_reason,
         }
 
+        churn_flag = False
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -247,6 +250,20 @@ class RelationshipHealthService:
             )
             if new_score != old_score:
                 import json
+
+                # Churn/drift risk (§5.9/§6.8) is a presentation change over
+                # health decline, not a separate model: flag it once the
+                # relationship has declined for 2 consecutive recalculations
+                # with negative sentiment or lengthening recency behind it.
+                if trend == 'declining' and (signals['sentiment'] < 0 or signals['recency'] < 0):
+                    prev_log = await conn.fetchrow(
+                        """SELECT health_score, previous_score FROM relationship_health_logs
+                           WHERE relationship_id = $1 ORDER BY logged_at DESC LIMIT 1""",
+                        rel['id'],
+                    )
+                    if prev_log and prev_log['previous_score'] is not None and prev_log['health_score'] < prev_log['previous_score']:
+                        churn_flag = True
+
                 await conn.execute(
                     """INSERT INTO relationship_health_logs
                        (relationship_id, health_score, previous_score, change_reason, contributing_factors)
@@ -254,5 +271,16 @@ class RelationshipHealthService:
                     rel['id'], new_score, old_score, change_reason, json.dumps(contributing_factors),
                 )
 
-        log.info('health_recalculated', contact_id=contact_id, score=new_score, trend=trend, reason=change_reason)
+        if churn_flag:
+            await OpportunityService().record_candidates(
+                user_id, contact_id, f'health-decline-{rel["id"]}',
+                [OpportunityMention(
+                    opportunity_type='churn_risk',
+                    title='Health declining for two straight check-ins',
+                    description=change_reason,
+                    confidence=0.6,
+                )],
+            )
+
+        log.info('health_recalculated', contact_id=contact_id, score=new_score, trend=trend, reason=change_reason, churn_flag=churn_flag)
         return new_score

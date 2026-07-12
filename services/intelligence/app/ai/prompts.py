@@ -23,7 +23,9 @@ Return ONLY valid JSON in exactly this format:
   "response_urgency": "low|medium|high|urgent",
   "promises_detected": [{{"text": "", "type": "commitment|deadline|offer|plan"}}],
   "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}],
-  "business_facts_mentioned": [{{"key": "snake_case_fact_name", "value": "the stated fact", "category": "product|pricing|shipping|refund_policy|faq|hours|inventory|promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other"}}]
+  "business_facts_mentioned": [{{"key": "snake_case_fact_name", "value": "the stated fact", "category": "product|pricing|shipping|refund_policy|faq|hours|inventory|promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other"}}],
+  "opportunities_mentioned": [{{"opportunity_type": "buying_signal|expansion|referral_moment|renewal_due|life_event|reconnect_window|churn_risk|support_needed", "title": "brief title", "description": "1 sentence of context", "estimated_value_cents": null, "confidence": 0.0}}],
+  "connections_mentioned": [{{"other_person_name": "the other person's name as stated", "connection_type": "works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to", "confidence": 0.0, "supporting_text": "exact quote"}}]
 }}
 
 Important for events_detected:
@@ -36,6 +38,15 @@ Important for business_facts_mentioned:
 - Only include this when a concrete business fact is explicitly stated — an exact price, a policy, a product name, operating hours, a shipping rule, etc.
 - Leave this empty for personal/social messages with no commercial content — most messages will have none.
 - fact_key should be a short, stable, reusable identifier for the *thing* the fact describes (e.g. "world_cup_jersey_price", "refund_window_days", "shop_hours"), not the specific value, so mentions of the same fact from different messages merge together.
+
+Important for opportunities_mentioned:
+- Only include this when the message contains a clear, specific signal — "I'll need more soon", "we're opening another branch", "we're unhappy with this", "haven't seen you in ages", "my mum's not doing well". Leave empty for routine chat.
+- estimated_value_cents should only be set for business-type opportunities (buying_signal, expansion, referral_moment, renewal_due) when a concrete amount is stated or clearly inferable; otherwise null.
+- life_event, reconnect_window, and support_needed never have an estimated value — always leave estimated_value_cents null for these.
+
+Important for connections_mentioned:
+- Only include this when the sender explicitly names another specific person and describes their relation to them — "my brother Peter", "I work with John at ABC Construction", "my wife Grace". Do not include vague references ("a friend", "someone").
+- other_person_name should be exactly the name as stated, so it can be matched against existing contacts.
 """
 
 GENERATE_REPLIES = """\

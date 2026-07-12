@@ -145,7 +145,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (!contact) return reply.code(404).send({ error: 'Contact not found' });
 
-    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult] = await Promise.all([
+    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult, opportunitiesResult, connectionsResult] = await Promise.all([
       db.query(
         `SELECT id, insight_key, insight_value, confidence, supporting_text, created_at
          FROM contact_insights
@@ -193,6 +193,30 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
          WHERE contact_id = $1 AND user_id = $2 AND event_date >= CURRENT_DATE
          ORDER BY event_date ASC
          LIMIT 5`,
+        [id, userId],
+      ),
+      db.query(
+        `SELECT id, opportunity_type, title, description, estimated_value_cents, confidence, detected_at
+         FROM opportunities
+         WHERE contact_id = $1 AND user_id = $2 AND status = 'open'
+           AND (expires_at IS NULL OR expires_at > NOW())
+         ORDER BY confidence DESC, detected_at DESC
+         LIMIT 10`,
+        [id, userId],
+      ),
+      db.query(
+        `WITH conn AS (
+           SELECT rc.id, rc.connection_type, rc.confidence, rc.source,
+                  CASE WHEN rc.contact_a_id = $1 THEN rc.contact_b_id ELSE rc.contact_a_id END AS other_contact_id
+           FROM relationship_connections rc
+           WHERE rc.user_id = $2 AND (rc.contact_a_id = $1 OR rc.contact_b_id = $1) AND rc.is_active = TRUE
+         )
+         SELECT conn.id, conn.connection_type, conn.confidence, conn.source, conn.other_contact_id,
+                COALESCE(oc.custom_name, oc.display_name, oc.phone_number) AS other_contact_name
+         FROM conn
+         JOIN contacts oc ON oc.id = conn.other_contact_id
+         ORDER BY conn.confidence DESC
+         LIMIT 20`,
         [id, userId],
       ),
     ]);
@@ -297,6 +321,23 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           eventDate:  e.event_date,
           isRecurring:e.is_recurring,
           confidence: parseFloat(e.confidence_score ?? '0'),
+        })),
+        opportunities: opportunitiesResult.rows.map((o: any) => ({
+          id:                  o.id,
+          opportunityType:     o.opportunity_type,
+          title:               o.title,
+          description:         o.description,
+          estimatedValueCents: o.estimated_value_cents !== null ? parseInt(o.estimated_value_cents, 10) : null,
+          confidence:          parseFloat(o.confidence ?? '0'),
+          detectedAt:          o.detected_at,
+        })),
+        connections: connectionsResult.rows.map((c: any) => ({
+          id:               c.id,
+          connectionType:   c.connection_type,
+          confidence:       parseFloat(c.confidence ?? '0'),
+          source:           c.source,
+          otherContactId:   c.other_contact_id,
+          otherContactName: c.other_contact_name,
         })),
       },
     });

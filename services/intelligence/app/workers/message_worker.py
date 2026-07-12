@@ -8,6 +8,8 @@ from ..services.event_extractor import EventExtractor
 from ..services.health import RelationshipHealthService
 from ..services.orchestrator import route_message
 from ..services.business_facts import BusinessFactService
+from ..services.opportunities import OpportunityService
+from ..services.connections import ConnectionService
 from ..memory.conversation_memory import update_conversation_memory
 
 log = structlog.get_logger()
@@ -17,6 +19,8 @@ _reply_gen = ReplyGenerator()
 _extractor = EventExtractor()
 _health_svc = RelationshipHealthService()
 _business_facts = BusinessFactService()
+_opportunities = OpportunityService()
+_connections = ConnectionService()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue  = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
@@ -53,6 +57,18 @@ async def _process(job, token: str):
     if analysis.business_facts_mentioned:
         await _business_facts.record_candidates(
             user_id, message_id, analysis.business_facts_mentioned,
+        )
+
+    # Opportunities and Business Graph connections — same "one more
+    # structured field on the existing per-message pass" pattern as
+    # business_facts_mentioned above (see docs/RELATIONSHIP_OS_PLAN.md §5.7/§5.8).
+    if analysis.opportunities_mentioned:
+        await _opportunities.record_candidates(
+            user_id, contact_id, message_id, analysis.opportunities_mentioned,
+        )
+    if analysis.connections_mentioned:
+        await _connections.record_candidates(
+            user_id, contact_id, message_id, analysis.connections_mentioned,
         )
 
     # Historical messages: skip reply generation, agent routing, and conversation

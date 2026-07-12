@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ClipboardCopy, Search, Sparkles, XCircle } from 'lucide-react'
+import { CheckCircle2, ClipboardCopy, Flame, Search, Sparkles, XCircle } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard } from '@/components/ui'
@@ -21,6 +21,33 @@ interface ProactiveSuggestion {
     avatarUrl: string | null
     relationshipType: string
   }
+}
+
+// AI Recommendations (docs/RELATIONSHIP_OS_PLAN.md §5.11/§6.10) — a ranked
+// view over the same proactive_queue this page already shows, plus
+// opportunities and stalling deals, sorted by one composite score. Not a
+// separate detector — just a different lens on data that mostly already
+// has its own home (the Queue tab, /contacts/[id]).
+interface Recommendation {
+  id: string
+  sourceType: 'suggestion' | 'opportunity' | 'stalling_deal'
+  title: string
+  description: string | null
+  estimatedValueCents: number | null
+  confidence: number | null
+  score: number
+  contact: { id: string; name: string; avatarUrl: string | null }
+}
+
+const SOURCE_LABELS: Record<Recommendation['sourceType'], string> = {
+  suggestion: 'Suggestion',
+  opportunity: 'Opportunity',
+  stalling_deal: 'Stalled deal',
+}
+const SOURCE_VARIANTS: Record<Recommendation['sourceType'], BadgeVariant> = {
+  suggestion: 'info',
+  opportunity: 'success',
+  stalling_deal: 'warning',
 }
 
 const PRIORITY_LABELS = ['', 'Urgent', 'High', 'Medium', 'Low', 'Minimal'] as const
@@ -46,13 +73,29 @@ export default function ProactivePage() {
   const [actioning, setActioning] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<string>('all')
+  const [view, setView] = useState<'queue' | 'recommendations'>('queue')
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [recsLoading, setRecsLoading] = useState(true)
 
   useEffect(() => {
     if (!token) return
     apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', { token })
       .then(data => { setSuggestions(data.suggestions); setLoading(false) })
       .catch(() => setLoading(false))
+    apiClient<{ recommendations: Recommendation[] }>('/api/proactive/recommendations', { token })
+      .then(data => { setRecommendations(data.recommendations); setRecsLoading(false) })
+      .catch(() => setRecsLoading(false))
   }, [token])
+
+  const dismissRecommendation = async (rec: Recommendation) => {
+    if (!token || rec.sourceType !== 'opportunity') return
+    setRecommendations(prev => prev.filter(r => r.id !== rec.id))
+    await apiClient(`/api/opportunities/${rec.id}`, {
+      method: 'PATCH',
+      token,
+      body: JSON.stringify({ status: 'dismissed' }),
+    })
+  }
 
   const stats = useMemo(() => ({
     total: suggestions.length,
@@ -123,8 +166,23 @@ export default function ProactivePage() {
         }
       />
 
+      {/* View toggle: Queue (approve/dismiss suggestions) vs Recommendations (ranked across sources) */}
+      <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-2.5 flex items-center gap-1.5 flex-shrink-0">
+        {(['queue', 'recommendations'] as const).map(v => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              view === v ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {v === 'queue' ? 'Queue' : 'Recommendations'}
+          </button>
+        ))}
+      </div>
+
       {/* Filter strip */}
-      {types.length > 1 && (
+      {view === 'queue' && types.length > 1 && (
         <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-2.5 flex items-center gap-1.5 overflow-x-auto flex-shrink-0">
           {filterDefs.map(f => (
             <button
@@ -144,7 +202,57 @@ export default function ProactivePage() {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        {suggestions.length === 0 ? (
+        {view === 'recommendations' ? (
+          recsLoading ? (
+            <div className="max-w-2xl mx-auto space-y-4">
+              {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}
+            </div>
+          ) : recommendations.length === 0 ? (
+            <EmptyState
+              icon={<Flame className="w-10 h-10 text-indigo-500" />}
+              title="Nothing to prioritize"
+              description="No open opportunities, stalled deals, or pending suggestions right now."
+            />
+          ) : (
+            <div className="max-w-2xl mx-auto space-y-3">
+              {recommendations.map(r => (
+                <div key={`${r.sourceType}-${r.id}`} className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <Link href={`/contacts/${r.contact.id}`} className="flex-shrink-0">
+                      <Avatar name={r.contact.name} src={r.contact.avatarUrl ?? undefined} size="sm" />
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link href={`/contacts/${r.contact.id}`} className="text-sm font-medium text-gray-900 hover:text-indigo-600 transition-colors">
+                        {r.contact.name}
+                      </Link>
+                      <h3 className="text-sm font-semibold text-gray-900 mt-0.5">{r.title}</h3>
+                    </div>
+                    <Badge variant={SOURCE_VARIANTS[r.sourceType]} className="flex-shrink-0">{SOURCE_LABELS[r.sourceType]}</Badge>
+                  </div>
+                  {r.description && <p className="text-sm text-gray-600 leading-relaxed mt-2">{r.description}</p>}
+                  <div className="flex items-center justify-between mt-3">
+                    <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                      {r.estimatedValueCents !== null && (
+                        <span className="font-medium text-green-600">
+                          {(r.estimatedValueCents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })}
+                        </span>
+                      )}
+                      {r.confidence !== null && <span>{Math.round(r.confidence * 100)}% confidence</span>}
+                    </div>
+                    {r.sourceType === 'opportunity' && (
+                      <button
+                        onClick={() => dismissRecommendation(r)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />Dismiss
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : suggestions.length === 0 ? (
           <EmptyState
             icon={<Sparkles className="w-10 h-10 text-indigo-500" />}
             title="All caught up"
