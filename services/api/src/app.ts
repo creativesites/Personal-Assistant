@@ -32,6 +32,7 @@ import { socialPostsRoutes } from './routes/social-posts';
 import { dealsRoutes } from './routes/deals';
 import { opportunitiesRoutes } from './routes/opportunities';
 import { connectionsRoutes } from './routes/connections';
+import { relationshipsRoutes } from './routes/relationships';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -90,6 +91,7 @@ export async function buildApp() {
   await fastify.register(dealsRoutes);
   await fastify.register(opportunitiesRoutes);
   await fastify.register(connectionsRoutes);
+  await fastify.register(relationshipsRoutes);
 
   return fastify;
 }

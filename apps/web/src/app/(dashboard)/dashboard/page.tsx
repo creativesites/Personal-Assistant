@@ -54,6 +54,29 @@ interface MarketingSummary {
   topProduct: string | null
 }
 
+// AI Daily Brief (docs/RELATIONSHIP_OS_PLAN.md §5.3/§6.2) — a rendering
+// layer over proactive_queue/opportunities/relationships, not a new
+// detector. Every item already reads as a complete sentence fragment from
+// the API (headline), so the frontend just bolds the contact name and
+// appends detail/amount — no client-side composition logic needed.
+interface BriefItem {
+  id: string
+  sourceType: 'suggestion' | 'opportunity' | 'health_decline' | 'event'
+  headline: string
+  detail: string | null
+  amountCents: number | null
+  contact: { id: string; name: string; avatarUrl: string | null }
+}
+
+interface BriefData {
+  items: BriefItem[]
+  revenueAtRisk: { contactCount: number; cents: number } | null
+}
+
+function formatCents(cents: number) {
+  return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })
+}
+
 function timeAgo(ts: string | null) {
   if (!ts) return ''
   const diff = Date.now() - new Date(ts).getTime()
@@ -112,6 +135,7 @@ export default function DashboardPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [proactive, setProactive] = useState<ProactiveSuggestion[]>([])
+  const [brief, setBrief] = useState<BriefData | null>(null)
   const [marketing, setMarketing] = useState<MarketingSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -121,10 +145,12 @@ export default function DashboardPage() {
       apiClient<{ conversations: Conversation[] }>('/api/conversations', { token }),
       apiClient<{ contacts: Contact[] }>('/api/contacts', { token }),
       apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', { token }),
-    ]).then(([convRes, contactRes, proRes]) => {
+      apiClient<BriefData>('/api/proactive/brief', { token }),
+    ]).then(([convRes, contactRes, proRes, briefRes]) => {
       if (convRes.status === 'fulfilled') setConversations(convRes.value.conversations)
       if (contactRes.status === 'fulfilled') setContacts(contactRes.value.contacts)
       if (proRes.status === 'fulfilled') setProactive(proRes.value.suggestions)
+      if (briefRes.status === 'fulfilled') setBrief(briefRes.value)
       setLoading(false)
     })
   }, [token])
@@ -238,6 +264,47 @@ export default function DashboardPage() {
             )
           })}
         </div>
+
+        {/* AI Daily Brief — same greeting/place every morning, real names and numbers */}
+        {brief && (brief.items.length > 0 || brief.revenueAtRisk) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4 md:p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles size={15} className="text-indigo-500" />
+              <h2 className="text-sm font-semibold text-gray-900">
+                {mode === 'personal' ? "Here's who's on your mind today" : "Here's what changed overnight"}
+              </h2>
+            </div>
+            <div className="space-y-2">
+              {brief.items.map(item => (
+                <Link
+                  key={`${item.sourceType}-${item.id}`}
+                  href={`/contacts/${item.contact.id}`}
+                  className="flex items-start gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors group"
+                >
+                  <span className="text-gray-300 group-hover:text-indigo-400 flex-shrink-0 mt-0.5">—</span>
+                  <span className="leading-relaxed">
+                    <span className="font-semibold text-gray-900">{item.contact.name}</span>{' '}
+                    {item.headline}
+                    {item.detail && <span className="text-gray-500">. {item.detail}</span>}
+                    {item.amountCents !== null && (
+                      <span className="text-green-600 font-medium"> — {formatCents(item.amountCents)}</span>
+                    )}
+                  </span>
+                </Link>
+              ))}
+              {brief.revenueAtRisk && (
+                <div className="flex items-start gap-2 text-sm text-gray-600">
+                  <span className="text-gray-300 flex-shrink-0 mt-0.5">—</span>
+                  <span className="leading-relaxed">
+                    Revenue at risk:{' '}
+                    <span className="font-semibold text-red-600">{formatCents(brief.revenueAtRisk.cents)}</span>
+                    {' '}across {brief.revenueAtRisk.contactCount} customer{brief.revenueAtRisk.contactCount !== 1 ? 's' : ''}.
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Hybrid: split mode overview */}
         {mode === 'hybrid' && (

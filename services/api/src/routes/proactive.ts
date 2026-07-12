@@ -162,4 +162,95 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
       });
     },
   );
+
+  // ── AI Daily Brief (§5.3/§6.2) — a rendering layer, not a new detector:
+  // today's proactive_queue suggestions, open opportunities, declining
+  // relationships, and upcoming birthdays, deterministically composed into
+  // one-line facts the frontend prose-ifies. Revenue-at-risk is a single
+  // account-wide summary line, not per-contact, so it's returned separately.
+  fastify.get(
+    '/api/proactive/brief',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+
+      const [itemsResult, riskResult] = await Promise.all([
+        db.query(
+          `WITH today_suggestions AS (
+            SELECT 'suggestion'::text AS source_type, pq.id, pq.contact_id,
+                   pq.title AS headline, pq.body AS detail, NULL::bigint AS amount_cents,
+                   ((6 - pq.priority) * 20)::decimal AS score
+            FROM proactive_queue pq
+            WHERE pq.user_id = $1 AND pq.status = 'pending' AND pq.suggested_for_date = CURRENT_DATE
+
+            UNION ALL
+
+            SELECT 'opportunity'::text AS source_type, o.id, o.contact_id,
+                   o.title AS headline, o.description AS detail, o.estimated_value_cents AS amount_cents,
+                   (o.confidence * 60 + LEAST(40, COALESCE(o.estimated_value_cents, 0) / 100000.0))::decimal AS score
+            FROM opportunities o
+            WHERE o.user_id = $1 AND o.status = 'open' AND (o.expires_at IS NULL OR o.expires_at > NOW())
+              AND o.opportunity_type != 'churn_risk'
+
+            UNION ALL
+
+            SELECT 'health_decline'::text AS source_type, r.id, r.contact_id,
+                   ('Health dropped to ' || r.health_score) AS headline, rhl.change_reason AS detail,
+                   NULL::bigint AS amount_cents, (100 - r.health_score)::decimal AS score
+            FROM relationships r
+            LEFT JOIN LATERAL (
+              SELECT change_reason FROM relationship_health_logs
+              WHERE relationship_id = r.id ORDER BY logged_at DESC LIMIT 1
+            ) rhl ON true
+            WHERE r.user_id = $1 AND (r.health_score < 40 OR r.health_trend = 'declining')
+
+            UNION ALL
+
+            SELECT 'event'::text AS source_type, e.id, e.contact_id,
+                   (e.title || CASE WHEN e.event_date = CURRENT_DATE THEN ' is today' ELSE ' is tomorrow' END) AS headline,
+                   NULL::text AS detail, NULL::bigint AS amount_cents, 90::decimal AS score
+            FROM events e
+            WHERE e.user_id = $1 AND e.event_date IN (CURRENT_DATE, CURRENT_DATE + 1)
+              AND NOT EXISTS (
+                SELECT 1 FROM proactive_queue pq2
+                WHERE pq2.contact_id = e.contact_id AND pq2.user_id = $1
+                  AND pq2.suggested_for_date = CURRENT_DATE AND pq2.status = 'pending'
+              )
+          )
+          SELECT i.*, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url
+          FROM today_suggestions i
+          JOIN contacts c ON c.id = i.contact_id
+          ORDER BY i.score DESC
+          LIMIT 20`,
+          [userId],
+        ),
+        db.query(
+          `SELECT COUNT(DISTINCT d.contact_id) AS at_risk_count, COALESCE(SUM(d.value_cents), 0) AS at_risk_cents
+           FROM deals d
+           JOIN relationships r ON r.contact_id = d.contact_id AND r.user_id = d.user_id
+           WHERE d.user_id = $1 AND d.stage NOT IN ('closed_won', 'closed_lost')
+             AND (r.health_score < 50 OR r.health_trend = 'declining')`,
+          [userId],
+        ),
+      ]);
+
+      const risk = riskResult.rows[0];
+      const atRiskCount = parseInt(risk?.at_risk_count ?? '0', 10);
+
+      return reply.send({
+        items: itemsResult.rows.map((r: any) => ({
+          id: r.id,
+          sourceType: r.source_type,
+          headline: r.headline,
+          detail: r.detail,
+          amountCents: r.amount_cents !== null ? parseInt(r.amount_cents, 10) : null,
+          contact: { id: r.contact_id, name: r.contact_name, avatarUrl: r.avatar_url },
+        })),
+        revenueAtRisk: atRiskCount > 0 ? {
+          contactCount: atRiskCount,
+          cents: parseInt(risk.at_risk_cents, 10),
+        } : null,
+      });
+    },
+  );
 }
