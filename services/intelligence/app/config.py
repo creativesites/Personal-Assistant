@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     environment: str = 'development'
     api_url: str = 'http://localhost:3000'
     kb_storage_dir: str = '/app/kb-storage'
+    doc_storage_dir: str = '/app/doc-storage'
 
     anthropic_api_key: str = ''
     openai_api_key: str = ''

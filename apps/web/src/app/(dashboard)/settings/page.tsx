@@ -7,7 +7,7 @@ import { ModeBadge, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/
 import {
   Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2,
   UserCircle, SlidersHorizontal, Brain, Bot, Database, ShieldCheck,
-  Building2, Link2, ChevronRight,
+  Building2, Link2, ChevronRight, Palette, Upload,
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -67,6 +67,29 @@ interface SocialAccount {
   status: string
 }
 
+interface BusinessProfile {
+  companyName: string | null
+  logoUrl: string | null
+  address: string | null
+  phone: string | null
+  email: string | null
+  website: string | null
+  taxId: string | null
+  registrationNumber: string | null
+  bankDetails: { bankName?: string; accountName?: string; accountNumber?: string; branchCode?: string }
+  mobileMoney: { provider?: string; number?: string }
+  signatureUrl: string | null
+  stampUrl: string | null
+  themeColor: string
+  accentColor: string
+  footerText: string | null
+  defaultTerms: string | null
+  paymentInstructions: string | null
+  defaultCurrency: string
+  defaultTaxRate: number
+  numbering: Record<string, { prefix: string; next: number }>
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-slate-300/80">
@@ -104,6 +127,7 @@ const TAB_ICONS: Record<string, React.ElementType> = {
   privacy: ShieldCheck,
   enterprise: Building2,
   connected_accounts: Link2,
+  brand_kit: Palette,
 }
 
 export default function SettingsPage() {
@@ -205,6 +229,78 @@ export default function SettingsPage() {
       const data = await apiClient<{ accounts: SocialAccount[] }>('/api/social-accounts', { token })
       setSocialAccounts(data.accounts)
     } catch { /* ignore */ }
+  }
+
+  const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null)
+  const [brandKitLoaded, setBrandKitLoaded] = useState(false)
+  const [savingBrandKit, setSavingBrandKit] = useState(false)
+  const [uploadingAsset, setUploadingAsset] = useState<'logo' | 'signature' | 'stamp' | null>(null)
+
+  const loadBrandKit = async () => {
+    if (!token || brandKitLoaded) return
+    setBrandKitLoaded(true)
+    try {
+      const data = await apiClient<BusinessProfile>('/api/business-profile', { token })
+      setBusinessProfile(data)
+    } catch { /* ignore */ }
+  }
+
+  const saveBrandKit = async () => {
+    if (!token || !businessProfile) return
+    setSavingBrandKit(true)
+    try {
+      const data = await apiClient<BusinessProfile>('/api/business-profile', {
+        method: 'PUT',
+        token,
+        body: JSON.stringify({
+          companyName: businessProfile.companyName ?? '',
+          address: businessProfile.address ?? '',
+          phone: businessProfile.phone ?? '',
+          email: businessProfile.email ?? '',
+          website: businessProfile.website ?? '',
+          taxId: businessProfile.taxId ?? '',
+          registrationNumber: businessProfile.registrationNumber ?? '',
+          bankDetails: businessProfile.bankDetails,
+          mobileMoney: businessProfile.mobileMoney,
+          themeColor: businessProfile.themeColor,
+          accentColor: businessProfile.accentColor,
+          footerText: businessProfile.footerText ?? '',
+          defaultTerms: businessProfile.defaultTerms ?? '',
+          paymentInstructions: businessProfile.paymentInstructions ?? '',
+          defaultCurrency: businessProfile.defaultCurrency,
+          defaultTaxRate: businessProfile.defaultTaxRate,
+        }),
+      })
+      setBusinessProfile(data)
+      addToast({ variant: 'success', title: 'Brand Kit saved' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to save Brand Kit' })
+    } finally {
+      setSavingBrandKit(false)
+    }
+  }
+
+  const uploadBrandAsset = async (type: 'logo' | 'signature' | 'stamp', file: File) => {
+    if (!token) return
+    setUploadingAsset(type)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      const res = await fetch(`${apiUrl}/api/business-profile/assets?type=${type}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      if (!res.ok) throw new Error('Upload failed')
+      const data = await res.json() as BusinessProfile
+      setBusinessProfile(data)
+      addToast({ variant: 'success', title: `${type[0].toUpperCase()}${type.slice(1)} uploaded` })
+    } catch {
+      addToast({ variant: 'error', title: `Failed to upload ${type}` })
+    } finally {
+      setUploadingAsset(null)
+    }
   }
 
   const connectSocialAccount = async (platform: string) => {
@@ -606,12 +702,15 @@ export default function SettingsPage() {
       loadRetention()
     } else if (activeTab === 'connected_accounts' && !socialLoaded) {
       loadSocialAccounts()
+    } else if (activeTab === 'brand_kit' && !brandKitLoaded) {
+      loadBrandKit()
     }
-  }, [token, activeTab, enterpriseLoaded, autoResponseLoaded, memoryTabLoaded, retentionLoaded, socialLoaded])
+  }, [token, activeTab, enterpriseLoaded, autoResponseLoaded, memoryTabLoaded, retentionLoaded, socialLoaded, brandKitLoaded])
 
   const tabs = [
     { id: 'account',        label: 'Account' },
     { id: 'workspace',      label: 'Workspace' },
+    { id: 'brand_kit',      label: 'Brand Kit' },
     { id: 'intelligence',   label: 'AI Engines' },
     { id: 'auto_responses', label: 'Auto Responses' },
     { id: 'memory',         label: 'Memory' },
@@ -871,6 +970,236 @@ export default function SettingsPage() {
                         )
                       })}
                     </Section>
+                  </div>
+                )}
+
+                {/* ── Brand Kit tab (Zuri Business Workspace) ── */}
+                {currentTab === 'brand_kit' && businessProfile && (
+                  <div className="space-y-4 pt-2">
+                    <p className="text-sm text-gray-500">
+                      Your logo, contact details, colors, and payment info appear automatically on every quotation and invoice Zuri generates.
+                    </p>
+
+                    <Section title="Company Info">
+                      <div className="px-5 py-4 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Company name</label>
+                            <input
+                              value={businessProfile.companyName ?? ''}
+                              onChange={e => setBusinessProfile(p => p && { ...p, companyName: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Phone</label>
+                            <input
+                              value={businessProfile.phone ?? ''}
+                              onChange={e => setBusinessProfile(p => p && { ...p, phone: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Email</label>
+                            <input
+                              value={businessProfile.email ?? ''}
+                              onChange={e => setBusinessProfile(p => p && { ...p, email: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Website</label>
+                            <input
+                              value={businessProfile.website ?? ''}
+                              onChange={e => setBusinessProfile(p => p && { ...p, website: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">TPIN / Tax ID</label>
+                            <input
+                              value={businessProfile.taxId ?? ''}
+                              onChange={e => setBusinessProfile(p => p && { ...p, taxId: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Registration number</label>
+                            <input
+                              value={businessProfile.registrationNumber ?? ''}
+                              onChange={e => setBusinessProfile(p => p && { ...p, registrationNumber: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Address</label>
+                          <textarea
+                            rows={2}
+                            value={businessProfile.address ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, address: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    </Section>
+
+                    <Section title="Branding">
+                      <div className="px-5 py-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Theme color</label>
+                            <input
+                              type="color"
+                              value={businessProfile.themeColor}
+                              onChange={e => setBusinessProfile(p => p && { ...p, themeColor: e.target.value })}
+                              className="w-full h-9 border border-gray-300 rounded-lg px-1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Accent color</label>
+                            <input
+                              type="color"
+                              value={businessProfile.accentColor}
+                              onChange={e => setBusinessProfile(p => p && { ...p, accentColor: e.target.value })}
+                              className="w-full h-9 border border-gray-300 rounded-lg px-1"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {([
+                            { type: 'logo' as const, label: 'Logo', url: businessProfile.logoUrl },
+                            { type: 'signature' as const, label: 'Signature', url: businessProfile.signatureUrl },
+                            { type: 'stamp' as const, label: 'Stamp', url: businessProfile.stampUrl },
+                          ]).map(asset => (
+                            <div key={asset.type} className="border border-gray-200 rounded-lg p-3 text-center">
+                              <p className="text-xs font-medium text-gray-700 mb-2">{asset.label}</p>
+                              {asset.url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}${asset.url}?token=${token}`} alt={asset.label} className="h-12 mx-auto object-contain mb-2" />
+                              ) : (
+                                <div className="h-12 flex items-center justify-center text-gray-300 mb-2"><Upload className="w-5 h-5" /></div>
+                              )}
+                              <label className="text-xs text-indigo-600 hover:text-indigo-700 font-medium cursor-pointer">
+                                {uploadingAsset === asset.type ? 'Uploading…' : asset.url ? 'Replace' : 'Upload'}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={uploadingAsset !== null}
+                                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadBrandAsset(asset.type, f) }}
+                                />
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </Section>
+
+                    <Section title="Payment Details">
+                      <div className="px-5 py-4 space-y-3">
+                        <p className="text-xs text-gray-400">Shown on quotations and invoices so customers know how to pay.</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <input
+                            placeholder="Bank name"
+                            value={businessProfile.bankDetails.bankName ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, bankDetails: { ...p.bankDetails, bankName: e.target.value } })}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            placeholder="Account name"
+                            value={businessProfile.bankDetails.accountName ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, bankDetails: { ...p.bankDetails, accountName: e.target.value } })}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            placeholder="Account number"
+                            value={businessProfile.bankDetails.accountNumber ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, bankDetails: { ...p.bankDetails, accountNumber: e.target.value } })}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            placeholder="Branch code"
+                            value={businessProfile.bankDetails.branchCode ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, bankDetails: { ...p.bankDetails, branchCode: e.target.value } })}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            placeholder="Mobile money provider"
+                            value={businessProfile.mobileMoney.provider ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, mobileMoney: { ...p.mobileMoney, provider: e.target.value } })}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <input
+                            placeholder="Mobile money number"
+                            value={businessProfile.mobileMoney.number ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, mobileMoney: { ...p.mobileMoney, number: e.target.value } })}
+                            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <textarea
+                          rows={2}
+                          placeholder="Payment instructions (e.g. 'Payment due within 14 days of invoice date')"
+                          value={businessProfile.paymentInstructions ?? ''}
+                          onChange={e => setBusinessProfile(p => p && { ...p, paymentInstructions: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </Section>
+
+                    <Section title="Defaults">
+                      <div className="px-5 py-4 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Default currency</label>
+                            <input
+                              value={businessProfile.defaultCurrency}
+                              onChange={e => setBusinessProfile(p => p && { ...p, defaultCurrency: e.target.value.toUpperCase().slice(0, 3) })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-500 mb-1">Default tax rate (%)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={businessProfile.defaultTaxRate}
+                              onChange={e => setBusinessProfile(p => p && { ...p, defaultTaxRate: parseFloat(e.target.value) || 0 })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Default terms &amp; conditions</label>
+                          <textarea
+                            rows={3}
+                            value={businessProfile.defaultTerms ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, defaultTerms: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Footer text</label>
+                          <input
+                            value={businessProfile.footerText ?? ''}
+                            onChange={e => setBusinessProfile(p => p && { ...p, footerText: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    </Section>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={saveBrandKit}
+                        disabled={savingBrandKit}
+                        className="px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                      >
+                        {savingBrandKit ? 'Saving…' : 'Save Brand Kit'}
+                      </button>
+                    </div>
                   </div>
                 )}
 

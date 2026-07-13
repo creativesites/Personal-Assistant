@@ -13,7 +13,7 @@ import {
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, UserCheck,
-  WifiOff, Loader2, ChevronLeft, ChevronRight, Send
+  WifiOff, Loader2, ChevronLeft, ChevronRight, Send, FileText
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -50,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/inbox/queue', label: 'AI Queue',    icon: Zap },
       { href: '/contacts',    label: 'Contacts',    icon: Users },
       { href: '/leads',       label: 'Leads',       icon: Flame },
+      { href: '/business',    label: 'Documents',   icon: FileText },
       { href: '/analytics',   label: 'Intelligence', icon: TrendingUp },
       { href: '/broadcasts',  label: 'Broadcasts',  icon: Radio },
     ],

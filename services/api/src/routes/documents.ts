@@ -1,0 +1,337 @@
+import type { FastifyInstance } from 'fastify';
+import * as fs from 'fs/promises';
+import { z } from 'zod';
+import { db } from '../lib/db';
+import { authenticate } from '../plugins/authenticate';
+import { config } from '../config';
+import { getOrCreateProfile } from './business-profile';
+
+// Phase 0 only ships a renderer for these two — the full document_type list
+// already exists on the documents table (see migration 0043) to avoid a
+// churny type-widening migration once later phases add more templates.
+const PHASE_0_TYPES = ['quotation', 'invoice'] as const;
+
+const lineItemSchema = z.object({
+  productId: z.string().uuid().optional(),
+  description: z.string().min(1).max(500),
+  quantity: z.number().positive(),
+  unitPriceCents: z.number().int().nonnegative(),
+  discountPct: z.number().min(0).max(100).optional(),
+  taxPct: z.number().min(0).max(100).optional(),
+});
+
+const createBody = z.object({
+  contactId: z.string().uuid().optional(),
+  documentType: z.enum(PHASE_0_TYPES),
+  title: z.string().max(255).optional(),
+  currency: z.string().length(3).optional(),
+  items: z.array(lineItemSchema).min(1),
+  notes: z.string().max(2000).optional(),
+  terms: z.string().max(4000).optional(),
+  validUntil: z.string().optional(),
+  dueDate: z.string().optional(),
+  templateId: z.string().uuid().optional(),
+  dealId: z.string().uuid().optional(),
+  opportunityId: z.string().uuid().optional(),
+  conversationId: z.string().uuid().optional(),
+});
+
+const updateBody = createBody.partial().extend({
+  documentType: z.enum(PHASE_0_TYPES).optional(),
+});
+
+function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
+  let subtotalCents = 0;
+  let discountCents = 0;
+  let taxCents = 0;
+
+  const computedItems = items.map((item) => {
+    const lineSubtotal = Math.round(item.quantity * item.unitPriceCents);
+    const discount = Math.round(lineSubtotal * ((item.discountPct ?? 0) / 100));
+    const afterDiscount = lineSubtotal - discount;
+    const tax = Math.round(afterDiscount * ((item.taxPct ?? 0) / 100));
+    const lineTotalCents = afterDiscount + tax;
+
+    subtotalCents += lineSubtotal;
+    discountCents += discount;
+    taxCents += tax;
+
+    return { ...item, lineTotalCents };
+  });
+
+  return { computedItems, subtotalCents, discountCents, taxCents, totalCents: subtotalCents - discountCents + taxCents };
+}
+
+async function assignDocumentNumber(userId: string, documentType: string): Promise<string> {
+  await getOrCreateProfile(userId);
+
+  const { rows: [row] } = await db.query(
+    `WITH current AS (
+       SELECT COALESCE((numbering->$1->>'next')::int, 1) AS n,
+              COALESCE(numbering->$1->>'prefix', upper($1) || '-') AS prefix
+       FROM business_profiles WHERE user_id = $2
+       FOR UPDATE
+     )
+     UPDATE business_profiles
+     SET numbering = jsonb_set(
+           numbering, ARRAY[$1, 'next'], to_jsonb((SELECT n FROM current) + 1), true
+         ),
+         updated_at = NOW()
+     WHERE user_id = $2
+     RETURNING (SELECT prefix FROM current) AS prefix, (SELECT n FROM current) AS assigned`,
+    [documentType, userId],
+  );
+
+  return `${row.prefix}${row.assigned}`;
+}
+
+function formatDocument(r: any) {
+  return {
+    id: r.id,
+    documentType: r.document_type,
+    documentCategory: r.document_category,
+    documentNumber: r.document_number,
+    title: r.title,
+    status: r.status,
+    structuredData: r.structured_data,
+    currency: r.currency,
+    subtotalCents: Number(r.subtotal_cents),
+    discountCents: Number(r.discount_cents),
+    taxCents: Number(r.tax_cents),
+    totalCents: Number(r.total_cents),
+    version: r.version,
+    sourceDocumentId: r.source_document_id,
+    requestedBy: r.requested_by,
+    aiGenerated: r.ai_generated,
+    aiReasoning: r.ai_reasoning,
+    aiSummary: r.ai_summary,
+    hasPdf: !!r.storage_path,
+    contactId: r.contact_id,
+    dealId: r.deal_id,
+    opportunityId: r.opportunity_id,
+    conversationId: r.conversation_id,
+    templateId: r.template_id,
+    contact: r.contact_name ? { id: r.contact_id, name: r.contact_name, avatarUrl: r.avatar_url ?? null } : null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    sentAt: r.sent_at,
+    viewedAt: r.viewed_at,
+    paidAt: r.paid_at,
+  };
+}
+
+export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get('/api/document-templates', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { rows } = await db.query(
+      `SELECT id, name, layout_key, category, applicable_to, is_system
+       FROM document_templates WHERE is_system = TRUE OR user_id = $1
+       ORDER BY is_system DESC, name ASC`,
+      [userId],
+    );
+    return reply.send({
+      templates: rows.map((r: any) => ({
+        id: r.id, name: r.name, layoutKey: r.layout_key, category: r.category,
+        applicableTo: r.applicable_to, isSystem: r.is_system,
+      })),
+    });
+  });
+
+  fastify.get('/api/documents', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { type, status, contactId } = request.query as { type?: string; status?: string; contactId?: string };
+
+    const conditions = ['d.user_id = $1'];
+    const params: any[] = [userId];
+    if (type) { params.push(type); conditions.push(`d.document_type = $${params.length}`); }
+    if (status) { params.push(status); conditions.push(`d.status = $${params.length}`); }
+    if (contactId) { params.push(contactId); conditions.push(`d.contact_id = $${params.length}`); }
+
+    const { rows } = await db.query(
+      `SELECT d.*, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url
+       FROM documents d
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY d.created_at DESC
+       LIMIT 100`,
+      params,
+    );
+    return reply.send({ documents: rows.map(formatDocument) });
+  });
+
+  fastify.get('/api/documents/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { rows: [doc] } = await db.query(
+      `SELECT d.*, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url
+       FROM documents d LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE d.id = $1 AND d.user_id = $2`,
+      [id, userId],
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows: events } = await db.query(
+      'SELECT event_type, metadata, occurred_at FROM document_events WHERE document_id = $1 ORDER BY occurred_at ASC',
+      [id],
+    );
+
+    return reply.send({
+      document: formatDocument(doc),
+      events: events.map((e: any) => ({ eventType: e.event_type, metadata: e.metadata, occurredAt: e.occurred_at })),
+    });
+  });
+
+  fastify.post('/api/documents', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const body = createBody.parse(request.body);
+
+    const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(body.items);
+    const documentNumber = await assignDocumentNumber(userId, body.documentType);
+    const title = body.title ?? `${body.documentType[0].toUpperCase()}${body.documentType.slice(1)} ${documentNumber}`;
+
+    const structuredData = {
+      items: computedItems,
+      notes: body.notes ?? null,
+      terms: body.terms ?? null,
+      validUntil: body.validUntil ?? null,
+      dueDate: body.dueDate ?? null,
+    };
+
+    const { rows: [doc] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents, requested_by, ai_generated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'sales',$8,$9,'draft',$10,$11,$12,$13,$14,$15,'user',false)
+       RETURNING *`,
+      [
+        userId, body.contactId ?? null, body.dealId ?? null, body.opportunityId ?? null,
+        body.conversationId ?? null, body.templateId ?? null, body.documentType, documentNumber, title,
+        JSON.stringify(structuredData), body.currency ?? 'ZMW', subtotalCents, discountCents, taxCents, totalCents,
+      ],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', '{}')`,
+      [doc.id],
+    );
+
+    return reply.code(201).send({ document: formatDocument(doc) });
+  });
+
+  fastify.patch('/api/documents/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = updateBody.parse(request.body);
+
+    const { rows: [existing] } = await db.query(
+      'SELECT * FROM documents WHERE id = $1 AND user_id = $2', [id, userId],
+    );
+    if (!existing) return reply.code(404).send({ error: 'Document not found' });
+    if (existing.status !== 'draft') {
+      return reply.code(400).send({ error: 'Only draft documents can be edited' });
+    }
+
+    const items = body.items ?? existing.structured_data?.items ?? [];
+    const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(items);
+
+    const structuredData = {
+      items: computedItems,
+      notes: body.notes ?? existing.structured_data?.notes ?? null,
+      terms: body.terms ?? existing.structured_data?.terms ?? null,
+      validUntil: body.validUntil ?? existing.structured_data?.validUntil ?? null,
+      dueDate: body.dueDate ?? existing.structured_data?.dueDate ?? null,
+    };
+
+    const { rows: [updated] } = await db.query(
+      `UPDATE documents SET
+         contact_id = COALESCE($1, contact_id),
+         title = COALESCE($2, title),
+         structured_data = $3,
+         currency = COALESCE($4, currency),
+         subtotal_cents = $5, discount_cents = $6, tax_cents = $7, total_cents = $8,
+         template_id = COALESCE($9, template_id),
+         updated_at = NOW()
+       WHERE id = $10
+       RETURNING *`,
+      [
+        body.contactId ?? null, body.title ?? null, JSON.stringify(structuredData), body.currency ?? null,
+        subtotalCents, discountCents, taxCents, totalCents, body.templateId ?? null, id,
+      ],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'edited', '{}')`,
+      [id],
+    );
+
+    return reply.send({ document: formatDocument(updated) });
+  });
+
+  // ── POST /api/documents/:id/generate — renders the PDF via the
+  // intelligence service, which owns the actual layout/PDF work (see
+  // docs/BUSINESS_WORKSPACE_PLAN.md §4). This route is a thin proxy, same
+  // pattern as conversations.ts's /summarize.
+  fastify.post('/api/documents/:id/generate', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query('SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/${id}/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        fastify.log.error({ errText }, 'document_render_failed');
+        return reply.code(502).send({ error: 'Failed to generate document' });
+      }
+      const data = await res.json() as { id: string; status: string; storagePath: string };
+      return reply.send({ ok: true, status: data.status });
+    } catch (err) {
+      fastify.log.error({ err }, 'document_render_error');
+      return reply.code(502).send({ error: 'Failed to generate document' });
+    }
+  });
+
+  // ── GET /api/documents/:id/pdf — serves the rendered PDF. Business
+  // documents are sensitive (customer pricing, bank details), so unlike
+  // media.ts's WhatsApp media this always requires a valid JWT — no
+  // optional-token bypass.
+  fastify.get('/api/documents/:id/pdf', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query(
+      'SELECT storage_path, document_number FROM documents WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!doc?.storage_path) return reply.code(404).send({ error: 'PDF not generated yet' });
+
+    try {
+      const buf = await fs.readFile(doc.storage_path);
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `inline; filename="${doc.document_number}.pdf"`);
+      return reply.send(buf);
+    } catch {
+      return reply.code(404).send({ error: 'PDF file missing on disk' });
+    }
+  });
+
+  fastify.delete('/api/documents/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { rows: [existing] } = await db.query(
+      'SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId],
+    );
+    if (!existing) return reply.code(404).send({ error: 'Document not found' });
+
+    await db.query(`UPDATE documents SET status = 'archived', updated_at = NOW() WHERE id = $1`, [id]);
+    return reply.send({ ok: true });
+  });
+}

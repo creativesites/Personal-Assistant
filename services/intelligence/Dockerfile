@@ -5,6 +5,10 @@ WORKDIR /app
 # Install dependencies first for layer caching
 COPY services/intelligence/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+# Chromium + system libs for the document rendering pipeline (see
+# docs/BUSINESS_WORKSPACE_PLAN.md §4) — Playwright never touches a user's
+# browser, this is purely headless HTML-to-PDF rendering server-side.
+RUN playwright install --with-deps chromium
 
 # Copy service code
 COPY services/intelligence/ ./

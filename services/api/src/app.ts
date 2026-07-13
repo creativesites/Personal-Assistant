@@ -35,6 +35,8 @@ import { connectionsRoutes } from './routes/connections';
 import { relationshipsRoutes } from './routes/relationships';
 import { goalsRoutes } from './routes/goals';
 import { diagnosticsRoutes } from './routes/diagnostics';
+import { businessProfileRoutes } from './routes/business-profile';
+import { documentsRoutes } from './routes/documents';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -96,6 +98,8 @@ export async function buildApp() {
   await fastify.register(relationshipsRoutes);
   await fastify.register(goalsRoutes);
   await fastify.register(diagnosticsRoutes);
+  await fastify.register(businessProfileRoutes);
+  await fastify.register(documentsRoutes);
 
   return fastify;
 }
