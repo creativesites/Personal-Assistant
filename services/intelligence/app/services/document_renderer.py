@@ -87,7 +87,11 @@ def build_document_context(document: dict, contact: dict | None) -> tuple[dict, 
         'issueDate': document['created_at'].strftime('%d %b %Y'),
         'validUntil': structured.get('validUntil'),
         'dueDate': structured.get('dueDate'),
-        'items': rendered_items,
+        # Named lineItems, not items — Jinja2 resolves `document.items` to
+        # dict.items() (the builtin method) before falling back to the key,
+        # since document is a plain dict. Avoid the footgun entirely.
+        'lineItems': rendered_items,
+        'hasItems': bool(rendered_items),
         'hasDiscounts': has_discounts,
         'subtotal': format_money(document['subtotal_cents'], currency),
         'discount': format_money(document['discount_cents'], currency) if document['discount_cents'] else None,
@@ -95,6 +99,9 @@ def build_document_context(document: dict, contact: dict | None) -> tuple[dict, 
         'total': format_money(document['total_cents'], currency),
         'notes': structured.get('notes'),
         'terms': structured.get('terms'),
+        # Proposals/contracts (plan §7) — narrative prose instead of/alongside
+        # line items. Rendered by the same minimal/modern templates.
+        'sections': structured.get('sections') or [],
     }
 
     contact_name = 'Contact'

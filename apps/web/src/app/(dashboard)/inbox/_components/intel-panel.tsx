@@ -18,6 +18,7 @@ import { TONE_STYLE, MOCK_ACTIONS } from '../_lib/constants'
 import { formatTime } from '../_lib/utils'
 import { ScoreRing } from './score-ring'
 import { ProactiveCard } from './proactive-card'
+import { DocumentSuggestionCard } from './document-suggestion-card'
 import { InlineAICard, type AIInsight } from './inline-ai-card'
 import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
 
@@ -436,13 +437,17 @@ export function IntelPanel({
           <div className="divide-y divide-gray-50">
             {contact && (() => {
               const proactives = contactDetail?.proactiveSuggestions ?? []
+              const documentSuggestion = contactDetail?.documentSuggestion ?? null
               const birthday = contactDetail?.upcomingEvents?.find(e => e.eventType === 'birthday')
               const isDormant = healthScore < 35
               const hasPromises = promises.length > 0
-              if (proactives.length === 0 && !birthday && !isDormant && !hasPromises) return null
+              if (proactives.length === 0 && !documentSuggestion && !birthday && !isDormant && !hasPromises) return null
               return (
                 <div className="p-4 space-y-2.5">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reminders</p>
+                  {documentSuggestion && token && (
+                    <DocumentSuggestionCard contactId={contact.id} suggestion={documentSuggestion} token={token} />
+                  )}
                   {proactives.map(s => (
                     <ProactiveCard key={s.id} suggestion={s}
                       onSend={(draft) => { if (draft) { onSetDraft(draft); draftFocus() } onApproveProactive(s.id) }}

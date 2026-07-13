@@ -70,6 +70,13 @@
     </div>
   </div>
 
+  {% if document.sections %}
+  {% for sec in document.sections %}
+  <div class="section"><h3>{{ sec.heading }}</h3><p>{{ sec.body }}</p></div>
+  {% endfor %}
+  {% endif %}
+
+  {% if document.hasItems %}
   <table class="items">
     <thead>
       <tr>
@@ -81,7 +88,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for item in document.items %}
+      {% for item in document.lineItems %}
       <tr>
         <td>{{ item.description }}</td>
         <td class="num">{{ item.quantity }}</td>
@@ -99,6 +106,7 @@
     {% if document.tax %}<div class="row"><span>Tax</span><span>{{ document.tax }}</span></div>{% endif %}
     <div class="row grand"><span>Total</span><span>{{ document.total }}</span></div>
   </div>
+  {% endif %}
 
   {% if document.notes %}
   <div class="section"><h3>Notes</h3><p>{{ document.notes }}</p></div>

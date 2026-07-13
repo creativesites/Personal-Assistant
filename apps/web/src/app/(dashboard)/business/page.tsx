@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle } from 'lucide-react'
+import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle, Sparkles, ShieldCheck } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
@@ -16,8 +16,16 @@ interface DocumentSummary {
   currency: string
   totalCents: number
   hasPdf: boolean
+  aiGenerated: boolean
+  aiSummary: string | null
   contact: { id: string; name: string; avatarUrl: string | null } | null
   createdAt: string
+}
+
+interface QualityCheckResult {
+  score: number
+  issues: string[]
+  recommendation: string
 }
 
 interface Contact {
@@ -86,6 +94,8 @@ export default function BusinessPage() {
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [convertingId, setConvertingId] = useState<string | null>(null)
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null)
+  const [checkingQualityId, setCheckingQualityId] = useState<string | null>(null)
+  const [qualityResults, setQualityResults] = useState<Record<string, QualityCheckResult>>({})
 
   const loadDocuments = () => {
     if (!token) return
@@ -177,6 +187,19 @@ export default function BusinessPage() {
     }
   }
 
+  const checkQuality = async (id: string) => {
+    if (!token) return
+    setCheckingQualityId(id)
+    try {
+      const result = await apiClient<QualityCheckResult>(`/api/documents/${id}/quality-check`, { method: 'POST', token })
+      setQualityResults(prev => ({ ...prev, [id]: result }))
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to check quality' })
+    } finally {
+      setCheckingQualityId(null)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -244,11 +267,35 @@ export default function BusinessPage() {
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-900">{doc.contact?.name ?? 'No contact'}</span>
                       <span className="text-xs text-gray-400">{doc.documentNumber}</span>
+                      {doc.aiGenerated && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5">
+                          <Sparkles className="w-2.5 h-2.5" />AI
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 truncate">{doc.title}</p>
                   </div>
                   <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
                 </div>
+
+                {doc.aiSummary && (
+                  <p className="text-xs text-gray-500 leading-relaxed mt-2 bg-gray-50 rounded-lg px-2.5 py-1.5">{doc.aiSummary}</p>
+                )}
+
+                {qualityResults[doc.id] && (
+                  <div className="mt-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                    <p className="text-xs font-semibold text-amber-800">Quality: {qualityResults[doc.id].score}/10</p>
+                    {qualityResults[doc.id].issues.length > 0 && (
+                      <ul className="text-[11px] text-amber-700 list-disc list-inside mt-0.5">
+                        {qualityResults[doc.id].issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                      </ul>
+                    )}
+                    {qualityResults[doc.id].recommendation && (
+                      <p className="text-[11px] text-amber-700 mt-0.5">{qualityResults[doc.id].recommendation}</p>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between mt-3">
                   <span className="text-sm font-semibold text-gray-900">{formatMoney(doc.totalCents, doc.currency)}</span>
                   <div className="flex items-center gap-2">
@@ -268,6 +315,9 @@ export default function BusinessPage() {
                         </button>
                         <button onClick={() => generatePdf(doc.id)} disabled={generatingId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
                           {generatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}Regenerate
+                        </button>
+                        <button onClick={() => checkQuality(doc.id)} disabled={checkingQualityId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
+                          {checkingQualityId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}Check Quality
                         </button>
                       </>
                     ) : (
@@ -320,11 +370,17 @@ export default function BusinessPage() {
   )
 }
 
+const AI_DOCUMENT_TYPES = ['quotation', 'invoice', 'proposal', 'contract'] as const
+
 function NewDocumentModal({ token, onClose, onCreated }: { token: string | null | undefined; onClose: () => void; onCreated: () => void }) {
   const { addToast } = useToast()
+  const [mode, setMode] = useState<'manual' | 'ai'>('manual')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [contactId, setContactId] = useState('')
   const [documentType, setDocumentType] = useState<'quotation' | 'invoice'>('quotation')
+  const [aiDocumentType, setAiDocumentType] = useState<typeof AI_DOCUMENT_TYPES[number]>('quotation')
+  const [instruction, setInstruction] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
   const [items, setItems] = useState<LineItem[]>([emptyItem()])
   const [notes, setNotes] = useState('')
   const [terms, setTerms] = useState('')
@@ -385,6 +441,25 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
     }
   }
 
+  const generateWithAI = async () => {
+    if (!token || !contactId || !instruction.trim()) return
+    setAiGenerating(true)
+    try {
+      const data = await apiClient<{ document: { id: string } }>('/api/documents/ai-generate', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ contactId, documentType: aiDocumentType, instruction: instruction.trim() }),
+      })
+      await apiClient(`/api/documents/${data.document.id}/generate`, { method: 'POST', token })
+      addToast({ variant: 'success', title: `${aiDocumentType[0].toUpperCase()}${aiDocumentType.slice(1)} generated` })
+      onCreated()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to generate document', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -393,6 +468,83 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
         </div>
 
+        <div className="flex items-center gap-1.5 px-5 pt-4">
+          {([{ id: 'manual' as const, label: 'Manual' }, { id: 'ai' as const, label: 'AI Generate' }]).map(m => (
+            <button
+              key={m.id}
+              onClick={() => setMode(m.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                mode === m.id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {m.id === 'ai' && <Sparkles className="w-3 h-3 inline mr-1 -mt-0.5" />}
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'ai' ? (
+          <>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Type</label>
+                  <select
+                    value={aiDocumentType}
+                    onChange={e => setAiDocumentType(e.target.value as typeof AI_DOCUMENT_TYPES[number])}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {AI_DOCUMENT_TYPES.map(t => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Contact</label>
+                  <select
+                    value={contactId}
+                    onChange={e => setContactId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Select a contact…</option>
+                    {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Describe what {aiDocumentType === 'quotation' ? 'to quote' : aiDocumentType === 'invoice' ? 'to invoice' : `the ${aiDocumentType} covers`}
+                </label>
+                <textarea
+                  placeholder={
+                    aiDocumentType === 'quotation' || aiDocumentType === 'invoice'
+                      ? "e.g. 2 iPhone 15 Pro and 5 AirPods, delivery Friday, 10% discount"
+                      : "e.g. Website redesign for ABC Construction, budget K120,000, 6-week timeline"
+                  }
+                  rows={4}
+                  value={instruction}
+                  onChange={e => setInstruction(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  AI resolves products against your catalog and fills in the numbers — it never invents pricing or products.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
+              <button onClick={onClose} className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-xl">Cancel</button>
+              <button
+                onClick={generateWithAI}
+                disabled={aiGenerating || !contactId || !instruction.trim()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {aiGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {aiGenerating ? 'Generating…' : 'Generate with AI'}
+              </button>
+            </div>
+          </>
+        ) : (
+        <>
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -519,6 +671,8 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
             {saving ? 'Creating…' : 'Create & Generate PDF'}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   )

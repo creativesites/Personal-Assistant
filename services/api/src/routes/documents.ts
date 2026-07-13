@@ -21,6 +21,14 @@ const MANUAL_STATUSES = ['sent', 'accepted', 'rejected', 'paid', 'archived'] as 
 // churny type-widening migration once later phases add more templates.
 const PHASE_0_TYPES = ['quotation', 'invoice'] as const;
 
+// Phase 2 (AI generation) additionally supports proposals/contracts — the
+// minimal/modern templates render narrative "sections" generically, so no
+// new template file was needed, just a wider type list. See plan §7/§11.
+const AI_GENERATE_TYPES = ['quotation', 'invoice', 'proposal', 'contract'] as const;
+const DOCUMENT_CATEGORY: Record<string, string> = {
+  quotation: 'sales', invoice: 'sales', proposal: 'sales', contract: 'legal',
+};
+
 const lineItemSchema = z.object({
   productId: z.string().uuid().optional(),
   description: z.string().min(1).max(500),
@@ -306,6 +314,125 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     } catch (err) {
       fastify.log.error({ err }, 'document_render_error');
       return reply.code(502).send({ error: 'Failed to generate document' });
+    }
+  });
+
+  // ── POST /api/documents/ai-generate — conversational creation (plan §7).
+  // Resolves against a picked contactId (never free-text name matching —
+  // see the intelligence route's own note on why) and a real product
+  // catalog; the model only fills in structured data, never layout.
+  fastify.post('/api/documents/ai-generate', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const body = z.object({
+      contactId: z.string().uuid(),
+      documentType: z.enum(AI_GENERATE_TYPES),
+      instruction: z.string().min(3).max(2000),
+      dealId: z.string().uuid().optional(),
+      opportunityId: z.string().uuid().optional(),
+      conversationId: z.string().uuid().optional(),
+    }).parse(request.body);
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    let generated: {
+      items: z.infer<typeof lineItemSchema>[]; sections: { heading: string; body: string }[];
+      notes: string; terms: string; validUntil: string | null; dueDate: string | null;
+      reasoning: string; insights: { key: string; value: string; confidence?: number }[];
+    };
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId, contact_id: body.contactId,
+          document_type: body.documentType, instruction: body.instruction,
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        fastify.log.error({ errText }, 'document_ai_generate_failed');
+        return reply.code(502).send({ error: 'Failed to generate document data' });
+      }
+      generated = await res.json() as typeof generated;
+    } catch (err) {
+      fastify.log.error({ err }, 'document_ai_generate_error');
+      return reply.code(502).send({ error: 'Failed to generate document data' });
+    }
+
+    const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(generated.items);
+    const documentNumber = await assignDocumentNumber(userId, body.documentType);
+    const title = `${body.documentType[0].toUpperCase()}${body.documentType.slice(1)} ${documentNumber}`;
+
+    const structuredData = {
+      items: computedItems,
+      sections: generated.sections,
+      notes: generated.notes || null,
+      terms: generated.terms || null,
+      validUntil: generated.validUntil,
+      dueDate: generated.dueDate,
+    };
+
+    const { rows: [doc] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          subtotal_cents, discount_cents, tax_cents, total_cents,
+          requested_by, ai_generated, ai_reasoning)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10,$11,$12,$13,$14,'user',true,$15)
+       RETURNING *`,
+      [
+        userId, body.contactId, body.dealId ?? null, body.opportunityId ?? null, body.conversationId ?? null,
+        body.documentType, DOCUMENT_CATEGORY[body.documentType] ?? 'sales', documentNumber, title,
+        JSON.stringify(structuredData), subtotalCents, discountCents, taxCents, totalCents, generated.reasoning || null,
+      ],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2)`,
+      [doc.id, JSON.stringify({ aiGenerated: true })],
+    );
+
+    // AI Document Memory (plan §7) — ordinary contact_insights rows, so
+    // every existing consumer (profiler, reply generation) already picks
+    // these up. Only what the model explicitly extracted, never guessed.
+    for (const insight of generated.insights ?? []) {
+      if (!insight.key || !insight.value) continue;
+      await db.query(
+        `INSERT INTO contact_insights
+           (contact_id, user_id, insight_key, insight_value, confidence, supporting_text, source, source_document_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'document', $7)`,
+        [body.contactId, userId, insight.key, insight.value, insight.confidence ?? 0.6, body.instruction.slice(0, 500), doc.id],
+      );
+    }
+
+    return reply.code(201).send({ document: formatDocument(doc) });
+  });
+
+  // ── POST /api/documents/:id/quality-check — advisory only, never blocks
+  // sending. See plan §15 Phase 2.
+  fastify.post('/api/documents/:id/quality-check', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query('SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/${id}/quality-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        fastify.log.error({ errText }, 'document_quality_check_failed');
+        return reply.code(502).send({ error: 'Failed to check document quality' });
+      }
+      const data = await res.json() as { score: number; issues: string[]; recommendation: string };
+      return reply.send(data);
+    } catch (err) {
+      fastify.log.error({ err }, 'document_quality_check_error');
+      return reply.code(502).send({ error: 'Failed to check document quality' });
     }
   });
 

@@ -2,6 +2,48 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 
+// Business Workspace Phase 2 §7 — the Inbox AI Action card's signal.
+// 'quoted' means the customer asked for pricing; if a live quotation
+// already exists there's nothing new to suggest.
+function buildDocumentSuggestion(productRows: any[], openQuotationRow: any) {
+  if (parseInt(openQuotationRow?.n ?? '0', 10) > 0) return null;
+
+  const quoted = productRows.filter((p) => p.relation_type === 'quoted');
+  if (quoted.length === 0) return null;
+
+  const currency = quoted[0].currency ?? 'ZMW';
+  let estimatedTotalCents = 0;
+  const products = quoted.map((p) => {
+    const unitPriceCents = p.price !== null ? Math.round(parseFloat(p.price) * 100) : 0;
+    const quantity = p.quantity ?? 1;
+    estimatedTotalCents += unitPriceCents * quantity;
+    return { productId: p.product_id, name: p.product_name, quantity, unitPriceCents };
+  });
+
+  return { products, currency, estimatedTotalCents };
+}
+
+// Business Workspace Phase 2 §5 — a derived label, deliberately not a
+// stored column: deals.stage remains the one source of truth pre-close,
+// this just names the post-close stages from data that already exists
+// (document status/paid_at), so it can never drift from what it describes.
+const PRE_CLOSE_STAGES = ['discovery', 'qualified', 'proposal', 'negotiation'];
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+function deriveBusinessStage(deal: any, latestInvoice: any): string | null {
+  if (deal && PRE_CLOSE_STAGES.includes(deal.stage)) {
+    return deal.stage[0].toUpperCase() + deal.stage.slice(1);
+  }
+  if (deal?.stage === 'closed_lost') return 'Lost';
+  if (deal?.stage === 'closed_won') {
+    if (!latestInvoice || latestInvoice.status !== 'paid') return 'Invoice';
+    const paidAt = latestInvoice.paid_at ? new Date(latestInvoice.paid_at).getTime() : null;
+    if (paidAt && Date.now() - paidAt < THIRTY_DAYS_MS) return 'Payment';
+    return 'Support';
+  }
+  return null;
+}
+
 export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── List contacts ──────────────────────────────────────────────────────────
@@ -146,7 +188,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     if (!contact) return reply.code(404).send({ error: 'Contact not found' });
 
-    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult, opportunitiesResult, connectionsResult, productsResult, lifeEventsResult] = await Promise.all([
+    const [insights, healthLogs, msgStats, tagsResult, proactiveResult, eventsResult, opportunitiesResult, connectionsResult, productsResult, lifeEventsResult, openQuotationResult] = await Promise.all([
       db.query(
         `SELECT id, insight_key, insight_value, confidence, supporting_text, created_at
          FROM contact_insights
@@ -221,10 +263,10 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         [id, userId],
       ),
       db.query(
-        `SELECT cp.id, cp.relation_type, cp.quantity,
+        `SELECT cp.id, cp.relation_type, cp.quantity, cp.updated_at,
                 cp.warranty_expires_at::text AS warranty_expires_at,
                 cp.replacement_predicted_at::text AS replacement_predicted_at,
-                p.id AS product_id, p.name AS product_name
+                p.id AS product_id, p.name AS product_name, p.price, p.currency
          FROM contact_products cp
          JOIN products p ON p.id = cp.product_id
          WHERE cp.contact_id = $1 AND cp.user_id = $2
@@ -238,6 +280,15 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
          WHERE contact_id = $1 AND user_id = $2
          ORDER BY COALESCE(event_date, created_at::date) DESC
          LIMIT 20`,
+        [id, userId],
+      ),
+      // Business Workspace Phase 2 §7's Inbox AI Action card is driven by
+      // this exact signal (contact_products relation_type='quoted') — no new
+      // detector, just a check that a quotation doesn't already exist.
+      db.query(
+        `SELECT COUNT(*) AS n FROM documents
+         WHERE contact_id = $1 AND user_id = $2 AND document_type = 'quotation'
+           AND status NOT IN ('rejected', 'expired', 'archived')`,
         [id, userId],
       ),
     ]);
@@ -377,6 +428,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           eventDate: e.event_date,
           createdAt: e.created_at,
         })),
+        documentSuggestion: buildDocumentSuggestion(productsResult.rows, openQuotationResult.rows[0]),
       },
     });
   });
@@ -1038,6 +1090,20 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: [contact] } = await db.query('SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [id, userId]);
     if (!contact) return reply.code(404).send({ error: 'Contact not found' });
 
+    const [{ rows: [latestDeal] }, { rows: [latestInvoice] }] = await Promise.all([
+      db.query(
+        `SELECT stage FROM deals WHERE contact_id = $1 AND user_id = $2 ORDER BY updated_at DESC LIMIT 1`,
+        [id, userId],
+      ),
+      db.query(
+        `SELECT status, paid_at FROM documents
+         WHERE contact_id = $1 AND user_id = $2 AND document_type = 'invoice'
+         ORDER BY created_at DESC LIMIT 1`,
+        [id, userId],
+      ),
+    ]);
+    const businessStage = deriveBusinessStage(latestDeal, latestInvoice);
+
     const { rows } = await db.query(
       `WITH timeline AS (
          SELECT 'document'::text AS source_type, de.event_type,
@@ -1072,6 +1138,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     );
 
     return reply.send({
+      businessStage,
       timeline: rows.map((r: any) => ({
         sourceType: r.source_type,
         eventType: r.event_type,

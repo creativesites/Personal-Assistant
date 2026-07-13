@@ -326,3 +326,84 @@ Return ONLY valid JSON:
   "next_step": "1-2 sentences, specific and actionable, naming what to do and why it moves this particular goal forward"
 }}
 """
+
+# Business Workspace Phase 2 (docs/BUSINESS_WORKSPACE_PLAN.md §7/§15) —
+# AI's job stops at structured data; it never produces layout (see plan §4/§6).
+# One call covers both the line-item case (quotation/invoice) and the
+# narrative case (proposal/contract) so a single document-creation flow
+# doesn't need two AI round-trips — items/sections are simply empty when
+# not applicable to the requested document_type.
+GENERATE_DOCUMENT_DATA = """\
+{user_name} is creating a {document_type} for {contact_name} ({relationship_type}).
+
+Instruction from {user_name}:
+"{instruction}"
+
+Product catalog (only reference these — never invent a product):
+{product_catalog}
+
+Business defaults: currency {default_currency}, tax rate {default_tax_rate}%.
+Default terms (use only if the instruction doesn't specify different terms): {default_terms}
+
+Extract what {user_name} is asking for. Return ONLY valid JSON:
+{{
+  "items": [
+    {{"productId": "exact id from the catalog above, or null if not catalog-matched",
+      "description": "product/service name", "quantity": 1,
+      "unitPriceCents": 0, "discountPct": 0, "taxPct": 0}}
+  ],
+  "sections": [
+    {{"heading": "e.g. Executive Summary, Scope, Timeline, Terms", "body": "2-4 sentences of prose"}}
+  ],
+  "notes": "free text notes for the document, or empty string",
+  "terms": "free text terms — only set if the instruction specifies something beyond the default, else empty string",
+  "validUntil": "YYYY-MM-DD if a quotation validity/deadline was mentioned or implied, else null",
+  "dueDate": "YYYY-MM-DD if an invoice due date was mentioned or implied, else null",
+  "reasoning": "1 sentence: what {user_name} asked for and how you resolved it — this is stored as an audit trail, not shown to the customer",
+  "insights": [
+    {{"key": "decision_maker|budget|concern|competitor_mentioned|preferred_payment",
+      "value": "short factual observation", "confidence": 0.0}}
+  ]
+}}
+
+Rules:
+- "items" is for quotations/invoices/receipts — line items with prices. Leave empty ([]) for proposals/contracts unless the instruction explicitly mentions priced products.
+- "sections" is for proposals/contracts — narrative prose. Leave empty ([]) for quotations/invoices.
+- "insights" — only include an entry when the instruction explicitly states it (e.g. "the decision maker is Peter", "budget is K300k", "they're comparing us to HP"). Leave empty ([]) if nothing was explicitly stated — do not guess.
+- unitPriceCents must come from the catalog price when productId is set; only estimate a price when productId is null and the instruction gives one explicitly.
+"""
+
+# Called once, right after a document is rendered (both AI- and manually-
+# created — see plan §6). Deliberately qualitative only: a fabricated
+# conversion-likelihood percentage would be dishonest before there's enough
+# historical data to compute one for real (that's Phase 4, not this).
+DOCUMENT_AI_SUMMARY = """\
+Summarize this {document_type} in 2-3 sentences for {user_name}'s own reference — not for the customer.
+
+Customer: {contact_name}
+Total: {total_display}
+Status: {status}
+Line items / sections: {content_summary}
+Notes: {notes}
+{reasoning_line}
+
+Cover: why this document exists (what was asked for), anything notable about the terms (discounts, deadlines), and one suggested next action (e.g. "follow up in 3 days if no response"). Plain text, no JSON, no markdown.
+"""
+
+# Advisory only — never blocks sending, just tells the user what to fix.
+# See plan §15 Phase 2.
+DOCUMENT_QUALITY_CHECK = """\
+Review this {document_type} before {user_name} sends it to {contact_name}.
+
+Content: {content_summary}
+Notes: {notes}
+Terms: {terms}
+Total: {total_display}
+
+Check for: missing or zero totals, empty terms, placeholder-looking text, obvious typos, a quotation with no expiry date, an invoice with no due date. Return ONLY valid JSON:
+{{
+  "score": 0-10,
+  "issues": ["short, specific issue — empty array if none"],
+  "recommendation": "one sentence, or empty string if nothing to add"
+}}
+"""

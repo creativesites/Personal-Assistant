@@ -929,10 +929,11 @@ interface BusinessDocSummary {
 }
 
 function BusinessTimelinePanel({ contactId, token }: { contactId: string; token: string }) {
-  const { data: timelineData } = useApi<{ timeline: TimelineEntry[] }>(`/api/contacts/${contactId}/business-timeline`, token)
+  const { data: timelineData } = useApi<{ businessStage: string | null; timeline: TimelineEntry[] }>(`/api/contacts/${contactId}/business-timeline`, token)
   const { data: docsData } = useApi<{ documents: BusinessDocSummary[] }>(`/api/documents?contactId=${contactId}`, token)
   const timeline = timelineData?.timeline ?? []
   const docs = docsData?.documents ?? []
+  const businessStage = timelineData?.businessStage ?? null
 
   const downloadPdf = async (doc: BusinessDocSummary) => {
     try {
@@ -950,6 +951,13 @@ function BusinessTimelinePanel({ contactId, token }: { contactId: string; token:
 
   return (
     <div className="space-y-4">
+      {businessStage && (
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5">
+          <RefreshCw size={14} className="text-indigo-500" />
+          <p className="text-sm text-indigo-900">Currently in: <span className="font-semibold">{businessStage}</span></p>
+        </div>
+      )}
+
       {docs.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">

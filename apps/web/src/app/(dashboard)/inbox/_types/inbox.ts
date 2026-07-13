@@ -55,6 +55,14 @@ export interface ContactPromise {
   messageAt: string
 }
 
+// Business Workspace Phase 2 §7 — Inbox AI Action card. Driven by the
+// existing contact_products 'quoted' signal, not a new detector.
+export interface DocumentSuggestion {
+  products: { productId: string; name: string; quantity: number; unitPriceCents: number }[]
+  currency: string
+  estimatedTotalCents: number
+}
+
 export interface ContactDetail {
   id: string
   name: string
@@ -94,6 +102,7 @@ export interface ContactDetail {
   proactiveSuggestions: ProactiveSuggestion[]
   upcomingEvents: UpcomingEvent[]
   stats: { totalMessages: number; sent: number; received: number }
+  documentSuggestion: DocumentSuggestion | null
 }
 
 export interface Conversation {
