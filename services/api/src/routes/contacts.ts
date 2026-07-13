@@ -1026,4 +1026,59 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       })),
     });
   });
+
+  // ── GET /api/contacts/:id/business-timeline — Business Workspace Phase 1.
+  // A read-time composition across sources that already exist, exactly the
+  // pattern /api/proactive/brief already established (UNION ALL, not a new
+  // write-time log table). See docs/BUSINESS_WORKSPACE_PLAN.md §4.
+  fastify.get('/api/contacts/:id/business-timeline', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [contact] } = await db.query('SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!contact) return reply.code(404).send({ error: 'Contact not found' });
+
+    const { rows } = await db.query(
+      `WITH timeline AS (
+         SELECT 'document'::text AS source_type, de.event_type,
+                (INITCAP(d.document_type) || ' ' || d.document_number) AS headline,
+                d.title AS detail, de.occurred_at
+         FROM document_events de JOIN documents d ON d.id = de.document_id
+         WHERE d.contact_id = $1 AND d.user_id = $2
+
+         UNION ALL
+
+         SELECT 'opportunity', 'detected', o.title, o.description, o.detected_at
+         FROM opportunities o WHERE o.contact_id = $1 AND o.user_id = $2
+
+         UNION ALL
+
+         SELECT 'opportunity', o.status, o.title, o.description, o.resolved_at
+         FROM opportunities o WHERE o.contact_id = $1 AND o.user_id = $2 AND o.resolved_at IS NOT NULL
+
+         UNION ALL
+
+         SELECT 'deal_stage', dsh.to_stage, ('Deal moved to ' || INITCAP(dsh.to_stage)), d2.title, dsh.changed_at
+         FROM deal_stage_history dsh JOIN deals d2 ON d2.id = dsh.deal_id
+         WHERE d2.contact_id = $1 AND d2.user_id = $2
+
+         UNION ALL
+
+         SELECT 'calendar', 'scheduled', ce.title, ce.description, ce.start_at
+         FROM calendar_events ce WHERE ce.contact_id = $1 AND ce.user_id = $2
+       )
+       SELECT * FROM timeline ORDER BY occurred_at DESC LIMIT 100`,
+      [id, userId],
+    );
+
+    return reply.send({
+      timeline: rows.map((r: any) => ({
+        sourceType: r.source_type,
+        eventType: r.event_type,
+        headline: r.headline,
+        detail: r.detail,
+        occurredAt: r.occurred_at,
+      })),
+    });
+  });
 }

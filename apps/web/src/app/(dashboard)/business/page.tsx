@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X } from 'lucide-react'
+import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
@@ -53,6 +53,18 @@ const TYPE_FILTERS = [
   { key: 'invoice', label: 'Invoices' },
 ]
 
+// quotation -> invoice -> receipt (see plan §15 Phase 1) — matches the
+// backend's CONVERSION_MAP in services/api/src/routes/documents.ts.
+const CONVERSION_TARGETS: Record<string, string> = { quotation: 'invoice', invoice: 'receipt' }
+
+const MANUAL_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: 'sent', label: 'Mark Sent' },
+  { value: 'accepted', label: 'Mark Accepted' },
+  { value: 'rejected', label: 'Mark Rejected' },
+  { value: 'paid', label: 'Mark Paid' },
+  { value: 'archived', label: 'Archive' },
+]
+
 function formatMoney(cents: number, currency: string) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency })
 }
@@ -71,6 +83,9 @@ export default function BusinessPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showNewDoc, setShowNewDoc] = useState(false)
   const [generatingId, setGeneratingId] = useState<string | null>(null)
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const [convertingId, setConvertingId] = useState<string | null>(null)
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null)
 
   const loadDocuments = () => {
     if (!token) return
@@ -118,6 +133,47 @@ export default function BusinessPage() {
       URL.revokeObjectURL(url)
     } catch {
       addToast({ variant: 'error', title: 'Failed to download PDF' })
+    }
+  }
+
+  const sendViaWhatsApp = async (id: string) => {
+    if (!token) return
+    setSendingId(id)
+    try {
+      await apiClient(`/api/documents/${id}/send`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Sent via WhatsApp' })
+      loadDocuments()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to send', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setSendingId(null)
+    }
+  }
+
+  const convertDocument = async (doc: DocumentSummary) => {
+    if (!token) return
+    setConvertingId(doc.id)
+    try {
+      await apiClient(`/api/documents/${doc.id}/convert`, { method: 'POST', token })
+      addToast({ variant: 'success', title: `Converted to ${CONVERSION_TARGETS[doc.documentType]}` })
+      loadDocuments()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to convert', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setConvertingId(null)
+    }
+  }
+
+  const setStatus = async (id: string, status: string) => {
+    if (!token) return
+    setStatusUpdatingId(id)
+    try {
+      await apiClient(`/api/documents/${id}/status`, { method: 'POST', token, body: JSON.stringify({ status }) })
+      loadDocuments()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update status' })
+    } finally {
+      setStatusUpdatingId(null)
     }
   }
 
@@ -198,6 +254,15 @@ export default function BusinessPage() {
                   <div className="flex items-center gap-2">
                     {doc.hasPdf ? (
                       <>
+                        {doc.contact && (
+                          <button
+                            onClick={() => sendViaWhatsApp(doc.id)}
+                            disabled={sendingId === doc.id}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-3 py-1.5"
+                          >
+                            {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send
+                          </button>
+                        )}
                         <button onClick={() => downloadPdf(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800">
                           <Download className="w-3.5 h-3.5" />Download
                         </button>
@@ -215,6 +280,28 @@ export default function BusinessPage() {
                       </button>
                     )}
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
+                  {CONVERSION_TARGETS[doc.documentType] ? (
+                    <button
+                      onClick={() => convertDocument(doc)}
+                      disabled={convertingId === doc.id}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                    >
+                      {convertingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightCircle className="w-3.5 h-3.5" />}
+                      Convert to {CONVERSION_TARGETS[doc.documentType][0].toUpperCase() + CONVERSION_TARGETS[doc.documentType].slice(1)}
+                    </button>
+                  ) : <span />}
+                  <select
+                    value=""
+                    disabled={statusUpdatingId === doc.id}
+                    onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
+                    className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-50"
+                  >
+                    <option value="">Update status…</option>
+                    {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
                 </div>
               </div>
             ))}

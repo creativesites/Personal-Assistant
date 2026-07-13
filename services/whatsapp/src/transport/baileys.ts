@@ -153,6 +153,19 @@ export class BaileysTransport extends WhatsAppTransport {
     await this.sock.sendMessage(jid, { text });
   }
 
+  // Business Workspace document delivery — see docs/BUSINESS_WORKSPACE_PLAN.md §5.
+  async sendDocument(
+    jid: string,
+    filePath: string,
+    mimetype: string,
+    fileName: string,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    const buffer = await fs.readFile(filePath);
+    await this.sock.sendMessage(jid, { document: buffer, mimetype, fileName, caption });
+  }
+
   async listCatalogProducts(limit = 20, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {
     if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
     const sock = this.sock as unknown as {

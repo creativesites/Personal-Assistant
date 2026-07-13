@@ -282,6 +282,19 @@ export class SessionManager {
     await entry.transport.sendText(jid, text);
   }
 
+  async sendDocument(
+    userId: string,
+    jid: string,
+    filePath: string,
+    mimetype: string,
+    fileName: string,
+    caption?: string,
+  ): Promise<void> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    await entry.transport.sendDocument(jid, filePath, mimetype, fileName, caption);
+  }
+
   async listCatalogProducts(userId: string, limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {
     const entry = this.sessions.get(userId);
     if (!entry) throw new Error(`No active session for user ${userId}`);

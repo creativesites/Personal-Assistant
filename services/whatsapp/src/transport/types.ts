@@ -62,6 +62,9 @@ export abstract class WhatsAppTransport extends EventEmitter {
   /** Send a text message to a JID. */
   abstract sendText(jid: string, text: string): Promise<void>;
 
+  /** Send a document (e.g. a generated quotation/invoice PDF) to a JID. */
+  abstract sendDocument(jid: string, filePath: string, mimetype: string, fileName: string, caption?: string): Promise<void>;
+
   /** List products in the connected WhatsApp Business catalog, if available. */
   abstract listCatalogProducts(limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }>;
 

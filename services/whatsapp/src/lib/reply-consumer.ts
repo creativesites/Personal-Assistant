@@ -22,9 +22,13 @@ export function startReplyConsumer(
   return new Worker<SendReplyJob>(
     QUEUE_NAMES.SEND_REPLY,
     async (job) => {
-      const { userId, recipientJid, text, suggestedReplyId } = job.data;
+      const { userId, recipientJid, text, suggestedReplyId, mediaPath, mediaMimeType, mediaFileName } = job.data;
 
-      await sessionManager.sendMessage(userId, recipientJid, text);
+      if (mediaPath && mediaMimeType && mediaFileName) {
+        await sessionManager.sendDocument(userId, recipientJid, mediaPath, mediaMimeType, mediaFileName, text || undefined);
+      } else {
+        await sessionManager.sendMessage(userId, recipientJid, text);
+      }
 
       if (suggestedReplyId) {
         await db.query(

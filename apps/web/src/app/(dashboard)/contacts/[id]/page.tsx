@@ -104,17 +104,26 @@ interface ContactDoc {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-type TabId = 'profile' | 'ai' | 'activity' | 'calendar' | 'docs' | 'clocks' | 'messages'
+type TabId = 'profile' | 'ai' | 'activity' | 'calendar' | 'business' | 'docs' | 'clocks' | 'messages'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'profile',   label: 'Profile'   },
   { id: 'ai',        label: 'AI Profile' },
   { id: 'activity',  label: 'Activity'  },
   { id: 'calendar',  label: 'Calendar'  },
+  { id: 'business',  label: 'Business'  },
   { id: 'docs',      label: 'Docs'      },
   { id: 'clocks',    label: 'Clocks'    },
   { id: 'messages',  label: 'Messages'  },
 ]
+
+// Business Workspace Phase 1 — see docs/BUSINESS_WORKSPACE_PLAN.md §4.
+const TIMELINE_ICONS: Record<string, React.ReactNode> = {
+  document:    <FileText size={15} className="text-indigo-500" />,
+  opportunity: <TrendingUp size={15} className="text-amber-500" />,
+  deal_stage:  <RefreshCw size={15} className="text-purple-500" />,
+  calendar:    <Calendar size={15} className="text-blue-500" />,
+}
 
 const AI_FIELDS = [
   { key: 'personalitySummary', label: 'Personality Summary',  apiField: 'personality_summary'  },
@@ -894,6 +903,112 @@ function CalendarPanel({
           <Plus size={14} /> Add event
         </button>
       )}
+    </div>
+  )
+}
+
+// ─── BusinessTimelinePanel (docs/BUSINESS_WORKSPACE_PLAN.md §4) ───────────────
+
+interface TimelineEntry {
+  sourceType: 'document' | 'opportunity' | 'deal_stage' | 'calendar'
+  eventType: string
+  headline: string | null
+  detail: string | null
+  occurredAt: string
+}
+
+interface BusinessDocSummary {
+  id: string
+  documentType: string
+  documentNumber: string
+  title: string
+  status: string
+  currency: string
+  totalCents: number
+  hasPdf: boolean
+}
+
+function BusinessTimelinePanel({ contactId, token }: { contactId: string; token: string }) {
+  const { data: timelineData } = useApi<{ timeline: TimelineEntry[] }>(`/api/contacts/${contactId}/business-timeline`, token)
+  const { data: docsData } = useApi<{ documents: BusinessDocSummary[] }>(`/api/documents?contactId=${contactId}`, token)
+  const timeline = timelineData?.timeline ?? []
+  const docs = docsData?.documents ?? []
+
+  const downloadPdf = async (doc: BusinessDocSummary) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/documents/${doc.id}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error('download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${doc.documentNumber}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { /* silent — user can retry */ }
+  }
+
+  return (
+    <div className="space-y-4">
+      {docs.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Quotations &amp; Invoices</p>
+            <Link href="/business" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">Open Documents →</Link>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {docs.map(doc => (
+              <div key={doc.id} className="flex items-center justify-between px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{doc.title}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{doc.documentNumber} · {doc.status}</p>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className="text-sm font-semibold text-gray-900">
+                    {(doc.totalCents / 100).toLocaleString(undefined, { style: 'currency', currency: doc.currency })}
+                  </span>
+                  {doc.hasPdf && (
+                    <button onClick={() => downloadPdf(doc)} className="text-gray-400 hover:text-indigo-600">
+                      <Download size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+          <Activity size={14} className="text-gray-400" />
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Business Timeline</p>
+        </div>
+        {timeline.length === 0 ? (
+          <div className="p-6 text-center">
+            <p className="text-sm text-gray-500 font-medium">No business activity yet</p>
+            <p className="text-xs text-gray-400 mt-0.5">Quotations, invoices, opportunities, and deal progress will show up here.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {timeline.map((entry, i) => (
+              <div key={i} className="flex items-start gap-3 px-4 py-3">
+                <div className="w-7 h-7 rounded-full bg-gray-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  {TIMELINE_ICONS[entry.sourceType] ?? <Activity size={15} className="text-gray-400" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-900">
+                    <span className="font-medium">{entry.headline ?? entry.eventType}</span>
+                    {entry.sourceType === 'document' && <span className="text-gray-400"> · {entry.eventType}</span>}
+                  </p>
+                  {entry.detail && <p className="text-xs text-gray-500 mt-0.5 leading-snug">{entry.detail}</p>}
+                  <p className="text-[11px] text-gray-400 mt-0.5">{formatDate(entry.occurredAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -2254,6 +2369,11 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 events={contact.upcomingEvents}
                 onRefresh={refetch}
               />
+            )}
+
+            {/* ══ BUSINESS TAB ══ */}
+            {activeTab === 'business' && (
+              <BusinessTimelinePanel contactId={contact.id} token={token!} />
             )}
 
             {/* ══ DOCS TAB ══ */}

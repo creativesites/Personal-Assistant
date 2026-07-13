@@ -37,6 +37,11 @@ export interface SendReplyJob {
   suggestedReplyId: string | null;
   recipientJid: string;
   text: string;
+  // Optional document attachment — see docs/BUSINESS_WORKSPACE_PLAN.md §5.
+  // `text` is still sent as the caption when these are set.
+  mediaPath?: string;
+  mediaMimeType?: string;
+  mediaFileName?: string;
 }
 
 export interface GenerateContextSnapshotJob {

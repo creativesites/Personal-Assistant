@@ -5,6 +5,16 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { config } from '../config';
 import { getOrCreateProfile } from './business-profile';
+import { addToQueue } from '../lib/queue';
+import { QUEUE_NAMES } from '@zuri/types';
+import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
+
+// quotation -> invoice -> receipt. Each target renders fine with the Phase 0
+// templates (they're generic line-item layouts, not quotation/invoice-
+// specific) even though only quotation/invoice are offered at creation time.
+const CONVERSION_MAP: Record<string, string> = { quotation: 'invoice', invoice: 'receipt' };
+
+const MANUAL_STATUSES = ['sent', 'accepted', 'rejected', 'paid', 'archived'] as const;
 
 // Phase 0 only ships a renderer for these two — the full document_type list
 // already exists on the documents table (see migration 0043) to avoid a
@@ -321,6 +331,236 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     } catch {
       return reply.code(404).send({ error: 'PDF file missing on disk' });
     }
+  });
+
+  // ── POST /api/documents/:id/status — manual status transitions. Draft/
+  // generated/viewed/downloaded are system-set (created, rendered, tracked);
+  // these five are the ones a human decides.
+  fastify.post('/api/documents/:id/status', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { status } = z.object({ status: z.enum(MANUAL_STATUSES) }).parse(request.body);
+
+    const { rows: [existing] } = await db.query('SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!existing) return reply.code(404).send({ error: 'Document not found' });
+
+    const timestampColumn = status === 'sent' ? 'sent_at' : status === 'paid' ? 'paid_at' : null;
+    const { rows: [updated] } = await db.query(
+      `UPDATE documents SET status = $1, updated_at = NOW()${timestampColumn ? `, ${timestampColumn} = NOW()` : ''}
+       WHERE id = $2 RETURNING *`,
+      [status, id],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, $2, '{}')`,
+      [id, status],
+    );
+
+    return reply.send({ document: formatDocument(updated) });
+  });
+
+  // ── POST /api/documents/:id/convert — quotation -> invoice -> receipt.
+  // Copies structured_data forward so nothing is retyped; the new document
+  // is a fresh draft the user reviews/edits before generating its own PDF.
+  fastify.post('/api/documents/:id/convert', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [source] } = await db.query('SELECT * FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!source) return reply.code(404).send({ error: 'Document not found' });
+
+    const targetType = CONVERSION_MAP[source.document_type];
+    if (!targetType) {
+      return reply.code(400).send({ error: `Cannot convert a ${source.document_type}` });
+    }
+
+    const documentNumber = await assignDocumentNumber(userId, targetType);
+    const title = `${targetType[0].toUpperCase()}${targetType.slice(1)} ${documentNumber}`;
+
+    const { rows: [created] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents,
+          source_document_id, requested_by, ai_generated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,$17,'user',false)
+       RETURNING *`,
+      [
+        userId, source.contact_id, source.deal_id, source.opportunity_id, source.conversation_id,
+        source.template_id, targetType, source.document_category, documentNumber, title,
+        JSON.stringify(source.structured_data), source.currency, source.subtotal_cents,
+        source.discount_cents, source.tax_cents, source.total_cents, source.id,
+      ],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2)`,
+      [created.id, JSON.stringify({ convertedFrom: source.id })],
+    );
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'converted', $2)`,
+      [source.id, JSON.stringify({ convertedTo: created.id, targetType })],
+    );
+
+    return reply.code(201).send({ document: formatDocument(created) });
+  });
+
+  // ── POST /api/documents/:id/revise — version history. Editing a document
+  // that's already been sent/generated shouldn't silently mutate what the
+  // customer already saw; this clones it forward as a new draft version
+  // instead, chained via source_document_id.
+  fastify.post('/api/documents/:id/revise', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const body = updateBody.parse(request.body ?? {});
+
+    const { rows: [existing] } = await db.query('SELECT * FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!existing) return reply.code(404).send({ error: 'Document not found' });
+
+    const items = body.items ?? existing.structured_data?.items ?? [];
+    const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(items);
+    const structuredData = {
+      items: computedItems,
+      notes: body.notes ?? existing.structured_data?.notes ?? null,
+      terms: body.terms ?? existing.structured_data?.terms ?? null,
+      validUntil: body.validUntil ?? existing.structured_data?.validUntil ?? null,
+      dueDate: body.dueDate ?? existing.structured_data?.dueDate ?? null,
+    };
+
+    const newVersion = existing.version + 1;
+    const documentNumber = `${existing.document_number}-v${newVersion}`;
+
+    const { rows: [created] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents,
+          version, source_document_id, requested_by, ai_generated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,$17,$18,'user',false)
+       RETURNING *`,
+      [
+        userId, existing.contact_id, existing.deal_id, existing.opportunity_id, existing.conversation_id,
+        existing.template_id, existing.document_type, existing.document_category, documentNumber, existing.title,
+        JSON.stringify(structuredData), body.currency ?? existing.currency, subtotalCents, discountCents,
+        taxCents, totalCents, newVersion, existing.id,
+      ],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2)`,
+      [created.id, JSON.stringify({ revisionOf: existing.id, version: newVersion })],
+    );
+
+    return reply.code(201).send({ document: formatDocument(created) });
+  });
+
+  // ── GET /api/documents/:id/versions — the full version chain, oldest first.
+  fastify.get('/api/documents/:id/versions', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query('SELECT * FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    // Walk to the root of the version chain (source_document_id may itself
+    // be a revision), then fetch every row that chains from it.
+    let rootId = doc.id;
+    let cursor = doc.source_document_id;
+    while (cursor) {
+      const { rows: [parent] } = await db.query(
+        'SELECT id, source_document_id FROM documents WHERE id = $1 AND user_id = $2', [cursor, userId],
+      );
+      if (!parent) break;
+      rootId = parent.id;
+      cursor = parent.source_document_id;
+    }
+
+    const { rows } = await db.query(
+      `WITH RECURSIVE chain AS (
+         SELECT * FROM documents WHERE id = $1
+         UNION ALL
+         SELECT d.* FROM documents d JOIN chain c ON d.source_document_id = c.id
+       )
+       SELECT * FROM chain ORDER BY version ASC`,
+      [rootId],
+    );
+
+    return reply.send({ versions: rows.map(formatDocument) });
+  });
+
+  // ── POST /api/documents/:id/send — dispatches the generated PDF over
+  // WhatsApp without leaving the page. Same lazy-conversation-creation +
+  // SEND_REPLY-queue pattern as proactive.ts's Send Now (shipped earlier),
+  // extended with the media fields §5 of the plan added to the job payload.
+  fastify.post('/api/documents/:id/send', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { caption } = z.object({ caption: z.string().max(1000).optional() }).parse(request.body ?? {});
+
+    const { rows: [doc] } = await db.query(
+      `SELECT d.*, co.whatsapp_jid
+       FROM documents d JOIN contacts co ON co.id = d.contact_id
+       WHERE d.id = $1 AND d.user_id = $2`,
+      [id, userId],
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found or has no linked contact' });
+    if (!doc.storage_path) return reply.code(400).send({ error: 'Generate the PDF before sending' });
+
+    const { rows: [conv] } = await db.query(
+      `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
+       VALUES ($1, $2, $3, NOW(), $4)
+       ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
+         last_message_at = NOW(), last_message_preview = $4, updated_at = NOW()
+       RETURNING id`,
+      [userId, doc.contact_id, doc.whatsapp_jid, `${doc.title} (${doc.document_number})`],
+    );
+
+    const now = new Date();
+    const tempWaId = `direct-${crypto.randomUUID()}`;
+    const fileName = `${doc.document_number}.pdf`;
+    const messageCaption = caption ?? `${doc.title} — ${doc.document_number}`;
+
+    const { rows: [msg] } = await db.query(
+      `INSERT INTO messages
+         (conversation_id, whatsapp_message_id, sender_type, message_type, body,
+          media_url, media_mime_type, whatsapp_timestamp)
+       VALUES ($1, $2, 'user', 'document', $3, $4, 'application/pdf', $5)
+       RETURNING id`,
+      [conv.id, tempWaId, messageCaption, `/api/documents/${id}/pdf`, now],
+    );
+
+    await addToQueue(QUEUE_NAMES.SEND_REPLY, {
+      userId,
+      messageId: msg.id,
+      suggestedReplyId: null,
+      recipientJid: doc.whatsapp_jid,
+      text: messageCaption,
+      mediaPath: doc.storage_path,
+      mediaMimeType: 'application/pdf',
+      mediaFileName: fileName,
+    });
+
+    await db.query(
+      `UPDATE documents SET status = 'sent', sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [id],
+    );
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'sent', '{}')`,
+      [id],
+    );
+
+    const conversation = await getInboxConversation(userId, conv.id);
+    if (conversation) {
+      await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+    }
+    await publishInboxEvent(userId, 'message:new', {
+      messageId: msg.id, conversationId: conv.id, contactId: doc.contact_id,
+      senderType: 'user', messageType: 'document', body: messageCaption,
+      mediaUrl: `/api/documents/${id}/pdf`, mediaMimeType: 'application/pdf', transcription: null,
+      timestamp: now.toISOString(),
+    });
+
+    return reply.send({ ok: true, conversationId: conv.id });
   });
 
   fastify.delete('/api/documents/:id', { preHandler: authenticate }, async (request, reply) => {
