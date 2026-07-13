@@ -124,6 +124,8 @@ function formatDocument(r: any) {
     aiReasoning: r.ai_reasoning,
     aiSummary: r.ai_summary,
     hasPdf: !!r.storage_path,
+    shareToken: r.share_token,
+    viewCount: r.view_count,
     contactId: r.contact_id,
     dealId: r.deal_id,
     opportunityId: r.opportunity_id,
@@ -154,6 +156,11 @@ export async function sendDocumentViaWhatsApp(
   if (!doc) return { error: 'Document not found or has no linked contact', status: 404 };
   if (!doc.storage_path) return { error: 'Generate the PDF before sending', status: 400 };
 
+  // Shareable link (plan §15 Phase 4) — sent alongside the file attachment
+  // so re-opening it is trackable as a real "view" (an attached file itself
+  // gives no such signal). See GET /api/documents/shared/:token below.
+  const shareUrl = `${config.PUBLIC_API_URL}/api/documents/shared/${doc.share_token}`;
+
   const { rows: [conv] } = await db.query(
     `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
      VALUES ($1, $2, $3, NOW(), $4)
@@ -166,7 +173,7 @@ export async function sendDocumentViaWhatsApp(
   const now = new Date();
   const tempWaId = `direct-${crypto.randomUUID()}`;
   const fileName = `${doc.document_number}.pdf`;
-  const messageCaption = caption ?? `${doc.title} — ${doc.document_number}`;
+  const messageCaption = `${caption ?? `${doc.title} — ${doc.document_number}`}\n${shareUrl}`;
 
   const { rows: [msg] } = await db.query(
     `INSERT INTO messages
@@ -771,5 +778,125 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
 
     await db.query(`UPDATE documents SET status = 'archived', updated_at = NOW() WHERE id = $1`, [id]);
     return reply.send({ ok: true });
+  });
+
+  // ── GET /api/documents/shared/:token — view tracking (plan §15 Phase 4).
+  // Intentionally NOT behind `authenticate`: the token itself is the auth
+  // (a random UUID, never the numeric document id), same trust model as
+  // every invoicing-SaaS "view your invoice" link. Only serves the PDF —
+  // no other document/contact data is exposed through this route.
+  fastify.get('/api/documents/shared/:token', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { rows: [doc] } = await db.query(
+      'SELECT id, storage_path, document_number, status FROM documents WHERE share_token = $1', [token],
+    );
+    if (!doc?.storage_path) return reply.code(404).send({ error: 'Document not found' });
+
+    const shouldMarkViewed = doc.status === 'generated' || doc.status === 'sent';
+    if (shouldMarkViewed) {
+      await db.query(
+        `UPDATE documents SET view_count = view_count + 1, viewed_at = COALESCE(viewed_at, NOW()),
+           status = 'viewed', updated_at = NOW() WHERE id = $1`,
+        [doc.id],
+      );
+    } else {
+      await db.query(
+        `UPDATE documents SET view_count = view_count + 1, viewed_at = COALESCE(viewed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+        [doc.id],
+      );
+    }
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'viewed', '{}')`,
+      [doc.id],
+    );
+
+    try {
+      const buf = await fs.readFile(doc.storage_path);
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `inline; filename="${doc.document_number}.pdf"`);
+      return reply.send(buf);
+    } catch {
+      return reply.code(404).send({ error: 'PDF file missing on disk' });
+    }
+  });
+
+  // ── GET /api/documents/search — semantic search (plan §15 Phase 4).
+  fastify.get('/api/documents/search', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { q } = z.object({ q: z.string().min(1).max(500) }).parse(request.query);
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, query: q, limit: 10 }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Search failed' });
+      const data = await res.json() as {
+        results: { id: string; title: string; document_type: string; document_number: string; status: string; contact_name: string | null; score: number | null }[];
+      };
+      return reply.send({
+        results: data.results.map(r => ({
+          id: r.id, title: r.title, documentType: r.document_type, documentNumber: r.document_number,
+          status: r.status, contactName: r.contact_name, score: r.score,
+        })),
+      });
+    } catch (err) {
+      fastify.log.error({ err }, 'document_search_error');
+      return reply.code(502).send({ error: 'Search failed' });
+    }
+  });
+
+  // ── POST /api/documents/insights — AI Compares Documents (plan §8/§15
+  // Phase 4). Aggregated stats in, grounded suggestions out.
+  fastify.post('/api/documents/insights', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/insights`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (!res.ok) return reply.code(502).send({ error: 'Failed to generate insights' });
+      const data = await res.json() as { insights: string[] };
+      return reply.send(data);
+    } catch (err) {
+      fastify.log.error({ err }, 'document_insights_error');
+      return reply.code(502).send({ error: 'Failed to generate insights' });
+    }
+  });
+
+  // ── POST /api/documents/packs/:packKey/run — Automatic Business Packs
+  // (plan §13/§15 Phase 4). Pack definitions live in the intelligence
+  // service as code constants, not here — this route is a thin proxy.
+  fastify.post('/api/documents/packs/:packKey/run', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { packKey } = request.params as { packKey: string };
+    const { contactId, instruction } = z.object({
+      contactId: z.string().uuid(),
+      instruction: z.string().max(2000).optional(),
+    }).parse(request.body);
+
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/packs/${packKey}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, contact_id: contactId, instruction: instruction ?? '' }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        fastify.log.error({ errText }, 'document_pack_run_failed');
+        return reply.code(res.status === 400 ? 400 : 502).send({ error: 'Failed to run pack' });
+      }
+      const data = await res.json() as { packKey: string; documentIds: string[] };
+      return reply.code(201).send(data);
+    } catch (err) {
+      fastify.log.error({ err }, 'document_pack_run_error');
+      return reply.code(502).send({ error: 'Failed to run pack' });
+    }
   });
 }

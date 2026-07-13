@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle, Sparkles, ShieldCheck, MessageSquare } from 'lucide-react'
+import {
+  FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
+  Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search,
+} from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
@@ -18,8 +21,20 @@ interface DocumentSummary {
   hasPdf: boolean
   aiGenerated: boolean
   aiSummary: string | null
+  shareToken: string | null
+  viewCount: number
   contact: { id: string; name: string; avatarUrl: string | null } | null
   createdAt: string
+}
+
+interface SearchResult {
+  id: string
+  title: string
+  documentType: string
+  documentNumber: string
+  status: string
+  contactName: string | null
+  score: number | null
 }
 
 interface QualityCheckResult {
@@ -165,6 +180,8 @@ export default function BusinessPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showNewDoc, setShowNewDoc] = useState(false)
   const [showRecurring, setShowRecurring] = useState(false)
+  const [showPacks, setShowPacks] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
   const [generatingId, setGeneratingId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [convertingId, setConvertingId] = useState<string | null>(null)
@@ -172,6 +189,9 @@ export default function BusinessPage() {
   const [checkingQualityId, setCheckingQualityId] = useState<string | null>(null)
   const [qualityResults, setQualityResults] = useState<Record<string, QualityCheckResult>>({})
   const [chatOpenId, setChatOpenId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
+  const [searching, setSearching] = useState(false)
 
   const loadDocuments = () => {
     if (!token) return
@@ -276,6 +296,29 @@ export default function BusinessPage() {
     }
   }
 
+  // Shareable view-tracking link (plan §15 Phase 4) — the same link already
+  // sent alongside the WhatsApp attachment, surfaced here for copy/paste
+  // into email or other channels.
+  const copyShareLink = (doc: DocumentSummary) => {
+    if (!doc.shareToken) return
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+    navigator.clipboard.writeText(`${apiUrl}/api/documents/shared/${doc.shareToken}`)
+    addToast({ variant: 'success', title: 'Share link copied' })
+  }
+
+  const runSearch = async (query: string) => {
+    if (!token || !query.trim()) { setSearchResults(null); return }
+    setSearching(true)
+    try {
+      const data = await apiClient<{ results: SearchResult[] }>(`/api/documents/search?q=${encodeURIComponent(query.trim())}`, { token })
+      setSearchResults(data.results)
+    } catch {
+      setSearchResults([])
+    } finally {
+      setSearching(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -283,6 +326,18 @@ export default function BusinessPage() {
         description="Quotations and invoices — AI-generated, branded, linked to your contacts."
         action={
           <>
+            <button
+              onClick={() => setShowInsights(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              <Lightbulb className="w-4 h-4" />Insights
+            </button>
+            <button
+              onClick={() => setShowPacks(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              <Package className="w-4 h-4" />Packs
+            </button>
             <button
               onClick={() => setShowRecurring(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
@@ -303,6 +358,35 @@ export default function BusinessPage() {
         <div><span className="text-lg font-bold text-gray-900">{stats.drafts}</span><span className="text-xs text-gray-500 ml-1.5">drafts</span></div>
         <div><span className="text-lg font-bold text-gray-900">{stats.generated}</span><span className="text-xs text-gray-500 ml-1.5">generated</span></div>
         <div><span className="text-lg font-bold text-gray-900">{stats.paid}</span><span className="text-xs text-gray-500 ml-1.5">paid/accepted</span></div>
+        <div className="relative ml-auto min-w-[200px]">
+          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
+          <input
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); runSearch(e.target.value) }}
+            placeholder="Search documents…"
+            className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+          />
+          {searchQuery && (
+            <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-72 overflow-y-auto">
+              {searching ? (
+                <div className="p-3"><Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" /></div>
+              ) : !searchResults || searchResults.length === 0 ? (
+                <p className="text-xs text-gray-400 p-3">No matches.</p>
+              ) : (
+                searchResults.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => { setSearchQuery(''); setSearchResults(null); setTypeFilter('all') }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                  >
+                    <p className="text-xs font-medium text-gray-900 truncate">{r.title}</p>
+                    <p className="text-[11px] text-gray-400">{r.contactName ?? 'No contact'} · {r.documentNumber} · {r.status}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-2.5 flex items-center gap-1.5 overflow-x-auto flex-shrink-0">
@@ -359,6 +443,11 @@ export default function BusinessPage() {
                     </div>
                     <p className="text-xs text-gray-500 truncate">{doc.title}</p>
                   </div>
+                  {doc.viewCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400" title={`${doc.viewCount} view(s)`}>
+                      <Eye className="w-3 h-3" />{doc.viewCount}
+                    </span>
+                  )}
                   <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
                 </div>
 
@@ -396,6 +485,9 @@ export default function BusinessPage() {
                         )}
                         <button onClick={() => downloadPdf(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800">
                           <Download className="w-3.5 h-3.5" />Download
+                        </button>
+                        <button onClick={() => copyShareLink(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
+                          <Link2 className="w-3.5 h-3.5" />Copy Link
                         </button>
                         <button onClick={() => generatePdf(doc.id)} disabled={generatingId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
                           {generatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}Regenerate
@@ -460,6 +552,14 @@ export default function BusinessPage() {
 
       {showRecurring && (
         <RecurringDocumentsModal token={token} onClose={() => setShowRecurring(false)} />
+      )}
+
+      {showPacks && (
+        <PacksModal token={token} onClose={() => setShowPacks(false)} onRun={() => { setShowPacks(false); loadDocuments() }} />
+      )}
+
+      {showInsights && (
+        <InsightsModal token={token} onClose={() => setShowInsights(false)} />
       )}
     </div>
   )
@@ -958,6 +1058,152 @@ function RecurringDocumentsModal({ token, onClose }: { token: string | null | un
             <button onClick={() => setShowForm(true)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-indigo-300 hover:text-indigo-600 transition-colors">
               + New recurring rule
             </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const PACK_OPTIONS = [
+  { key: 'new_customer_sales_pack', label: 'New Customer Sales Pack', description: 'Quotation + proposal + a drafted follow-up.' },
+  { key: 'renewal_pack', label: 'Renewal Pack', description: "Renewal quotation pre-filled from the contact's last paid/accepted invoice + a drafted reminder." },
+  { key: 'project_kickoff_pack', label: 'Project Kickoff Pack', description: 'Service agreement + project plan + a follow-up task.' },
+] as const
+
+// Automatic Business Packs (plan §13/§15 Phase 4) — pack definitions live in
+// the intelligence service as code constants; this just picks a contact +
+// pack and fires the run.
+function PacksModal({ token, onClose, onRun }: { token: string | null | undefined; onClose: () => void; onRun: () => void }) {
+  const { addToast } = useToast()
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [contactId, setContactId] = useState('')
+  const [packKey, setPackKey] = useState<typeof PACK_OPTIONS[number]['key']>('new_customer_sales_pack')
+  const [instruction, setInstruction] = useState('')
+  const [running, setRunning] = useState(false)
+
+  useEffect(() => {
+    if (!token) return
+    apiClient<{ contacts: Contact[] }>('/api/contacts', { token }).then(data => setContacts(data.contacts)).catch(() => {})
+  }, [token])
+
+  const run = async () => {
+    if (!token || !contactId) return
+    setRunning(true)
+    try {
+      await apiClient(`/api/documents/packs/${packKey}/run`, {
+        method: 'POST', token, body: JSON.stringify({ contactId, instruction: instruction || undefined }),
+      })
+      addToast({ variant: 'success', title: 'Pack generated' })
+      onRun()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to run pack', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const selected = PACK_OPTIONS.find(p => p.key === packKey)!
+  const needsInstruction = packKey !== 'renewal_pack'
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-sm font-semibold text-gray-900">Business Packs</h2>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div className="space-y-1.5">
+            {PACK_OPTIONS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setPackKey(p.key)}
+                className={`w-full text-left p-3 rounded-xl border-2 transition-colors ${
+                  packKey === p.key ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200'
+                }`}
+              >
+                <p className="text-sm font-medium text-gray-900">{p.label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>
+              </button>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Contact</label>
+            <select
+              value={contactId}
+              onChange={e => setContactId(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="">Select a contact…</option>
+              {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          {needsInstruction && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">What&apos;s this for?</label>
+              <textarea
+                placeholder={selected.key === 'project_kickoff_pack' ? 'e.g. 6-week website redesign, K120,000 budget' : 'e.g. Website redesign, 3 CCTV cameras installed'}
+                rows={3}
+                value={instruction}
+                onChange={e => setInstruction(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-xl">Cancel</button>
+          <button
+            onClick={run}
+            disabled={running || !contactId || (needsInstruction && !instruction.trim())}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+            {running ? 'Running…' : 'Run Pack'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// AI Compares Documents / "Sales-Analyst Mode" (plan §8/§15 Phase 4) —
+// aggregated stats in, grounded suggestions out.
+function InsightsModal({ token, onClose }: { token: string | null | undefined; onClose: () => void }) {
+  const [insights, setInsights] = useState<string[] | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!token) return
+    apiClient<{ insights: string[] }>('/api/documents/insights', { method: 'POST', token })
+      .then(data => { setInsights(data.insights); setLoading(false) })
+      .catch(() => { setInsights([]); setLoading(false) })
+  }, [token])
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Lightbulb className="w-4 h-4 text-amber-500" />Document Insights</h2>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+        </div>
+        <div className="p-5 space-y-2.5">
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+          ) : !insights || insights.length === 0 ? (
+            <p className="text-sm text-gray-500">Not enough documents yet to spot patterns.</p>
+          ) : (
+            insights.map((insight, i) => (
+              <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-900">{insight}</p>
+              </div>
+            ))
           )}
         </div>
       </div>

@@ -9,14 +9,17 @@ import json
 import structlog
 
 from ..ai.client import get_ai_client
-from ..ai.prompts import DOCUMENT_AI_SUMMARY, DOCUMENT_CHAT, GENERATE_DOCUMENT_DATA
+from ..ai.prompts import DOCUMENT_AI_SUMMARY, DOCUMENT_CHAT, DOCUMENT_INSIGHTS, GENERATE_DOCUMENT_DATA
 from ..database import get_pool
 from ..queue import get_queue
 from .document_renderer import format_money, render_document_pdf, storage_path_for
 
 log = structlog.get_logger()
 
-DOCUMENT_CATEGORY = {'quotation': 'sales', 'invoice': 'sales', 'proposal': 'sales', 'contract': 'legal'}
+DOCUMENT_CATEGORY = {
+    'quotation': 'sales', 'invoice': 'sales', 'proposal': 'sales', 'contract': 'legal',
+    'service_agreement': 'legal', 'project_plan': 'operations',
+}
 
 
 def contact_display_name(contact) -> str:
@@ -84,7 +87,7 @@ async def generate_document_data(user_id: str, contact_id: str, document_type: s
 
     async with pool.acquire() as conn:
         contact = await conn.fetchrow(
-            'SELECT custom_name, display_name, phone_number, company FROM contacts WHERE id = $1 AND user_id = $2',
+            'SELECT custom_name, display_name, phone_number, company, industry FROM contacts WHERE id = $1 AND user_id = $2',
             contact_id, user_id,
         )
         if not contact:
@@ -101,9 +104,24 @@ async def generate_document_data(user_id: str, contact_id: str, document_type: s
         )
         user = await conn.fetchrow('SELECT COALESCE(full_name, email) AS user_name FROM users WHERE id = $1', user_id)
 
+        # Pricing benchmark (plan §9) — reuses business_facts, so this reads
+        # through the exact same store the periodic aggregation job writes.
+        benchmark_key = f"pricing_benchmark_discount_{(contact['industry'] or 'general').lower().replace(' ', '_')}"
+        benchmark = await conn.fetchrow(
+            """SELECT fact_value FROM business_facts
+               WHERE user_id = $1 AND fact_key = $2 AND is_active = TRUE AND is_approved = TRUE""",
+            user_id, benchmark_key,
+        )
+
     product_catalog = '\n'.join(f"{p['id']}: {p['name']} - {p['price']} {p['currency']}" for p in products)
     if not product_catalog:
         product_catalog = 'No products in catalog yet — use the description/price given in the instruction if any.'
+
+    pricing_context = (
+        f"Typical discount for this contact's industry ({contact['industry'] or 'general'}): {benchmark['fact_value']} "
+        f"— a reference point only, not a rule."
+        if benchmark else ''
+    )
 
     prompt = GENERATE_DOCUMENT_DATA.format(
         user_name=user['user_name'] if user else 'User',
@@ -115,6 +133,7 @@ async def generate_document_data(user_id: str, contact_id: str, document_type: s
         default_currency=business_profile['default_currency'] if business_profile else 'ZMW',
         default_tax_rate=business_profile['default_tax_rate'] if business_profile else 0,
         default_terms=(business_profile['default_terms'] if business_profile and business_profile['default_terms'] else 'none set'),
+        pricing_context=pricing_context,
     )
 
     ai = get_ai_client()
@@ -251,17 +270,128 @@ async def render_and_save(document_id: str, user_id: str) -> dict:
     except Exception:
         ai_summary = None
 
+    # Embedding for semantic search (plan §15 Phase 4) — a compact text
+    # representation of the document, not the raw structured_data JSON, so
+    # the vector reflects what the document is *about* rather than its shape.
+    embedding_vec = None
+    try:
+        structured = document['structured_data'] or {}
+        embedding_text = ' | '.join(filter(None, [
+            document['title'], document['document_type'],
+            contact_display_name(contact_dict), summarize_content(structured),
+            structured.get('notes'), structured.get('terms'),
+        ]))
+        ai = get_ai_client()
+        embedding_vec = await ai.embed(embedding_text[:2000])
+    except Exception:
+        embedding_vec = None
+
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE documents SET storage_path = $1, status = $2, ai_summary = COALESCE($3, ai_summary), updated_at = NOW() WHERE id = $4",
-            path, new_status, ai_summary, document_id,
-        )
+        if embedding_vec is not None:
+            import numpy as np
+            await conn.execute(
+                "UPDATE documents SET storage_path = $1, status = $2, ai_summary = COALESCE($3, ai_summary), "
+                "embedding = $4, updated_at = NOW() WHERE id = $5",
+                path, new_status, ai_summary, np.array(embedding_vec, dtype=np.float32), document_id,
+            )
+        else:
+            await conn.execute(
+                "UPDATE documents SET storage_path = $1, status = $2, ai_summary = COALESCE($3, ai_summary), updated_at = NOW() WHERE id = $4",
+                path, new_status, ai_summary, document_id,
+            )
         await conn.execute(
             "INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'generated', '{}'::jsonb)",
             document_id,
         )
 
     return {'id': document_id, 'status': new_status, 'storagePath': path, 'aiSummary': ai_summary, 'contact': contact_dict}
+
+
+async def search_documents(user_id: str, query: str, limit: int = 10) -> list[dict]:
+    """Semantic search over documents (plan §15 Phase 4) — same cosine-
+    distance pattern already shipped for kb_chunks in knowledge_retriever.py.
+    Falls back to a plain ILIKE search when embeddings are unavailable
+    (no OPENAI_API_KEY configured), same fallback style as the KB retriever."""
+    if not query.strip():
+        return []
+
+    ai = get_ai_client()
+    try:
+        query_embedding = await ai.embed(query[:2000])
+    except Exception:
+        query_embedding = None
+
+    pool = await get_pool()
+    if query_embedding is None:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT d.id, d.title, d.document_type, d.document_number, d.status,
+                          COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
+                   FROM documents d LEFT JOIN contacts c ON c.id = d.contact_id
+                   WHERE d.user_id = $1 AND d.status != 'archived'
+                     AND (d.title ILIKE '%' || $2 || '%' OR d.structured_data->>'notes' ILIKE '%' || $2 || '%')
+                   ORDER BY d.created_at DESC LIMIT $3""",
+                user_id, query, limit,
+            )
+        return [{**dict(r), 'score': None} for r in rows]
+
+    import numpy as np
+    query_vec = np.array(query_embedding, dtype=np.float32)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT d.id, d.title, d.document_type, d.document_number, d.status,
+                      COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+                      1 - (d.embedding <-> $1) AS score
+               FROM documents d LEFT JOIN contacts c ON c.id = d.contact_id
+               WHERE d.user_id = $2 AND d.embedding IS NOT NULL AND d.status != 'archived'
+               ORDER BY d.embedding <-> $1 LIMIT $3""",
+            query_vec, user_id, limit,
+        )
+    return [dict(r) for r in rows]
+
+
+async def compute_document_insights(user_id: str) -> list[str]:
+    """AI Compares Documents / 'Sales-Analyst Mode' (plan §8/§15 Phase 4) —
+    aggregated stats in, grounded suggestions out, mirroring
+    /internal/content/recommendations's existing shape."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        user = await conn.fetchrow('SELECT COALESCE(full_name, email) AS user_name FROM users WHERE id = $1', user_id)
+        rows = await conn.fetch(
+            """SELECT document_type, COALESCE(status, 'draft') AS status,
+                      COUNT(*) AS count, AVG(total_cents) AS avg_total_cents
+               FROM documents WHERE user_id = $1
+               GROUP BY document_type, status ORDER BY document_type, status""",
+            user_id,
+        )
+        industry_rows = await conn.fetch(
+            """SELECT d.document_type, COALESCE(c.industry, 'unknown') AS industry,
+                      COUNT(*) FILTER (WHERE d.status IN ('expired', 'rejected')) AS lost_count,
+                      COUNT(*) AS total_count
+               FROM documents d LEFT JOIN contacts c ON c.id = d.contact_id
+               WHERE d.user_id = $1 AND d.document_type IN ('quotation', 'invoice', 'proposal')
+               GROUP BY d.document_type, COALESCE(c.industry, 'unknown')
+               HAVING COUNT(*) >= 3
+               ORDER BY lost_count DESC""",
+            user_id,
+        )
+
+    if not rows:
+        return ["Not enough documents yet to spot patterns — generate a few quotations or invoices first."]
+
+    stats_lines = [f"- {r['document_type']} / {r['status']}: {r['count']} document(s), avg total {int(r['avg_total_cents'] or 0)} cents" for r in rows]
+    for r in industry_rows:
+        rate = round(100 * r['lost_count'] / r['total_count']) if r['total_count'] else 0
+        stats_lines.append(f"- {r['document_type']} to {r['industry']} contacts: {rate}% expired/rejected ({r['lost_count']}/{r['total_count']})")
+    stats = '\n'.join(stats_lines)
+
+    prompt = DOCUMENT_INSIGHTS.format(user_name=user['user_name'] if user else 'User', stats=stats)
+    ai = get_ai_client()
+    raw = await ai.complete_json([{'role': 'user', 'content': prompt}])
+    insights = raw.get('insights')
+    if not isinstance(insights, list) or not insights:
+        return ["Not enough variation in the data yet to draw a confident conclusion."]
+    return [str(i) for i in insights]
 
 
 async def send_document_whatsapp(document_id: str, user_id: str) -> dict:

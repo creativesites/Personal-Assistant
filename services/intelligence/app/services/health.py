@@ -17,6 +17,10 @@ WEIGHTS = {
     'sentiment': 0.20,
     'responsiveness': 0.15,
     'pipeline_velocity': 0.15,
+    # Added plan §15 Phase 4 — a small weight rather than rebalancing the
+    # others, so existing scores don't shift for relationships with no
+    # document activity (signal is 0.0 there, contributing nothing).
+    'documents': 0.10,
 }
 SCALE = 30
 BASE_SCORE = 70
@@ -32,6 +36,7 @@ FACTOR_LABELS = {
     'sentiment': 'conversation tone',
     'responsiveness': 'reply speed',
     'pipeline_velocity': 'deal progress',
+    'documents': 'document activity',
 }
 
 
@@ -118,6 +123,26 @@ class RelationshipHealthService:
                 contact_id, user_id,
             )
 
+            # Documents (plan §15 Phase 4) — an overdue unpaid invoice or a
+            # recently accepted quotation/proposal is a stronger relationship
+            # signal than most messages, so it feeds health directly.
+            document_signal = await conn.fetchrow(
+                """SELECT
+                     EXISTS (
+                       SELECT 1 FROM documents
+                       WHERE contact_id = $1 AND user_id = $2 AND document_type = 'invoice'
+                         AND status NOT IN ('paid', 'archived')
+                         AND structured_data->>'dueDate' IS NOT NULL
+                         AND (structured_data->>'dueDate')::date < CURRENT_DATE
+                     ) AS has_overdue_invoice,
+                     EXISTS (
+                       SELECT 1 FROM documents
+                       WHERE contact_id = $1 AND user_id = $2 AND document_type IN ('quotation', 'proposal')
+                         AND status = 'accepted' AND updated_at > NOW() - INTERVAL '30 days'
+                     ) AS has_recent_acceptance""",
+                contact_id, user_id,
+            )
+
         now = datetime.now(tz=timezone.utc)
         dormancy = rel['dormancy_alert_days'] or 30
         old_score = rel['health_score'] or 70
@@ -201,6 +226,22 @@ class RelationshipHealthService:
         else:
             signals['pipeline_velocity'] = 0.0
             notes['pipeline_velocity'] = 'No open deal'
+
+        # Documents
+        has_overdue = document_signal['has_overdue_invoice']
+        has_accepted = document_signal['has_recent_acceptance']
+        if has_overdue and has_accepted:
+            signals['documents'] = 0.0
+            notes['documents'] = 'Mixed — an overdue invoice alongside a recent acceptance'
+        elif has_overdue:
+            signals['documents'] = -1.0
+            notes['documents'] = 'Has an overdue unpaid invoice'
+        elif has_accepted:
+            signals['documents'] = 1.0
+            notes['documents'] = 'Recently accepted a quotation/proposal'
+        else:
+            signals['documents'] = 0.0
+            notes['documents'] = 'No notable document activity'
 
         weighted = {k: WEIGHTS[k] * signals[k] * SCALE for k in WEIGHTS}
         proactive_bonus = PROACTIVE_BONUS if recent_proactive else 0

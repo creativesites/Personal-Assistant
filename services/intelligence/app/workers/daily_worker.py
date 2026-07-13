@@ -6,18 +6,21 @@ from ..queue import redis_conn_opts
 from ..services.proactive import ProactiveService
 from ..services.health import RelationshipHealthService
 from ..services.document_followups import DocumentFollowupService
+from ..services.pricing_benchmarks import PricingBenchmarkService
 
 log = structlog.get_logger()
 
 _proactive = ProactiveService()
 _health = RelationshipHealthService()
 _document_followups = DocumentFollowupService()
+_pricing_benchmarks = PricingBenchmarkService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
 _temporal_queue      = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
 _world_queue         = Queue('world.knowledge_check',    {'connection': redis_conn_opts()})
 _consolidation_queue = Queue('memory.consolidate',       {'connection': redis_conn_opts()})
 _document_followup_queue = Queue('documents.check_followups', {'connection': redis_conn_opts()})
+_pricing_benchmark_queue = Queue('documents.refresh_pricing_benchmarks', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -40,6 +43,15 @@ async def _process_document_followups(job, token: str):
 
 def create_document_followup_worker() -> Worker:
     return Worker('documents.check_followups', _process_document_followups, {'connection': redis_conn_opts()})
+
+
+async def _process_pricing_benchmarks(job, token: str):
+    count = await _pricing_benchmarks.refresh_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_pricing_benchmark_worker() -> Worker:
+    return Worker('documents.refresh_pricing_benchmarks', _process_pricing_benchmarks, {'connection': redis_conn_opts()})
 
 
 async def run_daily_scheduler() -> None:
@@ -75,6 +87,26 @@ async def run_document_followup_scheduler() -> None:
             await _document_followup_queue.add('check_followups', {})
         except Exception as exc:
             log.error('document_followup_enqueue_failed', error=str(exc))
+
+
+async def run_pricing_benchmark_scheduler() -> None:
+    """Asyncio background task: refresh pricing benchmarks (plan §9/§15
+    Phase 4) once per day at 09:00 UTC — after document follow-ups (08:00),
+    since neither depends on the other but spreading the daily jobs out
+    keeps the DB from doing all of them in the same instant."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('pricing_benchmark_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('pricing_benchmark_enqueue')
+            await _pricing_benchmark_queue.add('refresh', {})
+        except Exception as exc:
+            log.error('pricing_benchmark_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

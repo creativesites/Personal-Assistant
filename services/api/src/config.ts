@@ -12,6 +12,10 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default(''),
   KB_STORAGE_DIR: z.string().default('/app/kb-storage'),
   DOC_STORAGE_DIR: z.string().default('/app/doc-storage'),
+  // This API's own externally-reachable base URL — used to build the
+  // shareable document link (plan §15 Phase 4) sent to customers over
+  // WhatsApp. Production: http://47.84.205.81:5500 (see CLAUDE.md).
+  PUBLIC_API_URL: z.string().url().default('http://localhost:3000'),
 });
 
 export const config = envSchema.parse(process.env);

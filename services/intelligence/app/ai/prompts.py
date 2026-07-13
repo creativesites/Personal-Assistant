@@ -344,6 +344,7 @@ Product catalog (only reference these — never invent a product):
 
 Business defaults: currency {default_currency}, tax rate {default_tax_rate}%.
 Default terms (use only if the instruction doesn't specify different terms): {default_terms}
+{pricing_context}
 
 Extract what {user_name} is asking for. Return ONLY valid JSON:
 {{
@@ -371,6 +372,7 @@ Rules:
 - "sections" is for proposals/contracts — narrative prose. Leave empty ([]) for quotations/invoices.
 - "insights" — only include an entry when the instruction explicitly states it (e.g. "the decision maker is Peter", "budget is K300k", "they're comparing us to HP"). Leave empty ([]) if nothing was explicitly stated — do not guess.
 - unitPriceCents must come from the catalog price when productId is set; only estimate a price when productId is null and the instruction gives one explicitly.
+- If pricing benchmark context is given above and the instruction doesn't specify a discount, you may use the benchmark as a reasonable default discountPct — never exceed it without the instruction asking for more.
 """
 
 # Called once, right after a document is rendered (both AI- and manually-
@@ -431,4 +433,18 @@ Return ONLY valid JSON:
   "terms": "string or null if unchanged",
   "reply": "1 sentence confirming what you changed, addressed to the person editing — not the customer"
 }}
+"""
+
+# AI Compares Documents / "Sales-Analyst Mode" (plan §8/§15 Phase 4) — same
+# shape as /internal/content/recommendations (Zuri Marketing): real
+# aggregated numbers in, grounded suggestions out, no per-row prompt
+# stuffing. `stats` below is a plain-language rendering of a GROUP BY over
+# documents, not raw rows.
+DOCUMENT_INSIGHTS = """\
+You are a sales analyst reviewing {user_name}'s quotations and invoices.
+
+Aggregated stats (from real data, already computed — do not invent numbers beyond these):
+{stats}
+
+Write 3-5 short, specific, actionable observations about what's converting and what isn't, based only on this data. If a document type or segment has a notably high or low conversion/expiry rate, call it out. No generic sales advice. Return ONLY a JSON object: {{"insights": ["...", "..."]}}
 """

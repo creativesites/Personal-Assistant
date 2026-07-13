@@ -19,6 +19,7 @@ from .workers.daily_worker import (
     create_proactive_worker, run_daily_scheduler, run_temporal_scheduler,
     run_world_knowledge_scheduler, run_consolidation_scheduler,
     create_document_followup_worker, run_document_followup_scheduler,
+    create_pricing_benchmark_worker, run_pricing_benchmark_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
     kb_worker = create_kb_worker()
     consolidation_worker = create_consolidation_worker()
     document_followup_worker = create_document_followup_worker()
+    pricing_benchmark_worker = create_pricing_benchmark_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -51,10 +53,14 @@ async def lifespan(app: FastAPI):
     world_knowledge_task = asyncio.create_task(run_world_knowledge_scheduler())
     consolidation_task = asyncio.create_task(run_consolidation_scheduler())
     document_followup_task = asyncio.create_task(run_document_followup_scheduler())
+    pricing_benchmark_task = asyncio.create_task(run_pricing_benchmark_scheduler())
 
     yield
 
-    for task in (scheduler_task, temporal_task, world_knowledge_task, consolidation_task, document_followup_task):
+    for task in (
+        scheduler_task, temporal_task, world_knowledge_task, consolidation_task,
+        document_followup_task, pricing_benchmark_task,
+    ):
         task.cancel()
         try:
             await task
@@ -71,6 +77,7 @@ async def lifespan(app: FastAPI):
     await kb_worker.close()
     await consolidation_worker.close()
     await document_followup_worker.close()
+    await pricing_benchmark_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

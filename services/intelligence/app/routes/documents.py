@@ -6,11 +6,14 @@ from ..ai.prompts import DOCUMENT_QUALITY_CHECK
 from ..database import get_pool
 from ..services.document_generator import (
     chat_about_document,
+    compute_document_insights,
     contact_display_name,
     generate_document_data,
     render_and_save,
+    search_documents,
     summarize_content,
 )
+from ..services.document_packs import run_pack
 from ..services.document_renderer import format_money
 
 router = APIRouter(prefix='/internal/documents', tags=['documents'])
@@ -93,3 +96,41 @@ async def chat(document_id: str, body: ChatRequest):
         return await chat_about_document(document_id, body.user_id, body.instruction, body.history)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+class SearchRequest(BaseModel):
+    user_id: str
+    query: str
+    limit: int = 10
+
+
+@router.post('/search')
+async def search(body: SearchRequest):
+    """Semantic search over documents (plan §15 Phase 4)."""
+    results = await search_documents(body.user_id, body.query, body.limit)
+    return {'results': results}
+
+
+class InsightsRequest(BaseModel):
+    user_id: str
+
+
+@router.post('/insights')
+async def insights(body: InsightsRequest):
+    """AI Compares Documents / 'Sales-Analyst Mode' (plan §8/§15 Phase 4)."""
+    return {'insights': await compute_document_insights(body.user_id)}
+
+
+class PackRunRequest(BaseModel):
+    user_id: str
+    contact_id: str
+    instruction: str = ''
+
+
+@router.post('/packs/{pack_key}/run')
+async def packs_run(pack_key: str, body: PackRunRequest):
+    """Automatic Business Packs (plan §13/§15 Phase 4)."""
+    try:
+        return await run_pack(body.user_id, body.contact_id, pack_key, body.instruction)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
