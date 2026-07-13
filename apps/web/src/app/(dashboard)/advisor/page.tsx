@@ -227,6 +227,31 @@ export default function AdvisorPage() {
     }
   }, [loading, token, activeSessionId, loadSessions])
 
+  // Handle AI-embedded action tags. Only `generate_document` is wired here —
+  // the global Advisor (unlike the per-contact IntelPanel chat) has no single
+  // contact in view, but the tag itself carries a contact_id supplied by the
+  // model from the CRM context list, so no extra lookup is needed.
+  const handleChatAction = useCallback(async (action: ParsedAction) => {
+    if (action.type !== 'generate_document' || !token) return
+    const [documentType, contactId, ...briefParts] = action.params
+    if (!contactId) throw new Error('Missing contact_id')
+    const brief = briefParts.join(' | ')
+
+    const genRes = await fetch(`${API_URL}/api/documents/ai-generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ contactId, documentType, instruction: brief || `Draft a ${documentType}` }),
+    })
+    if (!genRes.ok) throw new Error('Failed to generate document')
+    const { document } = await genRes.json() as { document: { id: string } }
+
+    const renderRes = await fetch(`${API_URL}/api/documents/${document.id}/generate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!renderRes.ok) throw new Error('Failed to render document')
+  }, [token])
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input) }
   }
@@ -438,9 +463,7 @@ export default function AdvisorPage() {
                             <ChatFormatter
                               content={msg.content}
                               theme="dark"
-                              onAction={async (_action: ParsedAction) => {
-                                // TODO: wire CRM actions through API when contact context is available
-                              }}
+                              onAction={handleChatAction}
                             />
                             <div className="text-[9px] text-slate-500 mt-2 flex items-center gap-2">
                               {timeAgo(msg.timestamp)}

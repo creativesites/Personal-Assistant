@@ -58,7 +58,7 @@ const updateBody = createBody.partial().extend({
   documentType: z.enum(PHASE_0_TYPES).optional(),
 });
 
-function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
+export function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
   let subtotalCents = 0;
   let discountCents = 0;
   let taxCents = 0;
@@ -80,7 +80,7 @@ function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
   return { computedItems, subtotalCents, discountCents, taxCents, totalCents: subtotalCents - discountCents + taxCents };
 }
 
-async function assignDocumentNumber(userId: string, documentType: string): Promise<string> {
+export async function assignDocumentNumber(userId: string, documentType: string): Promise<string> {
   await getOrCreateProfile(userId);
 
   const { rows: [row] } = await db.query(
@@ -136,6 +136,79 @@ function formatDocument(r: any) {
     viewedAt: r.viewed_at,
     paidAt: r.paid_at,
   };
+}
+
+// Extracted so both the /send route and the recurring-documents worker
+// (services/api/src/workers/recurring-documents-worker.ts, plan §15
+// Phase 3) can dispatch a document over WhatsApp without duplicating the
+// lazy-conversation-creation + SEND_REPLY-queue logic.
+export async function sendDocumentViaWhatsApp(
+  userId: string, id: string, caption?: string,
+): Promise<{ conversationId: string } | { error: string; status: number }> {
+  const { rows: [doc] } = await db.query(
+    `SELECT d.*, co.whatsapp_jid
+     FROM documents d JOIN contacts co ON co.id = d.contact_id
+     WHERE d.id = $1 AND d.user_id = $2`,
+    [id, userId],
+  );
+  if (!doc) return { error: 'Document not found or has no linked contact', status: 404 };
+  if (!doc.storage_path) return { error: 'Generate the PDF before sending', status: 400 };
+
+  const { rows: [conv] } = await db.query(
+    `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
+     VALUES ($1, $2, $3, NOW(), $4)
+     ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
+       last_message_at = NOW(), last_message_preview = $4, updated_at = NOW()
+     RETURNING id`,
+    [userId, doc.contact_id, doc.whatsapp_jid, `${doc.title} (${doc.document_number})`],
+  );
+
+  const now = new Date();
+  const tempWaId = `direct-${crypto.randomUUID()}`;
+  const fileName = `${doc.document_number}.pdf`;
+  const messageCaption = caption ?? `${doc.title} — ${doc.document_number}`;
+
+  const { rows: [msg] } = await db.query(
+    `INSERT INTO messages
+       (conversation_id, whatsapp_message_id, sender_type, message_type, body,
+        media_url, media_mime_type, whatsapp_timestamp)
+     VALUES ($1, $2, 'user', 'document', $3, $4, 'application/pdf', $5)
+     RETURNING id`,
+    [conv.id, tempWaId, messageCaption, `/api/documents/${id}/pdf`, now],
+  );
+
+  await addToQueue(QUEUE_NAMES.SEND_REPLY, {
+    userId,
+    messageId: msg.id,
+    suggestedReplyId: null,
+    recipientJid: doc.whatsapp_jid,
+    text: messageCaption,
+    mediaPath: doc.storage_path,
+    mediaMimeType: 'application/pdf',
+    mediaFileName: fileName,
+  });
+
+  await db.query(
+    `UPDATE documents SET status = 'sent', sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
+    [id],
+  );
+  await db.query(
+    `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'sent', '{}')`,
+    [id],
+  );
+
+  const conversation = await getInboxConversation(userId, conv.id);
+  if (conversation) {
+    await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+  }
+  await publishInboxEvent(userId, 'message:new', {
+    messageId: msg.id, conversationId: conv.id, contactId: doc.contact_id,
+    senderType: 'user', messageType: 'document', body: messageCaption,
+    mediaUrl: `/api/documents/${id}/pdf`, mediaMimeType: 'application/pdf', transcription: null,
+    timestamp: now.toISOString(),
+  });
+
+  return { conversationId: conv.id };
 }
 
 export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
@@ -624,70 +697,68 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     const { id } = request.params as { id: string };
     const { caption } = z.object({ caption: z.string().max(1000).optional() }).parse(request.body ?? {});
 
-    const { rows: [doc] } = await db.query(
-      `SELECT d.*, co.whatsapp_jid
-       FROM documents d JOIN contacts co ON co.id = d.contact_id
-       WHERE d.id = $1 AND d.user_id = $2`,
-      [id, userId],
+    const result = await sendDocumentViaWhatsApp(userId, id, caption);
+    if ('error' in result) return reply.code(result.status).send({ error: result.error });
+    return reply.send({ ok: true, conversationId: result.conversationId });
+  });
+
+  // ── AI Document Assistant (plan §12/§15 Phase 3) — per-document chat.
+  fastify.get('/api/documents/:id/chat', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query('SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows } = await db.query(
+      'SELECT role, content, created_at FROM document_chat_messages WHERE document_id = $1 ORDER BY created_at ASC',
+      [id],
     );
-    if (!doc) return reply.code(404).send({ error: 'Document not found or has no linked contact' });
-    if (!doc.storage_path) return reply.code(400).send({ error: 'Generate the PDF before sending' });
-
-    const { rows: [conv] } = await db.query(
-      `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
-       VALUES ($1, $2, $3, NOW(), $4)
-       ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
-         last_message_at = NOW(), last_message_preview = $4, updated_at = NOW()
-       RETURNING id`,
-      [userId, doc.contact_id, doc.whatsapp_jid, `${doc.title} (${doc.document_number})`],
-    );
-
-    const now = new Date();
-    const tempWaId = `direct-${crypto.randomUUID()}`;
-    const fileName = `${doc.document_number}.pdf`;
-    const messageCaption = caption ?? `${doc.title} — ${doc.document_number}`;
-
-    const { rows: [msg] } = await db.query(
-      `INSERT INTO messages
-         (conversation_id, whatsapp_message_id, sender_type, message_type, body,
-          media_url, media_mime_type, whatsapp_timestamp)
-       VALUES ($1, $2, 'user', 'document', $3, $4, 'application/pdf', $5)
-       RETURNING id`,
-      [conv.id, tempWaId, messageCaption, `/api/documents/${id}/pdf`, now],
-    );
-
-    await addToQueue(QUEUE_NAMES.SEND_REPLY, {
-      userId,
-      messageId: msg.id,
-      suggestedReplyId: null,
-      recipientJid: doc.whatsapp_jid,
-      text: messageCaption,
-      mediaPath: doc.storage_path,
-      mediaMimeType: 'application/pdf',
-      mediaFileName: fileName,
+    return reply.send({
+      messages: rows.map((r: any) => ({ role: r.role, content: r.content, createdAt: r.created_at })),
     });
+  });
 
-    await db.query(
-      `UPDATE documents SET status = 'sent', sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
+  fastify.post('/api/documents/:id/chat', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { instruction } = z.object({ instruction: z.string().min(1).max(2000) }).parse(request.body);
+
+    const { rows: [doc] } = await db.query('SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows: historyRows } = await db.query(
+      'SELECT role, content FROM document_chat_messages WHERE document_id = $1 ORDER BY created_at ASC LIMIT 20',
       [id],
     );
-    await db.query(
-      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'sent', '{}')`,
-      [id],
-    );
 
-    const conversation = await getInboxConversation(userId, conv.id);
-    if (conversation) {
-      await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/documents/${id}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId, instruction,
+          history: historyRows.map((r: any) => ({ role: r.role, content: r.content })),
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        fastify.log.error({ errText }, 'document_chat_failed');
+        return reply.code(502).send({ error: 'Failed to process instruction' });
+      }
+      const data = await res.json() as { reply: string; structuredData: unknown; totalCents: number };
+
+      await db.query(
+        `INSERT INTO document_chat_messages (document_id, role, content) VALUES ($1, 'user', $2), ($1, 'assistant', $3)`,
+        [id, instruction, data.reply],
+      );
+
+      return reply.send({ reply: data.reply, totalCents: data.totalCents });
+    } catch (err) {
+      fastify.log.error({ err }, 'document_chat_error');
+      return reply.code(502).send({ error: 'Failed to process instruction' });
     }
-    await publishInboxEvent(userId, 'message:new', {
-      messageId: msg.id, conversationId: conv.id, contactId: doc.contact_id,
-      senderType: 'user', messageType: 'document', body: messageCaption,
-      mediaUrl: `/api/documents/${id}/pdf`, mediaMimeType: 'application/pdf', transcription: null,
-      timestamp: now.toISOString(),
-    });
-
-    return reply.send({ ok: true, conversationId: conv.id });
   });
 
   fastify.delete('/api/documents/:id', { preHandler: authenticate }, async (request, reply) => {

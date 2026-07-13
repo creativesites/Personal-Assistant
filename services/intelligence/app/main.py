@@ -18,6 +18,7 @@ from .workers.profile_worker import create_profile_worker
 from .workers.daily_worker import (
     create_proactive_worker, run_daily_scheduler, run_temporal_scheduler,
     run_world_knowledge_scheduler, run_consolidation_scheduler,
+    create_document_followup_worker, run_document_followup_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -42,16 +43,18 @@ async def lifespan(app: FastAPI):
     agent_worker = create_agent_worker()
     kb_worker = create_kb_worker()
     consolidation_worker = create_consolidation_worker()
+    document_followup_worker = create_document_followup_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
     temporal_task = asyncio.create_task(run_temporal_scheduler())
     world_knowledge_task = asyncio.create_task(run_world_knowledge_scheduler())
     consolidation_task = asyncio.create_task(run_consolidation_scheduler())
+    document_followup_task = asyncio.create_task(run_document_followup_scheduler())
 
     yield
 
-    for task in (scheduler_task, temporal_task, world_knowledge_task, consolidation_task):
+    for task in (scheduler_task, temporal_task, world_knowledge_task, consolidation_task, document_followup_task):
         task.cancel()
         try:
             await task
@@ -67,6 +70,7 @@ async def lifespan(app: FastAPI):
     await agent_worker.close()
     await kb_worker.close()
     await consolidation_worker.close()
+    await document_followup_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

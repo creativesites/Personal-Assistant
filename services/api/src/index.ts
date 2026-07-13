@@ -6,6 +6,7 @@ import { redisSub, startRedisSubscriber } from './lib/redis-subscriber';
 import { setupSocket } from './lib/socket';
 import { config } from './config';
 import { startSocialPublishWorker } from './workers/social-publish-worker';
+import { startRecurringDocumentsWorker } from './workers/recurring-documents-worker';
 
 async function main() {
   const app = await buildApp();
@@ -30,9 +31,13 @@ async function main() {
   const socialPublishWorker = startSocialPublishWorker(app.log);
   app.log.info('Social publish worker running');
 
+  const recurringDocumentsWorker = startRecurringDocumentsWorker(app.log);
+  app.log.info('Recurring documents worker running');
+
   const shutdown = async () => {
     app.log.info('Shutting down...');
     socialPublishWorker.stop();
+    recurringDocumentsWorker.stop();
     await app.close();
     redisSub.disconnect();
     await redis.quit();

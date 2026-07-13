@@ -15,6 +15,7 @@ from ..models import AgentMemoryCandidate
 from ..queue import publish_event
 from .auto_response import AutoResponseService
 from .agent_memory import AgentMemoryService
+from .document_generator import create_document_row, generate_document_data, render_and_save, send_document_whatsapp
 
 log = structlog.get_logger()
 _agent_memory = AgentMemoryService()
@@ -364,6 +365,7 @@ async def handle_agent_message(
             contact_id=contact_id,
             user_id=user_id,
             conversation_id=conversation_id,
+            trust_level=trust_level,
         )
         executed_tools.append({'name': tool_name, 'params': tool_params, 'result': result})
         log.info('agent_tool_executed', tool=tool_name, result=result, agent_id=agent_id)
@@ -512,6 +514,12 @@ def _build_tool_list(capabilities: dict, agent: dict) -> str:
     tools.append('- add_note(text: string) — append a CRM note to the contact record')
     tools.append('- create_task(title: string, description: string, due_date: "YYYY-MM-DD") — create a follow-up task')
     tools.append('- schedule_followup(title: string, body: string, days_from_now: 1-30) — schedule a proactive follow-up suggestion')
+    tools.append(
+        '- create_document(document_type: "quotation"|"invoice"|"proposal"|"contract", instruction: string, '
+        'send: boolean) — generate a business document for this contact from a plain-language instruction '
+        '(e.g. "quotation for 2 iPhone 15 Pro"). send=true only takes effect for autonomous/delegated agents; '
+        'otherwise the document is drafted for human review.'
+    )
 
     if not tools:
         return '(no tools available)'
@@ -524,6 +532,7 @@ async def execute_tool(
     contact_id: str | None,
     user_id: str,
     conversation_id: str,
+    trust_level: str = 'observe',
 ) -> str:
     """Execute a single tool call server-side. Returns a status string."""
     if not contact_id:
@@ -622,6 +631,23 @@ async def execute_tool(
                     user_id, contact_id, title, body, days,
                 )
             return f'ok: followup scheduled in {days} day(s)'
+
+        elif tool_name == 'create_document':
+            document_type = str(params.get('document_type', 'quotation')).strip()
+            if document_type not in ('quotation', 'invoice', 'proposal', 'contract'):
+                document_type = 'quotation'
+            instruction = str(params.get('instruction', '')).strip()
+            if not instruction:
+                return 'error: missing instruction'
+
+            generated = await generate_document_data(user_id, contact_id, document_type, instruction)
+            doc = await create_document_row(user_id, contact_id, document_type, generated, requested_by='agent')
+            await render_and_save(str(doc['id']), user_id)
+
+            if params.get('send') and trust_level in ('autonomous', 'delegated'):
+                await send_document_whatsapp(str(doc['id']), user_id)
+                return f"ok: {document_type} created and sent (document_id={doc['id']})"
+            return f"ok: {document_type} drafted for review (document_id={doc['id']})"
 
         else:
             return f'error: unknown tool "{tool_name}"'

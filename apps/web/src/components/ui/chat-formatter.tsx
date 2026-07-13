@@ -3,12 +3,12 @@
 import { useState } from 'react'
 import {
   TrendingUp, Target, Calendar, MessageCircle,
-  Check, Copy, Edit3, Send, ChevronRight, Loader2,
+  Check, Copy, Edit3, Send, ChevronRight, Loader2, FileText, ExternalLink,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ActionType = 'lead_score' | 'pipeline_stage' | 'reply_draft' | 'reminder'
+export type ActionType = 'lead_score' | 'pipeline_stage' | 'reply_draft' | 'reminder' | 'generate_document'
 
 export interface ParsedAction {
   type: ActionType
@@ -449,6 +449,68 @@ function ReminderWidget({
   )
 }
 
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  quotation: 'Quotation', invoice: 'Invoice', proposal: 'Proposal', contract: 'Contract',
+}
+
+function GenerateDocumentWidget({
+  documentType, contactId, brief, theme, onAction,
+}: {
+  documentType: string; contactId: string; brief: string; theme: 'dark' | 'light';
+  onAction?: (a: ParsedAction) => Promise<void>
+}) {
+  const [loading, setLoading] = useState(false)
+  const [done, setDone] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const label = DOCUMENT_TYPE_LABELS[documentType] ?? documentType
+
+  const generate = async () => {
+    if (!onAction) return
+    setLoading(true)
+    setFailed(false)
+    try {
+      await onAction({ type: 'generate_document', params: [documentType, contactId, brief] })
+      setDone(true)
+    } catch {
+      setFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border p-3 my-2 space-y-2 ${
+      theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-sky-50 border-sky-100'
+    }`}>
+      <div className="flex items-center gap-1.5">
+        <FileText size={12} className="text-sky-400" />
+        <span className={`text-[11px] font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-sky-800'}`}>
+          Generate {label}
+        </span>
+      </div>
+      {brief && (
+        <p className={`text-[12px] leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{brief}</p>
+      )}
+      {onAction && !done && (
+        <button onClick={generate} disabled={loading || !contactId}
+          className="flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg disabled:opacity-50 transition-colors">
+          {loading ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />}
+          Generate {label}
+        </button>
+      )}
+      {done && (
+        <p className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1.5">
+          <Check size={10} />{label} created —
+          <a href="/business" className="underline inline-flex items-center gap-0.5">
+            open Documents <ExternalLink size={9} />
+          </a>
+        </p>
+      )}
+      {failed && <p className="text-[10px] text-red-500 font-semibold">Couldn&apos;t generate the document. Try again from the Documents page.</p>}
+    </div>
+  )
+}
+
 // ── Main ChatFormatter ────────────────────────────────────────────────────────
 
 export interface ChatFormatterExtras {
@@ -512,6 +574,15 @@ export function ChatFormatter({
             return (
               <ReminderWidget key={i}
                 title={title ?? 'Follow-up'} date={date ?? ''}
+                theme={theme} onAction={onAction} />
+            )
+          }
+          case 'generate_document': {
+            const [documentType, contactId, ...briefParts] = action.params
+            const brief = briefParts.join(' | ')
+            return (
+              <GenerateDocumentWidget key={i}
+                documentType={documentType ?? 'quotation'} contactId={contactId ?? ''} brief={brief}
                 theme={theme} onAction={onAction} />
             )
           }

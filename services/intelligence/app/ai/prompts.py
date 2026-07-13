@@ -407,3 +407,28 @@ Check for: missing or zero totals, empty terms, placeholder-looking text, obviou
   "recommendation": "one sentence, or empty string if nothing to add"
 }}
 """
+
+# Per-document AI Assistant (plan §12/§15 Phase 3) — the same discipline as
+# GENERATE_DOCUMENT_DATA: AI edits structured data, never layout. Reuses the
+# "regenerate with instruction" pattern already shipped for proactive_queue,
+# scoped to one document and made multi-turn via history.
+DOCUMENT_CHAT = """\
+You are helping edit a {document_type}. Here is its current data:
+{current_data}
+
+Conversation so far:
+{history}
+
+New instruction: "{instruction}"
+
+Apply the instruction to the data (e.g. "reduce the price by 5%" recalculates unitPriceCents or discountPct on the relevant items; "make this more persuasive" rewrites the relevant section's body; "add a warranty line" appends a note). Only change what the instruction asks for — leave everything else as-is.
+
+Return ONLY valid JSON:
+{{
+  "items": [{{"productId": null, "description": "", "quantity": 1, "unitPriceCents": 0, "discountPct": 0, "taxPct": 0}}] or null if unchanged,
+  "sections": [{{"heading": "", "body": ""}}] or null if unchanged,
+  "notes": "string or null if unchanged",
+  "terms": "string or null if unchanged",
+  "reply": "1 sentence confirming what you changed, addressed to the person editing — not the customer"
+}}
+"""

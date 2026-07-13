@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle, Sparkles, ShieldCheck } from 'lucide-react'
+import { FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle, Sparkles, ShieldCheck, MessageSquare } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
@@ -81,6 +81,80 @@ function emptyItem(): LineItem {
   return { description: '', quantity: 1, unitPriceCents: 0, discountPct: 0, taxPct: 0 }
 }
 
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+// AI Document Assistant (plan §12/§15 Phase 3) — a small per-document chat.
+// Edits structured_data via instructions ("reduce the price by 5%"); never
+// touches the PDF directly, so a re-generate is still required to see it.
+function DocumentChatPanel({ documentId, token, onChanged }: { documentId: string; token: string; onChanged: () => void }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [loading, setLoading] = useState(true)
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    apiClient<{ messages: ChatMessage[] }>(`/api/documents/${documentId}/chat`, { token })
+      .then(data => { setMessages(data.messages); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [documentId, token])
+
+  const send = async () => {
+    if (!input.trim() || sending) return
+    const instruction = input.trim()
+    setMessages(prev => [...prev, { role: 'user', content: instruction }])
+    setInput('')
+    setSending(true)
+    try {
+      const data = await apiClient<{ reply: string }>(`/api/documents/${documentId}/chat`, {
+        method: 'POST', token, body: JSON.stringify({ instruction }),
+      })
+      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
+      onChanged()
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong.' }])
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+      <div className="max-h-48 overflow-y-auto p-2.5 space-y-1.5 bg-gray-50">
+        {loading ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+        ) : messages.length === 0 ? (
+          <p className="text-[11px] text-gray-400">Try &ldquo;reduce the price by 5%&rdquo; or &ldquo;make the terms shorter&rdquo;.</p>
+        ) : (
+          messages.map((m, i) => (
+            <p key={i} className={`text-xs ${m.role === 'user' ? 'text-gray-700 font-medium' : 'text-indigo-700'}`}>
+              {m.role === 'user' ? '' : '→ '}{m.content}
+            </p>
+          ))
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 p-2 bg-white">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') send() }}
+          placeholder="Tell the AI what to change…"
+          className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+        />
+        <button
+          onClick={send}
+          disabled={sending || !input.trim()}
+          className="flex-shrink-0 inline-flex items-center justify-center w-7 h-7 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function BusinessPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
@@ -90,12 +164,14 @@ export default function BusinessPage() {
   const [loading, setLoading] = useState(true)
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showNewDoc, setShowNewDoc] = useState(false)
+  const [showRecurring, setShowRecurring] = useState(false)
   const [generatingId, setGeneratingId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [convertingId, setConvertingId] = useState<string | null>(null)
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null)
   const [checkingQualityId, setCheckingQualityId] = useState<string | null>(null)
   const [qualityResults, setQualityResults] = useState<Record<string, QualityCheckResult>>({})
+  const [chatOpenId, setChatOpenId] = useState<string | null>(null)
 
   const loadDocuments = () => {
     if (!token) return
@@ -206,12 +282,20 @@ export default function BusinessPage() {
         title="Documents"
         description="Quotations and invoices — AI-generated, branded, linked to your contacts."
         action={
-          <button
-            onClick={() => setShowNewDoc(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4" />New Document
-          </button>
+          <>
+            <button
+              onClick={() => setShowRecurring(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />Recurring
+            </button>
+            <button
+              onClick={() => setShowNewDoc(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              <Plus className="w-4 h-4" />New Document
+            </button>
+          </>
         }
       />
 
@@ -319,6 +403,9 @@ export default function BusinessPage() {
                         <button onClick={() => checkQuality(doc.id)} disabled={checkingQualityId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
                           {checkingQualityId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}Check Quality
                         </button>
+                        <button onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
+                          <MessageSquare className="w-3.5 h-3.5" />AI Assistant
+                        </button>
                       </>
                     ) : (
                       <button
@@ -331,6 +418,10 @@ export default function BusinessPage() {
                     )}
                   </div>
                 </div>
+
+                {chatOpenId === doc.id && token && (
+                  <DocumentChatPanel documentId={doc.id} token={token} onChanged={loadDocuments} />
+                )}
 
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
                   {CONVERSION_TARGETS[doc.documentType] ? (
@@ -365,6 +456,10 @@ export default function BusinessPage() {
           onClose={() => setShowNewDoc(false)}
           onCreated={() => { setShowNewDoc(false); loadDocuments() }}
         />
+      )}
+
+      {showRecurring && (
+        <RecurringDocumentsModal token={token} onClose={() => setShowRecurring(false)} />
       )}
     </div>
   )
@@ -673,6 +768,198 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
         </div>
         </>
         )}
+      </div>
+    </div>
+  )
+}
+
+interface RecurringRule {
+  id: string
+  contactId: string
+  documentType: string
+  recurrence: string
+  dayOfPeriod: number
+  autoSend: boolean
+  isActive: boolean
+  nextRunAt: string
+  contact: { id: string; name: string; avatarUrl: string | null } | null
+}
+
+const RECURRENCE_OPTIONS = ['weekly', 'monthly', 'quarterly', 'yearly'] as const
+
+// Scheduled/recurring documents (plan §15 Phase 3) — a rule the polling
+// worker (services/api/src/workers/recurring-documents-worker.ts) checks
+// every minute, not a one-off scheduled send.
+function RecurringDocumentsModal({ token, onClose }: { token: string | null | undefined; onClose: () => void }) {
+  const { addToast } = useToast()
+  const [rules, setRules] = useState<RecurringRule[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [contactId, setContactId] = useState('')
+  const [documentType, setDocumentType] = useState<'quotation' | 'invoice'>('invoice')
+  const [items, setItems] = useState<LineItem[]>([emptyItem()])
+  const [recurrence, setRecurrence] = useState<typeof RECURRENCE_OPTIONS[number]>('monthly')
+  const [dayOfPeriod, setDayOfPeriod] = useState(1)
+  const [autoSend, setAutoSend] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const loadRules = () => {
+    if (!token) return
+    apiClient<{ rules: RecurringRule[] }>('/api/recurring-documents', { token })
+      .then(data => { setRules(data.rules); setLoading(false) })
+      .catch(() => setLoading(false))
+  }
+
+  useEffect(loadRules, [token])
+
+  useEffect(() => {
+    if (!token) return
+    apiClient<{ contacts: Contact[] }>('/api/contacts', { token }).then(data => setContacts(data.contacts)).catch(() => {})
+  }, [token])
+
+  const updateItem = (index: number, patch: Partial<LineItem>) => {
+    setItems(prev => prev.map((item, i) => i === index ? { ...item, ...patch } : item))
+  }
+
+  const createRule = async () => {
+    if (!token || !contactId) return
+    const validItems = items.filter(i => i.description.trim())
+    if (validItems.length === 0) {
+      addToast({ variant: 'error', title: 'Add at least one line item' })
+      return
+    }
+    setSaving(true)
+    try {
+      await apiClient('/api/recurring-documents', {
+        method: 'POST', token,
+        body: JSON.stringify({ contactId, documentType, items: validItems, recurrence, dayOfPeriod, autoSend }),
+      })
+      addToast({ variant: 'success', title: 'Recurring rule created' })
+      setShowForm(false)
+      setItems([emptyItem()])
+      setContactId('')
+      loadRules()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to create rule', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleActive = async (rule: RecurringRule) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/recurring-documents/${rule.id}`, {
+        method: 'PATCH', token, body: JSON.stringify({ isActive: !rule.isActive }),
+      })
+      loadRules()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update rule' })
+    }
+  }
+
+  const deleteRule = async (id: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/recurring-documents/${id}`, { method: 'DELETE', token })
+      loadRules()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to delete rule' })
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-sm font-semibold text-gray-900">Recurring Documents</h2>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+          ) : rules.length === 0 && !showForm ? (
+            <p className="text-sm text-gray-500">No recurring rules yet — e.g. a monthly invoice for a retainer client.</p>
+          ) : (
+            rules.map(rule => (
+              <div key={rule.id} className="flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {rule.contact?.name ?? 'Unknown contact'} — {rule.documentType}
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {rule.recurrence} · next {new Date(rule.nextRunAt).toLocaleDateString()}{rule.autoSend ? ' · auto-sends' : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => toggleActive(rule)} className={`text-xs font-medium px-2 py-1 rounded-lg ${rule.isActive ? 'text-green-700 bg-green-50' : 'text-gray-500 bg-gray-100'}`}>
+                    {rule.isActive ? 'Active' : 'Paused'}
+                  </button>
+                  <button onClick={() => deleteRule(rule.id)}><Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" /></button>
+                </div>
+              </div>
+            ))
+          )}
+
+          {showForm ? (
+            <div className="border border-gray-200 rounded-xl p-3.5 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <select value={contactId} onChange={e => setContactId(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select a contact…</option>
+                  {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <select value={documentType} onChange={e => setDocumentType(e.target.value as 'quotation' | 'invoice')} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="invoice">Invoice</option>
+                  <option value="quotation">Quotation</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                {items.map((item, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_60px_90px_28px] gap-1.5 items-center">
+                    <input placeholder="Description" value={item.description} onChange={e => updateItem(i, { description: e.target.value })} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
+                    <input type="number" min={0} placeholder="Qty" value={item.quantity} onChange={e => updateItem(i, { quantity: parseFloat(e.target.value) || 0 })} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
+                    <input type="number" min={0} placeholder="Unit price" value={item.unitPriceCents / 100} onChange={e => updateItem(i, { unitPriceCents: Math.round((parseFloat(e.target.value) || 0) * 100) })} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" />
+                    <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} disabled={items.length === 1}>
+                      <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500 disabled:opacity-30" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => setItems(prev => [...prev, emptyItem()])} className="text-xs font-medium text-indigo-600 hover:text-indigo-700">+ Add line item</button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <select value={recurrence} onChange={e => setRecurrence(e.target.value as typeof recurrence)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  {RECURRENCE_OPTIONS.map(r => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
+                </select>
+                <input
+                  type="number" min={0} max={31}
+                  value={dayOfPeriod}
+                  onChange={e => setDayOfPeriod(parseInt(e.target.value, 10) || 1)}
+                  placeholder={recurrence === 'weekly' ? 'Day of week (0-6)' : 'Day of month'}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <label className="flex items-center gap-2 text-xs text-gray-600">
+                  <input type="checkbox" checked={autoSend} onChange={e => setAutoSend(e.target.checked)} />
+                  Auto-send via WhatsApp
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowForm(false)} className="px-3 py-2 text-sm text-gray-500">Cancel</button>
+                <button onClick={createRule} disabled={saving || !contactId} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                  {saving ? 'Creating…' : 'Create Rule'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowForm(true)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-indigo-300 hover:text-indigo-600 transition-colors">
+              + New recurring rule
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
