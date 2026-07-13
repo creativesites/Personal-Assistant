@@ -4,10 +4,12 @@ from pydantic import BaseModel
 from ..database import get_pool
 from ..services.health import RelationshipHealthService
 from ..services.network_value import NetworkValueService
+from ..services.lead_score import LeadScoreService
 
 router = APIRouter(prefix='/internal/relationship-health', tags=['relationship-health'])
 _health_svc = RelationshipHealthService()
 _network_value_svc = NetworkValueService()
+_lead_score_svc = LeadScoreService()
 
 # Bounded to the DB pool size (database.py: max_size=5) — recalculate()/
 # recompute() are pure SQL, no LLM call, so this is cheap; the limit just
@@ -27,6 +29,7 @@ class RecalculateAllRequest(BaseModel):
 async def _recalculate_one(contact_id: str, user_id: str) -> int:
     score = await _health_svc.recalculate(contact_id, user_id)
     await _network_value_svc.recompute(contact_id, user_id)
+    await _lead_score_svc.recompute(contact_id, user_id)
     return score
 
 

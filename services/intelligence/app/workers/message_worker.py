@@ -13,6 +13,7 @@ from ..services.connections import ConnectionService
 from ..services.contact_products import ContactProductService
 from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
+from ..services.lead_score import LeadScoreService
 from ..memory.conversation_memory import update_conversation_memory
 
 log = structlog.get_logger()
@@ -27,6 +28,7 @@ _connections = ConnectionService()
 _contact_products = ContactProductService()
 _life_events = LifeEventService()
 _network_value = NetworkValueService()
+_lead_score = LeadScoreService()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue  = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
@@ -148,6 +150,10 @@ async def _process(job, token: str):
         # connections, message direction/sentiment), so there's no reason
         # for it to run on a different cadence.
         await _network_value.recompute(contact_id, user_id)
+        # Lead score also gets a periodic refresh here (in addition to the
+        # immediate recompute in opportunities.py) so it decays back down
+        # once a buying-signal opportunity expires, not just when a new one appears.
+        await _lead_score.recompute(contact_id, user_id)
 
     # Update cadence model — offloaded to the temporal worker instead of running
     # inline, so a burst of messages doesn't serialize behind extra DB round-trips.

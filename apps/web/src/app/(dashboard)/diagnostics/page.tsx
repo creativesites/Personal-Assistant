@@ -200,6 +200,7 @@ export default function DiagnosticsPage() {
     { id: 'health',     label: 'API Health (DB + Redis)',          description: `Proxied server-side → ${API_URL}/health`,                      status: 'idle', detail: '' },
     { id: 'authme',     label: 'Authenticated API Call',           description: `GET ${API_URL}/api/auth/me — requires JWT from sync`,          status: 'idle', detail: '' },
     { id: 'contacts',   label: 'Contacts API',                    description: `GET ${API_URL}/api/contacts — verifies DB data access`,         status: 'idle', detail: '' },
+    { id: 'ai_pipeline',label: 'AI Analysis Pipeline',             description: `GET ${API_URL}/api/diagnostics/ai-pipeline — is the intelligence service actually analyzing messages?`, status: 'idle', detail: '' },
     { id: 'wa_service', label: 'WhatsApp Service Health',          description: 'Internal whatsapp service — DB, Redis, Chromium',              status: 'idle', detail: '' },
     { id: 'wa_instance',label: 'WhatsApp Instance Status',         description: 'Your WhatsApp connection state from the database',             status: 'idle', detail: '' },
   ])
@@ -303,6 +304,41 @@ export default function DiagnosticsPage() {
         setCheck('contacts', { status: r.ok ? 'ok' : 'error', detail: r.ok ? `${body?.contacts?.length ?? 0} contact(s) returned` : `HTTP ${r.status} — ${body?.error}`, latencyMs, raw: r.ok ? { count: body?.contacts?.length } : body })
       } catch (err: any) {
         setCheck('contacts', { status: 'error', detail: err.message, latencyMs: Date.now() - t3 })
+      }
+    }
+
+    // 5b. AI analysis pipeline coverage — distinguishes "the LLM/worker pipeline
+    // isn't running" from "a specific page has a bug": if totalMessages is high
+    // but analyzedMessages is 0, that's a pipeline outage, not a query issue.
+    if (!currentToken) {
+      setCheck('ai_pipeline', { status: 'warn', detail: 'No JWT available — fix the sync step first.' })
+    } else {
+      const t5b = Date.now()
+      try {
+        const r = await fetch(`${API_URL}/api/diagnostics/ai-pipeline`, { headers: { Authorization: `Bearer ${currentToken}` } })
+        const latencyMs = Date.now() - t5b
+        const body = await r.json().catch(() => null)
+        let aiStatus: Status = 'ok'
+        let detail = ''
+        if (!r.ok) {
+          aiStatus = 'error'
+          detail = `HTTP ${r.status} — ${body?.error || 'Unknown'}`
+        } else if (body?.totalMessages === 0) {
+          aiStatus = 'warn'
+          detail = 'No messages yet — connect WhatsApp and exchange a few messages.'
+        } else if (body?.analyzedMessages === 0) {
+          aiStatus = 'error'
+          detail = `${body.totalMessages} message(s) but 0 analyzed — the intelligence service's LLM calls are failing. Check its logs (model/API key).`
+        } else if (body?.coveragePct < 50) {
+          aiStatus = 'warn'
+          detail = `Only ${body.coveragePct}% of messages analyzed (${body.analyzedMessages}/${body.totalMessages}) — pipeline may be falling behind or intermittently failing.`
+        } else {
+          aiStatus = 'ok'
+          detail = `${body.coveragePct}% analyzed (${body.analyzedMessages}/${body.totalMessages}) · ${body.contactsWithProfile}/${body.totalContacts} contacts profiled · ${body.opportunityCount} opportunities detected`
+        }
+        setCheck('ai_pipeline', { status: aiStatus, detail, latencyMs, raw: body })
+      } catch (err: any) {
+        setCheck('ai_pipeline', { status: 'error', detail: err.message, latencyMs: Date.now() - t5b })
       }
     }
 

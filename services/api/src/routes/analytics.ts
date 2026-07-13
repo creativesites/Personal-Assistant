@@ -184,7 +184,9 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       const { rows: [aiDraftedRow] } = await db.query<{ ai_drafted: string }>(
         `SELECT COUNT(*) AS ai_drafted
          FROM suggested_replies sr
-         WHERE sr.user_id = $1
+         JOIN messages m ON m.id = sr.message_id
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.user_id = $1
            AND sr.status IN ('approved', 'sent')
            AND sr.created_at >= NOW() - INTERVAL '30 days'`,
         [userId],
@@ -350,44 +352,64 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
-      const { rows: pipelineRows } = await db.query<{
-        pipeline_stage: string | null
-        count: string
+      // "hot/warm/cold" here is a lead-temperature bucket derived from
+      // lead_score (matching the /leads page's own "Hot" filter — score >=
+      // 70), NOT contacts.pipeline_stage (whose real values are
+      // new_lead|contacted|qualified|proposal|negotiation|won|lost — never
+      // 'hot'/'warm'/'cold'). The frontend's PipelineStage/LeadRow.stage
+      // types are literally the 'cold'|'warm'|'hot' union, so this has to
+      // be computed, not read off pipeline_stage directly.
+      const { rows: [tempRow] } = await db.query<{
+        total_leads: string; hot_leads: string; warm_leads: string; cold_leads: string
         avg_score: string | null
+        total_leads_30d: string; total_leads_prev: string
+        hot_leads_30d: string; hot_leads_prev: string
+        avg_score_30d: string | null; avg_score_prev: string | null
       }>(
-        `SELECT
-           pipeline_stage,
-           COUNT(*) AS count,
-           AVG(COALESCE(lead_score, 0))::numeric(10,2) AS avg_score
-         FROM contacts
-         WHERE user_id = $1
-           AND is_active = true
-         GROUP BY pipeline_stage`,
+        `WITH temp AS (
+           SELECT
+             id, COALESCE(lead_score, 0) AS score, created_at,
+             CASE WHEN COALESCE(lead_score, 0) >= 70 THEN 'hot'
+                  WHEN COALESCE(lead_score, 0) >= 40 THEN 'warm'
+                  ELSE 'cold' END AS temperature
+           FROM contacts WHERE user_id = $1 AND is_active = true
+         )
+         SELECT
+           COUNT(*) AS total_leads,
+           COUNT(*) FILTER (WHERE temperature = 'hot') AS hot_leads,
+           COUNT(*) FILTER (WHERE temperature = 'warm') AS warm_leads,
+           COUNT(*) FILTER (WHERE temperature = 'cold') AS cold_leads,
+           AVG(score)::numeric(10,2) AS avg_score,
+           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS total_leads_30d,
+           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days') AS total_leads_prev,
+           COUNT(*) FILTER (WHERE temperature = 'hot' AND created_at >= NOW() - INTERVAL '30 days') AS hot_leads_30d,
+           COUNT(*) FILTER (WHERE temperature = 'hot' AND created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days') AS hot_leads_prev,
+           AVG(score) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::numeric(10,2) AS avg_score_30d,
+           AVG(score) FILTER (WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days')::numeric(10,2) AS avg_score_prev
+         FROM temp`,
         [userId],
       )
 
-      const stageMap = new Map(pipelineRows.map((r) => [r.pipeline_stage ?? 'none', r]))
-      const hot = parseInt(stageMap.get('hot')?.count ?? '0', 10)
-      const warm = parseInt(stageMap.get('warm')?.count ?? '0', 10)
-      const cold = parseInt(stageMap.get('cold')?.count ?? '0', 10)
-      const totalLeads = pipelineRows.reduce((s, r) => s + parseInt(r.count, 10), 0)
+      const totalLeads = parseInt(tempRow.total_leads, 10)
+      const hotLeads = parseInt(tempRow.hot_leads, 10)
+      const warmLeads = parseInt(tempRow.warm_leads, 10)
+      const coldLeads = parseInt(tempRow.cold_leads, 10)
+      const avgLeadScore = tempRow.avg_score ? parseFloat(tempRow.avg_score) : 0
+      const totalLeads30d = parseInt(tempRow.total_leads_30d, 10)
+      const totalLeadsPrev = parseInt(tempRow.total_leads_prev, 10)
+      const hotLeads30d = parseInt(tempRow.hot_leads_30d, 10)
+      const hotLeadsPrev = parseInt(tempRow.hot_leads_prev, 10)
+      const avgScore30d = tempRow.avg_score_30d ? parseFloat(tempRow.avg_score_30d) : 0
+      const avgScorePrev = tempRow.avg_score_prev ? parseFloat(tempRow.avg_score_prev) : 0
 
-      const { rows: [avgScoreRow] } = await db.query<{ avg_score: string | null }>(
-        `SELECT AVG(COALESCE(lead_score, 0))::numeric(10,2) AS avg_score
-         FROM contacts
-         WHERE user_id = $1
-           AND is_active = true`,
-        [userId],
-      )
-
-      const leadToWarm = cold > 0 ? parseFloat((warm / cold).toFixed(4)) : 0
-      const warmToHot = warm > 0 ? parseFloat((hot / warm).toFixed(4)) : 0
+      const conversionRate = totalLeads > 0 ? (hotLeads / totalLeads) * 100 : 0
+      const conversionRate30d = totalLeads30d > 0 ? (hotLeads30d / totalLeads30d) * 100 : 0
+      const conversionRatePrev = totalLeadsPrev > 0 ? (hotLeadsPrev / totalLeadsPrev) * 100 : 0
 
       const { rows: topLeadRows } = await db.query<{
         id: string
         name: string
         lead_score: string | null
-        pipeline_stage: string | null
         company: string | null
         last_interaction_at: string | null
       }>(
@@ -395,7 +417,6 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
            c.id,
            COALESCE(c.custom_name, c.display_name) AS name,
            c.lead_score,
-           c.pipeline_stage,
            c.company,
            r.last_interaction_at
          FROM contacts c
@@ -407,47 +428,37 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         [userId],
       )
 
-      const { rows: [velocityRow] } = await db.query<{ avg_days: string | null }>(
-        `SELECT
-           AVG(EXTRACT(EPOCH FROM (NOW() - c.created_at)) / 86400)::numeric(10,2) AS avg_days
-         FROM contacts c
-         WHERE c.user_id = $1
-           AND c.is_active = true
-           AND c.pipeline_stage IS NOT NULL`,
-        [userId],
-      )
-
-      const byStage = pipelineRows.map((r) => ({
-        stage: r.pipeline_stage ?? 'none',
-        count: parseInt(r.count, 10),
-        avgScore: r.avg_score ? parseFloat(r.avg_score) : 0,
-      }))
+      const temperatureOf = (score: number): 'hot' | 'warm' | 'cold' =>
+        score >= 70 ? 'hot' : score >= 40 ? 'warm' : 'cold'
 
       return reply.send({
         period: '30d',
-        pipeline: {
-          hot,
-          warm,
-          cold,
+        kpis: {
           totalLeads,
-          avgLeadScore: avgScoreRow.avg_score ? parseFloat(avgScoreRow.avg_score) : 0,
+          hotLeads,
+          avgLeadScore,
+          conversionRate: parseFloat(conversionRate.toFixed(1)),
+          totalLeadsDelta: totalLeads30d - totalLeadsPrev,
+          hotLeadsDelta: hotLeads30d - hotLeadsPrev,
+          avgLeadScoreDelta: parseFloat((avgScore30d - avgScorePrev).toFixed(1)),
+          conversionRateDelta: parseFloat((conversionRate30d - conversionRatePrev).toFixed(1)),
         },
-        conversion: {
-          leadToWarm,
-          warmToHot,
-        },
-        topLeads: topLeadRows.map((r) => ({
-          id: r.id,
-          name: r.name,
-          score: parseInt(r.lead_score ?? '0', 10),
-          stage: r.pipeline_stage ?? 'none',
-          company: r.company ?? null,
-          lastContact: r.last_interaction_at ?? null,
-        })),
-        velocity: {
-          avgDaysInPipeline: velocityRow.avg_days ? parseFloat(velocityRow.avg_days) : 0,
-        },
-        byStage,
+        pipeline: [
+          { stage: 'hot', count: hotLeads, percentage: totalLeads > 0 ? Math.round((hotLeads / totalLeads) * 100) : 0 },
+          { stage: 'warm', count: warmLeads, percentage: totalLeads > 0 ? Math.round((warmLeads / totalLeads) * 100) : 0 },
+          { stage: 'cold', count: coldLeads, percentage: totalLeads > 0 ? Math.round((coldLeads / totalLeads) * 100) : 0 },
+        ],
+        topLeads: topLeadRows.map((r) => {
+          const score = parseInt(r.lead_score ?? '0', 10)
+          return {
+            id: r.id,
+            name: r.name,
+            score,
+            stage: temperatureOf(score),
+            company: r.company ?? '',
+            lastContact: r.last_interaction_at ?? null,
+          }
+        }),
       })
     },
   )
@@ -468,9 +479,9 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         new_count: string
       }>(
         `SELECT
-           COUNT(*) FILTER (WHERE r.importance_tier = 'high') AS vip,
+           COUNT(*) FILTER (WHERE COALESCE(r.importance_tier, 3) <= 2) AS vip,
            COUNT(*) FILTER (WHERE r.last_interaction_at >= NOW() - INTERVAL '7 days') AS active,
-           COUNT(*) FILTER (WHERE r.health_score < 40) AS at_risk,
+           COUNT(*) FILTER (WHERE COALESCE(r.health_score, 70) < 40) AS at_risk,
            COUNT(*) FILTER (WHERE r.last_interaction_at < NOW() - INTERVAL '30 days' OR r.last_interaction_at IS NULL) AS dormant,
            COUNT(*) FILTER (WHERE c.created_at >= NOW() - INTERVAL '30 days') AS new_count
          FROM contacts c
@@ -496,23 +507,39 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         [userId],
       )
 
+      // customer.tier must be one of SegmentKey ('vip'|'active'|'at_risk'|'dormant'|'new')
+      // — apps/web's SEGMENT_META is indexed by this exact union, so it has to be
+      // computed here, not the raw numeric importance_tier. Priority mirrors the
+      // segment counts above: at_risk first (most urgent), then vip/dormant/new,
+      // falling back to 'active' for anyone who doesn't match a more specific bucket.
       const { rows: topCustomerRows } = await db.query<{
         id: string
         name: string
         health_score: string | null
-        importance_tier: string | null
+        segment: string
         last_interaction_at: string | null
-        interaction_count: string | null
+        interaction_count: string
       }>(
         `SELECT
            c.id,
            COALESCE(c.custom_name, c.display_name) AS name,
            r.health_score,
-           r.importance_tier,
+           CASE
+             WHEN COALESCE(r.health_score, 70) < 40 THEN 'at_risk'
+             WHEN COALESCE(r.importance_tier, 3) <= 2 THEN 'vip'
+             WHEN r.last_interaction_at < NOW() - INTERVAL '30 days' OR r.last_interaction_at IS NULL THEN 'dormant'
+             WHEN c.created_at >= NOW() - INTERVAL '30 days' THEN 'new'
+             ELSE 'active'
+           END AS segment,
            r.last_interaction_at,
-           r.interaction_count
+           COALESCE(msg.cnt, 0) AS interaction_count
          FROM contacts c
          LEFT JOIN relationships r ON r.contact_id = c.id AND r.user_id = c.user_id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) AS cnt FROM messages m
+           JOIN conversations conv ON conv.id = m.conversation_id
+           WHERE conv.contact_id = c.id AND conv.user_id = $1
+         ) msg ON true
          WHERE c.user_id = $1
            AND c.is_active = true
          ORDER BY COALESCE(r.health_score, 0) DESC
@@ -537,11 +564,15 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         avg_health: string | null
         avg_interactions: string | null
       }>(
-        `SELECT
-           AVG(health_score)::numeric(10,2) AS avg_health,
-           AVG(interaction_count)::numeric(10,2) AS avg_interactions
-         FROM relationships
-         WHERE user_id = $1`,
+        `WITH per_contact_msgs AS (
+           SELECT conv.contact_id, COUNT(*) AS cnt
+           FROM messages m JOIN conversations conv ON conv.id = m.conversation_id
+           WHERE conv.user_id = $1
+           GROUP BY conv.contact_id
+         )
+         SELECT
+           (SELECT AVG(health_score)::numeric(10,2) FROM relationships WHERE user_id = $1) AS avg_health,
+           (SELECT AVG(cnt)::numeric(10,2) FROM per_contact_msgs) AS avg_interactions`,
         [userId],
       )
 
@@ -551,14 +582,21 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         ? parseFloat(((thisMonth - lastMonth) / lastMonth).toFixed(4))
         : 0
 
+      const vip = parseInt(segmentRow.vip, 10)
+      const active = parseInt(segmentRow.active, 10)
+      const atRisk = parseInt(segmentRow.at_risk, 10)
+      const dormant = parseInt(segmentRow.dormant, 10)
+      const newCount = parseInt(segmentRow.new_count, 10)
+
+      // Response shape must match apps/web's CustomersData exactly — segments
+      // keyed by the same SegmentKey union as topCustomers[].tier (snake_case
+      // at_risk, not camelCase), plus a `total` the frontend divides by for
+      // percentages, and growth nested under `growth` rather than top-level.
       return reply.send({
         period: '30d',
         segments: {
-          vip: parseInt(segmentRow.vip, 10),
-          active: parseInt(segmentRow.active, 10),
-          atRisk: parseInt(segmentRow.at_risk, 10),
-          dormant: parseInt(segmentRow.dormant, 10),
-          new: parseInt(segmentRow.new_count, 10),
+          vip, active, at_risk: atRisk, dormant, new: newCount,
+          total: vip + active + atRisk + dormant + newCount,
         },
         healthDistribution: {
           excellent: parseInt(healthDist.excellent, 10),
@@ -570,13 +608,15 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
           id: r.id,
           name: r.name,
           healthScore: r.health_score ? parseFloat(r.health_score) : 0,
-          tier: r.importance_tier ?? 'medium',
-          lastContact: r.last_interaction_at ?? null,
-          interactions: parseInt(r.interaction_count ?? '0', 10),
+          tier: r.segment,
+          lastContactDate: r.last_interaction_at ?? null,
+          interactionCount: parseInt(r.interaction_count, 10),
         })),
-        growthRate,
-        avgHealthScore: avgStats.avg_health ? parseFloat(avgStats.avg_health) : 0,
-        avgInteractions: avgStats.avg_interactions ? parseFloat(avgStats.avg_interactions) : 0,
+        growth: {
+          growthRate,
+          avgHealthScore: avgStats.avg_health ? parseFloat(avgStats.avg_health) : 0,
+          avgInteractions: avgStats.avg_interactions ? parseFloat(avgStats.avg_interactions) : 0,
+        },
       })
     },
   )
@@ -656,10 +696,12 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       )
 
       const { rows: [srRow] } = await db.query<{ sr_count: string }>(
-        `SELECT COUNT(DISTINCT conversation_id) AS sr_count
-         FROM suggested_replies
-         WHERE user_id = $1
-           AND created_at >= NOW() - INTERVAL '30 days'`,
+        `SELECT COUNT(DISTINCT m.conversation_id) AS sr_count
+         FROM suggested_replies sr
+         JOIN messages m ON m.id = sr.message_id
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.user_id = $1
+           AND sr.created_at >= NOW() - INTERVAL '30 days'`,
         [userId],
       )
 
@@ -710,16 +752,18 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
       const convTotal = parseInt(volRow.total, 10)
       const srCount = parseInt(srRow.sr_count, 10)
-      const aiAssistanceRate = convTotal > 0 ? parseFloat((srCount / convTotal).toFixed(4)) : 0
+      // aiAssistanceRate/avgImportanceScore are sent as 0-100/0-10 scales —
+      // the frontend renders them directly (percentage text, a /10 ring),
+      // not as raw 0-1 fractions.
+      const aiAssistanceRate = convTotal > 0 ? parseFloat(((srCount / convTotal) * 100).toFixed(1)) : 0
+      const avgImportanceScore = avgImportRow.avg_importance ? parseFloat(avgImportRow.avg_importance) * 10 : 0
 
       return reply.send({
         period: '30d',
-        volume: {
-          total: convTotal,
-          today: parseInt(volRow.today, 10),
-          thisWeek: parseInt(volRow.this_week, 10),
-          avgPerDay: volRow.avg_per_day ? parseFloat(volRow.avg_per_day) : 0,
-        },
+        totalConversations: convTotal,
+        todayConversations: parseInt(volRow.today, 10),
+        thisWeekConversations: parseInt(volRow.this_week, 10),
+        avgPerDay: volRow.avg_per_day ? parseFloat(volRow.avg_per_day) : 0,
         sentiment: {
           positive: parseInt(sentimentRow.positive, 10),
           negative: parseInt(sentimentRow.negative, 10),
@@ -732,15 +776,16 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
           high: parseInt(urgencyRow.high, 10),
           urgent: parseInt(urgencyRow.urgent, 10),
         },
-        requiresResponse: parseInt(requiresRow.count, 10),
+        requiresResponseCount: parseInt(requiresRow.count, 10),
         aiAssistanceRate,
-        avgImportanceScore: avgImportRow.avg_importance ? parseFloat(avgImportRow.avg_importance) : 0,
+        avgImportanceScore: parseFloat(avgImportanceScore.toFixed(1)),
         topTopics: topicRows.map((r) => ({ topic: r.topic, count: parseInt(r.count, 10) })),
-        daily: dailyRows.map((r) => ({
+        dailyVolume: dailyRows.map((r) => ({
           date: r.date,
           count: parseInt(r.count, 10),
           sentiment: r.sentiment ?? 'neutral',
         })),
+        generatedAt: new Date().toISOString(),
       })
     },
   )
@@ -761,8 +806,13 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       }>(
         `SELECT
            (SELECT COUNT(*) FROM conversations WHERE user_id = $1 AND last_message_at >= NOW() - INTERVAL '1 hour') AS active_conversations,
-           (SELECT COUNT(*) FROM suggested_replies WHERE user_id = $1 AND status = 'pending') AS pending_replies,
-           (SELECT COUNT(*) FROM escalations WHERE user_id = $1 AND status = 'open') AS escalations_open,
+           (SELECT COUNT(*) FROM suggested_replies sr
+              JOIN messages m ON m.id = sr.message_id
+              JOIN conversations c ON c.id = m.conversation_id
+             WHERE c.user_id = $1 AND sr.status = 'pending') AS pending_replies,
+           (SELECT COUNT(*) FROM escalations e
+              JOIN conversations c ON c.id = e.conversation_id
+             WHERE c.user_id = $1 AND e.status IN ('pending', 'in_progress')) AS escalations_open,
            (SELECT COUNT(*) FROM agents WHERE user_id = $1 AND is_active = true) AS agents_active`,
         [userId],
       )
@@ -773,20 +823,24 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       }>(
         `SELECT
            COUNT(*) AS depth,
-           MIN(created_at) AS oldest
-         FROM suggested_replies
-         WHERE user_id = $1
-           AND status = 'pending'`,
+           MIN(sr.created_at) AS oldest
+         FROM suggested_replies sr
+         JOIN messages m ON m.id = sr.message_id
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.user_id = $1
+           AND sr.status = 'pending'`,
         [userId],
       )
 
       const { rows: recentRows } = await db.query<{
+        id: string
         sender_type: string
         body: string | null
         created_at: string
         contact_name: string | null
       }>(
         `SELECT
+           m.id,
            m.sender_type,
            m.body,
            m.created_at,
@@ -802,21 +856,26 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       )
 
       const recentActivity = recentRows.map((r) => ({
+        id: r.id,
         type: 'inbound_message',
         description: `Message from ${r.contact_name ?? 'unknown'}: ${(r.body ?? '').slice(0, 60)}`,
         timestamp: r.created_at,
       }))
 
+      const depth = parseInt(queueRow.depth, 10)
+      const queueStatus = depth < 10 ? 'healthy' : depth < 30 ? 'building_up' : 'critical'
+
       return reply.send({
-        live: {
+        metrics: {
           activeConversations: parseInt(liveRow.active_conversations, 10),
-          pendingReplies: parseInt(liveRow.pending_replies, 10),
-          escalationsOpen: parseInt(liveRow.escalations_open, 10),
-          agentsActive: parseInt(liveRow.agents_active, 10),
+          pendingAiReplies: parseInt(liveRow.pending_replies, 10),
+          openEscalations: parseInt(liveRow.escalations_open, 10),
+          activeAgents: parseInt(liveRow.agents_active, 10),
         },
         queue: {
-          depth: parseInt(queueRow.depth, 10),
-          oldest: queueRow.oldest ?? null,
+          depth,
+          oldestPendingAt: queueRow.oldest ?? null,
+          status: queueStatus,
         },
         recentActivity,
       })
@@ -846,7 +905,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
            c.pipeline_stage,
            r.last_interaction_at,
            (
-             SELECT ci.value FROM contact_insights ci
+             SELECT ci.insight_value FROM contact_insights ci
              WHERE ci.contact_id = c.id AND ci.user_id = c.user_id AND ci.is_active = true
              ORDER BY ci.confidence DESC
              LIMIT 1
@@ -866,8 +925,8 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
          FROM contacts
          WHERE user_id = $1
            AND is_active = true
-           AND pipeline_stage IN ('hot', 'warm')
-           AND lead_score IS NOT NULL`,
+           AND COALESCE(pipeline_stage, 'new_lead') NOT IN ('won', 'lost')
+           AND COALESCE(lead_score, 0) > 40`,
         [userId],
       )
 
@@ -881,7 +940,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
           reason: `Lead score ${score}, stage: ${r.pipeline_stage ?? 'unset'}`,
           estimatedValue: score * 1000,
           urgency,
-          lastContact: r.last_interaction_at ?? null,
+          lastContactDate: r.last_interaction_at ?? null,
           pipelineStage: r.pipeline_stage ?? null,
           leadScore: score,
           insight: r.insight_value ?? null,
@@ -977,7 +1036,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
          WHERE c.user_id = $1
            AND c.is_active = true
            AND (r.last_interaction_at < NOW() - INTERVAL '14 days' OR r.last_interaction_at IS NULL)
-           AND COALESCE(r.importance_tier, 'medium') != 'low'
+           AND COALESCE(r.importance_tier, 3) <= 3
          ORDER BY r.last_interaction_at ASC NULLS FIRST
          LIMIT 15`,
         [userId],
@@ -988,6 +1047,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         const health = r.health_score ? parseFloat(r.health_score) : 50
         const riskLevel = (health < 30 || days > 30) ? 'high' : (health < 50 || days > 20) ? 'medium' : 'low'
         return {
+          id: r.id,
           contactId: r.id,
           name: r.name,
           healthScore: health,
@@ -997,6 +1057,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       })
 
       const buyingSignals = buyingRows.map((r) => ({
+        id: r.id,
         contactId: r.id,
         name: r.name,
         leadScore: parseInt(r.lead_score ?? '0', 10),
@@ -1012,9 +1073,10 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       const followUpNeeded = followUpRows.map((r) => {
         const days = r.days_since ? Math.round(parseFloat(r.days_since)) : 999
         return {
+          id: r.id,
           contactId: r.id,
           name: r.name,
-          daysSince: days,
+          daysSinceContact: days,
           urgency: days > 30 ? 'high' : days > 21 ? 'medium' : 'low',
         }
       })
@@ -1090,7 +1152,11 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         outbound: string
       }>(
         `SELECT
-           (SELECT COUNT(*) FROM suggested_replies WHERE user_id = $1 AND status IN ('approved','sent') AND created_at >= NOW() - INTERVAL '30 days') AS approved,
+           (SELECT COUNT(*) FROM suggested_replies sr
+              JOIN messages m ON m.id = sr.message_id
+              JOIN conversations c ON c.id = m.conversation_id
+             WHERE c.user_id = $1 AND sr.status IN ('approved', 'sent')
+               AND sr.created_at >= NOW() - INTERVAL '30 days') AS approved,
            (SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.sender_type = 'user' AND m.created_at >= NOW() - INTERVAL '30 days') AS outbound`,
         [userId],
       )
@@ -1129,46 +1195,53 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
       const grade = overall >= 90 ? 'A' : overall >= 75 ? 'B' : overall >= 60 ? 'C' : overall >= 40 ? 'D' : 'F'
       const trend = c30 > cPrev ? 'improving' : c30 < cPrev ? 'declining' : 'stable'
 
+      // trendPoints approximates the score movement from the one component
+      // we actually have a prior-period comparison for (conversation volume) —
+      // consistent with `trend` above, which is derived the same way.
+      const prevConvScore = Math.min(100, (cPrev / 30) * 10 + 50)
+      const trendPoints = Math.round((convScore - prevConvScore) * 0.2)
+
       const statusLabel = (score: number): 'excellent' | 'good' | 'fair' | 'poor' =>
         score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'fair' : 'poor'
 
       return reply.send({
-        overall,
+        score: overall,
         grade,
         trend,
+        trendPoints,
         components: [
           {
             name: 'Conversations',
             score: Math.round(convScore),
-            weight: 0.2,
+            weight: 20,
             status: statusLabel(convScore),
             detail: `${c30} conversations in last 30 days`,
           },
           {
             name: 'Response Speed',
             score: Math.round(rtScore),
-            weight: 0.25,
+            weight: 25,
             status: statusLabel(rtScore),
             detail: `Avg ${Math.round(avgMin)} min response time`,
           },
           {
             name: 'Customer Health',
             score: Math.round(custScore),
-            weight: 0.2,
+            weight: 20,
             status: statusLabel(custScore),
             detail: `Avg health ${Math.round(avgHealth)}, ${atRisk} at risk of ${custTotal}`,
           },
           {
             name: 'AI Adoption',
             score: Math.round(aiScore),
-            weight: 0.2,
+            weight: 20,
             status: statusLabel(aiScore),
             detail: `${aiApproved} AI replies of ${outbound} outbound messages`,
           },
           {
             name: 'Proactive Engagement',
             score: Math.round(proScore),
-            weight: 0.15,
+            weight: 15,
             status: statusLabel(proScore),
             detail: `${proApproved} proactive actions approved of ${proTotal} suggested`,
           },
@@ -1185,59 +1258,76 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
-      const { rows: [aiRepliesRow] } = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count
-         FROM suggested_replies
-         WHERE user_id = $1
-           AND status IN ('approved', 'sent')
-           AND created_at >= NOW() - INTERVAL '30 days'`,
+      // Each query pulls both the current and previous 30-day window so the
+      // frontend's *Delta fields (absolute count vs last period, matching
+      // deltaCopy()'s plain-number formatting) can be computed without a
+      // second round-trip per metric.
+      const { rows: [aiRepliesRow] } = await db.query<{ count_30d: string; count_prev: string }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE sr.created_at >= NOW() - INTERVAL '30 days') AS count_30d,
+           COUNT(*) FILTER (WHERE sr.created_at >= NOW() - INTERVAL '60 days' AND sr.created_at < NOW() - INTERVAL '30 days') AS count_prev
+         FROM suggested_replies sr
+         JOIN messages m ON m.id = sr.message_id
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.user_id = $1
+           AND sr.status IN ('approved', 'sent')`,
         [userId],
       )
 
-      const { rows: [leadsRow] } = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count
+      const { rows: [leadsRow] } = await db.query<{ count_30d: string; count_prev: string }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS count_30d,
+           COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days') AS count_prev
          FROM contacts
          WHERE user_id = $1
-           AND COALESCE(lead_score, 0) > 0
-           AND created_at >= NOW() - INTERVAL '30 days'`,
+           AND COALESCE(lead_score, 0) > 0`,
         [userId],
       )
 
-      const { rows: [proactiveRow] } = await db.query<{ approved: string }>(
-        `SELECT COUNT(*) AS approved
+      const { rows: [proactiveRow] } = await db.query<{ count_30d: string; count_prev: string }>(
+        `SELECT
+           COUNT(*) FILTER (WHERE updated_at >= NOW() - INTERVAL '30 days') AS count_30d,
+           COUNT(*) FILTER (WHERE updated_at >= NOW() - INTERVAL '60 days' AND updated_at < NOW() - INTERVAL '30 days') AS count_prev
          FROM proactive_queue
          WHERE user_id = $1
-           AND status = 'approved'
-           AND updated_at >= NOW() - INTERVAL '30 days'`,
+           AND status = 'approved'`,
         [userId],
       )
 
-      const { rows: [srApprovedRow] } = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count
-         FROM suggested_replies
-         WHERE user_id = $1
-           AND status IN ('approved', 'sent')
-           AND created_at >= NOW() - INTERVAL '30 days'`,
-        [userId],
-      )
+      const aiReplies30 = parseInt(aiRepliesRow.count_30d, 10)
+      const aiRepliesPrev = parseInt(aiRepliesRow.count_prev, 10)
+      const leads30 = parseInt(leadsRow.count_30d, 10)
+      const leadsPrev = parseInt(leadsRow.count_prev, 10)
+      const followUps30 = parseInt(proactiveRow.count_30d, 10)
+      const followUpsPrev = parseInt(proactiveRow.count_prev, 10)
 
-      const aiRepliesSent = parseInt(aiRepliesRow.count, 10)
-      const hoursSaved = parseFloat(((aiRepliesSent * 3) / 60).toFixed(2))
-      const leadsFound = parseInt(leadsRow.count, 10)
-      const followUpsAutomated = parseInt(proactiveRow.approved, 10)
-      const tasksCompleted = followUpsAutomated + parseInt(srApprovedRow.count, 10)
+      const aiRepliesSent = aiReplies30
+      const hoursSaved = parseFloat(((aiReplies30 * 3) / 60).toFixed(2))
+      const hoursSavedPrev = (aiRepliesPrev * 3) / 60
+      const leadsFound = leads30
+      const followUpsAutomated = followUps30
+      // Tasks completed = follow-ups automated + approved/sent AI replies,
+      // same two sources this metric always drew from.
+      const tasksCompleted = followUps30 + aiReplies30
+      const tasksPrev = followUpsPrev + aiRepliesPrev
       const fteEquivalent = parseFloat((hoursSaved / 160).toFixed(4))
       const estimatedSalarySaved = parseFloat((fteEquivalent * 150000 / 12).toFixed(2))
 
       return reply.send({
         period: '30d',
         aiRepliesSent,
+        aiRepliesDelta: aiReplies30 - aiRepliesPrev,
         hoursSaved,
+        hoursSavedDelta: parseFloat((hoursSaved - hoursSavedPrev).toFixed(2)),
         leadsFound,
+        leadsFoundDelta: leads30 - leadsPrev,
         followUpsAutomated,
+        followUpsDelta: followUps30 - followUpsPrev,
         tasksCompleted,
+        tasksDelta: tasksCompleted - tasksPrev,
         fteEquivalent,
         estimatedSalarySaved,
+        generatedAt: new Date().toISOString(),
       })
     },
   )
@@ -1325,7 +1415,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
           type: 'new_contact',
           title: r.title,
           description: r.description,
-          timestamp: r.timestamp,
+          date: r.timestamp,
           contactId: r.contact_id ?? null,
           contactName: r.contact_name ?? null,
         })),
@@ -1334,7 +1424,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
           type: r.event_type,
           title: r.title,
           description: `Event: ${r.title}`,
-          timestamp: r.timestamp,
+          date: r.timestamp,
           contactId: r.contact_id ?? null,
           contactName: r.contact_name ?? null,
         })),
@@ -1343,13 +1433,13 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
           type: 'key_conversation',
           title: `Key conversation with ${r.contact_name ?? 'unknown'}`,
           description: (r.body ?? '').slice(0, 80),
-          timestamp: r.created_at,
+          date: r.created_at,
           contactId: r.contact_id ?? null,
           contactName: r.contact_name ?? null,
         })),
       ]
 
-      allEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      allEvents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
       return reply.send({ events: allEvents.slice(0, 50) })
     },
@@ -1488,7 +1578,11 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
         total_outbound: string
       }>(
         `SELECT
-           (SELECT COUNT(*) FROM suggested_replies WHERE user_id = $1 AND status IN ('approved','sent') AND created_at >= NOW() - INTERVAL '30 days') AS ai_drafted,
+           (SELECT COUNT(*) FROM suggested_replies sr
+              JOIN messages m ON m.id = sr.message_id
+              JOIN conversations c ON c.id = m.conversation_id
+             WHERE c.user_id = $1 AND sr.status IN ('approved', 'sent')
+               AND sr.created_at >= NOW() - INTERVAL '30 days') AS ai_drafted,
            (SELECT COUNT(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = $1 AND m.sender_type = 'user' AND m.created_at >= NOW() - INTERVAL '30 days') AS total_outbound`,
         [userId],
       )

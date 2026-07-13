@@ -18,6 +18,7 @@ import structlog
 from datetime import timedelta
 from ..database import get_pool
 from ..models import OpportunityMention
+from .lead_score import LeadScoreService
 
 log = structlog.get_logger()
 
@@ -26,6 +27,8 @@ _VALID_TYPES = {
     'life_event', 'reconnect_window', 'churn_risk', 'support_needed',
 }
 _PERSONAL_TYPES = {'life_event', 'reconnect_window', 'support_needed'}
+_BUSINESS_TYPES = {'buying_signal', 'expansion', 'referral_moment', 'renewal_due'}
+_lead_score_svc = LeadScoreService()
 
 _SHELF_LIFE_DAYS = {
     'buying_signal': 30, 'expansion': 45, 'referral_moment': 21, 'renewal_due': 60,
@@ -40,6 +43,7 @@ class OpportunityService:
         if not mentions:
             return
 
+        recompute_lead_score = False
         pool = await get_pool()
         async with pool.acquire() as conn:
             for mention in mentions:
@@ -52,6 +56,9 @@ class OpportunityService:
 
                 estimated_value = None if opp_type in _PERSONAL_TYPES else mention.estimated_value_cents
                 shelf_life = _SHELF_LIFE_DAYS.get(opp_type, 21)
+
+                if opp_type in _BUSINESS_TYPES:
+                    recompute_lead_score = True
 
                 existing = await conn.fetchrow(
                     """SELECT id, source_message_ids FROM opportunities
@@ -81,3 +88,6 @@ class OpportunityService:
                     estimated_value, mention.confidence, [message_id], f'{shelf_life} days',
                 )
                 log.info('opportunity_detected', user_id=user_id, contact_id=contact_id, type=opp_type)
+
+        if recompute_lead_score:
+            await _lead_score_svc.recompute(contact_id, user_id)
