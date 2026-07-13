@@ -4,10 +4,15 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
+import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
 
 const updateBody = z.object({
   status: z.enum(['approved', 'dismissed', 'snoozed']),
   snoozedUntil: z.string().optional(),
+});
+
+const regenerateBody = z.object({
+  instruction: z.string().max(500).optional(),
 });
 
 export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
@@ -80,6 +85,117 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
       );
 
       return reply.send({ ok: true });
+    },
+  );
+
+  // ── Send Now (§ proactive actions) — dispatches the draft message for real,
+  // reusing the same insert-message + SEND_REPLY-queue path the inbox reply
+  // dock uses, then marks the suggestion 'sent' so it drops out of the queue.
+  fastify.post(
+    '/api/proactive/:id/send',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { id } = request.params as { id: string };
+
+      const { rows: [item] } = await db.query(
+        `SELECT pq.id, pq.contact_id, pq.draft_message, co.whatsapp_jid
+         FROM proactive_queue pq
+         JOIN contacts co ON co.id = pq.contact_id
+         WHERE pq.id = $1 AND pq.user_id = $2`,
+        [id, userId],
+      );
+      if (!item) return reply.code(404).send({ error: 'Suggestion not found' });
+      if (!item.draft_message) {
+        return reply.code(400).send({ error: 'Suggestion has no draft message to send' });
+      }
+
+      const { rows: [conv] } = await db.query(
+        `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
+         VALUES ($1, $2, $3, NOW(), $4)
+         ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
+           last_message_at = NOW(), last_message_preview = $4, updated_at = NOW()
+         RETURNING id`,
+        [userId, item.contact_id, item.whatsapp_jid, item.draft_message.slice(0, 200)],
+      );
+
+      const now = new Date();
+      const tempWaId = `direct-${crypto.randomUUID()}`;
+
+      const { rows: [msg] } = await db.query(
+        `INSERT INTO messages
+           (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp)
+         VALUES ($1, $2, 'user', 'text', $3, $4)
+         RETURNING id`,
+        [conv.id, tempWaId, item.draft_message, now],
+      );
+
+      await addToQueue(QUEUE_NAMES.SEND_REPLY, {
+        userId,
+        messageId: msg.id,
+        suggestedReplyId: null,
+        recipientJid: item.whatsapp_jid,
+        text: item.draft_message,
+      });
+
+      await db.query(
+        `UPDATE proactive_queue SET status = 'sent', acted_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [id],
+      );
+
+      const conversation = await getInboxConversation(userId, conv.id);
+      if (conversation) {
+        await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+      }
+      await publishInboxEvent(userId, 'message:new', {
+        messageId: msg.id, conversationId: conv.id, contactId: item.contact_id,
+        senderType: 'user', messageType: 'text', body: item.draft_message,
+        mediaUrl: null, mediaMimeType: null, transcription: null,
+        timestamp: now.toISOString(),
+      });
+
+      return reply.send({ ok: true, conversationId: conv.id });
+    },
+  );
+
+  // ── Regenerate (§ proactive actions) — proxies to the intelligence service
+  // to re-derive context for this contact and produce a fresh draft, optionally
+  // steered by free-text user instruction. Updates the row in place.
+  fastify.post(
+    '/api/proactive/:id/regenerate',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { id } = request.params as { id: string };
+      const { instruction } = regenerateBody.parse(request.body ?? {});
+
+      const { rows: [item] } = await db.query(
+        'SELECT id FROM proactive_queue WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      );
+      if (!item) return reply.code(404).send({ error: 'Suggestion not found' });
+
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+      try {
+        const res = await fetch(`${intelligenceUrl}/internal/proactive/${id}/regenerate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, instruction: instruction ?? null }),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          fastify.log.error({ errText }, 'proactive_regenerate_failed');
+          return reply.code(502).send({ error: 'Failed to regenerate suggestion' });
+        }
+        const data = await res.json() as {
+          id: string; suggestionType: string; title: string; body: string;
+          draftMessage: string | null; priority: number;
+        };
+        return reply.send({ suggestion: data });
+      } catch (err) {
+        fastify.log.error({ err }, 'proactive_regenerate_error');
+        return reply.code(502).send({ error: 'Failed to regenerate suggestion' });
+      }
     },
   );
 

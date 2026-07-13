@@ -11,6 +11,7 @@ from .routes.conversation import router as conversation_router, advisor_router
 from .routes.content import router as content_router
 from .routes.goals import router as goals_router
 from .routes.relationship_health import router as relationship_health_router
+from .routes.proactive import router as proactive_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
 from .workers.daily_worker import (
@@ -85,3 +86,4 @@ app.include_router(advisor_router)
 app.include_router(content_router)
 app.include_router(goals_router)
 app.include_router(relationship_health_router)
+app.include_router(proactive_router)

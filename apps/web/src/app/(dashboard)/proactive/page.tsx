@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ClipboardCopy, Flame, Search, Sparkles, XCircle } from 'lucide-react'
+import { CheckCircle2, ClipboardCopy, Flame, Loader2, RefreshCw, Search, Send, Sparkles, XCircle } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { apiClient } from '@/lib/api'
-import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard } from '@/components/ui'
+import { apiClient, ApiError } from '@/lib/api'
+import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
 
 interface ProactiveSuggestion {
   id: string
@@ -68,6 +68,7 @@ function formatType(type: string) {
 export default function ProactivePage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
+  const { addToast } = useToast()
   const [suggestions, setSuggestions] = useState<ProactiveSuggestion[]>([])
   const [loading, setLoading] = useState(true)
   const [actioning, setActioning] = useState<string | null>(null)
@@ -76,6 +77,9 @@ export default function ProactivePage() {
   const [view, setView] = useState<'queue' | 'recommendations'>('queue')
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [recsLoading, setRecsLoading] = useState(true)
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
+  const [regenTargetId, setRegenTargetId] = useState<string | null>(null)
+  const [instruction, setInstruction] = useState('')
 
   useEffect(() => {
     if (!token) return
@@ -138,6 +142,65 @@ export default function ProactivePage() {
     navigator.clipboard.writeText(text)
     setCopied(id)
     setTimeout(() => setCopied(null), 2000)
+  }
+
+  const sendNow = async (s: ProactiveSuggestion) => {
+    if (!token || !s.draftMessage) return
+    setActioning(s.id)
+    try {
+      await apiClient(`/api/proactive/${s.id}/send`, { method: 'POST', token })
+      setSuggestions(prev => prev.filter(item => item.id !== s.id))
+      addToast({ variant: 'success', title: 'Message sent', description: `Sent to ${s.contact.name}.` })
+    } catch (err) {
+      addToast({
+        variant: 'error',
+        title: 'Could not send message',
+        description: err instanceof ApiError ? err.message : 'Please try again.',
+      })
+    } finally {
+      setActioning(null)
+    }
+  }
+
+  const openRegenerate = (id: string) => {
+    setRegenTargetId(prev => (prev === id ? null : id))
+    setInstruction('')
+  }
+
+  const regenerate = async (id: string) => {
+    if (!token) return
+    setRegeneratingId(id)
+    try {
+      const data = await apiClient<{ suggestion: {
+        id: string; suggestionType: string; title: string; body: string
+        draftMessage: string | null; priority: number
+      } }>(`/api/proactive/${id}/regenerate`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ instruction: instruction.trim() || undefined }),
+      })
+      setSuggestions(prev => prev.map(item => item.id === id
+        ? {
+            ...item,
+            suggestionType: data.suggestion.suggestionType,
+            title: data.suggestion.title,
+            body: data.suggestion.body,
+            draftMessage: data.suggestion.draftMessage,
+            priority: data.suggestion.priority,
+          }
+        : item))
+      setRegenTargetId(null)
+      setInstruction('')
+      addToast({ variant: 'success', title: 'Draft regenerated' })
+    } catch (err) {
+      addToast({
+        variant: 'error',
+        title: 'Could not regenerate draft',
+        description: err instanceof ApiError ? err.message : 'Please try again.',
+      })
+    } finally {
+      setRegeneratingId(null)
+    }
   }
 
   if (session.status === 'loading' || loading) {
@@ -317,24 +380,64 @@ export default function ProactivePage() {
                       </button>
                     </div>
                   )}
+
+                  {regenTargetId === s.id && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={instruction}
+                        onChange={e => setInstruction(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') regenerate(s.id) }}
+                        placeholder="Optional: tell Zuri what to change (e.g. 'make it shorter')"
+                        className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                      />
+                      <button
+                        onClick={() => regenerate(s.id)}
+                        disabled={regeneratingId === s.id}
+                        className="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-3 py-2 transition-colors"
+                      >
+                        {regeneratingId === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Generate'}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions */}
-                <div className="px-4 pb-4 flex gap-2">
-                  <button
-                    onClick={() => updateStatus(s.id, 'approved')}
-                    disabled={actioning === s.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 bg-indigo-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-                  >
-                    {actioning === s.id ? 'Saving…' : <><CheckCircle2 className="w-4 h-4" />Done</>}
-                  </button>
-                  <button
-                    onClick={() => updateStatus(s.id, 'dismissed')}
-                    disabled={actioning === s.id}
-                    className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-gray-600 text-sm font-medium py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                  >
-                    <XCircle className="w-4 h-4" />Skip
-                  </button>
+                <div className="px-4 pb-4 flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => sendNow(s)}
+                      disabled={actioning === s.id || regeneratingId === s.id || !s.draftMessage}
+                      className="flex-1 inline-flex items-center justify-center gap-2 bg-indigo-600 text-white text-sm font-medium py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
+                      title={!s.draftMessage ? 'No draft message to send' : undefined}
+                    >
+                      {actioning === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" />Send Now</>}
+                    </button>
+                    <button
+                      onClick={() => openRegenerate(s.id)}
+                      disabled={actioning === s.id || regeneratingId === s.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 bg-white text-indigo-600 text-sm font-medium py-2.5 rounded-xl border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+                    >
+                      <RefreshCw className="w-4 h-4" />Regenerate
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => updateStatus(s.id, 'approved')}
+                      disabled={actioning === s.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 text-gray-500 text-xs font-medium py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />Mark done
+                    </button>
+                    <button
+                      onClick={() => updateStatus(s.id, 'dismissed')}
+                      disabled={actioning === s.id}
+                      className="flex-1 inline-flex items-center justify-center gap-2 text-gray-500 text-xs font-medium py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />Skip
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

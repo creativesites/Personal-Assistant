@@ -19,10 +19,13 @@ import {
   ArrowRight,
   Send,
   Radio,
+  Calendar,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { apiClient } from '@/lib/api'
-import { Avatar, Badge, HealthBar, SkeletonCard, StatCard } from '@/components/ui'
+import { apiClient, ApiError } from '@/lib/api'
+import { Avatar, Badge, HealthBar, SkeletonCard, StatCard, useToast } from '@/components/ui'
 
 interface Conversation {
   id: string
@@ -44,7 +47,8 @@ interface ProactiveSuggestion {
   id: string
   title: string
   priority: number
-  contact: { name: string; avatarUrl: string | null }
+  draftMessage: string | null
+  contact: { id: string; name: string; avatarUrl: string | null }
 }
 
 interface MarketingSummary {
@@ -75,6 +79,15 @@ interface BriefData {
 
 function formatCents(cents: number) {
   return (cents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })
+}
+
+type LucideIcon = React.ComponentType<{ className?: string; size?: number | string }>
+
+const BRIEF_STYLES: Record<BriefItem['sourceType'], { Icon: LucideIcon; iconBg: string; iconColor: string }> = {
+  suggestion: { Icon: Sparkles, iconBg: 'bg-indigo-50', iconColor: 'text-indigo-600' },
+  opportunity: { Icon: TrendingUp, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
+  health_decline: { Icon: AlertTriangle, iconBg: 'bg-red-50', iconColor: 'text-red-600' },
+  event: { Icon: Calendar, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
 }
 
 // Health Rollup (docs/RELATIONSHIP_OS_PLAN.md §5.10/§6.9) — a composite
@@ -128,8 +141,6 @@ function greeting(name: string | undefined) {
   return name ? `${time}, ${name.split(' ')[0]}` : time
 }
 
-type LucideIcon = React.ComponentType<{ className?: string; size?: number | string }>
-
 function QuickAction({
   href,
   Icon,
@@ -168,6 +179,7 @@ export default function DashboardPage() {
   const mode = session.data?.mode ?? 'business'
   const marketingAccess = session.data?.marketingAccess ?? 'none'
   const hasMarketingAccess = marketingAccess === 'beta' || marketingAccess === 'enabled'
+  const { addToast } = useToast()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [proactive, setProactive] = useState<ProactiveSuggestion[]>([])
@@ -175,6 +187,10 @@ export default function DashboardPage() {
   const [rollup, setRollup] = useState<HealthRollup | null>(null)
   const [marketing, setMarketing] = useState<MarketingSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [actioningId, setActioningId] = useState<string | null>(null)
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
+  const [regenTargetId, setRegenTargetId] = useState<string | null>(null)
+  const [instruction, setInstruction] = useState('')
 
   useEffect(() => {
     if (!token) return
@@ -203,6 +219,57 @@ export default function DashboardPage() {
       .then((data) => setMarketing({ ...data.summary, topProduct: data.products[0]?.name ?? null }))
       .catch(() => setMarketing(null))
   }, [token, hasMarketingAccess])
+
+  const sendNow = async (s: ProactiveSuggestion) => {
+    if (!token || !s.draftMessage) return
+    setActioningId(s.id)
+    try {
+      await apiClient(`/api/proactive/${s.id}/send`, { method: 'POST', token })
+      setProactive(prev => prev.filter(item => item.id !== s.id))
+      addToast({ variant: 'success', title: 'Message sent', description: `Sent to ${s.contact.name}.` })
+    } catch (err) {
+      addToast({
+        variant: 'error',
+        title: 'Could not send message',
+        description: err instanceof ApiError ? err.message : 'Please try again.',
+      })
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  const openRegenerate = (id: string) => {
+    setRegenTargetId(prev => (prev === id ? null : id))
+    setInstruction('')
+  }
+
+  const regenerate = async (id: string) => {
+    if (!token) return
+    setRegeneratingId(id)
+    try {
+      const data = await apiClient<{ suggestion: {
+        id: string; title: string; draftMessage: string | null; priority: number
+      } }>(`/api/proactive/${id}/regenerate`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ instruction: instruction.trim() || undefined }),
+      })
+      setProactive(prev => prev.map(item => item.id === id
+        ? { ...item, title: data.suggestion.title, draftMessage: data.suggestion.draftMessage, priority: data.suggestion.priority }
+        : item))
+      setRegenTargetId(null)
+      setInstruction('')
+      addToast({ variant: 'success', title: 'Draft regenerated' })
+    } catch (err) {
+      addToast({
+        variant: 'error',
+        title: 'Could not regenerate draft',
+        description: err instanceof ApiError ? err.message : 'Please try again.',
+      })
+    } finally {
+      setRegeneratingId(null)
+    }
+  }
 
   const stats = useMemo(() => {
     const unread = conversations.reduce((s, c) => s + c.unreadCount, 0)
@@ -306,42 +373,63 @@ export default function DashboardPage() {
 
         {/* AI Daily Brief — same greeting/place every morning, real names and numbers */}
         {brief && (brief.items.length > 0 || brief.revenueAtRisk) && (
-          <div className="bg-white rounded-xl border border-gray-200 p-4 md:p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles size={15} className="text-indigo-500" />
-              <h2 className="text-sm font-semibold text-gray-900">
-                {mode === 'personal' ? "Here's who's on your mind today" : "Here's what changed overnight"}
-              </h2>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-4 md:px-5 py-3.5 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
+                <Sparkles size={15} className="text-white" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-white">
+                  {mode === 'personal' ? "Here's who's on your mind today" : "Here's what changed overnight"}
+                </h2>
+                <p className="text-[11px] text-white/70">
+                  {brief.items.length} item{brief.items.length !== 1 ? 's' : ''} worth a look
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              {brief.items.map(item => (
-                <Link
-                  key={`${item.sourceType}-${item.id}`}
-                  href={`/contacts/${item.contact.id}`}
-                  className="flex items-start gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors group"
-                >
-                  <span className="text-gray-300 group-hover:text-indigo-400 flex-shrink-0 mt-0.5">—</span>
-                  <span className="leading-relaxed">
-                    <span className="font-semibold text-gray-900">{item.contact.name}</span>{' '}
-                    {item.headline}
-                    {item.detail && <span className="text-gray-500">. {item.detail}</span>}
+
+            <div className="divide-y divide-gray-50">
+              {brief.items.map(item => {
+                const style = BRIEF_STYLES[item.sourceType]
+                const Icon = style.Icon
+                return (
+                  <Link
+                    key={`${item.sourceType}-${item.id}`}
+                    href={`/contacts/${item.contact.id}`}
+                    className="flex items-start gap-3 px-4 md:px-5 py-3 hover:bg-gray-50/80 transition-colors group"
+                  >
+                    <div className={`w-8 h-8 rounded-lg ${style.iconBg} ${style.iconColor} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                      <Icon size={14} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        <span className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{item.contact.name}</span>{' '}
+                        {item.headline}
+                      </p>
+                      {item.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{item.detail}</p>}
+                    </div>
                     {item.amountCents !== null && (
-                      <span className="text-green-600 font-medium"> — {formatCents(item.amountCents)}</span>
+                      <span className="flex-shrink-0 text-xs font-semibold text-green-700 bg-green-50 rounded-full px-2 py-1 mt-0.5">
+                        {formatCents(item.amountCents)}
+                      </span>
                     )}
-                  </span>
-                </Link>
-              ))}
-              {brief.revenueAtRisk && (
-                <div className="flex items-start gap-2 text-sm text-gray-600">
-                  <span className="text-gray-300 flex-shrink-0 mt-0.5">—</span>
-                  <span className="leading-relaxed">
-                    Revenue at risk:{' '}
-                    <span className="font-semibold text-red-600">{formatCents(brief.revenueAtRisk.cents)}</span>
-                    {' '}across {brief.revenueAtRisk.contactCount} customer{brief.revenueAtRisk.contactCount !== 1 ? 's' : ''}.
-                  </span>
-                </div>
-              )}
+                  </Link>
+                )
+              })}
             </div>
+
+            {brief.revenueAtRisk && (
+              <div className="flex items-center gap-3 px-4 md:px-5 py-3 bg-red-50 border-t border-red-100">
+                <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle size={14} />
+                </div>
+                <p className="text-sm text-red-700 leading-relaxed">
+                  Revenue at risk:{' '}
+                  <span className="font-bold">{formatCents(brief.revenueAtRisk.cents)}</span>
+                  {' '}across {brief.revenueAtRisk.contactCount} customer{brief.revenueAtRisk.contactCount !== 1 ? 's' : ''}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -494,13 +582,54 @@ export default function DashboardPage() {
             </div>
             <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50 overflow-hidden shadow-sm">
               {proactive.slice(0, 3).map(s => (
-                <div key={s.id} className="flex items-center gap-3 px-4 py-3.5">
-                  <Avatar name={s.contact.name} src={s.contact.avatarUrl ?? undefined} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{s.contact.name}</p>
-                    <p className="text-xs text-gray-500 truncate">{s.title}</p>
+                <div key={s.id} className="px-4 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={s.contact.name} src={s.contact.avatarUrl ?? undefined} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{s.contact.name}</p>
+                      <p className="text-xs text-gray-500 truncate">{s.title}</p>
+                    </div>
+                    {s.priority <= 2 && <Badge variant="error" dot>Urgent</Badge>}
                   </div>
-                  {s.priority <= 2 && <Badge variant="error" dot>Urgent</Badge>}
+
+                  {regenTargetId === s.id && (
+                    <div className="flex items-center gap-2 mt-2.5">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={instruction}
+                        onChange={e => setInstruction(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') regenerate(s.id) }}
+                        placeholder="Optional: tell Zuri what to change"
+                        className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400"
+                      />
+                      <button
+                        onClick={() => regenerate(s.id)}
+                        disabled={regeneratingId === s.id}
+                        className="flex-shrink-0 inline-flex items-center gap-1 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-2.5 py-1.5 transition-colors"
+                      >
+                        {regeneratingId === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Generate'}
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 mt-2.5">
+                    <button
+                      onClick={() => sendNow(s)}
+                      disabled={actioningId === s.id || regeneratingId === s.id || !s.draftMessage}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 bg-indigo-600 text-white text-xs font-medium py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                      title={!s.draftMessage ? 'No draft message to send' : undefined}
+                    >
+                      {actioningId === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" />Send Now</>}
+                    </button>
+                    <button
+                      onClick={() => openRegenerate(s.id)}
+                      disabled={actioningId === s.id || regeneratingId === s.id}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 bg-white text-indigo-600 text-xs font-medium py-1.5 rounded-lg border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />Regenerate
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
