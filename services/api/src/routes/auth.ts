@@ -100,6 +100,18 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
               `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true) ON CONFLICT DO NOTHING`,
               [created.id],
             ),
+            // Default Assistant agent (docs/AUTO_REPLY_AGENTS_PLAN.md §2) —
+            // every user has exactly one auto-reply agent from day one; the
+            // Settings/Inbox auto-reply controls edit this row directly.
+            db.query(
+              `INSERT INTO agents
+                 (user_id, name, agent_type, description, trust_level, is_active,
+                  role_title, avatar_emoji, tone, is_default)
+               VALUES ($1, 'Assistant', 'custom',
+                 'Your default AI assistant — drafts replies for every contact not assigned to a specialised agent.',
+                 'suggest', true, 'Personal Assistant', '🤝', 'friendly', true)`,
+              [created.id],
+            ),
           ])
           user = created
         }
@@ -162,6 +174,15 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       db.query('INSERT INTO notification_preferences (user_id) VALUES ($1)', [user.id]),
       db.query(
         `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true)`,
+        [user.id],
+      ),
+      db.query(
+        `INSERT INTO agents
+           (user_id, name, agent_type, description, trust_level, is_active,
+            role_title, avatar_emoji, tone, is_default)
+         VALUES ($1, 'Assistant', 'custom',
+           'Your default AI assistant — drafts replies for every contact not assigned to a specialised agent.',
+           'suggest', true, 'Personal Assistant', '🤝', 'friendly', true)`,
         [user.id],
       ),
     ]);

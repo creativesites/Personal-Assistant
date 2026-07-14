@@ -22,15 +22,24 @@ class AutoResponseDecision:
 
 
 class AutoResponseService:
-    async def evaluate(
+    async def check_eligibility(
         self,
         *,
         user_id: str,
         conversation_id: str,
         contact_id: str,
         message_body: str,
-        require_auto_mode: bool = True,
     ) -> AutoResponseDecision:
+        """Is Zuri allowed to engage with this contact at all, right now?
+
+        Covers the master on/off switch, business hours, group/broadcast
+        skipping, coarse contact-type targeting, escalation keywords, and
+        per-contact/rule exclusions (docs/AUTO_REPLY_AGENTS_PLAN.md §3/§4).
+        Applies to EVERY trust level, including delegated/autonomous —
+        those previously bypassed this check entirely, which meant the
+        on/off switch and exclusions had no effect on the most autonomous
+        agents. Does not check approval_mode; see evaluate() for that.
+        """
         pool = await get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -48,7 +57,26 @@ class AutoResponseService:
                     FROM messages m
                     WHERE m.conversation_id = c.id
                       AND m.sender_type = 'contact'
-                  ) AS inbound_message_count
+                  ) AS inbound_message_count,
+                  EXISTS(
+                    SELECT 1 FROM auto_reply_exclusions e
+                    WHERE e.user_id = $2 AND e.contact_id = $3
+                  ) AS contact_excluded,
+                  EXISTS(
+                    SELECT 1 FROM auto_reply_exclusion_rules r
+                    WHERE r.user_id = $2 AND (
+                      (r.rule_type = 'relationship_type' AND EXISTS(
+                        SELECT 1 FROM relationships rel
+                        WHERE rel.contact_id = $3 AND rel.user_id = $2
+                          AND rel.relationship_type ILIKE r.rule_value
+                      ))
+                      OR (r.rule_type = 'tag' AND EXISTS(
+                        SELECT 1 FROM contact_tags ct
+                        WHERE ct.contact_id = $3 AND ct.user_id = $2 AND ct.tag ILIKE r.rule_value
+                      ))
+                      OR (r.rule_type = 'customer_status' AND co.customer_status = r.rule_value)
+                    )
+                  ) AS rule_excluded
                 FROM conversations c
                 JOIN contacts co ON co.id = c.contact_id
                 LEFT JOIN auto_response_settings ars ON ars.user_id = c.user_id
@@ -66,8 +94,11 @@ class AutoResponseService:
             return AutoResponseDecision(False, 'auto_response_disabled')
 
         approval_mode = row['approval_mode'] or 'preview'
-        if require_auto_mode and approval_mode != 'auto':
-            return AutoResponseDecision(False, f'approval_mode_{approval_mode}', approval_mode)
+
+        if row['contact_excluded']:
+            return AutoResponseDecision(False, 'contact_excluded', approval_mode)
+        if row['rule_excluded']:
+            return AutoResponseDecision(False, 'excluded_by_rule', approval_mode)
 
         whatsapp_chat_id = row['whatsapp_chat_id'] or ''
         recipient_jid = row['whatsapp_jid']
@@ -113,6 +144,35 @@ class AutoResponseService:
             delay_seconds,
             recipient_jid,
         )
+
+    async def evaluate(
+        self,
+        *,
+        user_id: str,
+        conversation_id: str,
+        contact_id: str,
+        message_body: str,
+        require_auto_mode: bool = True,
+    ) -> AutoResponseDecision:
+        """Full auto-send authorization: eligibility (above) plus
+        approval_mode == 'auto'. Used by the plain non-agent fallback path
+        and by suggest/assisted agents deciding whether to auto-send their
+        own draft. delegated/autonomous agents call check_eligibility only —
+        their trust level already means "no approval needed"; approval_mode
+        is not a second gate on top of that."""
+        decision = await self.check_eligibility(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            contact_id=contact_id,
+            message_body=message_body,
+        )
+        if not decision.should_send:
+            return decision
+
+        if require_auto_mode and decision.approval_mode != 'auto':
+            return AutoResponseDecision(False, f'approval_mode_{decision.approval_mode}', decision.approval_mode)
+
+        return decision
 
     async def enqueue_send(
         self,

@@ -5,6 +5,7 @@ import { queues } from '../lib/queue'
 import { authenticate } from '../plugins/authenticate'
 import { Queue } from 'bullmq'
 import { config } from '../config'
+import { publishInboxEvent } from '../lib/inbox-events'
 
 // ─── Validation schemas ────────────────────────────────────────────────────
 
@@ -100,6 +101,166 @@ function getKbQueue(): Queue {
   return _kbQueue
 }
 
+// ─── Shared agent detail / patch logic — used by both /api/agents/:id and
+// /api/agents/default (docs/AUTO_REPLY_AGENTS_PLAN.md §2/§8), so the
+// Settings page's "one dial" can talk to the Default Assistant without the
+// frontend needing to know its UUID. ─────────────────────────────────────
+
+async function fetchAgentDetail(userId: string, agentId: string) {
+  const { rows: [agent] } = await db.query<{
+    id: string; name: string; agent_type: string; role_title: string | null
+    avatar_emoji: string | null; description: string | null; tone: string | null
+    goals: string | null; capabilities: unknown; greeting_message: string | null
+    out_of_hours_message: string | null; system_prompt: string | null
+    trust_level: string; is_active: boolean; is_default: boolean
+    can_send_links: boolean; can_share_pricing: boolean; can_book_meetings: boolean
+    max_messages_per_day: number; escalate_on_frustration: boolean
+    escalate_on_explicit_human_request: boolean; escalate_on_out_of_scope: boolean
+    created_at: string; updated_at: string
+  }>(
+    `SELECT id, name, agent_type, role_title, avatar_emoji, description,
+       tone, goals, capabilities, greeting_message, out_of_hours_message,
+       system_prompt, trust_level, is_active, is_default,
+       can_send_links, can_share_pricing, can_book_meetings,
+       max_messages_per_day, escalate_on_frustration,
+       escalate_on_explicit_human_request, escalate_on_out_of_scope,
+       created_at, updated_at
+     FROM agents WHERE id = $1 AND user_id = $2`,
+    [agentId, userId],
+  )
+  if (!agent) return null
+
+  const { rows: actions } = await db.query<{
+    id: string; action_type: string; input_message: string | null
+    output_message: string | null; reasoning: string | null
+    confidence: number | null; tools_used: unknown
+    was_escalated: boolean; escalation_reason: string | null; created_at: string
+  }>(
+    `SELECT id, action_type, input_message, output_message, reasoning,
+       confidence, tools_used, was_escalated, escalation_reason, created_at
+     FROM agent_actions WHERE agent_id = $1
+     ORDER BY created_at DESC LIMIT 20`,
+    [agentId],
+  )
+
+  const { rows: [{ count: assignmentCount }] } = await db.query<{ count: string }>(
+    'SELECT COUNT(*) AS count FROM agent_assignments WHERE agent_id = $1',
+    [agentId],
+  )
+
+  return {
+    agent: {
+      id: agent.id,
+      name: agent.name,
+      agentType: agent.agent_type,
+      roleTitle: agent.role_title,
+      avatarEmoji: agent.avatar_emoji ?? '🤖',
+      description: agent.description,
+      tone: agent.tone,
+      goals: agent.goals,
+      capabilities: agent.capabilities ?? {},
+      greetingMessage: agent.greeting_message,
+      outOfHoursMessage: agent.out_of_hours_message,
+      systemPrompt: agent.system_prompt,
+      trustLevel: agent.trust_level,
+      isActive: agent.is_active,
+      isDefault: agent.is_default,
+      permissions: {
+        canSendLinks: agent.can_send_links,
+        canSharePricing: agent.can_share_pricing,
+        canBookMeetings: agent.can_book_meetings,
+        maxMessagesPerDay: agent.max_messages_per_day,
+      },
+      escalation: {
+        onFrustration: agent.escalate_on_frustration,
+        onExplicitHumanRequest: agent.escalate_on_explicit_human_request,
+        onOutOfScope: agent.escalate_on_out_of_scope,
+      },
+      assignmentCount: parseInt(assignmentCount, 10),
+      createdAt: agent.created_at,
+      updatedAt: agent.updated_at,
+    },
+    recentActions: actions.map((a) => ({
+      id: a.id,
+      actionType: a.action_type,
+      inputMessage: a.input_message,
+      outputMessage: a.output_message,
+      reasoning: a.reasoning,
+      confidence: a.confidence,
+      toolsUsed: a.tools_used ?? [],
+      wasEscalated: a.was_escalated,
+      escalationReason: a.escalation_reason,
+      createdAt: a.created_at,
+    })),
+  }
+}
+
+type AgentPatchResult = 'not_found' | 'no_fields' | 'ok'
+
+async function applyAgentPatch(
+  userId: string, agentId: string, body: z.infer<typeof patchAgentBody>,
+): Promise<AgentPatchResult> {
+  const { rows: [existing] } = await db.query<{ id: string; is_default: boolean }>(
+    'SELECT id, is_default FROM agents WHERE id = $1 AND user_id = $2',
+    [agentId, userId],
+  )
+  if (!existing) return 'not_found'
+
+  const updates: string[] = []
+  const values: unknown[] = []
+  let idx = 1
+
+  const fieldMap: Record<string, string> = {
+    name: 'name',
+    role_title: 'role_title',
+    avatar_emoji: 'avatar_emoji',
+    tone: 'tone',
+    goals: 'goals',
+    greeting_message: 'greeting_message',
+    out_of_hours_message: 'out_of_hours_message',
+    trust_level: 'trust_level',
+    is_active: 'is_active',
+    is_default: 'is_default',
+    system_prompt: 'system_prompt',
+    can_send_links: 'can_send_links',
+    can_share_pricing: 'can_share_pricing',
+    can_book_meetings: 'can_book_meetings',
+    max_messages_per_day: 'max_messages_per_day',
+    escalate_on_frustration: 'escalate_on_frustration',
+    escalate_on_explicit_human_request: 'escalate_on_explicit_human_request',
+    escalate_on_out_of_scope: 'escalate_on_out_of_scope',
+  }
+
+  if (body.capabilities !== undefined) {
+    updates.push(`capabilities = $${idx++}`)
+    values.push(JSON.stringify(body.capabilities))
+  }
+
+  for (const [key, col] of Object.entries(fieldMap)) {
+    const val = (body as any)[key]
+    if (val !== undefined) {
+      updates.push(`${col} = $${idx++}`)
+      values.push(val)
+    }
+  }
+
+  if (updates.length === 0) return 'no_fields'
+
+  updates.push('updated_at = NOW()')
+  values.push(agentId)
+
+  await db.query(`UPDATE agents SET ${updates.join(', ')} WHERE id = $${idx}`, values)
+
+  // Default Assistant changes need to reach Settings, the Inbox widget, and
+  // this agent's own detail page instantly (docs/AUTO_REPLY_AGENTS_PLAN.md §5) —
+  // whichever surface the user is looking at should never show stale state.
+  if (existing.is_default) {
+    await publishInboxEvent(userId, 'agent:default-updated', { agentId })
+  }
+
+  return 'ok'
+}
+
 // ─── Route plugin ─────────────────────────────────────────────────────────
 
 export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
@@ -126,13 +287,17 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
         updated_at: string
         assignment_count: string
         messages_today: string
+        messages_week: string
+        escalations_week: string
       }>(
         `SELECT
            a.id, a.name, a.agent_type, a.role_title, a.avatar_emoji,
            a.description, a.trust_level, a.is_active, a.is_default,
            a.created_at, a.updated_at,
            COUNT(DISTINCT aa.id) AS assignment_count,
-           COUNT(DISTINCT CASE WHEN act.created_at >= NOW() - INTERVAL '1 day' THEN act.id END) AS messages_today
+           COUNT(DISTINCT CASE WHEN act.created_at >= NOW() - INTERVAL '1 day' THEN act.id END) AS messages_today,
+           COUNT(DISTINCT CASE WHEN act.created_at >= NOW() - INTERVAL '7 days' AND act.action_type = 'send_message' THEN act.id END) AS messages_week,
+           COUNT(DISTINCT CASE WHEN act.created_at >= NOW() - INTERVAL '7 days' AND act.was_escalated THEN act.id END) AS escalations_week
          FROM agents a
          LEFT JOIN agent_assignments aa ON aa.agent_id = a.id
          LEFT JOIN agent_actions act ON act.agent_id = a.id
@@ -143,6 +308,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       )
 
       return reply.send({
+        // docs/AUTO_REPLY_AGENTS_PLAN.md §6 — every agent card shows what
+        // it's actually been doing, not just its config.
         agents: rows.map((r) => ({
           id: r.id,
           name: r.name,
@@ -155,6 +322,8 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           isDefault: r.is_default,
           assignmentCount: parseInt(r.assignment_count, 10),
           messagesToday: parseInt(r.messages_today, 10),
+          messagesThisWeek: parseInt(r.messages_week, 10),
+          escalationsThisWeek: parseInt(r.escalations_week, 10),
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         })),
@@ -225,93 +394,9 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
 
-      const { rows: [agent] } = await db.query<{
-        id: string; name: string; agent_type: string; role_title: string | null
-        avatar_emoji: string | null; description: string | null; tone: string | null
-        goals: string | null; capabilities: unknown; greeting_message: string | null
-        out_of_hours_message: string | null; system_prompt: string | null
-        trust_level: string; is_active: boolean; is_default: boolean
-        can_send_links: boolean; can_share_pricing: boolean; can_book_meetings: boolean
-        max_messages_per_day: number; escalate_on_frustration: boolean
-        escalate_on_explicit_human_request: boolean; escalate_on_out_of_scope: boolean
-        created_at: string; updated_at: string
-      }>(
-        `SELECT id, name, agent_type, role_title, avatar_emoji, description,
-           tone, goals, capabilities, greeting_message, out_of_hours_message,
-           system_prompt, trust_level, is_active, is_default,
-           can_send_links, can_share_pricing, can_book_meetings,
-           max_messages_per_day, escalate_on_frustration,
-           escalate_on_explicit_human_request, escalate_on_out_of_scope,
-           created_at, updated_at
-         FROM agents WHERE id = $1 AND user_id = $2`,
-        [id, userId],
-      )
-
-      if (!agent) return reply.code(404).send({ error: 'Agent not found' })
-
-      const { rows: actions } = await db.query<{
-        id: string; action_type: string; input_message: string | null
-        output_message: string | null; reasoning: string | null
-        confidence: number | null; tools_used: unknown
-        was_escalated: boolean; escalation_reason: string | null; created_at: string
-      }>(
-        `SELECT id, action_type, input_message, output_message, reasoning,
-           confidence, tools_used, was_escalated, escalation_reason, created_at
-         FROM agent_actions WHERE agent_id = $1
-         ORDER BY created_at DESC LIMIT 20`,
-        [id],
-      )
-
-      const { rows: [{ count: assignmentCount }] } = await db.query<{ count: string }>(
-        'SELECT COUNT(*) AS count FROM agent_assignments WHERE agent_id = $1',
-        [id],
-      )
-
-      return reply.send({
-        agent: {
-          id: agent.id,
-          name: agent.name,
-          agentType: agent.agent_type,
-          roleTitle: agent.role_title,
-          avatarEmoji: agent.avatar_emoji ?? '🤖',
-          description: agent.description,
-          tone: agent.tone,
-          goals: agent.goals,
-          capabilities: agent.capabilities ?? {},
-          greetingMessage: agent.greeting_message,
-          outOfHoursMessage: agent.out_of_hours_message,
-          systemPrompt: agent.system_prompt,
-          trustLevel: agent.trust_level,
-          isActive: agent.is_active,
-          isDefault: agent.is_default,
-          permissions: {
-            canSendLinks: agent.can_send_links,
-            canSharePricing: agent.can_share_pricing,
-            canBookMeetings: agent.can_book_meetings,
-            maxMessagesPerDay: agent.max_messages_per_day,
-          },
-          escalation: {
-            onFrustration: agent.escalate_on_frustration,
-            onExplicitHumanRequest: agent.escalate_on_explicit_human_request,
-            onOutOfScope: agent.escalate_on_out_of_scope,
-          },
-          assignmentCount: parseInt(assignmentCount, 10),
-          createdAt: agent.created_at,
-          updatedAt: agent.updated_at,
-        },
-        recentActions: actions.map((a) => ({
-          id: a.id,
-          actionType: a.action_type,
-          inputMessage: a.input_message,
-          outputMessage: a.output_message,
-          reasoning: a.reasoning,
-          confidence: a.confidence,
-          toolsUsed: a.tools_used ?? [],
-          wasEscalated: a.was_escalated,
-          escalationReason: a.escalation_reason,
-          createdAt: a.created_at,
-        })),
-      })
+      const detail = await fetchAgentDetail(userId, id)
+      if (!detail) return reply.code(404).send({ error: 'Agent not found' })
+      return reply.send(detail)
     },
   )
 
@@ -331,63 +416,56 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid body', detail: err.message })
       }
 
-      const { rows: [existing] } = await db.query<{ id: string }>(
-        'SELECT id FROM agents WHERE id = $1 AND user_id = $2',
-        [id, userId],
+      const result = await applyAgentPatch(userId, id, body)
+      if (result === 'not_found') return reply.code(404).send({ error: 'Agent not found' })
+      if (result === 'no_fields') return reply.code(400).send({ error: 'No fields to update' })
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── GET/PATCH /api/agents/default — the Default Assistant every user has
+  // from signup (docs/AUTO_REPLY_AGENTS_PLAN.md §2). Lets Settings/Inbox
+  // read and edit it without knowing its UUID.
+
+  fastify.get(
+    '/api/agents/default',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { rows: [row] } = await db.query<{ id: string }>(
+        'SELECT id FROM agents WHERE user_id = $1 AND is_default = TRUE LIMIT 1',
+        [userId],
       )
-      if (!existing) return reply.code(404).send({ error: 'Agent not found' })
+      if (!row) return reply.code(404).send({ error: 'No default agent found' })
 
-      const updates: string[] = []
-      const values: unknown[] = []
-      let idx = 1
+      const detail = await fetchAgentDetail(userId, row.id)
+      if (!detail) return reply.code(404).send({ error: 'Agent not found' })
+      return reply.send(detail)
+    },
+  )
 
-      const fieldMap: Record<string, string> = {
-        name: 'name',
-        role_title: 'role_title',
-        avatar_emoji: 'avatar_emoji',
-        tone: 'tone',
-        goals: 'goals',
-        greeting_message: 'greeting_message',
-        out_of_hours_message: 'out_of_hours_message',
-        trust_level: 'trust_level',
-        is_active: 'is_active',
-        is_default: 'is_default',
-        system_prompt: 'system_prompt',
-        can_send_links: 'can_send_links',
-        can_share_pricing: 'can_share_pricing',
-        can_book_meetings: 'can_book_meetings',
-        max_messages_per_day: 'max_messages_per_day',
-        escalate_on_frustration: 'escalate_on_frustration',
-        escalate_on_explicit_human_request: 'escalate_on_explicit_human_request',
-        escalate_on_out_of_scope: 'escalate_on_out_of_scope',
+  fastify.patch(
+    '/api/agents/default',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      let body: z.infer<typeof patchAgentBody>
+      try {
+        body = patchAgentBody.parse(request.body)
+      } catch (err: any) {
+        return reply.code(400).send({ error: 'Invalid body', detail: err.message })
       }
 
-      // capabilities is JSONB — handle separately
-      if (body.capabilities !== undefined) {
-        updates.push(`capabilities = $${idx++}`)
-        values.push(JSON.stringify(body.capabilities))
-      }
-
-      for (const [key, col] of Object.entries(fieldMap)) {
-        const val = (body as any)[key]
-        if (val !== undefined) {
-          updates.push(`${col} = $${idx++}`)
-          values.push(val)
-        }
-      }
-
-      if (updates.length === 0) {
-        return reply.code(400).send({ error: 'No fields to update' })
-      }
-
-      updates.push('updated_at = NOW()')
-      values.push(id)
-
-      await db.query(
-        `UPDATE agents SET ${updates.join(', ')} WHERE id = $${idx}`,
-        values,
+      const { rows: [row] } = await db.query<{ id: string }>(
+        'SELECT id FROM agents WHERE user_id = $1 AND is_default = TRUE LIMIT 1',
+        [userId],
       )
+      if (!row) return reply.code(404).send({ error: 'No default agent found' })
 
+      const result = await applyAgentPatch(userId, row.id, body)
+      if (result === 'not_found') return reply.code(404).send({ error: 'Agent not found' })
+      if (result === 'no_fields') return reply.code(400).send({ error: 'No fields to update' })
       return reply.send({ ok: true })
     },
   )

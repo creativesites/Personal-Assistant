@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
-  Flame, Activity, Brain, WifiOff,
+  Flame, Activity, Brain, WifiOff, UserX, ChevronDown,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -114,8 +114,83 @@ export default function InboxPage() {
   // Analysis
   const [analysing, setAnalysing] = useState(false)
 
-  // Global auto-reply toggle (persisted to API)
-  const [globalAutoReply, setGlobalAutoReply] = useState<boolean>(false)
+  // Default Assistant widget (docs/AUTO_REPLY_AGENTS_PLAN.md §5/§7) — always
+  // visible in the list header regardless of which conversation is open, so
+  // auto-reply state is never buried behind a conversation selection.
+  interface DefaultAgentSummary {
+    id: string
+    name: string
+    avatarEmoji: string
+    isActive: boolean
+    trustLevel: 'observe' | 'suggest' | 'assisted' | 'delegated' | 'autonomous'
+  }
+  const [defaultAgent, setDefaultAgent] = useState<DefaultAgentSummary | null>(null)
+  const [showAgentPanel, setShowAgentPanel] = useState(false)
+  const AUTO_REPLY_MODES = [
+    { key: 'off',        label: "Off",                    isActive: false, trustLevel: 'suggest' as const },
+    { key: 'suggest',    label: 'Draft only',              isActive: true,  trustLevel: 'suggest' as const },
+    { key: 'assisted',   label: 'Draft + auto-send',       isActive: true,  trustLevel: 'assisted' as const },
+    { key: 'delegated',  label: 'Auto-send',                isActive: true,  trustLevel: 'delegated' as const },
+    { key: 'autonomous', label: 'Fully autonomous',         isActive: true,  trustLevel: 'autonomous' as const },
+  ] as const
+  const currentAgentMode = !defaultAgent?.isActive
+    ? 'off'
+    : (AUTO_REPLY_MODES.find(m => m.trustLevel === defaultAgent.trustLevel && m.isActive)?.key ?? 'suggest')
+
+  const loadDefaultAgent = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{ agent: DefaultAgentSummary }>('/api/agents/default', { token })
+      setDefaultAgent(data.agent)
+    } catch { /* ignore */ }
+  }, [token])
+
+  const setAgentMode = async (key: typeof AUTO_REPLY_MODES[number]['key']) => {
+    if (!token || !defaultAgent) return
+    const mode = AUTO_REPLY_MODES.find(m => m.key === key)
+    if (!mode) return
+    const prev = defaultAgent
+    setDefaultAgent({ ...defaultAgent, isActive: mode.isActive, trustLevel: mode.trustLevel })
+    try {
+      await apiClient('/api/agents/default', {
+        method: 'PATCH', token,
+        body: JSON.stringify({ is_active: mode.isActive, trust_level: mode.trustLevel }),
+      })
+    } catch {
+      setDefaultAgent(prev)
+    }
+  }
+
+  // Per-contact exclusion (plan §4) — surfaced right where you're looking
+  // at the contact's conversation, since that's the natural place to act
+  // on "don't auto-reply to this specific person."
+  const [excludedContacts, setExcludedContacts] = useState<Map<string, string>>(new Map())
+
+  const loadExcludedContacts = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{ contacts: { id: string; contactId: string }[] }>(
+        '/api/settings/auto-response/exclusions', { token },
+      )
+      setExcludedContacts(new Map(data.contacts.map(c => [c.contactId, c.id])))
+    } catch { /* ignore */ }
+  }, [token])
+
+  const toggleContactExclusion = async () => {
+    if (!token || !contact) return
+    const existingId = excludedContacts.get(contact.id)
+    try {
+      if (existingId) {
+        await apiClient(`/api/settings/auto-response/exclusions/${existingId}`, { method: 'DELETE', token })
+        setExcludedContacts(prev => { const next = new Map(prev); next.delete(contact.id); return next })
+      } else {
+        const created = await apiClient<{ id: string }>('/api/settings/auto-response/exclusions', {
+          method: 'POST', token, body: JSON.stringify({ contactId: contact.id }),
+        })
+        setExcludedContacts(prev => new Map(prev).set(contact.id, created.id))
+      }
+    } catch { /* ignore */ }
+  }
 
   // Sync progress
   const [syncing, setSyncing] = useState(false)
@@ -224,9 +299,8 @@ export default function InboxPage() {
     loadConversations()
     loadBriefing()
     loadSyncStatus()
-    apiClient<{ enabled: boolean }>('/api/settings/auto-response', { token })
-      .then(d => setGlobalAutoReply(d.enabled ?? false))
-      .catch(() => {})
+    loadDefaultAgent()
+    loadExcludedContacts()
     const socket = getSocket(token)
 
     const handleNewMessage = (payload: string) => {
@@ -406,6 +480,11 @@ export default function InboxPage() {
     socket.on('reconnect', reconcile)
     socket.io.on('reconnect', reconcile)
 
+    // Default Assistant changes from Settings or the agent detail page
+    // (docs/AUTO_REPLY_AGENTS_PLAN.md §5) — keep this widget in sync without
+    // a manual refresh.
+    socket.on('agent:default-updated', loadDefaultAgent)
+
     return () => {
       socket.off('message:new', handleNewMessage)
       socket.off('conversation:upsert', handleConversationUpsert)
@@ -415,10 +494,11 @@ export default function InboxPage() {
       socket.off('authenticated', reconcile)
       socket.off('reconnect', reconcile)
       socket.io.off('reconnect', reconcile)
+      socket.off('agent:default-updated', loadDefaultAgent)
       if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
       if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
     }
-  }, [token, loadConversations, loadBriefing, loadSyncStatus])
+  }, [token, loadConversations, loadBriefing, loadSyncStatus, loadDefaultAgent, loadExcludedContacts])
 
   useEffect(() => {
     const on = () => setIsOnline(true)
@@ -659,19 +739,6 @@ export default function InboxPage() {
     } finally { setAIActionLoading(null) }
   }
 
-  const toggleAutoReply = async () => {
-    const next = !globalAutoReply
-    setGlobalAutoReply(next)  // optimistic
-    try {
-      await apiClient('/api/settings/auto-response', {
-        method: 'PUT',
-        token: token ?? '',
-        body: JSON.stringify({ enabled: next }),
-      })
-    } catch {
-      setGlobalAutoReply(!next)  // revert on failure
-    }
-  }
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -766,6 +833,45 @@ export default function InboxPage() {
             </a>
           </div>
         </div>
+
+        {/* Default Assistant widget (docs/AUTO_REPLY_AGENTS_PLAN.md §7) —
+            always visible here regardless of which conversation is open,
+            unlike the old per-conversation-only toggle this replaces. */}
+        {defaultAgent && (
+          <div className="border-b border-gray-100 flex-shrink-0">
+            <button
+              onClick={() => setShowAgentPanel(v => !v)}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors"
+            >
+              <span className="text-base leading-none">{defaultAgent.avatarEmoji}</span>
+              <span className="text-xs font-medium text-gray-700 flex-1 text-left truncate">{defaultAgent.name}</span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                defaultAgent.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {AUTO_REPLY_MODES.find(m => m.key === currentAgentMode)?.label ?? 'Off'}
+              </span>
+              <ChevronDown size={13} className={`text-gray-400 transition-transform ${showAgentPanel ? 'rotate-180' : ''}`} />
+            </button>
+            {showAgentPanel && (
+              <div className="px-3 pb-2.5 space-y-1">
+                {AUTO_REPLY_MODES.map(mode => (
+                  <button
+                    key={mode.key}
+                    onClick={() => setAgentMode(mode.key)}
+                    className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
+                      currentAgentMode === mode.key ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+                <a href="/settings?tab=auto_responses" className="block text-[11px] text-indigo-600 hover:text-indigo-700 px-2.5 pt-1">
+                  Manage in Settings →
+                </a>
+              </div>
+            )}
+          </div>
+        )}
 
         <SyncBanner
           syncing={syncing}
@@ -949,20 +1055,21 @@ export default function InboxPage() {
                   )}
                   Analyse
                 </button>
-                {/* Global auto-reply toggle */}
+                {/* Per-contact exclusion (plan §4/§7) — the natural place to
+                    act on "don't auto-reply to this specific person" is
+                    right here, looking at their conversation. The global
+                    switch lives in the list header (always visible). */}
                 <button
-                  onClick={toggleAutoReply}
-                  title={globalAutoReply ? 'Auto-reply ON — click to disable' : 'Auto-reply OFF — click to enable'}
+                  onClick={toggleContactExclusion}
+                  title={excludedContacts.has(contact.id) ? 'Excluded from auto-reply — click to re-include' : 'Exclude this contact from auto-reply'}
                   className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    globalAutoReply
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    excludedContacts.has(contact.id)
+                      ? 'bg-amber-50 border-amber-200 text-amber-700'
                       : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
                   }`}
                 >
-                  <span className={`w-5 h-2.5 rounded-full relative transition-colors ${globalAutoReply ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-1.5 h-1.5 bg-white rounded-full shadow transition-transform ${globalAutoReply ? 'translate-x-2.5' : 'translate-x-0.5'}`} />
-                  </span>
-                  Auto-reply
+                  <UserX size={11} />
+                  {excludedContacts.has(contact.id) ? 'Excluded' : 'Exclude'}
                 </button>
                 <button
                   className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"

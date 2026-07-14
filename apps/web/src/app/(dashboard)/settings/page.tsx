@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { ModeBadge, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/components/ui'
@@ -435,6 +437,53 @@ export default function SettingsPage() {
   const [savingAutoResponse, setSavingAutoResponse] = useState(false)
   const [escalationKwInput, setEscalationKwInput] = useState('')
 
+  // Default Assistant (docs/AUTO_REPLY_AGENTS_PLAN.md §2/§8) — the same
+  // agent every user has from signup. Settings edits its persona and
+  // trust_level directly via /api/agents/default; auto_response_settings
+  // (above) stays the shared gate (business hours, targeting, escalation)
+  // applied to this agent and every other one.
+  interface DefaultAgent {
+    id: string
+    name: string
+    roleTitle: string | null
+    avatarEmoji: string
+    tone: string | null
+    trustLevel: 'observe' | 'suggest' | 'assisted' | 'delegated' | 'autonomous'
+    isActive: boolean
+    greetingMessage: string | null
+    outOfHoursMessage: string | null
+  }
+
+  const [defaultAgent, setDefaultAgent] = useState<DefaultAgent | null>(null)
+  const [savingAgent, setSavingAgent] = useState(false)
+
+  const loadDefaultAgent = async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{ agent: DefaultAgent }>('/api/agents/default', { token })
+      setDefaultAgent(data.agent)
+    } catch { /* ignore — falls back to the plain toggle UI below */ }
+  }
+
+  // Plain-language dial mapped onto trust_level + is_active — see plan §8.
+  const AUTO_REPLY_MODES = [
+    { key: 'off',        label: "Off — I'll reply myself",                              isActive: false, trustLevel: 'suggest' as const },
+    { key: 'suggest',    label: 'Draft replies, I approve every one',                    isActive: true,  trustLevel: 'suggest' as const },
+    { key: 'assisted',   label: "Draft replies, auto-send if I haven't responded",       isActive: true,  trustLevel: 'assisted' as const },
+    { key: 'delegated',  label: 'Auto-send, only escalate when something needs me',      isActive: true,  trustLevel: 'delegated' as const },
+    { key: 'autonomous', label: 'Fully autonomous',                                      isActive: true,  trustLevel: 'autonomous' as const },
+  ] as const
+
+  const currentAutoReplyMode = !defaultAgent?.isActive
+    ? 'off'
+    : (AUTO_REPLY_MODES.find(m => m.trustLevel === defaultAgent.trustLevel && m.isActive)?.key ?? 'suggest')
+
+  const setAutoReplyMode = (key: typeof AUTO_REPLY_MODES[number]['key']) => {
+    const mode = AUTO_REPLY_MODES.find(m => m.key === key)
+    if (!mode || !defaultAgent) return
+    setDefaultAgent({ ...defaultAgent, isActive: mode.isActive, trustLevel: mode.trustLevel })
+  }
+
   const loadAutoResponse = async () => {
     if (!token || autoResponseLoaded) return
     setAutoResponseLoaded(true)
@@ -442,6 +491,7 @@ export default function SettingsPage() {
       const data = await apiClient<AutoResponseSettings>('/api/settings/auto-response', { token })
       setAutoResponse(data as AutoResponseSettings)
     } catch { /* ignore */ }
+    loadDefaultAgent()
   }
 
   const saveAutoResponse = async () => {
@@ -454,17 +504,155 @@ export default function SettingsPage() {
       return
     }
     setSavingAutoResponse(true)
+    setSavingAgent(true)
     try {
-      await apiClient('/api/settings/auto-response', {
-        method: 'PUT',
-        token,
-        body: JSON.stringify(autoResponse),
-      })
+      await Promise.all([
+        apiClient('/api/settings/auto-response', {
+          method: 'PUT',
+          token,
+          body: JSON.stringify(autoResponse),
+        }),
+        defaultAgent
+          ? apiClient('/api/agents/default', {
+              method: 'PATCH',
+              token,
+              body: JSON.stringify({
+                trust_level: defaultAgent.trustLevel,
+                is_active: defaultAgent.isActive,
+                tone: defaultAgent.tone,
+                greeting_message: defaultAgent.greetingMessage,
+                out_of_hours_message: defaultAgent.outOfHoursMessage,
+              }),
+            })
+          : Promise.resolve(),
+      ])
       addToast({ variant: 'success', title: 'Auto-response settings saved' })
     } catch {
       addToast({ variant: 'error', title: 'Failed to save', description: 'Please try again.' })
     } finally {
       setSavingAutoResponse(false)
+      setSavingAgent(false)
+    }
+  }
+
+  // ── Auto-reply exceptions (docs/AUTO_REPLY_AGENTS_PLAN.md §4) ───────────
+  // Two lists: explicit per-contact opt-outs and rule-based ones (matched
+  // against relationship_type/tag/customer_status). Both are consulted by
+  // every trust level, not just the plain non-agent path.
+  interface ExclusionContact { id: string; contactId: string; contactName: string; avatarUrl: string | null; reason: string | null }
+  interface ExclusionRule { id: string; ruleType: 'relationship_type' | 'tag' | 'customer_status'; ruleValue: string; sourceText: string | null }
+  interface ContactOption { id: string; name: string }
+
+  const [exclusionContacts, setExclusionContacts] = useState<ExclusionContact[]>([])
+  const [exclusionRules, setExclusionRules] = useState<ExclusionRule[]>([])
+  const [exclusionsLoaded, setExclusionsLoaded] = useState(false)
+  const [contactOptions, setContactOptions] = useState<ContactOption[]>([])
+  const [pickContactId, setPickContactId] = useState('')
+  const [exclusionInstruction, setExclusionInstruction] = useState('')
+  const [parsingExclusion, setParsingExclusion] = useState(false)
+  const [pendingExclusion, setPendingExclusion] = useState<
+    { type: 'contact'; contactId: string; contactName: string }
+    | { type: 'rule'; ruleType: 'relationship_type' | 'tag' | 'customer_status'; ruleValue: string; matchCount: number }
+    | null
+  >(null)
+
+  const loadExclusions = async () => {
+    if (!token || exclusionsLoaded) return
+    setExclusionsLoaded(true)
+    try {
+      const data = await apiClient<{ contacts: ExclusionContact[]; rules: ExclusionRule[] }>(
+        '/api/settings/auto-response/exclusions', { token },
+      )
+      setExclusionContacts(data.contacts)
+      setExclusionRules(data.rules)
+    } catch { /* ignore */ }
+    try {
+      const data = await apiClient<{ contacts: ContactOption[] }>('/api/contacts', { token })
+      setContactOptions(data.contacts)
+    } catch { /* ignore */ }
+  }
+
+  const addContactExclusion = async () => {
+    if (!token || !pickContactId) return
+    try {
+      await apiClient('/api/settings/auto-response/exclusions', {
+        method: 'POST', token, body: JSON.stringify({ contactId: pickContactId }),
+      })
+      setPickContactId('')
+      setExclusionsLoaded(false)
+      loadExclusions()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to add exclusion' })
+    }
+  }
+
+  const removeContactExclusion = async (id: string) => {
+    if (!token) return
+    setExclusionContacts(prev => prev.filter(c => c.id !== id))
+    try {
+      await apiClient(`/api/settings/auto-response/exclusions/${id}`, { method: 'DELETE', token })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to remove exclusion' })
+    }
+  }
+
+  const removeExclusionRule = async (id: string) => {
+    if (!token) return
+    setExclusionRules(prev => prev.filter(r => r.id !== id))
+    try {
+      await apiClient(`/api/settings/auto-response/exclusion-rules/${id}`, { method: 'DELETE', token })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to remove rule' })
+    }
+  }
+
+  const parseExclusionInstruction = async () => {
+    if (!token || !exclusionInstruction.trim()) return
+    setParsingExclusion(true)
+    setPendingExclusion(null)
+    try {
+      const data = await apiClient<
+        { type: 'contact'; contactId: string; contactName: string }
+        | { type: 'rule'; ruleType: 'relationship_type' | 'tag' | 'customer_status'; ruleValue: string; matchCount: number }
+        | { type: 'unknown' }
+      >('/api/settings/auto-response/exclusions/parse', {
+        method: 'POST', token, body: JSON.stringify({ instruction: exclusionInstruction.trim() }),
+      })
+      if (data.type === 'unknown') {
+        addToast({ variant: 'error', title: "Couldn't understand that — try naming a specific contact or a relationship type/tag." })
+      } else {
+        setPendingExclusion(data)
+      }
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to parse instruction' })
+    } finally {
+      setParsingExclusion(false)
+    }
+  }
+
+  const confirmPendingExclusion = async () => {
+    if (!token || !pendingExclusion) return
+    try {
+      if (pendingExclusion.type === 'contact') {
+        await apiClient('/api/settings/auto-response/exclusions', {
+          method: 'POST', token, body: JSON.stringify({ contactId: pendingExclusion.contactId }),
+        })
+      } else {
+        await apiClient('/api/settings/auto-response/exclusion-rules', {
+          method: 'POST', token,
+          body: JSON.stringify({
+            ruleType: pendingExclusion.ruleType, ruleValue: pendingExclusion.ruleValue,
+            sourceText: exclusionInstruction.trim(),
+          }),
+        })
+      }
+      setPendingExclusion(null)
+      setExclusionInstruction('')
+      setExclusionsLoaded(false)
+      loadExclusions()
+      addToast({ variant: 'success', title: 'Exception saved' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to save exception' })
     }
   }
 
@@ -683,7 +871,8 @@ export default function SettingsPage() {
     }
   }
 
-  const [activeTab, setActiveTab] = useState('account')
+  const searchParams = useSearchParams()
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'account')
 
   const handleTabChange = (id: string) => {
     setActiveTab(id)
@@ -696,6 +885,7 @@ export default function SettingsPage() {
       loadEnterprise()
     } else if (activeTab === 'auto_responses' && !autoResponseLoaded) {
       loadAutoResponse()
+      loadExclusions()
     } else if (activeTab === 'memory' && !memoryTabLoaded) {
       loadMemoryTab()
     } else if (activeTab === 'privacy' && !retentionLoaded) {
@@ -1233,48 +1423,59 @@ export default function SettingsPage() {
                 {/* ── Auto Responses tab ── */}
                 {currentTab === 'auto_responses' && (
                   <div className="space-y-4 pt-2">
-                    {/* Master toggle */}
+                    {/* Default Assistant persona + auto-reply mode dial */}
                     <div className="bg-white rounded-xl border border-gray-200 p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">AI Auto Responses</p>
+                      <div className="flex items-start gap-3">
+                        <div className="w-11 h-11 rounded-full bg-indigo-50 flex items-center justify-center text-xl flex-shrink-0">
+                          {defaultAgent?.avatarEmoji ?? '🤝'}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">
+                            {defaultAgent?.name ?? 'Assistant'}
+                            {defaultAgent?.roleTitle && <span className="text-gray-400 font-normal"> · {defaultAgent.roleTitle}</span>}
+                          </p>
                           <p className="text-xs text-gray-400 mt-1">
-                            Zuri will automatically draft and send replies on your behalf during your business hours. Off by default — you stay in control.
+                            Your default AI assistant — drafts and (optionally) sends replies for every contact not handled by a specialised agent. See it and its activity on the <Link href="/automation" className="text-indigo-600 hover:underline">AI Workforce</Link> page.
                           </p>
                         </div>
-                        <button
-                          onClick={() => setAutoResponse(s => ({ ...s, enabled: !s.enabled }))}
-                          role="switch"
-                          aria-checked={autoResponse.enabled}
-                          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${autoResponse.enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}
-                        >
-                          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${autoResponse.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
-                        </button>
                       </div>
 
-                      {autoResponse.enabled && (
+                      <div className="mt-4 pt-4 border-t border-gray-100">
+                        <label className="block text-xs font-medium text-gray-500 mb-2">Auto-reply mode</label>
+                        <div className="space-y-1.5">
+                          {AUTO_REPLY_MODES.map(opt => (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              disabled={!defaultAgent}
+                              onClick={() => setAutoReplyMode(opt.key)}
+                              className={`w-full text-left rounded-lg border-2 px-3 py-2.5 transition-all disabled:opacity-50 ${
+                                currentAutoReplyMode === opt.key
+                                  ? 'border-indigo-600 bg-indigo-50'
+                                  : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              <p className="text-xs font-medium text-gray-900">{opt.label}</p>
+                            </button>
+                          ))}
+                        </div>
+                        {!defaultAgent && (
+                          <p className="text-xs text-amber-600 mt-2">Couldn&apos;t load your default agent — falling back to the plain on/off switch below.</p>
+                        )}
+                      </div>
+
+                      {!defaultAgent && (
                         <div className="mt-4 pt-4 border-t border-gray-100">
-                          <label className="block text-xs font-medium text-gray-500 mb-2">Approval mode</label>
-                          <div className="grid grid-cols-3 gap-2">
-                            {([
-                              { value: 'auto',    label: 'Auto-send',  desc: 'Sends without review' },
-                              { value: 'preview', label: 'Preview',    desc: 'Shows draft for 30s' },
-                              { value: 'manual',  label: 'Manual',     desc: 'Always ask for approval' },
-                            ] as const).map(opt => (
-                              <button
-                                key={opt.value}
-                                type="button"
-                                onClick={() => setAutoResponse(s => ({ ...s, approvalMode: opt.value }))}
-                                className={`text-left rounded-lg border-2 px-3 py-2.5 transition-all ${
-                                  autoResponse.approvalMode === opt.value
-                                    ? 'border-indigo-600 bg-indigo-50'
-                                    : 'border-gray-200 hover:border-gray-300'
-                                }`}
-                              >
-                                <p className="text-xs font-medium text-gray-900">{opt.label}</p>
-                                <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
-                              </button>
-                            ))}
+                          <div className="flex items-center justify-between gap-4">
+                            <p className="text-sm text-gray-700">Auto-respond</p>
+                            <button
+                              onClick={() => setAutoResponse(s => ({ ...s, enabled: !s.enabled }))}
+                              role="switch"
+                              aria-checked={autoResponse.enabled}
+                              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${autoResponse.enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                            >
+                              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${autoResponse.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
                           </div>
                         </div>
                       )}
@@ -1378,6 +1579,90 @@ export default function SettingsPage() {
                       })}
                     </Section>
 
+                    {/* Exceptions — granular per-contact/rule exclusions (plan §4).
+                        Additive on top of "Who to respond to": respond to
+                        these types of contacts, EXCEPT these people/rules. */}
+                    <Section title="Exceptions">
+                      <div className="px-5 py-4 space-y-4">
+                        <p className="text-xs text-gray-400">
+                          Contacts and categories that should never be auto-engaged — e.g. family, or anyone you&apos;d rather handle yourself.
+                        </p>
+
+                        {(exclusionContacts.length > 0 || exclusionRules.length > 0) && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {exclusionContacts.map(c => (
+                              <span key={c.id} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                                {c.contactName}
+                                <button onClick={() => removeContactExclusion(c.id)} className="hover:text-red-600">×</button>
+                              </span>
+                            ))}
+                            {exclusionRules.map(r => (
+                              <span key={r.id} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                                {r.ruleType.replace('_', ' ')} = {r.ruleValue}
+                                <button onClick={() => removeExclusionRule(r.id)} className="hover:text-red-600">×</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Add a specific contact</label>
+                          <div className="flex gap-2">
+                            <select
+                              value={pickContactId}
+                              onChange={e => setPickContactId(e.target.value)}
+                              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="">Select a contact…</option>
+                              {contactOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                            <button
+                              onClick={addContactExclusion}
+                              disabled={!pickContactId}
+                              className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                            >
+                              Exclude
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Or describe who to exclude</label>
+                          <p className="text-xs text-gray-400 mb-2">e.g. &ldquo;exclude all my relatives&rdquo;, &ldquo;leave out anyone tagged personal&rdquo;</p>
+                          <div className="flex gap-2">
+                            <input
+                              value={exclusionInstruction}
+                              onChange={e => setExclusionInstruction(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') parseExclusionInstruction() }}
+                              placeholder="Type an instruction…"
+                              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <button
+                              onClick={parseExclusionInstruction}
+                              disabled={parsingExclusion || !exclusionInstruction.trim()}
+                              className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50"
+                            >
+                              {parsingExclusion ? 'Thinking…' : 'Parse'}
+                            </button>
+                          </div>
+
+                          {pendingExclusion && (
+                            <div className="mt-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2.5">
+                              <p className="text-xs text-indigo-900">
+                                {pendingExclusion.type === 'contact'
+                                  ? <>This will exclude <strong>{pendingExclusion.contactName}</strong>.</>
+                                  : <>This will exclude anyone matching <strong>{pendingExclusion.ruleType.replace('_', ' ')} = {pendingExclusion.ruleValue}</strong> ({pendingExclusion.matchCount} contact{pendingExclusion.matchCount === 1 ? '' : 's'} today).</>}
+                              </p>
+                              <div className="flex gap-2 mt-2">
+                                <button onClick={confirmPendingExclusion} className="text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-3 py-1.5">Confirm</button>
+                                <button onClick={() => setPendingExclusion(null)} className="text-xs font-medium text-gray-500 hover:text-gray-700 px-3 py-1.5">Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Section>
+
                     {/* Escalation */}
                     <Section title="Escalation rules">
                       <div className="px-5 py-4 space-y-4">
@@ -1421,29 +1706,52 @@ export default function SettingsPage() {
                       </div>
                     </Section>
 
-                    {/* Messages */}
-                    <Section title="Message templates">
+                    {/* Persona — backed by the Default Assistant's own row
+                        (agents.greeting_message/out_of_hours_message/tone),
+                        not auto_response_settings, so /automation always
+                        shows the same values Settings does (plan §8). */}
+                    <Section title="Persona & message templates">
                       <div className="px-5 py-4 space-y-4">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Tone</label>
+                          <div className="flex gap-2 flex-wrap">
+                            {['friendly', 'professional', 'casual', 'formal'].map(t => (
+                              <button
+                                key={t}
+                                type="button"
+                                disabled={!defaultAgent}
+                                onClick={() => defaultAgent && setDefaultAgent({ ...defaultAgent, tone: t })}
+                                className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors disabled:opacity-50 ${
+                                  defaultAgent?.tone === t ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                }`}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Greeting message</label>
                           <p className="text-xs text-gray-400 mb-2">Sent to new contacts before the AI reply</p>
                           <textarea
-                            value={autoResponse.greetingMessage ?? ''}
-                            onChange={e => setAutoResponse(s => ({ ...s, greetingMessage: e.target.value || null }))}
+                            value={defaultAgent?.greetingMessage ?? ''}
+                            disabled={!defaultAgent}
+                            onChange={e => defaultAgent && setDefaultAgent({ ...defaultAgent, greetingMessage: e.target.value || null })}
                             placeholder="Hi! Thanks for reaching out. I'll get back to you shortly."
                             rows={2}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none disabled:opacity-50"
                           />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Away message</label>
                           <p className="text-xs text-gray-400 mb-2">Sent when a message arrives outside business hours</p>
                           <textarea
-                            value={autoResponse.awayMessage ?? ''}
-                            onChange={e => setAutoResponse(s => ({ ...s, awayMessage: e.target.value || null }))}
+                            value={defaultAgent?.outOfHoursMessage ?? ''}
+                            disabled={!defaultAgent}
+                            onChange={e => defaultAgent && setDefaultAgent({ ...defaultAgent, outOfHoursMessage: e.target.value || null })}
                             placeholder="Thanks for your message! I'll respond during business hours (Mon–Fri, 9am–6pm)."
                             rows={2}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none disabled:opacity-50"
                           />
                         </div>
                       </div>

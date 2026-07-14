@@ -448,3 +448,25 @@ Aggregated stats (from real data, already computed — do not invent numbers bey
 
 Write 3-5 short, specific, actionable observations about what's converting and what isn't, based only on this data. If a document type or segment has a notably high or low conversion/expiry rate, call it out. No generic sales advice. Return ONLY a JSON object: {{"insights": ["...", "..."]}}
 """
+
+# Auto-Reply Exclusions — plain-English instruction parsing (plan §4). Never
+# invents a contact: a named person must resolve against the real list
+# below, and the caller re-validates the returned id against that same list
+# before saving anything (same "never free-text match" discipline as
+# document generation's contact resolution).
+PARSE_EXCLUSION_INSTRUCTION = """\
+The user wants to exclude certain contacts from Zuri's auto-reply/agent system. Parse their instruction into EITHER a specific contact OR a matching rule — never both, never guess a contact that isn't in the list below.
+
+Instruction: "{instruction}"
+
+Contacts (id: name):
+{contact_list}
+
+Return ONLY valid JSON in ONE of these two shapes:
+{{"type": "contact", "contactId": "exact id from the list above"}}
+{{"type": "rule", "ruleType": "relationship_type" | "tag" | "customer_status", "ruleValue": "the value to match, e.g. family, spouse, personal, lead, customer"}}
+
+If the instruction names one specific person, use "contact" and match them against the list by name — if no confident match exists, return {{"type": "unknown"}}.
+If the instruction describes a category (e.g. "my relatives", "anyone tagged personal", "all leads"), use "rule" with the best-fitting ruleType and a short, lowercase ruleValue.
+If you cannot confidently determine either, return {{"type": "unknown"}}.
+"""

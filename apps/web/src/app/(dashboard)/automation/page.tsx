@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -20,6 +20,8 @@ interface Agent {
   isDefault: boolean
   assignmentCount: number
   messagesToday: number
+  messagesThisWeek: number
+  escalationsThisWeek: number
   createdAt: string
 }
 
@@ -151,6 +153,12 @@ function AgentCard({ agent, onToggle, onEdit }: { agent: Agent; onToggle: () => 
                 </span>
               )}
             </div>
+            {(agent.messagesThisWeek > 0 || agent.escalationsThisWeek > 0) && (
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                {agent.messagesThisWeek} handled this week
+                {agent.escalationsThisWeek > 0 && ` · ${agent.escalationsThisWeek} escalated`}
+              </p>
+            )}
           </div>
         </div>
 
@@ -265,6 +273,21 @@ function AgentBuilderModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Performance (docs/AUTO_REPLY_AGENTS_PLAN.md §6) — what this agent has
+  // actually been doing, surfaced here since the edit modal is the one
+  // reachable per-agent detail view in the current AI Workforce UI.
+  const session = useZuriSession()
+  const perfToken = session.data?.accessToken
+  interface PerformanceTotals { totalMessages: number; totalEscalations: number; correctionCount: number; avgConfidence: number | null }
+  const [performance, setPerformance] = useState<PerformanceTotals | null>(null)
+
+  useEffect(() => {
+    if (!editingAgent || !perfToken) return
+    apiClient<{ totals: PerformanceTotals }>(`/api/agents/${editingAgent.id}/performance`, { token: perfToken })
+      .then(d => setPerformance(d.totals))
+      .catch(() => {})
+  }, [editingAgent, perfToken])
+
   const set = (k: keyof AgentFormData, v: unknown) =>
     setForm((f) => ({ ...f, [k]: v }))
 
@@ -305,6 +328,25 @@ function AgentBuilderModal({
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto p-5 space-y-5">
+          {editingAgent && performance && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Performance</p>
+              <div className="grid grid-cols-3 gap-2 bg-gray-50 rounded-xl p-3">
+                <div className="text-center">
+                  <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.totalMessages}</p>
+                  <p className="text-[10px] text-gray-400">messages sent</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.totalEscalations}</p>
+                  <p className="text-[10px] text-gray-400">escalated</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.correctionCount}</p>
+                  <p className="text-[10px] text-gray-400">corrections</p>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Identity */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Identity</p>

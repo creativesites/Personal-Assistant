@@ -404,10 +404,26 @@ async def handle_agent_message(
         message_length=len(reply_text),
     )
 
-    # Enqueue send job for autonomous and delegated trust levels. Lower-trust
-    # agents create normal suggested replies, and user Auto-send settings can
-    # promote that draft to an actual WhatsApp send.
+    # Enqueue send job for autonomous and delegated trust levels — but only
+    # once they've cleared the same universal eligibility gate every other
+    # trust level respects (docs/AUTO_REPLY_AGENTS_PLAN.md §3): the on/off
+    # switch, business hours, and per-contact/rule exclusions apply to every
+    # agent regardless of how autonomous it is. Trust level controls whether
+    # a human needs to approve a message, not whether the global rules apply
+    # at all. When ineligible, fall through to the draft-only branch below
+    # instead of doing nothing — the agent still produces a suggestion for
+    # manual review rather than silently skipping the message.
+    send_unconditionally = False
     if trust_level in ('autonomous', 'delegated'):
+        eligibility = await _auto_response.check_eligibility(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            contact_id=contact_id,
+            message_body=message_body,
+        )
+        send_unconditionally = eligibility.should_send
+
+    if send_unconditionally:
         async with pool.acquire() as conn:
             contact_row = await conn.fetchrow(
                 'SELECT whatsapp_jid FROM contacts WHERE id = $1', contact_id,

@@ -68,6 +68,23 @@ async def route_message(
             contact_id,
         )
 
+        # No explicit assignment — fall back to the user's Default Assistant
+        # (docs/AUTO_REPLY_AGENTS_PLAN.md §2) rather than the bare suggestion
+        # flow. Every user has exactly one is_default=TRUE agent from signup
+        # (backfilled for existing accounts in migration 0052), so the plain
+        # non-agent path below is now only reached if that agent has been
+        # deactivated or is somehow missing.
+        default_agent = None
+        if not agent:
+            default_agent = await conn.fetchrow(
+                """
+                SELECT id, name, trust_level FROM agents
+                WHERE user_id = $1 AND is_default = TRUE AND is_active = TRUE
+                LIMIT 1
+                """,
+                user_id,
+            )
+
     if agent:
         decision = 'route_to_agent'
         agent_id = str(agent['id'])
@@ -75,6 +92,10 @@ async def route_message(
             f"Contact {'directly' if agent['is_direct'] else 'via tag'} assigned to "
             f"agent '{agent['name']}' (trust={agent['trust_level']})"
         )
+    elif default_agent:
+        decision = 'route_to_agent'
+        agent_id = str(default_agent['id'])
+        reasoning = f"No explicit assignment — routed to Default Assistant '{default_agent['name']}' (trust={default_agent['trust_level']})"
     else:
         decision = 'generate_suggestion'
         agent_id = None
