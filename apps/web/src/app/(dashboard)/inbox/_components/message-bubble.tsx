@@ -16,6 +16,20 @@ export interface InboxMessage {
   quotedMessageId?: string | null
   deliveryStatus?: 'sent' | 'delivered' | 'read'
   approvalMode?: 'manual' | 'approved' | 'autonomous'
+  senderDisplayName?: string | null
+}
+
+// Stable colour per group participant, WhatsApp-style — hashed off the name
+// so the same person always gets the same colour within a conversation.
+const SENDER_NAME_COLORS = [
+  'text-emerald-600', 'text-sky-600', 'text-amber-600', 'text-rose-600',
+  'text-violet-600', 'text-cyan-600', 'text-orange-600', 'text-teal-600',
+]
+
+function senderNameColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
+  return SENDER_NAME_COLORS[hash % SENDER_NAME_COLORS.length]
 }
 
 function formatTime(ts: string | null) {
@@ -87,6 +101,12 @@ export function MessageBubble({
                 <span className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse" />
                 AUTO
               </span>
+            )}
+
+            {msg.senderDisplayName && (
+              <p className={`text-xs font-bold mb-0.5 ${senderNameColor(msg.senderDisplayName)}`}>
+                {msg.senderDisplayName}
+              </p>
             )}
 
             {hasTextHighlight && msg.body ? (

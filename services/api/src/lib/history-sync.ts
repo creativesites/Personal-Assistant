@@ -60,12 +60,16 @@ export async function startHistorySync(userId: string): Promise<string> {
 async function runSync(job: SyncJob, resumeFrom = 0, resumeMessages = 0): Promise<void> {
   const { id: syncJobId, userId } = job;
 
+  // Group chats are excluded here — this loop only re-queues messages for AI
+  // analysis (they're already persisted), and groups are never analysed
+  // (see CLAUDE.md "Groups").
   const { rows: conversations } = await db.query<{
     id: string; whatsapp_chat_id: string; contact_id: string; last_message_at: string | null
   }>(
     `SELECT c.id, c.whatsapp_chat_id, c.contact_id, c.last_message_at
      FROM conversations c
-     WHERE c.user_id = $1
+     JOIN contacts co ON co.id = c.contact_id
+     WHERE c.user_id = $1 AND co.is_group = false
      ORDER BY c.last_message_at DESC NULLS LAST
      OFFSET $2`,
     [userId, resumeFrom],

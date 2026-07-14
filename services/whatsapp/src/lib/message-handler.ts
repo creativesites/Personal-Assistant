@@ -84,6 +84,7 @@ export class MessageHandler {
     const messageId = await this.insertMessage(
       conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
       timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
+      msg.groupSenderName ?? null, msg.groupSenderJid ?? null,
     );
 
     if (!messageId) return;
@@ -124,6 +125,7 @@ export class MessageHandler {
           mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
           transcription: null,
           quotedMessageId,
+          senderDisplayName: msg.groupSenderName ?? null,
           timestamp: timestamp.toISOString(),
         }),
       );
@@ -139,9 +141,10 @@ export class MessageHandler {
   async writeHistoricalMessage(
     userId: string,
     msg: NormalisedMessage,
-  ): Promise<{ conversationId: string; contactId: string } | null> {
+  ): Promise<{ conversationId: string; contactId: string; isGroup: boolean } | null> {
     const senderType = msg.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
     const timestamp = new Date(msg.timestampMs);
+    const isGroup = msg.jid.endsWith('@g.us');
 
     const contactId = await this.upsertContact(userId, msg.jid, msg.displayName);
 
@@ -161,11 +164,34 @@ export class MessageHandler {
     const messageId = await this.insertMessage(
       conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
       timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
+      msg.groupSenderName ?? null, msg.groupSenderJid ?? null,
     );
 
     if (!messageId) return null; // duplicate
 
-    return { conversationId, contactId };
+    return { conversationId, contactId, isGroup };
+  }
+
+  /**
+   * Update group contact display names from WhatsApp chat metadata (the
+   * `chats` array delivered alongside `messaging-history.set`). Group
+   * messages are attributed to a single per-group contact row whose name
+   * would otherwise freeze on whoever happened to send the first message —
+   * this keeps it in sync with the real group subject instead.
+   */
+  async updateGroupNames(userId: string, chats: { id: string; name?: string | null }[]): Promise<void> {
+    for (const chat of chats) {
+      if (!chat.id?.endsWith('@g.us') || !chat.name) continue;
+      try {
+        await this.db.query(
+          `UPDATE contacts SET display_name = $1, updated_at = NOW()
+           WHERE user_id = $2 AND whatsapp_jid = $3 AND is_group = true`,
+          [chat.name, userId, chat.id],
+        );
+      } catch (err) {
+        console.error(`[message-handler] failed to update group name for ${chat.id}:`, err);
+      }
+    }
   }
 
   async publishConversationUpsert(userId: string, conversationId: string): Promise<void> {
@@ -208,6 +234,7 @@ export class MessageHandler {
         COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
         co.avatar_url,
         co.phone_number,
+        co.is_group,
         COALESCE(r.relationship_type, 'acquaintance') AS relationship_type,
         COALESCE(r.health_score, 70) AS health_score,
         COALESCE(r.importance_tier, 3) AS importance_tier,
@@ -247,6 +274,7 @@ export class MessageHandler {
         name: r.contact_name,
         avatarUrl: r.avatar_url,
         phone: r.phone_number,
+        isGroup: r.is_group,
       },
       relationshipType: r.relationship_type,
       healthScore: r.health_score,
@@ -348,16 +376,20 @@ export class MessageHandler {
     mediaUrl: string | null,
     mediaMimeType: string | null,
     quotedMessageId: string | null,
+    senderDisplayName: string | null,
+    senderJid: string | null,
   ): Promise<string | null> {
     const { rows: [row] } = await this.db.query<{ id: string }>(
       `INSERT INTO messages
          (conversation_id, whatsapp_message_id, sender_type, message_type, body,
-          media_url, media_mime_type, quoted_message_id, whatsapp_timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          media_url, media_mime_type, quoted_message_id, whatsapp_timestamp,
+          sender_display_name, sender_jid)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (conversation_id, whatsapp_message_id) DO NOTHING
        RETURNING id`,
       [conversationId, waMessageId, senderType, messageType, body,
-       mediaUrl, mediaMimeType, quotedMessageId, timestamp],
+       mediaUrl, mediaMimeType, quotedMessageId, timestamp,
+       senderDisplayName, senderJid],
     );
     return row?.id ?? null;
   }

@@ -224,6 +224,15 @@ async def analyse_history(conversation_id: str, body: AnalyseHistoryRequest):
     Queues a contact profile rebuild and health recalculation based on
     the most recent messages — no per-message AI calls needed.
     """
+    # Defensive group gate — the WhatsApp service already excludes group
+    # conversations from calling this endpoint at all, but check again here
+    # in case another caller is added later. See CLAUDE.md "Groups".
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        contact_row = await conn.fetchrow('SELECT is_group FROM contacts WHERE id = $1', body.contact_id)
+    if contact_row and contact_row['is_group']:
+        return {'queued': False, 'skipped': 'group_chat', 'conversationId': conversation_id}
+
     profile_queue = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
     temporal_queue = Queue('temporal.clock_check', {'connection': redis_conn_opts()})
 

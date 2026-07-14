@@ -14,11 +14,15 @@ export interface NormalisedMessage {
   messageType: MessageType;
   body: string | null;
   timestampMs: number;
-  /** Local API path for the downloaded media file: /api/media/<filename> */
+  /** Public URL (Supabase) or local API path (/api/media/<filename>) for the downloaded media file */
   mediaUrl: string | null;
   mediaMimeType: string | null;
   /** WhatsApp message ID of the quoted/replied-to message */
   quotedWaMessageId: string | null;
+  /** Group chats only: push name of the participant who sent this message. Null for 1:1 chats. */
+  groupSenderName: string | null;
+  /** Group chats only: WhatsApp JID of the participant who sent this message. Null for 1:1 chats. */
+  groupSenderJid: string | null;
 }
 
 export interface CatalogProductInput {

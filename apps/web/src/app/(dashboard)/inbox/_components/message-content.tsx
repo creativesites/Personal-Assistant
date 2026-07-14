@@ -25,6 +25,8 @@ interface MessageContentMessage {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ''
 
 function mediaHref(path: string, token?: string | null): string {
+  // Supabase-stored media is already an absolute public URL — no token needed.
+  if (/^https?:\/\//i.test(path)) return path
   const base = `${API_BASE}${path}`
   return token ? `${base}?token=${encodeURIComponent(token)}` : base
 }

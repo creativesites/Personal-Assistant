@@ -3,6 +3,7 @@ export interface Contact {
   name: string
   phone?: string
   avatarUrl: string | null
+  isGroup?: boolean
   tags?: string[]
   leadScore?: number
   lifetimeValue?: number
@@ -132,6 +133,8 @@ export interface Message {
   quotedMessageId?: string | null
   deliveryStatus?: 'sent' | 'delivered' | 'read'
   approvalMode?: 'manual' | 'approved' | 'autonomous'
+  /** Group chats only: the participant who sent this message. Null for 1:1 chats. */
+  senderDisplayName?: string | null
 }
 
 export interface Suggestion {

@@ -245,6 +245,8 @@ CORS_ORIGIN=https://zuri-personal-assistant-delta.vercel.app
 GOOGLE_AI_API_KEY=     # Gemini API key
 DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
 DASHSCOPE_API_KEY=     # Alibaba Cloud DashScope key (Qwen models — currently default text pool)
+SUPABASE_URL=              # for incoming WhatsApp media storage (services/whatsapp only)
+SUPABASE_SERVICE_ROLE_KEY= # service-role key, NOT the anon key — see "Groups & Media" below
 ```
 
 **CRITICAL — LiteLLM model naming:** All Gemini model names **must** use the `gemini/` prefix.
@@ -385,7 +387,7 @@ Message flow: WhatsApp → Baileys → `messages.incoming` queue → Intelligenc
 
 ## Database
 
-PostgreSQL 16 with pgvector. 46 migrations applied (0001–0046) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
+PostgreSQL 16 with pgvector. 53 migrations applied (0001–0053) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
 
 **Domains:** Core · Contacts & Relationships · Conversations & Messages · AI Intelligence · Proactive System · Calendar · AI Advisor · Notifications · Business Workspace (`business_profiles`, `document_templates`, `documents`, `document_events`, `deal_stage_history`, `document_chat_messages`, `recurring_documents`, `document_pack_runs` — migrations 0043–0046)
 
@@ -397,6 +399,20 @@ Key design notes:
 - `events` (AI-extracted) and `calendar_events` (user-facing) are separate — linked via `source_event_id`
 - `documents` is strictly AI/template-generated business documents (quotations, invoices, proposals, contracts, etc.) — distinct from `contact_documents`, which is human-uploaded files; cross-linked via `contact_documents.generated_document_id`
 - `documents.embedding` (pgvector) powers semantic search; `documents.share_token` is the unauthenticated view-tracking link sent over WhatsApp
+
+---
+
+## Groups & Media Handling
+
+**WhatsApp groups are displayed, never analysed.** `contacts.is_group` (set from the JID suffix — `@g.us` = group, `@s.whatsapp.net` = individual) has existed since day one, but the AI pipeline ignored it until migration `0053_group_chat_support.sql`. Current behavior:
+- Group messages are stored and pushed to the Inbox in real time exactly like 1:1 messages — same `conversations`/`messages` rows, same Redis pub/sub, same UI.
+- They are **never** sent through the analysis pipeline: `services/intelligence/app/workers/message_worker.py::_process` checks `contacts.is_group` first and short-circuits (no sentiment/embeddings, no profile rebuilds, no reply suggestions, no token spend). `services/intelligence/app/routes/conversation.py::analyse_history` has the same defensive check.
+- Historical sync (`services/whatsapp/src/lib/session-manager.ts`'s `historical_batch` handler, and `services/api/src/lib/history-sync.ts`) writes every group message to the DB but never queues a group conversation for AI analysis.
+- Auto-response is separately gated by `auto_response_settings.skip_groups` (default `TRUE`, `services/intelligence/app/services/auto_response.py`) — a per-user toggle, but off-by-default satisfies "never auto-reply to groups" out of the box.
+- Per-message sender identity within a group (`messages.sender_display_name` / `sender_jid`, from Baileys' `msg.pushName` / `msg.key.participant`) is captured for **display only** — there is no per-participant `contacts` row yet. The dead `contact_group_members` table from migration `0003` is reserved for that future group-management work, not wired up.
+- The group's own display name is kept in sync from WhatsApp chat metadata (`phone_chats` event → `MessageHandler.updateGroupNames`) rather than frozen on whoever sent the first message.
+
+**Incoming media (images, documents, etc.) uploads to Supabase Storage.** `services/whatsapp/src/lib/supabase-storage.ts` uploads every downloaded WhatsApp media buffer to the **`chat-media`** bucket (public, create it in the Supabase dashboard — same bucket already reserved in `apps/web/src/lib/storage.ts`'s `StorageBucket` union) using the **service-role key** (`SUPABASE_SERVICE_ROLE_KEY`, not the anon key — this is a trusted backend service writing arbitrary contacts' files, not a user's own browser upload). `messages.media_url` then stores the Supabase public URL directly. If `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` aren't set, it falls back to the pre-existing local-disk `wa_media` volume + `GET /api/media/:filename` route — this is what local dev without Supabase creds still uses. The Inbox frontend (`message-content.tsx`) renders both transparently.
 
 ---
 

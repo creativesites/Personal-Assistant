@@ -1,6 +1,6 @@
 'use client'
 
-import { TrendingUp, Clock } from 'lucide-react'
+import { TrendingUp, Clock, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import type { Conversation } from '../_types/inbox'
 import { AI_PRIORITY, SENTIMENT_DOT } from '../_lib/constants'
@@ -38,8 +38,9 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1 mb-0.5">
-          <span className={`text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
-            {conv.contact.name}
+          <span className={`flex items-center gap-1 min-w-0 text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+            {conv.contact.isGroup && <Users size={11} className="text-gray-400 flex-shrink-0" />}
+            <span className="truncate">{conv.contact.name}</span>
           </span>
           <span className="text-[10px] text-gray-400 flex-shrink-0 tabular-nums">{formatTime(conv.lastMessageAt)}</span>
         </div>

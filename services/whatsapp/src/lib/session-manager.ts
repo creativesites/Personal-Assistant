@@ -119,6 +119,9 @@ export class SessionManager {
       try {
         console.log(`[session-manager] received phone_chats event for ${userId}: ${chats.length} chats`);
         await this.checkAndTriggerSync(userId, chats);
+        // Keep group contact names in sync with the real group subject instead
+        // of freezing on whoever happened to send the first message.
+        await this.handler.updateGroupNames(userId, chats);
       } catch (err) {
         console.error(`[session-manager] error in phone_chats handler for ${userId}:`, err);
       }
@@ -160,14 +163,17 @@ export class SessionManager {
       console.log(`[session] historical batch: ${msgs.length} messages for ${userId}`);
 
       // ── Step 1: write all messages to DB, track unique conversations ─────────
-      // Map<conversationId, contactId> — last write wins (newest message's contactId)
+      // Map<conversationId, contactId> — last write wins (newest message's contactId).
+      // Group conversations are still written and displayed — they're just never
+      // added here, so step 2 never queues them for AI analysis (no token spend
+      // on groups; see CLAUDE.md "Groups").
       const convMap = new Map<string, string>();
 
       for (let i = 0; i < msgs.length; i++) {
         try {
           const result = await this.handler.writeHistoricalMessage(userId, msgs[i]);
           if (result) {
-            convMap.set(result.conversationId, result.contactId);
+            if (!result.isGroup) convMap.set(result.conversationId, result.contactId);
             await this.handler.publishConversationUpsert(userId, result.conversationId);
           }
         } catch (err) {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
-  Flame, Activity, Brain, WifiOff, UserX, ChevronDown,
+  Flame, Activity, Brain, WifiOff, UserX, ChevronDown, Users,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -316,6 +316,7 @@ export default function InboxPage() {
           mediaMimeType?: string | null
           transcription?: string | null
           quotedMessageId?: string | null
+          senderDisplayName?: string | null
           timestamp: string
         }>(payload)
 
@@ -344,6 +345,7 @@ export default function InboxPage() {
               mediaMimeType: data.mediaMimeType ?? null,
               transcription: data.transcription ?? null,
               quotedMessageId: data.quotedMessageId ?? null,
+              senderDisplayName: data.senderDisplayName ?? null,
             }
             return [...filtered, newMsg]
           })
@@ -1013,10 +1015,13 @@ export default function InboxPage() {
               </button>
               <div className="relative group cursor-pointer">
                 <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
-                <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
+                {!contact.isGroup && (
+                  <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
+                  {contact.isGroup && <Users size={13} className="text-neutral-400 flex-shrink-0" />}
                   <p className="text-sm font-bold text-neutral-900 tracking-tight truncate">{contact.name}</p>
                   {currentPriority && CurrentPIcon && (
                     <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
@@ -1027,7 +1032,7 @@ export default function InboxPage() {
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
-                    {contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
+                    {contact.isGroup ? 'Group chat' : contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
                   </p>
                   {syncState.active && (syncState.conversationId === selectedId || syncState.currentChatName === contact.name) && (
                     <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
@@ -1209,7 +1214,7 @@ export default function InboxPage() {
             <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
-              <p className="text-xs text-indigo-500 font-medium">AI Intelligence</p>
+              <p className="text-xs text-indigo-500 font-medium">{contact.isGroup ? 'Group chat — not analysed' : 'AI Intelligence'}</p>
             </div>
           </div>
           <div className="flex-1 overflow-hidden">

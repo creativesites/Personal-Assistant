@@ -47,6 +47,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
         co.avatar_url,
         co.phone_number,
+        co.is_group,
         COALESCE(r.relationship_type, 'acquaintance')  AS relationship_type,
         COALESCE(r.health_score, 70)                   AS health_score,
         COALESCE(r.importance_tier, 3)                 AS importance_tier,
@@ -137,6 +138,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           m.media_mime_type,
           m.transcription,
           m.quoted_message_id,
+          m.sender_display_name,
           ma.sentiment,
           ma.sentiment_score,
           ma.requires_response,
@@ -157,6 +159,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           COALESCE(co.custom_name, co.display_name, co.phone_number) AS name,
           co.avatar_url,
           co.phone_number,
+          co.is_group,
           COALESCE(r.relationship_type, 'acquaintance') AS relationship_type,
           COALESCE(r.health_score, 70) AS health_score
         FROM contacts co
@@ -181,6 +184,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         mediaMimeType: m.media_mime_type,
         transcription: m.transcription,
         quotedMessageId: m.quoted_message_id,
+        senderDisplayName: m.sender_display_name,
         analysis: m.sentiment
           ? {
               sentiment: m.sentiment,
@@ -198,6 +202,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
             name: contactResult.rows[0].name,
             avatarUrl: contactResult.rows[0].avatar_url,
             phone: contactResult.rows[0].phone_number,
+            isGroup: contactResult.rows[0].is_group,
             relationshipType: contactResult.rows[0].relationship_type,
             healthScore: contactResult.rows[0].health_score,
           }

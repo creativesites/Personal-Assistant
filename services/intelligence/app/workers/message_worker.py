@@ -50,6 +50,17 @@ async def _process(job, token: str):
 
     log.info('processing_message', message_id=message_id, is_historical=is_historical)
 
+    # Group chats are displayed but never analysed — no sentiment/embeddings,
+    # no profile rebuilds, no auto-response, no token spend. See CLAUDE.md
+    # "Groups". Messages are already persisted by the WhatsApp service
+    # regardless of this check, so skipping here only affects AI processing.
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        contact_row = await conn.fetchrow('SELECT is_group FROM contacts WHERE id = $1', contact_id)
+    if contact_row and contact_row['is_group']:
+        log.info('group_message_skipped', message_id=message_id, contact_id=contact_id)
+        return {'ok': True, 'skipped': 'group_chat'}
+
     analysis = await _analyser.analyse(
         message_id=message_id,
         user_id=user_id,

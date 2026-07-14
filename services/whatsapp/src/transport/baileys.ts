@@ -20,6 +20,7 @@ import {
   type TransportDisconnectReason,
   type TransportStatus,
 } from './types';
+import { uploadChatMedia } from '../lib/supabase-storage';
 
 const QR_TIMEOUT_MS = 3 * 60 * 1000;
 const RECONNECT_BASE_MS = 3_000;
@@ -397,12 +398,15 @@ export class BaileysTransport extends WhatsAppTransport {
     if (content.reactionMessage) return null;
 
     const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
+    const isGroupMsg = jid.endsWith('@g.us');
     const base = {
       waMessageId: msg.key.id ?? '',
       jid,
       fromMe: msg.key.fromMe ?? false,
       displayName: msg.pushName ?? null,
       timestampMs,
+      groupSenderName: isGroupMsg && !msg.key.fromMe ? (msg.pushName ?? null) : null,
+      groupSenderJid: isGroupMsg && !msg.key.fromMe ? (msg.key.participant ?? null) : null,
     };
 
     // ── Location ──────────────────────────────────────────────────────────────
@@ -486,14 +490,20 @@ export class BaileysTransport extends WhatsAppTransport {
 
     if (mediaMsg) {
       try {
-        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+        const buffer = await downloadMediaMessage(msg, 'buffer', {}) as Buffer;
         const ext = mimeToExt(mediaMimeType ?? '');
         // Sanitise message ID for use as filename
         const safeId = (msg.key.id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
         const fileName = `${safeId}.${ext}`;
-        const filePath = path.join(this.mediaDir, fileName);
-        await fs.writeFile(filePath, buffer as Buffer);
-        mediaUrl = `/api/media/${fileName}`;
+
+        const supabaseUrl = await uploadChatMedia(this.userId, fileName, buffer, mediaMimeType ?? 'application/octet-stream');
+        if (supabaseUrl) {
+          mediaUrl = supabaseUrl;
+        } else {
+          const filePath = path.join(this.mediaDir, fileName);
+          await fs.writeFile(filePath, buffer);
+          mediaUrl = `/api/media/${fileName}`;
+        }
       } catch (err) {
         console.error(`[baileys:${this.userId}] media download failed for ${msg.key.id}:`, err);
       }
@@ -519,12 +529,15 @@ export class BaileysTransport extends WhatsAppTransport {
     if (content.reactionMessage) return null;
 
     const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
+    const isGroupMsg = jid.endsWith('@g.us');
     const base = {
       waMessageId: msg.key.id ?? '',
       jid,
       fromMe: msg.key.fromMe ?? false,
       displayName: msg.pushName ?? null,
       timestampMs,
+      groupSenderName: isGroupMsg && !msg.key.fromMe ? (msg.pushName ?? null) : null,
+      groupSenderJid: isGroupMsg && !msg.key.fromMe ? (msg.key.participant ?? null) : null,
     };
 
     if (content.locationMessage) {
