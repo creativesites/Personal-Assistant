@@ -371,7 +371,7 @@ function OverviewModule({ token }: { token: string | undefined }) {
               { label: 'Suppliers',       value: suppliers.length,                         Icon: Truck,         color: 'text-blue-600' },
               { label: 'Business Rules',  value: rules.filter(r => r.isActive).length,     Icon: FileText,      color: 'text-purple-600' },
             ] as const).map(({ label, value, Icon, color }) => (
-              <div key={label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div key={label} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm text-gray-500">{label}</p>
                   <Icon className={`w-4 h-4 ${color}`} />
@@ -383,7 +383,7 @@ function OverviewModule({ token }: { token: string | undefined }) {
       </div>
 
       {/* AI Business Advisor Chat */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col" style={{ height: '520px' }}>
+      <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 flex flex-col" style={{ height: '520px' }}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
           <Sparkles className="w-4 h-4 text-indigo-600" />
           <span className="font-semibold text-gray-900 text-sm">AI Business Advisor</span>
@@ -642,7 +642,7 @@ function CatalogModule({ token }: { token: string | undefined }) {
 
       {/* Add form */}
       {showAdd && (
-        <form onSubmit={handleAdd} className="bg-white rounded-xl border border-indigo-200 shadow-sm p-4 space-y-4">
+        <form onSubmit={handleAdd} className="bg-white rounded-[1.75rem] border border-indigo-200 shadow-sm shadow-indigo-100/70 p-4 space-y-4">
           <p className="font-semibold text-gray-900 text-sm">New Catalog Item</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -817,7 +817,7 @@ function CatalogModule({ token }: { token: string | undefined }) {
             const sv     = stockVariant(p.available, p.minimumStock)
             const margin = calcMargin(p.sellingPrice, p.purchaseCost)
             return (
-              <div key={p.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div key={p.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 overflow-hidden">
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -1037,7 +1037,7 @@ function InventoryModule({ token }: { token: string | undefined }) {
           { label: 'Low Stock',     value: lowStock,    color: 'text-amber-600'  },
           { label: 'Out of Stock',  value: outOfStock,  color: 'text-red-600'    },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 text-center">
+          <div key={label} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-3 text-center">
             <p className="text-xs text-gray-500">{label}</p>
             <p className={`text-xl font-bold mt-1 ${color}`}>{value}</p>
           </div>
@@ -1057,7 +1057,7 @@ function InventoryModule({ token }: { token: string | undefined }) {
             const pct      = p.stock > 0 ? Math.min(100, (p.available / p.stock) * 100) : 0
             const barColor = sv === 'error' ? 'bg-red-500' : sv === 'warning' ? 'bg-amber-500' : 'bg-green-500'
             return (
-              <div key={p.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div key={p.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div>
                     <p className="font-semibold text-gray-900 text-sm">{p.name}</p>
@@ -1180,7 +1180,7 @@ function PricingModule({ token }: { token: string | undefined }) {
       ) : products.length === 0 ? (
         <EmptyState title="No products to price" description="Add items to your catalog first." />
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1434,7 +1434,7 @@ function SuppliersModule({ token }: { token: string | undefined }) {
       </div>
 
       {showAdd && (
-        <form onSubmit={handleAdd} className="bg-white rounded-xl border border-indigo-200 shadow-sm p-4 space-y-4">
+        <form onSubmit={handleAdd} className="bg-white rounded-[1.75rem] border border-indigo-200 shadow-sm shadow-indigo-100/70 p-4 space-y-4">
           <p className="font-semibold text-gray-900 text-sm">New Supplier</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {SUPPLIER_FIELDS.map(({ key, label, placeholder, type }) => (
@@ -1485,7 +1485,7 @@ function SuppliersModule({ token }: { token: string | undefined }) {
             const rv = reliabilityVariant(s.reliabilityScore)
             const isExpanded = expandedId === s.id
             return (
-              <div key={s.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div key={s.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 overflow-hidden">
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <button
@@ -1681,7 +1681,7 @@ function RulesModule({ token }: { token: string | undefined }) {
       ) : (
         <div className="space-y-2">
           {rules.map(rule => (
-            <div key={rule.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex items-start gap-3">
+            <div key={rule.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 flex items-start gap-3">
               <FileText className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
               <p className="flex-1 text-sm text-gray-800">{rule.factValue}</p>
               {deleteConfirm === rule.id ? (
@@ -1801,7 +1801,7 @@ function BrandModule({ token }: { token: string | undefined }) {
   return (
     <div className="space-y-6">
       {/* Logo + identity card (always visible) */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+      <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
             {/* Logo with upload overlay */}
@@ -1872,7 +1872,7 @@ function BrandModule({ token }: { token: string | undefined }) {
 
       {/* Edit form */}
       {editing && (
-        <form onSubmit={handleSave} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5">
+        <form onSubmit={handleSave} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-6 space-y-5">
           <p className="font-semibold text-gray-900">Edit Brand Profile</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1980,7 +1980,7 @@ function KnowledgeModule({ token }: { token: string | undefined }) {
         </p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+      <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="font-semibold text-gray-900">Knowledge Documents</p>
@@ -2121,7 +2121,7 @@ function MarketingModule({ token }: { token: string | undefined }) {
               const isExpanded = expandedId === p.id
               const gens = generations[p.id] ?? []
               return (
-                <div key={p.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <div key={p.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 overflow-hidden">
                   <div className="flex items-center gap-3 p-4">
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-gray-900 text-sm truncate">{p.name}</p>
@@ -2215,7 +2215,7 @@ function MarketingModule({ token }: { token: string | undefined }) {
         ) : (
           <div className="space-y-3">
             {posts.map(post => (
-              <div key={post.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+              <div key={post.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2">
                     <Badge variant="default">{post.platform}</Badge>
@@ -2427,7 +2427,7 @@ export default function StudioPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-14 pb-14 md:pt-0 md:pb-0">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)] pt-14 pb-14 md:pt-0 md:pb-0">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         <PageHeader
           title="Business Knowledge Hub"
@@ -2435,22 +2435,21 @@ export default function StudioPage() {
         />
 
         {/* Module Tab Bar */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="flex overflow-x-auto border-b border-gray-100">
+        <div className="sticky top-0 z-10 overflow-x-auto rounded-2xl border border-slate-100 bg-white/90 backdrop-blur-xl p-2 shadow-sm">
+          <div className="flex min-w-max gap-1.5">
             {MODULES.map(({ id, label, Icon }) => {
               const isActive = activeModule === id
               return (
                 <button
                   key={id}
                   onClick={() => setActiveModule(id)}
-                  style={{ minHeight: '44px' }}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors border-b-2 shrink-0 ${
+                  className={`inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-2xl px-3.5 text-xs font-bold transition-all ${
                     isActive
-                      ? 'border-indigo-600 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-3.5 h-3.5" />
                   <span>{label}</span>
                 </button>
               )
