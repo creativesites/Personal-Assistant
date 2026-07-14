@@ -413,6 +413,85 @@ Key design notes:
 
 ---
 
+## Design System
+
+**This is the default styling for every page in `apps/web` from now on.** It was established by `dashboard/page.tsx` and `advisor/page.tsx` and is also fully implemented in `settings/page.tsx`. Treat these three files as the reference implementation — when in doubt, look at how they solve a problem before inventing a new pattern. This supersedes the older flat gray/white token list under "Phase 1 UI Audit" below and the old dark slate-900 chat theme (no longer used anywhere).
+
+**Page background** — a soft gradient that fades from indigo/teal tints into slate at the bottom, not a flat color:
+```
+bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]
+```
+(a simpler two-stop variant `bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]` is also acceptable for simpler pages). Never use a flat `bg-gray-50` page background or a dark page background going forward.
+
+**Radius scale** — the defining visual trait of this system. Bigger surfaces get bigger radii:
+- `rounded-xl` / `rounded-2xl` — buttons, icon chips, pills, small controls
+- `rounded-3xl` — stat tiles, cards, sidebar/nav containers
+- `rounded-[1.75rem]` — mid-size section cards
+- `rounded-[2rem]` — hero sections, feature sections, empty states
+
+**Hero / feature card pattern**:
+```
+relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50
+shadow-2xl shadow-indigo-200/40 ring-1 ring-white
+```
+layered with an absolutely-positioned decorative overlay for depth:
+```
+absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)]
+```
+
+**"Live"/status pill** (used for anything real-time or AI-active):
+```
+inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-[11px] font-semibold text-indigo-700 shadow-sm ring-1 ring-indigo-100
+```
+with a pulsing dot: `h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]`.
+
+**Typography**:
+- Big display numbers: `text-5xl md:text-6xl font-black tracking-tight tabular-nums`
+- Page-level headlines: `text-2xl md:text-4xl font-bold tracking-tight`
+- Feature/empty-state headers: `text-2xl md:text-3xl font-black tracking-tight`
+- Section titles inside cards: `text-sm font-semibold text-gray-900`
+
+**Buttons**:
+- Primary CTA: `rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 active:bg-indigo-700`
+- High-contrast secondary "dark chip" (e.g. nav into Advisor): `bg-slate-950 text-white rounded-2xl shadow-lg shadow-slate-900/15`
+
+**Icon chips** — a recurring atom used everywhere a section, stat, or list row needs a glanceable icon: a soft colored circle/rounded-square, `w-10 h-10` to `w-11 h-11 rounded-2xl bg-{color}-50 text-{color}-600`. Brand/AI avatars use a gradient variant instead: `bg-gradient-to-br from-indigo-600 to-cyan-500` with a white icon and `shadow-lg shadow-indigo-200`.
+
+**Stat card**:
+```
+rounded-3xl border border-white bg-white/95 p-4 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 hover:shadow-md
+```
+icon chip on top, value as `text-2xl font-black tracking-tight text-gray-950`, label as `text-xs font-semibold text-gray-500`.
+
+**Standard content card**: `rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70` in light mode; use `bg-white/90` or `bg-white/80` with `backdrop-blur-xl` for glassy overlays sitting on the gradient page background.
+
+**Section header pattern**: title (`text-sm font-semibold text-gray-900`) + a "View all" link (`text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1`) with a small trailing arrow icon.
+
+**List rows inside cards**: `flex items-center gap-3 border-b border-gray-50 px-4 py-3.5 last:border-b-0 hover:bg-gray-50/80`.
+
+**Empty states**: `rounded-[2rem] border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm shadow-gray-200/60`.
+
+**Color roles**:
+- `indigo-600` — primary/brand accent
+- `slate-950` / `gray-950` — highest-contrast headings and "dark chip" surfaces
+- `gray-500` / `slate-500` — secondary/muted text
+- `emerald` — success, positive, live/active
+- `red` / `rose` — danger, urgent
+- `amber` — warning
+- `violet` / `blue` / `cyan` — stat-card variety accents
+
+**Tinted shadows** — shadows are colored to match the section's hue, not plain black/gray: `shadow-indigo-200/40`, `shadow-emerald-100/80`, etc. This is deliberate and should be followed everywhere, not just on hero cards.
+
+**Ring + border layering** — cards and pills commonly combine a border or background with a `ring-1` (`ring-gray-100` / `ring-white` / `ring-indigo-100`) for a subtle glassy, layered depth. Use both together, not one or the other.
+
+**Chat bubbles** (from Advisor, reusable anywhere a conversational UI is needed): user bubble `bg-indigo-600 text-white shadow-lg shadow-indigo-200`; assistant bubble `bg-white border border-white shadow-sm shadow-slate-200/80 ring-1 ring-slate-100`.
+
+**Sidebar / nav surfaces**: `bg-white/90 backdrop-blur-xl border-r border-slate-200`.
+
+**Tab bars** (reference: `settings/page.tsx`) — mobile is a horizontal `overflow-x-auto` strip of pill buttons inside `border-t border-slate-100 bg-slate-50/80 px-2 py-2 lg:hidden`; each pill is `inline-flex min-h-10 items-center gap-2 rounded-2xl px-3 text-xs font-bold`, active = `bg-indigo-600 text-white shadow-sm`, inactive = `bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100`. Desktop is a `sticky top-6 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm` vertical list, active = `bg-indigo-50 text-indigo-700` with an icon chip `bg-indigo-600 text-white shadow-sm`, inactive icon chip `bg-slate-100 text-slate-500`. Any new multi-tab UI (e.g. the Analytics sub-nav) should match this pattern, and on mobile should also keep the active tab scrolled into view rather than resetting to the first tab on navigation.
+
+---
+
 ## Auth Architecture
 
 Web app uses **Clerk** for SSO (no passwords). The flow:
@@ -517,14 +596,7 @@ All components in `apps/web/src/components/ui/` are production-ready. Key findin
 - `src/hooks/use-zuri-session.ts` — Clerk sync + JWT + mode broadcaster; token is `session.data?.accessToken`
 - `src/hooks/use-wa-status.ts` — polls `/api/whatsapp/status`; 8s transitional / 30s stable; returns `WAStatus { status, connected, phone, lastConnectedAt }`
 
-**Design tokens (Tailwind):**
-- Primary: `indigo-600` (hover: `indigo-700`)
-- Surface: `white` with `border-gray-200` / `shadow-sm`
-- Background: `gray-50`
-- Text: `gray-900` (headings), `gray-700` (body), `gray-500` (muted), `gray-400` (placeholder)
-- Danger: `red-500/600`
-- Success: `green-500/600`
-- Rounded corners: `rounded-xl` for cards, `rounded-lg` for inputs/buttons, `rounded-full` for pills/avatars
+**Design tokens (Tailwind):** superseded by the **Design System** section above — that section is the current source of truth (gradient backgrounds, radius scale, tinted shadows, icon chips, tab bars). The two still-accurate baseline rules from the original audit:
 - Touch targets: minimum `44px` height on all interactive elements
 - Mobile-first breakpoints: base (mobile) → `sm:` (640px) → `md:` (768px) → `lg:` (1024px)
 
