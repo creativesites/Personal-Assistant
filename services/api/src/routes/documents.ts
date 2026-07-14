@@ -516,12 +516,21 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── GET /api/documents/:id/pdf — serves the rendered PDF. Business
-  // documents are sensitive (customer pricing, bank details), so unlike
-  // media.ts's WhatsApp media this always requires a valid JWT — no
-  // optional-token bypass.
-  fastify.get('/api/documents/:id/pdf', { preHandler: authenticate }, async (request, reply) => {
-    const { userId } = request.user as { userId: string };
+  // ── GET /api/documents/:id/pdf — serves the rendered PDF.
+  // Accepts JWT via Authorization header OR ?token= query param so
+  // window.open() (which can't set headers) can still open PDFs in a new tab.
+  fastify.get('/api/documents/:id/pdf', async (request, reply) => {
+    const { token: queryToken } = request.query as { token?: string };
+    const authHeader = request.headers.authorization;
+    const jwtToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
+    if (!jwtToken) return reply.code(401).send({ error: 'Unauthorized' });
+    let userId: string;
+    try {
+      const decoded = fastify.jwt.verify(jwtToken) as { userId: string };
+      userId = decoded.userId;
+    } catch {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
     const { id } = request.params as { id: string };
 
     const { rows: [doc] } = await db.query(

@@ -332,11 +332,14 @@ export default function BusinessPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
-      <div className="flex-shrink-0 p-4 md:p-6 pb-0">
+    <div className="bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
+      <div className="p-4 md:p-6 pb-0">
         {/* Hero — value prop + manual-creation CTA front and center */}
-        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)]" />
+        <div className="relative rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">
+          {/* Decorative gradient overlay clipped separately so it doesn't clip the dropdown */}
+          <div className="absolute inset-0 rounded-[2rem] overflow-hidden pointer-events-none">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)]" />
+          </div>
           <div className="relative z-10">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-[11px] font-semibold text-indigo-700 shadow-sm ring-1 ring-indigo-100">
@@ -397,7 +400,7 @@ export default function BusinessPage() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 px-4 md:px-6 pt-4">
+      <div className="px-4 md:px-6 pt-4">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
           <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
             {TYPE_FILTERS.map(f => (
@@ -445,7 +448,7 @@ export default function BusinessPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+      <div className="p-4 md:p-6">
         {loading ? (
           <div className="max-w-3xl mx-auto space-y-4">
             {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}
@@ -494,8 +497,8 @@ export default function BusinessPage() {
                   <button
                     onClick={() => {
                       if (doc.hasPdf) {
-                        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-                        window.open(`${apiUrl}/api/proxy/documents/${doc.id}/pdf`, '_blank')
+                        // Use the Next.js proxy with token in query so window.open can auth without headers
+                        window.open(`/api/proxy/api/documents/${doc.id}/pdf?token=${encodeURIComponent(token ?? '')}`, '_blank')
                       } else {
                         setViewDataDoc(doc)
                       }

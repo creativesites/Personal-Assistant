@@ -15,35 +15,35 @@ import {
 interface KbDocument {
   id: string
   title: string
-  source_type: 'pdf' | 'url' | 'text' | 'excel' | 'csv' | 'notion' | string
-  source_url: string | null
+  sourceType: 'pdf' | 'url' | 'text' | 'excel' | 'csv' | 'notion' | string
+  sourceUrl: string | null
   category: string | null
   tags: string[]
   status: 'ready' | 'processing' | 'error' | string
-  chunk_count: number
-  word_count: number | null
-  file_size: number | null
-  used_count: number | null
-  last_used_at: string | null
+  chunkCount: number
+  wordCount: number | null
+  fileSizeBytes: number | null
+  usedCount: number | null
+  lastUsedAt: string | null
   summary: string | null
-  error_message: string | null
-  content_preview: string | null
-  created_at: string
-  updated_at: string
+  errorMessage: string | null
+  contentPreview: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 interface KbStats {
-  documents: number
-  total_chunks: number
-  total_words: number
-  last_sync: string | null
+  totalDocuments: number
+  totalChunks: number
+  totalWords: number
+  lastSync: string | null
   categories: string[]
 }
 
 interface KbHealthWarning {
   id: string
   message: string
-  level: 'warning' | 'error'
+  type: string
 }
 
 interface ChatMessage {
@@ -624,10 +624,10 @@ function DocumentDetailModal({
         <div className="flex items-start justify-between mb-5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center">
-              <TypeIcon type={doc.source_type} className="w-5 h-5" />
+              <TypeIcon type={doc.sourceType} className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{doc.source_type}</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{doc.sourceType}</p>
               <StatusBadge status={doc.status} />
             </div>
           </div>
@@ -669,12 +669,12 @@ function DocumentDetailModal({
         {/* Stats grid */}
         <div className="grid grid-cols-3 gap-2 mb-5">
           {[
-            { label: 'Chunks', value: doc.chunk_count },
-            { label: 'Words', value: doc.word_count != null ? formatWords(doc.word_count) : '—' },
-            { label: 'Size', value: doc.file_size != null ? formatFileSize(doc.file_size) : '—' },
-            { label: 'Used', value: doc.used_count ?? 0 },
-            { label: 'Last used', value: relativeTime(doc.last_used_at) },
-            { label: 'Added', value: new Date(doc.created_at).toLocaleDateString() },
+            { label: 'Chunks', value: doc.chunkCount },
+            { label: 'Words', value: doc.wordCount != null ? formatWords(doc.wordCount) : '—' },
+            { label: 'Size', value: doc.fileSizeBytes != null ? formatFileSize(doc.fileSizeBytes) : '—' },
+            { label: 'Used', value: doc.usedCount ?? 0 },
+            { label: 'Last used', value: relativeTime(doc.lastUsedAt) },
+            { label: 'Added', value: new Date(doc.createdAt).toLocaleDateString() },
           ].map(({ label, value }) => (
             <div key={label} className="bg-gray-50 rounded-lg p-2.5 text-center">
               <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
@@ -690,18 +690,18 @@ function DocumentDetailModal({
           </div>
         )}
 
-        {doc.error_message && (
+        {doc.errorMessage && (
           <div className="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
             <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-700">{doc.error_message}</p>
+            <p className="text-sm text-red-700">{doc.errorMessage}</p>
           </div>
         )}
 
-        {doc.content_preview && (
+        {doc.contentPreview && (
           <div className="mb-5">
             <p className="text-xs font-semibold text-gray-700 mb-1">Content preview</p>
             <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto font-mono">
-              {doc.content_preview.slice(0, 500)}{doc.content_preview.length > 500 ? '...' : ''}
+              {doc.contentPreview.slice(0, 500)}{doc.contentPreview.length > 500 ? '...' : ''}
             </pre>
           </div>
         )}
@@ -975,25 +975,25 @@ export default function KnowledgeBasePage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <StatCard
               label="Documents"
-              value={stats?.documents ?? documents.length}
+              value={stats?.totalDocuments ?? documents.length}
               icon={Database}
               color="bg-blue-50 text-blue-600"
             />
             <StatCard
               label="AI-Ready Chunks"
-              value={(stats?.total_chunks ?? 0).toLocaleString()}
+              value={(stats?.totalChunks ?? 0).toLocaleString()}
               icon={Layers}
               color="bg-green-50 text-green-600"
             />
             <StatCard
               label="Words Indexed"
-              value={formatWords(stats?.total_words ?? 0)}
+              value={formatWords(stats?.totalWords ?? 0)}
               icon={FileText}
               color="bg-purple-50 text-purple-600"
             />
             <StatCard
               label="Last Sync"
-              value={relativeTime(stats?.last_sync ?? null)}
+              value={relativeTime(stats?.lastSync ?? null)}
               icon={Clock}
               color="bg-gray-100 text-gray-600"
             />
@@ -1268,11 +1268,11 @@ export default function KnowledgeBasePage() {
                     >
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-2.5">
-                          <TypeIcon type={doc.source_type} className="w-4 h-4 flex-shrink-0" />
+                          <TypeIcon type={doc.sourceType} className="w-4 h-4 flex-shrink-0" />
                           <div className="min-w-0">
                             <p className="font-medium text-gray-900 truncate max-w-[200px]">{doc.title}</p>
-                            {doc.source_url && (
-                              <p className="text-xs text-gray-400 truncate max-w-[200px]">{doc.source_url}</p>
+                            {doc.sourceUrl && (
+                              <p className="text-xs text-gray-400 truncate max-w-[200px]">{doc.sourceUrl}</p>
                             )}
                           </div>
                         </div>
@@ -1285,9 +1285,9 @@ export default function KnowledgeBasePage() {
                         )}
                       </td>
                       <td className="px-4 py-3.5"><StatusBadge status={doc.status} /></td>
-                      <td className="px-4 py-3.5 text-right text-gray-700 font-numeric">{(doc.chunk_count ?? 0).toLocaleString()}</td>
-                      <td className="px-4 py-3.5 text-right text-gray-500 font-numeric">{doc.used_count ?? 0}</td>
-                      <td className="px-4 py-3.5 text-gray-500 whitespace-nowrap">{relativeTime(doc.updated_at)}</td>
+                      <td className="px-4 py-3.5 text-right text-gray-700 font-numeric">{(doc.chunkCount ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3.5 text-right text-gray-500 font-numeric">{doc.usedCount ?? 0}</td>
+                      <td className="px-4 py-3.5 text-gray-500 whitespace-nowrap">{relativeTime(doc.updatedAt)}</td>
                       <td className="px-5 py-3.5">
                         <div
                           className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"

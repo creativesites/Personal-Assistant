@@ -138,7 +138,11 @@ async def render_document_pdf(document: dict, business_profile: dict, contact: d
         browser = await playwright.chromium.launch()
         try:
             page = await browser.new_page()
-            await page.set_content(html, wait_until='load')
+            # 'domcontentloaded' is more reliable than 'load' for pure static HTML —
+            # 'load' waits for network events that never fire when all assets are inlined.
+            await page.set_content(html, wait_until='domcontentloaded')
+            # Give CSS/fonts a moment to finish painting before we capture.
+            await page.wait_for_timeout(500)
             pdf_bytes = await page.pdf(format='A4', print_background=True)
         finally:
             await browser.close()

@@ -246,6 +246,25 @@ interface AgentFormData {
   escalateOnOutOfScope: boolean
 }
 
+interface AgentFullDetail {
+  systemPrompt: string | null
+  goals: string | null
+  tone: string | null
+  escalation: { onFrustration: boolean; onExplicitHumanRequest: boolean; onOutOfScope: boolean }
+}
+
+interface AgentAction {
+  id: string
+  actionType: string
+  inputMessage: string | null
+  outputMessage: string | null
+  reasoning: string | null
+  confidence: number | null
+  wasEscalated: boolean
+  escalationReason: string | null
+  createdAt: string
+}
+
 function AgentBuilderModal({
   initial,
   editingAgent,
@@ -272,6 +291,9 @@ function AgentBuilderModal({
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [recentActions, setRecentActions] = useState<AgentAction[]>([])
+  const [activeDetailTab, setActiveDetailTab] = useState<'settings' | 'activity'>('settings')
 
   // Performance (docs/AUTO_REPLY_AGENTS_PLAN.md §6) — what this agent has
   // actually been doing, surfaced here since the edit modal is the one
@@ -283,6 +305,25 @@ function AgentBuilderModal({
 
   useEffect(() => {
     if (!editingAgent || !perfToken) return
+
+    // Fetch full agent detail to pre-populate systemPrompt, goals, escalation
+    setLoadingDetail(true)
+    apiClient<{ agent: AgentFullDetail; recentActions: AgentAction[] }>(
+      `/api/agents/${editingAgent.id}`, { token: perfToken },
+    ).then(d => {
+      setForm(prev => ({
+        ...prev,
+        systemPrompt: d.agent.systemPrompt ?? '',
+        goals: d.agent.goals ?? '',
+        tone: d.agent.tone ?? prev.tone,
+        escalateOnFrustration: d.agent.escalation?.onFrustration ?? true,
+        escalateOnExplicitRequest: d.agent.escalation?.onExplicitHumanRequest ?? true,
+        escalateOnOutOfScope: d.agent.escalation?.onOutOfScope ?? true,
+      }))
+      setRecentActions(d.recentActions ?? [])
+    }).catch(() => {}).finally(() => setLoadingDetail(false))
+
+    // Also fetch performance totals
     apiClient<{ totals: PerformanceTotals }>(`/api/agents/${editingAgent.id}/performance`, { token: perfToken })
       .then(d => setPerformance(d.totals))
       .catch(() => {})
@@ -327,26 +368,96 @@ function AgentBuilderModal({
           </div>
         </div>
 
+        {/* Tabs — only for editing an existing agent */}
+        {editingAgent && (
+          <div className="flex border-b border-gray-100 px-5">
+            {(['settings', 'activity'] as const).map(tab => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveDetailTab(tab)}
+                className={`text-xs font-semibold py-2.5 px-3 border-b-2 transition-colors capitalize ${
+                  activeDetailTab === tab ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="overflow-y-auto p-5 space-y-5">
-          {editingAgent && performance && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Performance</p>
-              <div className="grid grid-cols-3 gap-2 bg-gray-50 rounded-xl p-3">
-                <div className="text-center">
-                  <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.totalMessages}</p>
-                  <p className="text-[10px] text-gray-400">messages sent</p>
+          {loadingDetail && (
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              Loading agent details…
+            </div>
+          )}
+
+          {/* Activity tab */}
+          {editingAgent && activeDetailTab === 'activity' && (
+            <div className="space-y-4">
+              {performance && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Performance</p>
+                  <div className="grid grid-cols-3 gap-2 bg-gray-50 rounded-xl p-3">
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.totalMessages}</p>
+                      <p className="text-[10px] text-gray-400">messages handled</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.totalEscalations}</p>
+                      <p className="text-[10px] text-gray-400">escalated</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.correctionCount}</p>
+                      <p className="text-[10px] text-gray-400">corrections</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.totalEscalations}</p>
-                  <p className="text-[10px] text-gray-400">escalated</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-gray-900 tabular-nums">{performance.correctionCount}</p>
-                  <p className="text-[10px] text-gray-400">corrections</p>
-                </div>
+              )}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Recent Activity</p>
+                {recentActions.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-4">No activity yet — the agent will log actions here once it starts handling conversations.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {recentActions.map(action => (
+                      <div key={action.id} className={`rounded-xl border p-3 text-xs space-y-1 ${action.wasEscalated ? 'border-amber-200 bg-amber-50' : 'border-gray-100 bg-gray-50'}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-semibold capitalize ${action.wasEscalated ? 'text-amber-700' : 'text-gray-700'}`}>
+                            {action.actionType.replace(/_/g, ' ')}
+                            {action.wasEscalated && ' (escalated)'}
+                          </span>
+                          <span className="text-gray-400 shrink-0">{new Date(action.createdAt).toLocaleString()}</span>
+                        </div>
+                        {action.inputMessage && (
+                          <p className="text-gray-500 line-clamp-2">In: {action.inputMessage}</p>
+                        )}
+                        {action.outputMessage && (
+                          <p className="text-gray-700 line-clamp-2">Out: {action.outputMessage}</p>
+                        )}
+                        {action.reasoning && (
+                          <p className="text-indigo-600 italic line-clamp-1">Reasoning: {action.reasoning}</p>
+                        )}
+                        {action.confidence != null && (
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${action.confidence * 100}%` }} />
+                            </div>
+                            <span className="text-gray-400">{Math.round(action.confidence * 100)}% confidence</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
+
+          {/* Settings tab (or new agent form — no tabs for new) */}
+          {(!editingAgent || activeDetailTab === 'settings') && <>
           {/* Identity */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Identity</p>
@@ -463,6 +574,7 @@ function AgentBuilderModal({
           {error && (
             <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
           )}
+          </>}
         </form>
 
         <div className="p-5 border-t border-gray-100 flex gap-3">

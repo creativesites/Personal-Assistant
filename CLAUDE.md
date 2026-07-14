@@ -387,7 +387,7 @@ Message flow: WhatsApp → Baileys → `messages.incoming` queue → Intelligenc
 
 ## Database
 
-PostgreSQL 16 with pgvector. 53 migrations applied (0001–0053) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
+PostgreSQL 16 with pgvector. 54 migrations applied (0001–0054) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
 
 **Domains:** Core · Contacts & Relationships · Conversations & Messages · AI Intelligence · Proactive System · Calendar · AI Advisor · Notifications · Business Workspace (`business_profiles`, `document_templates`, `documents`, `document_events`, `deal_stage_history`, `document_chat_messages`, `recurring_documents`, `document_pack_runs` — migrations 0043–0046)
 
@@ -404,7 +404,7 @@ Key design notes:
 
 ## Groups & Media Handling
 
-**WhatsApp groups are displayed, never analysed.** `contacts.is_group` (set from the JID suffix — `@g.us` = group, `@s.whatsapp.net` = individual) has existed since day one, but the AI pipeline ignored it until migration `0053_group_chat_support.sql`. Current behavior:
+**WhatsApp groups are displayed, never analysed.** `contacts.is_group` (set from the JID suffix — `@g.us` = group, `@s.whatsapp.net` = individual) has existed since day one, but the AI pipeline ignored it until migration `0054_group_chat_support.sql`. Current behavior:
 - Group messages are stored and pushed to the Inbox in real time exactly like 1:1 messages — same `conversations`/`messages` rows, same Redis pub/sub, same UI.
 - They are **never** sent through the analysis pipeline: `services/intelligence/app/workers/message_worker.py::_process` checks `contacts.is_group` first and short-circuits (no sentiment/embeddings, no profile rebuilds, no reply suggestions, no token spend). `services/intelligence/app/routes/conversation.py::analyse_history` has the same defensive check.
 - Historical sync (`services/whatsapp/src/lib/session-manager.ts`'s `historical_batch` handler, and `services/api/src/lib/history-sync.ts`) writes every group message to the DB but never queues a group conversation for AI analysis.

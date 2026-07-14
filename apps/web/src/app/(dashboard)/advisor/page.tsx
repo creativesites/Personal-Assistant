@@ -598,12 +598,12 @@ export default function AdvisorPage() {
                 className="w-full bg-transparent text-sm text-slate-900 placeholder-slate-400 resize-none focus:outline-none px-2 pt-1.5 pb-10 min-h-[44px]"
                 style={{ maxHeight: '120px' }}
               />
-              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+              <div className="absolute bottom-1 left-3 right-3 flex items-center justify-between pointer-events-none">
                 <div className="flex items-center gap-1 pointer-events-auto">
-                  <button className="p-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Attach file">
+                  <button className="px-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Attach file">
                     <Paperclip className="w-4 h-4" />
                   </button>
-                  <button className="p-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Voice input">
+                  <button className="px-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Voice input">
                     <Mic className="w-4 h-4" />
                   </button>
                 </div>
