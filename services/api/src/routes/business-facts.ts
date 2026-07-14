@@ -7,6 +7,7 @@ const CATEGORIES = [
   'product', 'pricing', 'shipping', 'refund_policy', 'faq',
   'hours', 'inventory', 'promotion', 'supplier', 'tax',
   'bank_details', 'wa_template', 'brand_voice', 'objection', 'other',
+  'pricing_benchmark', 'business_rule',
 ] as const
 
 const createBody = z.object({

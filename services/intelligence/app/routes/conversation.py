@@ -5,6 +5,9 @@ from bullmq import Queue
 from ..database import get_pool
 from ..ai.client import get_ai_client
 from ..queue import redis_conn_opts
+from ..memory import retrieval_service as memory
+
+studio_router = APIRouter(prefix='/internal/studio', tags=['studio'])
 
 router = APIRouter(prefix='/internal/conversations', tags=['conversations'])
 
@@ -301,4 +304,62 @@ async def advisor_ask(body: AdvisorAskRequest):
     ai = get_ai_client()
     result = await ai.complete_text(prompt_messages)
 
+    return {'answer': result}
+
+
+class StudioAskRequest(BaseModel):
+    user_id: str
+    question: str
+    session_id: Optional[str] = None
+
+
+@studio_router.post('/ask')
+async def studio_ask(body: StudioAskRequest):
+    """Business advisor — answers questions using real catalog, rules, and supplier data."""
+    catalog_items = await memory.get_relevant_catalog(body.user_id, limit=50)
+    business_facts = await memory.get_business_facts(body.user_id, limit=30)
+    catalog_text = memory.format_catalog_items(catalog_items)
+    facts_text = memory.format_business_facts(business_facts)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        supplier_rows = await conn.fetch(
+            '''SELECT company, reliability_score, average_delivery_time,
+                      outstanding_balance, payment_terms
+               FROM suppliers WHERE user_id = $1 ORDER BY company ASC LIMIT 20''',
+            body.user_id,
+        )
+
+    supplier_lines = []
+    for s in supplier_rows:
+        supplier_lines.append(
+            f"- {s['company']}: reliability {s['reliability_score']}%, "
+            f"delivery {s['average_delivery_time']} days, "
+            f"outstanding balance {s['outstanding_balance']}"
+        )
+    suppliers_text = '\n'.join(supplier_lines) or 'No suppliers configured.'
+
+    system_prompt = (
+        'You are the Zuri AI Business Advisor, a specialist in helping small business owners '
+        'manage their operations efficiently. You have access to the business\'s real catalog, '
+        'pricing rules, business policies, and supplier information shown below. '
+        'Answer questions concisely. Give actionable, specific advice. '
+        'When asked about stock, pricing, or availability — use the exact numbers from the catalog. '
+        'When citing a price or stock level, be precise. '
+        'Format responses with clear headings and bullet points when helpful.\n\n'
+        f'CATALOG (Products & Services):\n{catalog_text or "No catalog items found."}\n\n'
+        f'BUSINESS RULES & FACTS:\n{facts_text or "No business facts configured."}\n\n'
+        f'SUPPLIERS:\n{suppliers_text}'
+    )
+
+    chat_history = []
+    if body.session_id:
+        chat_history = await _get_session_history(body.session_id)
+
+    prompt_messages = [{'role': 'system', 'content': system_prompt}]
+    prompt_messages.extend(chat_history)
+    prompt_messages.append({'role': 'user', 'content': body.question})
+
+    ai = get_ai_client()
+    result = await ai.complete_text(prompt_messages)
     return {'answer': result}

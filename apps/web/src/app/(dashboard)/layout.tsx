@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useClerk } from '@clerk/nextjs'
@@ -13,7 +13,7 @@ import {
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, UserCheck,
-  WifiOff, Loader2, ChevronLeft, ChevronRight, Send, FileText
+  WifiOff, Loader2, ChevronLeft, ChevronRight, Send, FileText, Minimize2
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -126,12 +126,14 @@ function NavLink({
   item,
   pathname,
   onClick,
+  onNavigate,
   compact = false,
   isMinimized = false,
 }: {
   item: NavItem
   pathname: string
   onClick?: () => void
+  onNavigate?: (href: string) => void
   compact?: boolean
   isMinimized?: boolean
 }) {
@@ -140,7 +142,10 @@ function NavLink({
   return (
     <Link
       href={item.href}
-      onClick={onClick}
+      onClick={() => {
+        onNavigate?.(item.href)
+        onClick?.()
+      }}
       title={isMinimized ? item.label : undefined}
       className={`flex items-center rounded-xl font-semibold transition-all duration-200 ease-out group relative ${
         isMinimized ? 'justify-center p-2.5 mx-auto w-10 h-10' : 'gap-3 px-3 py-2.5'
@@ -206,6 +211,7 @@ function SidebarContents({
   marketingAccess,
   wa,
   onNav,
+  onNavStart,
   onSignOut,
   isMinimized = false,
 }: {
@@ -215,6 +221,7 @@ function SidebarContents({
   marketingAccess: MarketingAccess
   wa: WAStatus
   onNav: () => void
+  onNavStart: (href: string) => void
   onSignOut: () => void
   isMinimized?: boolean
 }) {
@@ -248,7 +255,7 @@ function SidebarContents({
             )}
             <div className="space-y-1">
               {group.items.map(item => (
-                <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} isMinimized={isMinimized} />
+                <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} onNavigate={onNavStart} isMinimized={isMinimized} />
               ))}
             </div>
           </div>
@@ -256,7 +263,7 @@ function SidebarContents({
 
         <div className="border-t border-gray-800/60 pt-4 space-y-1">
           {FOOTER_NAV.map(item => (
-            <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} compact isMinimized={isMinimized} />
+            <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} onNavigate={onNavStart} compact isMinimized={isMinimized} />
           ))}
         </div>
       </nav>
@@ -286,19 +293,41 @@ function MobileBottomNav({
   mode,
   pathname,
   onOpenMenu,
+  onNavStart,
+  minimized,
+  onMinimize,
+  onRestore,
 }: {
   mode: WorkspaceMode
   pathname: string
   onOpenMenu: () => void
+  onNavStart: (href: string) => void
+  minimized: boolean
+  onMinimize: () => void
+  onRestore: () => void
 }) {
   const items = BOTTOM_NAV[mode]
 
   const isSpecificTabActive = items.some(item => 'href' in item && (pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))))
   const isMenuTabActive = !isSpecificTabActive
 
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        onClick={onRestore}
+        className="fixed bottom-4 right-4 z-40 flex min-h-14 min-w-14 items-center justify-center rounded-full bg-slate-950 text-white shadow-2xl shadow-slate-950/30 ring-1 ring-white/10 transition-transform active:scale-95 md:hidden"
+        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+        aria-label="Show navigation"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+    )
+  }
+
   return (
     <nav
-      className="md:hidden w-full bg-gray-900/95 backdrop-blur-xl border-t border-gray-800/50 flex items-stretch flex-shrink-0"
+      className="fixed inset-x-0 bottom-0 z-40 flex w-full items-stretch border-t border-white/10 bg-slate-950/95 shadow-2xl shadow-slate-950/40 backdrop-blur-xl md:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {items.map((item, index) => {
@@ -326,6 +355,7 @@ function MobileBottomNav({
           <Link
             key={item.href}
             href={item.href}
+            onClick={() => onNavStart(item.href)}
             className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[60px] relative transition-all duration-300 ${
               active ? 'text-indigo-400 font-bold' : 'text-gray-500 hover:text-gray-300'
             }`}
@@ -338,6 +368,15 @@ function MobileBottomNav({
           </Link>
         )
       })}
+      <button
+        type="button"
+        onClick={onMinimize}
+        className="flex min-w-12 flex-col items-center justify-center gap-1 py-2 text-gray-500 transition-colors hover:text-gray-300"
+        aria-label="Minimize navigation"
+      >
+        <Minimize2 className="h-4 w-4" />
+        <span className="text-[9px] font-semibold leading-none">Hide</span>
+      </button>
     </nav>
   )
 }
@@ -349,7 +388,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
+  const [mobileNavMinimized, setMobileNavMinimized] = useState(false)
+  const [isNavigating, setIsNavigating] = useState(false)
   const wa = useWAStatus(session.data?.accessToken)
+
+  useEffect(() => {
+    setIsNavigating(false)
+    setSidebarOpen(false)
+  }, [pathname])
 
   if (session.status === 'loading') {
     return (
@@ -370,9 +416,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const marketingAccess: MarketingAccess = session.data?.marketingAccess ?? 'none'
   const handleSignOut = () => signOut({ redirectUrl: '/login' })
   const closeSidebar = () => setSidebarOpen(false)
+  const startNavigation = (href: string) => {
+    if (href !== pathname) setIsNavigating(true)
+  }
+  const handleDashboardClick = (event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+
+    const anchor = target.closest('a[href]')
+    if (!(anchor instanceof HTMLAnchorElement)) return
+
+    const href = anchor.getAttribute('href')
+    if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return
+    if (anchor.target && anchor.target !== '_self') return
+
+    try {
+      const url = new URL(href, window.location.origin)
+      if (url.origin === window.location.origin && url.pathname !== pathname) {
+        setIsNavigating(true)
+      }
+    } catch {
+      if (href.startsWith('/') && href !== pathname) setIsNavigating(true)
+    }
+  }
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
+      <div
+        className={`fixed left-0 right-0 top-0 z-[70] h-0.5 origin-left bg-gradient-to-r from-cyan-400 via-indigo-400 to-fuchsia-400 transition-all duration-300 ${
+          isNavigating ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
+        }`}
+      />
+      {isNavigating && (
+        <div className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2 rounded-full bg-slate-950/90 px-3 py-1.5 text-[11px] font-bold text-white shadow-xl shadow-slate-950/30 ring-1 ring-white/10 backdrop-blur-md md:top-4">
+          Loading
+        </div>
+      )}
       
       {/* Mobile background backdrop overlay */}
       {sidebarOpen && (
@@ -419,17 +498,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           marketingAccess={marketingAccess}
           wa={wa}
           onNav={closeSidebar}
+          onNavStart={startNavigation}
           onSignOut={handleSignOut}
           isMinimized={isMinimized}
         />
       </aside>
 
-      <main className="flex-1 min-w-0 min-h-0 overflow-auto bg-gray-50 transition-all duration-300">
+      <main
+        onClickCapture={handleDashboardClick}
+        className={`flex-1 min-w-0 min-h-0 overflow-auto bg-gray-50 transition-all duration-300 ${
+          mobileNavMinimized ? 'pb-20 md:pb-0' : 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0'
+        }`}
+      >
         {children}
       </main>
 
       {/* Premium mobile app bottom menu */}
-      <MobileBottomNav mode={mode} pathname={pathname} onOpenMenu={() => setSidebarOpen(true)} />
+      <MobileBottomNav
+        mode={mode}
+        pathname={pathname}
+        onOpenMenu={() => setSidebarOpen(true)}
+        onNavStart={startNavigation}
+        minimized={mobileNavMinimized}
+        onMinimize={() => setMobileNavMinimized(true)}
+        onRestore={() => setMobileNavMinimized(false)}
+      />
 
       {/* Cmd+K command palette (docs/RELATIONSHIP_OS_PLAN.md §11) */}
       <CommandPalette />

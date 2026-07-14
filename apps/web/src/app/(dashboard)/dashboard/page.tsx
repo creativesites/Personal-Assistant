@@ -339,22 +339,22 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   return (
-    <div className="flex min-h-full flex-col bg-[linear-gradient(180deg,#0f172a_0%,#111827_220px,#f8fafc_221px,#f8fafc_100%)] md:bg-[linear-gradient(180deg,#0f172a_0%,#111827_260px,#f8fafc_261px,#f8fafc_100%)]">
+    <div className="flex min-h-full flex-col bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]">
       <div className="flex-1 px-4 pb-8 pt-4 md:px-6 md:pt-6">
         <div className="mx-auto w-full max-w-5xl space-y-5 md:space-y-6">
-          <section className="relative overflow-hidden rounded-[2rem] bg-slate-950 px-4 py-5 text-white shadow-2xl shadow-slate-950/20 ring-1 ring-white/10 sm:px-6 md:px-7 md:py-7">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_10%,rgba(129,140,248,0.45),transparent_34%),radial-gradient(circle_at_10%_80%,rgba(45,212,191,0.22),transparent_30%)]" />
+          <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 px-4 py-5 text-slate-950 shadow-2xl shadow-indigo-200/40 ring-1 ring-white sm:px-6 md:px-7 md:py-7">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)]" />
             <div className="relative">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-indigo-100 ring-1 ring-white/10">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-[11px] font-semibold text-indigo-700 shadow-sm shadow-indigo-100 ring-1 ring-indigo-100">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
                     Live relationship OS
                   </div>
                   <h1 className="max-w-xl text-2xl font-bold leading-tight tracking-tight md:text-4xl">
                     {greeting(session.data?.user.name)}
                   </h1>
-                  <p className="mt-2 max-w-lg text-sm leading-6 text-slate-300 md:text-base">
+                  <p className="mt-2 max-w-lg text-sm leading-6 text-slate-600 md:text-base">
                     {loading
                       ? 'Loading the signals that matter most.'
                       : stats.unread > 0
@@ -364,7 +364,7 @@ export default function DashboardPage() {
                 </div>
                 <Link
                   href="/advisor"
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-lg shadow-black/20 transition-transform active:scale-95 md:h-auto md:w-auto md:gap-2 md:px-4 md:py-2.5 md:text-sm md:font-semibold"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-900/15 transition-transform active:scale-95 md:h-auto md:w-auto md:gap-2 md:px-4 md:py-2.5 md:text-sm md:font-semibold"
                   aria-label="Open AI Advisor"
                 >
                   <Brain size={18} />
@@ -374,15 +374,15 @@ export default function DashboardPage() {
 
               <div className="mt-6 grid grid-cols-[1fr_auto] items-end gap-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Today</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Today</p>
                   <div className="mt-2 flex items-baseline gap-2">
                     <span className="text-5xl font-black tracking-tight tabular-nums md:text-6xl">{stats.unread}</span>
-                    <span className="pb-2 text-sm font-semibold text-slate-300">unread</span>
+                    <span className="pb-2 text-sm font-semibold text-slate-500">unread</span>
                   </div>
                 </div>
                 <Link
                   href="/inbox"
-                  className="inline-flex min-h-12 items-center gap-2 rounded-2xl bg-indigo-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-950/30 transition-colors hover:bg-indigo-400 active:bg-indigo-600"
+                  className="inline-flex min-h-12 items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 transition-colors hover:bg-indigo-500 active:bg-indigo-700"
                 >
                   <Inbox size={17} />
                   Inbox
@@ -390,18 +390,18 @@ export default function DashboardPage() {
                 </Link>
               </div>
 
-              <div className="mt-5 grid grid-cols-3 gap-2 rounded-3xl bg-white/10 p-2 ring-1 ring-white/10">
-                <Link href="/proactive" className="rounded-2xl px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15">
+              <div className="mt-5 grid grid-cols-3 gap-2 rounded-3xl bg-white/70 p-2 shadow-sm shadow-indigo-100/60 ring-1 ring-white">
+                <Link href="/proactive" className="rounded-2xl px-3 py-3 transition-colors hover:bg-white active:bg-indigo-50">
                   <p className="text-xl font-bold tabular-nums">{stats.proactiveCount}</p>
-                  <p className="mt-0.5 text-[10px] font-semibold text-slate-300">Moves</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-500">Moves</p>
                 </Link>
-                <Link href={mode === 'business' ? '/contacts' : '/relationships'} className="rounded-2xl px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15">
+                <Link href={mode === 'business' ? '/contacts' : '/relationships'} className="rounded-2xl px-3 py-3 transition-colors hover:bg-white active:bg-indigo-50">
                   <p className="text-xl font-bold tabular-nums">{stats.totalContacts}</p>
-                  <p className="mt-0.5 text-[10px] font-semibold text-slate-300">People</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-500">People</p>
                 </Link>
-                <Link href="/analytics/health" className="rounded-2xl px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15">
+                <Link href="/analytics/health" className="rounded-2xl px-3 py-3 transition-colors hover:bg-white active:bg-indigo-50">
                   <p className="text-xl font-bold tabular-nums">{mode === 'personal' ? stats.avgHealth : stats.pending}</p>
-                  <p className="mt-0.5 text-[10px] font-semibold text-slate-300">{mode === 'personal' ? 'Health' : 'Active'}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{mode === 'personal' ? 'Health' : 'Active'}</p>
                 </Link>
               </div>
             </div>
@@ -424,20 +424,20 @@ export default function DashboardPage() {
 
           {/* AI Daily Brief — same greeting/place every morning, real names and numbers */}
           {brief && !briefDismissed && (visibleBriefItems.length > 0 || brief.revenueAtRisk) && (
-            <section className="overflow-hidden rounded-[2rem] bg-white shadow-xl shadow-indigo-950/10 ring-1 ring-indigo-100">
-              <div className="relative bg-gradient-to-br from-indigo-700 via-slate-950 to-cyan-950 px-4 py-4 text-white sm:px-5">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_90%_10%,rgba(34,211,238,0.35),transparent_28%)]" />
+            <section className="overflow-hidden rounded-[2rem] bg-white shadow-xl shadow-indigo-200/30 ring-1 ring-indigo-100">
+              <div className="relative bg-gradient-to-br from-indigo-100 via-white to-cyan-100 px-4 py-4 text-slate-950 sm:px-5">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_90%_10%,rgba(34,211,238,0.22),transparent_28%)]" />
                 <div className="relative flex items-start justify-between gap-3">
                   <div className="flex min-w-0 gap-3">
-                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/15">
-                      <Sparkles size={18} className="text-cyan-100" />
+                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm shadow-indigo-100 ring-1 ring-indigo-100">
+                      <Sparkles size={18} />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-100/80">AI Daily Brief</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-indigo-600">AI Daily Brief</p>
                       <h2 className="mt-1 text-lg font-bold tracking-tight">
                         {mode === 'personal' ? 'People worth your attention' : 'Your highest-leverage moves'}
                       </h2>
-                      <p className="mt-1 text-xs leading-5 text-white/65">
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
                         Clear the deck one signal at a time. Dismiss what is handled, open what needs context.
                       </p>
                     </div>
@@ -445,7 +445,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setBriefDismissed(true)}
-                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/70 text-slate-500 shadow-sm ring-1 ring-white transition-colors hover:bg-white hover:text-slate-900"
                     aria-label="Dismiss AI Daily Brief"
                   >
                     <X size={16} />
@@ -453,18 +453,18 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="relative mt-4 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                  <Link href="/proactive" className="flex min-w-[138px] items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-xs font-bold text-white ring-1 ring-white/10">
-                    <Zap size={14} className="text-amber-200" />
+                  <Link href="/proactive" className="flex min-w-[138px] items-center gap-2 rounded-2xl bg-white/80 px-3 py-2.5 text-xs font-bold text-slate-800 shadow-sm ring-1 ring-white">
+                    <Zap size={14} className="text-amber-500" />
                     {visibleBriefItems.length} live signal{visibleBriefItems.length !== 1 ? 's' : ''}
                   </Link>
                   {brief.revenueAtRisk && (
-                    <Link href="/analytics/opportunities" className="flex min-w-[164px] items-center gap-2 rounded-2xl bg-red-400/15 px-3 py-2.5 text-xs font-bold text-red-100 ring-1 ring-red-300/20">
+                    <Link href="/analytics/opportunities" className="flex min-w-[164px] items-center gap-2 rounded-2xl bg-red-50 px-3 py-2.5 text-xs font-bold text-red-700 shadow-sm ring-1 ring-red-100">
                       <AlertTriangle size={14} />
                       {formatCents(brief.revenueAtRisk.cents)} at risk
                     </Link>
                   )}
-                  <Link href="/advisor" className="flex min-w-[130px] items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-xs font-bold text-white ring-1 ring-white/10">
-                    <MessageCircle size={14} className="text-cyan-100" />
+                  <Link href="/advisor" className="flex min-w-[130px] items-center gap-2 rounded-2xl bg-white/80 px-3 py-2.5 text-xs font-bold text-slate-800 shadow-sm ring-1 ring-white">
+                    <MessageCircle size={14} className="text-cyan-600" />
                     Ask why
                   </Link>
                 </div>

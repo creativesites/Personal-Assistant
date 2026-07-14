@@ -7,7 +7,7 @@ from .database import get_pool, close_pool
 from .queue import close_redis_publisher
 from .routes.health import router as health_router
 from .routes.knowledge import router as knowledge_router
-from .routes.conversation import router as conversation_router, advisor_router
+from .routes.conversation import router as conversation_router, advisor_router, studio_router
 from .routes.content import router as content_router
 from .routes.goals import router as goals_router
 from .routes.relationship_health import router as relationship_health_router
@@ -95,6 +95,7 @@ app.include_router(health_router)
 app.include_router(knowledge_router)
 app.include_router(conversation_router)
 app.include_router(advisor_router)
+app.include_router(studio_router)
 app.include_router(content_router)
 app.include_router(goals_router)
 app.include_router(relationship_health_router)

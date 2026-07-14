@@ -136,6 +136,17 @@ class ReplyGenerator:
         except Exception as exc:
             log.warning('business_facts_retrieval_failed_in_reply_gen', error=str(exc))
 
+        # Catalog context — inject active products/services so the AI can answer
+        # pricing, stock, and availability questions correctly.
+        catalog_context = ''
+        try:
+            catalog_items = await memory.get_relevant_catalog(user_id, limit=30)
+            catalog_text = memory.format_catalog_items(catalog_items)
+            if catalog_text:
+                catalog_context = f'\n\nCatalog (Products & Services):\n{catalog_text}'
+        except Exception as exc:
+            log.warning('catalog_retrieval_failed_in_reply_gen', error=str(exc))
+
         prompt = GENERATE_REPLIES.format(
             user_name=user_name,
             contact_name=contact_name,
@@ -146,7 +157,7 @@ class ReplyGenerator:
             body=body,
             sentiment=analysis.sentiment,
             intent=analysis.intent.primary,
-        ) + memory_context + relationship_context + search_context + kb_context + facts_context
+        ) + memory_context + relationship_context + search_context + kb_context + facts_context + catalog_context
 
         raw = await client.complete_json([{'role': 'user', 'content': prompt}])
         suggestions_model = ReplySuggestions(**raw)

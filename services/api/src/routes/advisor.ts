@@ -9,6 +9,7 @@ const createSessionBody = z.object({
   title: z.string().max(200).optional(),
   contactId: z.string().uuid().optional(),
   conversationId: z.string().uuid().optional(),
+  category: z.enum(['relationship', 'business']).optional(),
 });
 
 const sendMessageBody = z.object({
@@ -21,16 +22,20 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get('/api/advisor/sessions', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
+    const query = request.query as Record<string, string>;
+    const category = query.category ?? null;
+
     const { rows } = await db.query(
       `SELECT s.id, s.title, s.contact_id, s.conversation_id, s.message_count,
-              s.created_at, s.updated_at,
+              s.session_category, s.created_at, s.updated_at,
               c.display_name AS contact_name
        FROM advisor_sessions s
        LEFT JOIN contacts c ON s.contact_id = c.id AND c.user_id = $1
        WHERE s.user_id = $1 AND s.is_archived = false
+         AND ($2::text IS NULL OR s.session_category = $2)
        ORDER BY s.updated_at DESC
        LIMIT 50`,
-      [userId],
+      [userId, category],
     );
     return reply.send({ sessions: rows });
   });
@@ -41,11 +46,12 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     const { userId } = request.user as { userId: string };
     const body = createSessionBody.parse(request.body);
 
+    const sessionCategory = body.category ?? 'relationship';
     const { rows: [session] } = await db.query(
-      `INSERT INTO advisor_sessions (user_id, contact_id, conversation_id, title)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, title, contact_id, conversation_id, message_count, created_at`,
-      [userId, body.contactId ?? null, body.conversationId ?? null, body.title ?? 'New conversation'],
+      `INSERT INTO advisor_sessions (user_id, contact_id, conversation_id, title, session_category)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, title, contact_id, conversation_id, message_count, session_category, created_at`,
+      [userId, body.contactId ?? null, body.conversationId ?? null, body.title ?? 'New conversation', sessionCategory],
     );
     return reply.code(201).send({ session });
   });
@@ -79,7 +85,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     const { message, conversationId } = sendMessageBody.parse(request.body);
 
     const { rows: [session] } = await db.query(
-      'SELECT id, conversation_id FROM advisor_sessions WHERE id = $1 AND user_id = $2 AND is_archived = false',
+      'SELECT id, conversation_id, session_category FROM advisor_sessions WHERE id = $1 AND user_id = $2 AND is_archived = false',
       [id, userId],
     );
     if (!session) return reply.code(404).send({ error: 'Session not found' });
@@ -92,11 +98,14 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Route to intelligence service
     const convId = conversationId ?? session.conversation_id;
+    const isBusinessSession = session.session_category === 'business';
     let answer = '';
     try {
       const endpoint = convId
         ? `/internal/conversations/${convId}/ask`
-        : `/internal/advisor/ask`;
+        : isBusinessSession
+          ? `/internal/studio/ask`
+          : `/internal/advisor/ask`;
 
       const res = await fetch(`${INTELLIGENCE_URL}${endpoint}`, {
         method: 'POST',

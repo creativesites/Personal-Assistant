@@ -128,6 +128,55 @@ async def get_conversation_state(conversation_id: str) -> dict:
 
 # ── Shared formatting — used by more than one caller, kept consistent ──────
 
+async def get_relevant_catalog(user_id: str, query: str | None = None, limit: int = 50) -> list[dict]:
+    """Fetch active catalog items for a user, ordered by name."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, name, description, item_type, sku, brand, category,
+                   selling_price, purchase_cost, margin, currency,
+                   stock, available, reserved, minimum_stock,
+                   warranty, tags, service_details
+            FROM products
+            WHERE user_id = $1 AND status = 'active'
+            ORDER BY name ASC
+            LIMIT $2
+            """,
+            user_id, limit,
+        )
+    return [dict(r) for r in rows]
+
+
+def format_catalog_items(items: list[dict]) -> str:
+    if not items:
+        return ''
+    lines = []
+    for item in items:
+        item_type = (item.get('item_type') or 'product').upper()
+        name = item.get('name', 'Unknown')
+        sku = item.get('sku')
+        label = f'[{item_type}] {name}'
+        if sku:
+            label += f' (SKU: {sku})'
+        parts = [label]
+        price = item.get('selling_price')
+        if price is not None:
+            currency = item.get('currency') or 'ZMW'
+            parts.append(f'Price: {currency} {float(price):,.2f}')
+        available = item.get('available')
+        if available is not None:
+            parts.append(f'Stock: {available} available')
+        desc = item.get('description')
+        if desc:
+            parts.append(f'Desc: {str(desc)[:100]}')
+        warranty = item.get('warranty')
+        if warranty:
+            parts.append(f'Warranty: {warranty}')
+        lines.append(' | '.join(parts))
+    return '\n'.join(f'- {line}' for line in lines)
+
+
 def format_business_facts(facts: list[dict]) -> str:
     if not facts:
         return ''

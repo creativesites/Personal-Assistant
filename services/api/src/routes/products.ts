@@ -6,23 +6,85 @@ import { requireMarketingAccess } from '../lib/marketing-access'
 
 const createBody = z.object({
   name: z.string().min(1).max(255),
-  description: z.string().optional(),
-  price: z.number().nonnegative().optional(),
+  description: z.string().optional().nullable(),
+  price: z.number().nonnegative().optional().nullable(),
   currency: z.string().max(10).optional(),
-  serialNumber: z.string().max(255).optional(),
+  serialNumber: z.string().max(255).optional().nullable(),
   quantity: z.number().int().nonnegative().optional(),
   images: z.array(z.string()).optional(),
+  // New fields
+  sku: z.string().max(100).optional().nullable(),
+  barcode: z.string().max(100).optional().nullable(),
+  category: z.string().max(100).optional().nullable(),
+  supplierId: z.string().uuid().optional().nullable(),
+  brand: z.string().max(100).optional().nullable(),
+  itemType: z.enum(['product', 'service', 'bundle', 'subscription', 'package', 'digital_product']).default('product'),
+  videos: z.array(z.string()).optional(),
+  stock: z.number().int().nonnegative().optional(),
+  reserved: z.number().int().nonnegative().optional(),
+  available: z.number().int().optional(),
+  minimumStock: z.number().int().nonnegative().optional(),
+  maximumStock: z.number().int().nonnegative().optional().nullable(),
+  leadTime: z.number().int().nonnegative().optional(),
+  supplierLeadTime: z.number().int().nonnegative().optional(),
+  purchaseCost: z.number().nonnegative().optional(),
+  sellingPrice: z.number().nonnegative().optional().nullable(),
+  margin: z.number().optional().nullable(),
+  discountRules: z.array(z.any()).optional(),
+  crossSell: z.array(z.any()).optional(),
+  upsell: z.array(z.any()).optional(),
+  replacementProductId: z.string().uuid().optional().nullable(),
+  relatedProducts: z.array(z.any()).optional(),
+  warranty: z.string().max(100).optional().nullable(),
+  manual: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional(),
+  serviceDetails: z.record(z.any()).optional(),
+  inventoryDetails: z.record(z.any()).optional(),
+  pricingDetails: z.record(z.any()).optional(),
+  aiNotes: z.string().optional().nullable(),
+  marketingCopy: z.string().optional().nullable(),
 })
 
 const patchBody = z.object({
   name: z.string().min(1).max(255).optional(),
-  description: z.string().optional(),
-  price: z.number().nonnegative().optional(),
+  description: z.string().optional().nullable(),
+  price: z.number().nonnegative().optional().nullable(),
   currency: z.string().max(10).optional(),
-  serialNumber: z.string().max(255).optional(),
+  serialNumber: z.string().max(255).optional().nullable(),
   quantity: z.number().int().nonnegative().optional(),
   images: z.array(z.string()).optional(),
   status: z.enum(['active', 'sold', 'archived']).optional(),
+  // New fields
+  sku: z.string().max(100).optional().nullable(),
+  barcode: z.string().max(100).optional().nullable(),
+  category: z.string().max(100).optional().nullable(),
+  supplierId: z.string().uuid().optional().nullable(),
+  brand: z.string().max(100).optional().nullable(),
+  itemType: z.enum(['product', 'service', 'bundle', 'subscription', 'package', 'digital_product']).optional(),
+  videos: z.array(z.string()).optional(),
+  stock: z.number().int().nonnegative().optional(),
+  reserved: z.number().int().nonnegative().optional(),
+  available: z.number().int().optional(),
+  minimumStock: z.number().int().nonnegative().optional(),
+  maximumStock: z.number().int().nonnegative().optional().nullable(),
+  leadTime: z.number().int().nonnegative().optional(),
+  supplierLeadTime: z.number().int().nonnegative().optional(),
+  purchaseCost: z.number().nonnegative().optional(),
+  sellingPrice: z.number().nonnegative().optional().nullable(),
+  margin: z.number().optional().nullable(),
+  discountRules: z.array(z.any()).optional(),
+  crossSell: z.array(z.any()).optional(),
+  upsell: z.array(z.any()).optional(),
+  replacementProductId: z.string().uuid().optional().nullable(),
+  relatedProducts: z.array(z.any()).optional(),
+  warranty: z.string().max(100).optional().nullable(),
+  manual: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional(),
+  serviceDetails: z.record(z.any()).optional(),
+  inventoryDetails: z.record(z.any()).optional(),
+  pricingDetails: z.record(z.any()).optional(),
+  aiNotes: z.string().optional().nullable(),
+  marketingCopy: z.string().optional().nullable(),
 })
 
 const linkContactBody = z.object({
@@ -49,9 +111,43 @@ type ProductRow = {
   updated_at: string
   linked_contacts?: string
   attributed_leads?: string
+  // New fields
+  sku?: string | null
+  barcode?: string | null
+  category?: string | null
+  supplier_id?: string | null
+  brand?: string | null
+  item_type?: string
+  videos?: string[]
+  stock?: number
+  reserved?: number
+  available?: number
+  minimum_stock?: number
+  maximum_stock?: number | null
+  lead_time?: number
+  supplier_lead_time?: number
+  purchase_cost?: string | null
+  selling_price?: string | null
+  margin?: string | null
+  discount_rules?: any[]
+  cross_sell?: any[]
+  upsell?: any[]
+  replacement_product_id?: string | null
+  related_products?: any[]
+  warranty?: string | null
+  manual?: string | null
+  tags?: string[]
+  service_details?: Record<string, any>
+  inventory_details?: Record<string, any>
+  pricing_details?: Record<string, any>
+  ai_notes?: string | null
+  marketing_copy?: string | null
 }
 
 function toApiShape(p: ProductRow) {
+  const stockVal = p.stock !== undefined && p.stock !== null ? p.stock : p.quantity;
+  const priceVal = p.selling_price !== undefined && p.selling_price !== null ? Number(p.selling_price) : (p.price !== null ? Number(p.price) : null);
+
   return {
     id: p.id,
     name: p.name,
@@ -70,6 +166,38 @@ function toApiShape(p: ProductRow) {
     attributedLeads: p.attributed_leads !== undefined ? Number(p.attributed_leads) : undefined,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
+
+    // New fields
+    sku: p.sku ?? null,
+    barcode: p.barcode ?? null,
+    category: p.category ?? null,
+    supplierId: p.supplier_id ?? null,
+    brand: p.brand ?? null,
+    itemType: p.item_type ?? 'product',
+    videos: p.videos ?? [],
+    stock: stockVal,
+    reserved: p.reserved ?? 0,
+    available: p.available ?? (stockVal - (p.reserved ?? 0)),
+    minimumStock: p.minimum_stock ?? 0,
+    maximumStock: p.maximum_stock ?? null,
+    leadTime: p.lead_time ?? 1,
+    supplierLeadTime: p.supplier_lead_time ?? 5,
+    purchaseCost: p.purchase_cost !== null && p.purchase_cost !== undefined ? Number(p.purchase_cost) : 0,
+    sellingPrice: priceVal,
+    margin: p.margin !== null && p.margin !== undefined ? Number(p.margin) : null,
+    discountRules: p.discount_rules ?? [],
+    crossSell: p.cross_sell ?? [],
+    upsell: p.upsell ?? [],
+    replacementProductId: p.replacement_product_id ?? null,
+    relatedProducts: p.related_products ?? [],
+    warranty: p.warranty ?? null,
+    manual: p.manual ?? null,
+    tags: p.tags ?? [],
+    serviceDetails: p.service_details ?? {},
+    inventoryDetails: p.inventory_details ?? {},
+    pricingDetails: p.pricing_details ?? {},
+    aiNotes: p.ai_notes ?? null,
+    marketingCopy: p.marketing_copy ?? null,
   }
 }
 
@@ -84,6 +212,12 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
         `SELECT p.id, p.name, p.description, p.price, p.currency, p.serial_number, p.quantity,
                 p.images, p.status, p.whatsapp_catalog_product_id, p.whatsapp_catalog_synced_at,
                 p.whatsapp_catalog_status, p.whatsapp_catalog_error, p.created_at, p.updated_at,
+                p.sku, p.barcode, p.category, p.supplier_id, p.brand, p.item_type, p.videos,
+                p.stock, p.reserved, p.available, p.minimum_stock, p.maximum_stock, p.lead_time,
+                p.supplier_lead_time, p.purchase_cost, p.selling_price, p.margin, p.discount_rules,
+                p.cross_sell, p.upsell, p.replacement_product_id, p.related_products, p.warranty,
+                p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
+                p.ai_notes, p.marketing_copy,
                 COUNT(DISTINCT cp.contact_id) AS linked_contacts,
                 COUNT(DISTINCT co.id) FILTER (WHERE co.source_product_id = p.id) AS attributed_leads
          FROM products p
@@ -106,21 +240,69 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
       const body = createBody.parse(request.body)
 
+      const finalPrice = body.sellingPrice !== undefined && body.sellingPrice !== null ? body.sellingPrice : (body.price !== undefined ? body.price : null);
+      const finalStock = body.stock !== undefined ? body.stock : (body.quantity !== undefined ? body.quantity : 1);
+      const finalAvailable = finalStock - (body.reserved ?? 0);
+
       const { rows: [product] } = await db.query<ProductRow>(
-        `INSERT INTO products (user_id, name, description, price, currency, serial_number, quantity, images)
-         VALUES ($1, $2, $3, $4, COALESCE($5, 'ZMW'), $6, COALESCE($7, 1), COALESCE($8::jsonb, '[]'::jsonb))
-         RETURNING id, name, description, price, currency, serial_number, quantity, images, status,
-                   whatsapp_catalog_product_id, whatsapp_catalog_synced_at, whatsapp_catalog_status,
-                   whatsapp_catalog_error, created_at, updated_at`,
+        `INSERT INTO products (
+           user_id, name, description, price, currency, serial_number, quantity, images,
+           sku, barcode, category, supplier_id, brand, item_type, videos, stock, reserved,
+           available, minimum_stock, maximum_stock, lead_time, supplier_lead_time,
+           purchase_cost, selling_price, margin, discount_rules, cross_sell, upsell,
+           replacement_product_id, related_products, warranty, manual, tags,
+           service_details, inventory_details, pricing_details, ai_notes, marketing_copy
+         )
+         VALUES (
+           $1, $2, $3, $4, COALESCE($5, 'ZMW'), $6, $7, COALESCE($8::jsonb, '[]'::jsonb),
+           $9, $10, $11, $12, $13, COALESCE($14, 'product'), COALESCE($15::jsonb, '[]'::jsonb),
+           $16, $17, $18, COALESCE($19, 0), $20, COALESCE($21, 1), COALESCE($22, 5),
+           COALESCE($23, 0.00), $24, $25, COALESCE($26::jsonb, '[]'::jsonb), COALESCE($27::jsonb, '[]'::jsonb),
+           COALESCE($28::jsonb, '[]'::jsonb), $29, COALESCE($30::jsonb, '[]'::jsonb), $31, $32,
+           COALESCE($33::text[], '{}'::text[]), COALESCE($34::jsonb, '{}'::jsonb), COALESCE($35::jsonb, '{}'::jsonb),
+           COALESCE($36::jsonb, '{}'::jsonb), $37, $38
+         )
+         RETURNING *`,
         [
           userId,
           body.name,
           body.description ?? null,
-          body.price ?? null,
+          finalPrice,
           body.currency ?? null,
           body.serialNumber ?? null,
-          body.quantity ?? null,
+          finalStock,
           body.images ? JSON.stringify(body.images) : null,
+          // New fields
+          body.sku ?? null,
+          body.barcode ?? null,
+          body.category ?? null,
+          body.supplierId ?? null,
+          body.brand ?? null,
+          body.itemType ?? 'product',
+          body.videos ? JSON.stringify(body.videos) : null,
+          finalStock,
+          body.reserved ?? 0,
+          finalAvailable,
+          body.minimumStock ?? null,
+          body.maximumStock ?? null,
+          body.leadTime ?? null,
+          body.supplierLeadTime ?? null,
+          body.purchaseCost ?? null,
+          finalPrice,
+          body.margin ?? null,
+          body.discountRules ? JSON.stringify(body.discountRules) : null,
+          body.crossSell ? JSON.stringify(body.crossSell) : null,
+          body.upsell ? JSON.stringify(body.upsell) : null,
+          body.replacementProductId ?? null,
+          body.relatedProducts ? JSON.stringify(body.relatedProducts) : null,
+          body.warranty ?? null,
+          body.manual ?? null,
+          body.tags ?? null,
+          body.serviceDetails ? JSON.stringify(body.serviceDetails) : null,
+          body.inventoryDetails ? JSON.stringify(body.inventoryDetails) : null,
+          body.pricingDetails ? JSON.stringify(body.pricingDetails) : null,
+          body.aiNotes ?? null,
+          body.marketingCopy ?? null,
         ],
       )
 
@@ -136,17 +318,81 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string }
       const body = patchBody.parse(request.body)
 
+      // Fetch the product first to calculate available stock if stock/reserved updates
+      const { rows: [existing] } = await db.query(
+        'SELECT stock, reserved FROM products WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Product not found' })
+
       const sets: string[] = ['updated_at = NOW()']
       const values: unknown[] = [id, userId]
       let idx = 3
+
+      // Stock backward compatibility
+      let newStock = existing.stock
+      let newReserved = existing.reserved
+
       if (body.name !== undefined) { sets.push(`name = $${idx++}`); values.push(body.name) }
       if (body.description !== undefined) { sets.push(`description = $${idx++}`); values.push(body.description) }
-      if (body.price !== undefined) { sets.push(`price = $${idx++}`); values.push(body.price) }
+      
+      // Handle price / sellingPrice mapping
+      if (body.sellingPrice !== undefined || body.price !== undefined) {
+        const finalPrice = body.sellingPrice !== undefined ? body.sellingPrice : body.price
+        sets.push(`price = $${idx++}`); values.push(finalPrice)
+        sets.push(`selling_price = $${idx++}`); values.push(finalPrice)
+      }
+      
       if (body.currency !== undefined) { sets.push(`currency = $${idx++}`); values.push(body.currency) }
       if (body.serialNumber !== undefined) { sets.push(`serial_number = $${idx++}`); values.push(body.serialNumber) }
-      if (body.quantity !== undefined) { sets.push(`quantity = $${idx++}`); values.push(body.quantity) }
+      
+      // Handle stock / quantity mapping
+      if (body.stock !== undefined || body.quantity !== undefined) {
+        const finalStock = body.stock !== undefined ? body.stock : body.quantity
+        newStock = finalStock ?? 0
+        sets.push(`quantity = $${idx++}`); values.push(finalStock)
+        sets.push(`stock = $${idx++}`); values.push(finalStock)
+      }
+      
       if (body.images !== undefined) { sets.push(`images = $${idx++}::jsonb`); values.push(JSON.stringify(body.images)) }
       if (body.status !== undefined) { sets.push(`status = $${idx++}`); values.push(body.status) }
+
+      // New columns
+      if (body.sku !== undefined) { sets.push(`sku = $${idx++}`); values.push(body.sku) }
+      if (body.barcode !== undefined) { sets.push(`barcode = $${idx++}`); values.push(body.barcode) }
+      if (body.category !== undefined) { sets.push(`category = $${idx++}`); values.push(body.category) }
+      if (body.supplierId !== undefined) { sets.push(`supplier_id = $${idx++}`); values.push(body.supplierId) }
+      if (body.brand !== undefined) { sets.push(`brand = $${idx++}`); values.push(body.brand) }
+      if (body.itemType !== undefined) { sets.push(`item_type = $${idx++}`); values.push(body.itemType) }
+      if (body.videos !== undefined) { sets.push(`videos = $${idx++}::jsonb`); values.push(JSON.stringify(body.videos)) }
+      
+      if (body.reserved !== undefined) {
+        newReserved = body.reserved ?? 0
+        sets.push(`reserved = $${idx++}`); values.push(body.reserved)
+      }
+      
+      // Automatically update available
+      sets.push(`available = $${idx++}`); values.push(newStock - newReserved)
+
+      if (body.minimumStock !== undefined) { sets.push(`minimum_stock = $${idx++}`); values.push(body.minimumStock) }
+      if (body.maximumStock !== undefined) { sets.push(`maximum_stock = $${idx++}`); values.push(body.maximumStock) }
+      if (body.leadTime !== undefined) { sets.push(`lead_time = $${idx++}`); values.push(body.leadTime) }
+      if (body.supplierLeadTime !== undefined) { sets.push(`supplier_lead_time = $${idx++}`); values.push(body.supplierLeadTime) }
+      if (body.purchaseCost !== undefined) { sets.push(`purchase_cost = $${idx++}`); values.push(body.purchaseCost) }
+      if (body.margin !== undefined) { sets.push(`margin = $${idx++}`); values.push(body.margin) }
+      if (body.discountRules !== undefined) { sets.push(`discount_rules = $${idx++}::jsonb`); values.push(JSON.stringify(body.discountRules)) }
+      if (body.crossSell !== undefined) { sets.push(`cross_sell = $${idx++}::jsonb`); values.push(JSON.stringify(body.crossSell)) }
+      if (body.upsell !== undefined) { sets.push(`upsell = $${idx++}::jsonb`); values.push(JSON.stringify(body.upsell)) }
+      if (body.replacementProductId !== undefined) { sets.push(`replacement_product_id = $${idx++}`); values.push(body.replacementProductId) }
+      if (body.relatedProducts !== undefined) { sets.push(`related_products = $${idx++}::jsonb`); values.push(JSON.stringify(body.relatedProducts)) }
+      if (body.warranty !== undefined) { sets.push(`warranty = $${idx++}`); values.push(body.warranty) }
+      if (body.manual !== undefined) { sets.push(`manual = $${idx++}`); values.push(body.manual) }
+      if (body.tags !== undefined) { sets.push(`tags = $${idx++}::text[]`); values.push(body.tags) }
+      if (body.serviceDetails !== undefined) { sets.push(`service_details = $${idx++}::jsonb`); values.push(JSON.stringify(body.serviceDetails)) }
+      if (body.inventoryDetails !== undefined) { sets.push(`inventory_details = $${idx++}::jsonb`); values.push(JSON.stringify(body.inventoryDetails)) }
+      if (body.pricingDetails !== undefined) { sets.push(`pricing_details = $${idx++}::jsonb`); values.push(JSON.stringify(body.pricingDetails)) }
+      if (body.aiNotes !== undefined) { sets.push(`ai_notes = $${idx++}`); values.push(body.aiNotes) }
+      if (body.marketingCopy !== undefined) { sets.push(`marketing_copy = $${idx++}`); values.push(body.marketingCopy) }
 
       const { rowCount } = await db.query(
         `UPDATE products SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2`,
