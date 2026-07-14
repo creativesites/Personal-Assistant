@@ -48,7 +48,7 @@ const Download: FC<Props> = ({ data, setData }) => {
   return (
     <div className={'download-pdf '}>
       <PDFDownloadLink
-        key="pdf"
+        key={JSON.stringify(debounced)}
         document={<InvoicePage pdfMode={true} data={debounced} />}
         fileName={`${title}.pdf`}
         aria-label="Save PDF"

@@ -1,21 +1,20 @@
-/* ─── Invoice Generator — custom class definitions ─────────────────────────── */
-/* The generate-pdf components use bespoke class names (flex, w-50, bg-dark…)   */
-/* that don't map to Tailwind. This file defines them so the screen view         */
-/* matches the PDF output layout.                                                */
+/* ─── Invoice Generator – screen styles ──────────────────────────────────────
+   All class names here are what the generate-pdf components render in HTML
+   (pdfMode=false). They have no relation to Tailwind — they're the library's
+   own class system. The PDF rendering path uses @react-pdf/renderer styles
+   (compose.ts) and is completely separate from this file.
+   ─────────────────────────────────────────────────────────────────────────── */
 
-/* ── Layout ─────────────────────────────────────────────────────────────────── */
+/* ── Outer wrapper ──────────────────────────────────────────────────────────── */
 .invoice-wrapper {
   padding: 40px 48px;
-  font-family: 'Inter', 'Nunito', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   color: #374151;
-  background: #fff;
-  border-radius: 1.25rem;
-  box-shadow: 0 4px 24px 0 rgba(99,102,241,.08), 0 1px 4px 0 rgba(0,0,0,.06);
-  max-width: 860px;
-  margin: 0 auto;
+  background: #ffffff;
 }
 
+/* ── Layout helpers ─────────────────────────────────────────────────────────── */
 .flex { display: flex; align-items: flex-start; }
 .w-17 { width: 17%; }
 .w-18 { width: 18%; }
@@ -28,36 +27,98 @@
 .w-100 { width: 100%; }
 .w-auto { width: auto; }
 
-/* ── Spacing ─────────────────────────────────────────────────────────────────── */
-.mt-10 { margin-top: 10px; }
-.mt-20 { margin-top: 20px; }
-.mt-30 { margin-top: 30px; }
-.mt-40 { margin-top: 40px; }
-.mb-5  { margin-bottom: 5px; }
-.mr-10 { margin-right: 10px; }
-.ml-30 { margin-left: 30px; }
-.p-5   { padding: 5px; }
-.p-4-8 { padding: 4px 8px; }
-.pb-10 { padding-bottom: 10px; }
+/* ── Spacing ────────────────────────────────────────────────────────────────── */
+.mt-10  { margin-top: 10px; }
+.mt-20  { margin-top: 20px; }
+.mt-30  { margin-top: 30px; }
+.mt-40  { margin-top: 40px; }
+.mb-5   { margin-bottom: 5px; }
+.mr-10  { margin-right: 10px; }
+.ml-30  { margin-left: 30px; }
+.p-5    { padding: 5px; }
+.p-4-8  { padding: 4px 8px; }
+.pb-10  { padding-bottom: 10px; }
 
-/* ── Typography ──────────────────────────────────────────────────────────────── */
-.bold   { font-weight: 700; }
-.right  { text-align: right; }
-.center { text-align: center; }
-.dark   { color: #111827; }
-.white  { color: #fff; }
-.fs-20  { font-size: 20px; }
-.fs-30  { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
-.fs-45  { font-size: 36px; font-weight: 800; }
-.text-small { font-size: 10px; color: #6b7280; margin: 2px 0 0; }
+/* ── Typography ─────────────────────────────────────────────────────────────── */
+.bold       { font-weight: 700; }
+.right      { text-align: right; }
+.center     { text-align: center; }
+.dark       { color: #111827; }
+.white      { color: #ffffff; }
+.fs-20      { font-size: 20px; }
+.fs-45      { font-size: 36px; font-weight: 800; letter-spacing: -1px; }
+.text-small { font-size: 11px; color: #6b7280; }
 
-/* ── Colour fills ─────────────────────────────────────────────────────────────── */
-.bg-dark  { background: #1e1b4b; border-radius: 8px; }
-.bg-gray  { background: #f3f4f6; border-radius: 6px; }
-.bg-red   { background: #ef4444; }
-.bg-green { background: #22c55e; }
+/* ── Colour fills ───────────────────────────────────────────────────────────── */
+.bg-dark { background-color: #1e293b; }
+.bg-gray { background-color: #f3f4f6; }
 
-/* ── Row ──────────────────────────────────────────────────────────────────────── */
+/* ── Editable input ─────────────────────────────────────────────────────────── */
+.input {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1.5px dashed transparent;
+  outline: none;
+  background: transparent;
+  font-size: inherit;
+  color: inherit;
+  font-family: inherit;
+  padding: 2px 0;
+  line-height: 1.5;
+  transition: border-color 0.15s;
+}
+.input:hover,
+.input:focus            { border-bottom-color: #a5b4fc; }
+.input::placeholder     { color: #9ca3af; }
+.input.right            { text-align: right; }
+.input.bold             { font-weight: 700; }
+.input.dark             { color: #111827; }
+.input.white            { color: #ffffff; }
+.input.fs-20            { font-size: 20px; }
+.input.fs-45            { font-size: 36px; font-weight: 800; }
+
+/* ── Editable textarea ──────────────────────────────────────────────────────── */
+.textarea {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1.5px dashed transparent;
+  outline: none;
+  background: transparent;
+  font-size: inherit;
+  color: inherit;
+  font-family: inherit;
+  padding: 2px 0;
+  resize: none;
+  line-height: 1.5;
+  transition: border-color 0.15s;
+}
+.textarea:hover,
+.textarea:focus         { border-bottom-color: #a5b4fc; }
+.textarea::placeholder  { color: #9ca3af; }
+.textarea.dark          { color: #111827; }
+.textarea.w-100         { width: 100%; }
+
+/* ── Select ─────────────────────────────────────────────────────────────────── */
+.select {
+  width: 100%;
+  border: none;
+  border-bottom: 1.5px dashed transparent;
+  outline: none;
+  background: transparent;
+  font-size: inherit;
+  color: inherit;
+  font-family: inherit;
+  padding: 2px 0;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color 0.15s;
+}
+.select:hover,
+.select:focus { border-bottom-color: #a5b4fc; }
+
+/* ── Product line rows ──────────────────────────────────────────────────────── */
 .row {
   position: relative;
   border-bottom: 1px solid #f3f4f6;
@@ -65,7 +126,7 @@
 .row:last-child { border-bottom: none; }
 .row__remove {
   position: absolute;
-  right: -26px;
+  right: -28px;
   top: 50%;
   transform: translateY(-50%);
   background: none;
@@ -73,94 +134,34 @@
   cursor: pointer;
   padding: 4px;
   opacity: 0;
-  transition: opacity .15s;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .row:hover .row__remove { opacity: 1; }
 
-/* ── Editable input ───────────────────────────────────────────────────────────── */
-.input {
-  width: 100%;
-  border: none;
-  border-bottom: 1.5px dashed transparent;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: inherit;
-  font-family: inherit;
-  padding: 2px 0;
-  transition: border-color .15s;
-}
-.input:hover,
-.input:focus {
-  border-bottom-color: #a5b4fc;
-}
-.input::placeholder { color: #9ca3af; }
-.input.right  { text-align: right; }
-.input.bold   { font-weight: 700; }
-.input.dark   { color: #111827; }
-.input.white  { color: #fff; }
-.input.fs-20  { font-size: 20px; }
-.input.fs-45  { font-size: 36px; font-weight: 800; }
-
-/* ── Textarea ─────────────────────────────────────────────────────────────────── */
-.textarea {
-  width: 100%;
-  border: none;
-  border-bottom: 1.5px dashed transparent;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: inherit;
-  font-family: inherit;
-  padding: 2px 0;
-  resize: none;
-  transition: border-color .15s;
-}
-.textarea:hover,
-.textarea:focus { border-bottom-color: #a5b4fc; }
-.textarea::placeholder { color: #9ca3af; }
-.textarea.dark { color: #111827; }
-.textarea.w-100 { width: 100%; }
-
-/* ── Select ───────────────────────────────────────────────────────────────────── */
-.select {
-  width: 100%;
-  border: none;
-  border-bottom: 1.5px dashed transparent;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: inherit;
-  font-family: inherit;
-  padding: 2px 0;
-  cursor: pointer;
-  transition: border-color .15s;
-  appearance: none;
-}
-.select:hover,
-.select:focus { border-bottom-color: #a5b4fc; }
-
-/* ── Icons ────────────────────────────────────────────────────────────────────── */
+/* ── Icon sprites (add / remove) ────────────────────────────────────────────── */
 .icon {
   display: inline-block;
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  vertical-align: middle;
   position: relative;
+  flex-shrink: 0;
 }
 .icon::before,
 .icon::after {
   content: '';
   position: absolute;
-  background: #fff;
+  background: #ffffff;
   border-radius: 2px;
 }
-.icon-add::before  { width: 8px; height: 2px; top: 7px; left: 4px; }
-.icon-add::after   { width: 2px; height: 8px; top: 4px; left: 7px; }
-.icon-remove::before { width: 8px; height: 2px; top: 7px; left: 4px; }
+.icon-add::before  { width: 8px;  height: 2px; top: 7px;  left: 4px; }
+.icon-add::after   { width: 2px;  height: 8px; top: 4px;  left: 7px; }
+.icon-remove::before { width: 8px; height: 2px; top: 7px;  left: 4px; }
 
-/* ── Link button ──────────────────────────────────────────────────────────────── */
+/* ── Add-row link button ────────────────────────────────────────────────────── */
 .link {
   background: none;
   border: none;
@@ -172,12 +173,12 @@
   font-weight: 600;
   color: #6366f1;
   padding: 4px 0;
-  transition: color .15s;
+  transition: color 0.15s;
 }
 .link:hover { color: #4f46e5; }
 
-/* ── Image upload ─────────────────────────────────────────────────────────────── */
-.image { position: relative; display: inline-block; }
+/* ── Logo / image upload ────────────────────────────────────────────────────── */
+.image            { position: relative; display: inline-block; margin-bottom: 8px; }
 .image__upload {
   display: flex;
   align-items: center;
@@ -188,13 +189,13 @@
   border-radius: 8px;
   background: #eef2ff;
   color: #6366f1;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all .15s;
+  transition: all 0.15s;
 }
-.image__upload:hover { background: #e0e7ff; border-color: #818cf8; }
-.image__img { display: block; border-radius: 6px; }
+.image__upload:hover       { background: #e0e7ff; border-color: #818cf8; }
+.image__img                { display: block; border-radius: 4px; }
 .image__change,
 .image__edit,
 .image__remove {
@@ -202,76 +203,86 @@
   font-size: 10px;
   margin-top: 4px;
   margin-right: 6px;
-  padding: 2px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
   border: 1px solid #e5e7eb;
   background: #f9fafb;
   color: #6b7280;
   cursor: pointer;
-  transition: all .15s;
+  transition: background 0.12s;
 }
 .image__change:hover,
 .image__edit:hover,
-.image__remove:hover { background: #f3f4f6; color: #374151; }
-.image__file { display: none; }
+.image__remove:hover    { background: #f3f4f6; color: #374151; }
+.image__file            { display: none; }
 .image__width-wrapper {
-  padding: 12px 8px;
+  padding: 10px 8px;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   margin-top: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
-/* ── Download bar ─────────────────────────────────────────────────────────────── */
+/* ── Download / action bar ──────────────────────────────────────────────────── */
+/* Structure: icon · label · icon · label · icon · label — all flat siblings    */
 .download-pdf {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  gap: 8px 16px;
   padding: 12px 16px;
-  background: linear-gradient(90deg,#eef2ff,#f0fdfa);
+  margin-bottom: 28px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
-  margin-bottom: 24px;
-  border: 1px solid #e0e7ff;
 }
+/* Prevent mt-40 from shifting the template button inside the bar */
+.download-pdf .mt-40 { margin-top: 0; }
+
 .download-pdf p {
   font-size: 11px;
   font-weight: 600;
-  color: #4f46e5;
+  color: #4b5563;
   margin: 0;
 }
+
+/* Shared icon-button style */
 .download-pdf__pdf,
 .download-pdf__template_download,
 .download-pdf__template_upload {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
-  cursor: pointer;
   border: none;
+  cursor: pointer;
   background-repeat: no-repeat;
   background-position: center;
-  background-size: 20px;
-  transition: all .15s;
+  background-size: 18px 18px;
+  transition: filter 0.15s, transform 0.1s;
+  flex-shrink: 0;
 }
+.download-pdf__pdf:hover,
+.download-pdf__template_download:hover,
+.download-pdf__template_upload:hover  { filter: brightness(1.1); transform: scale(1.05); }
+
+/* PDF download — indigo */
 .download-pdf__pdf {
   background-color: #4f46e5;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' /%3E%3C/svg%3E");
-  box-shadow: 0 4px 12px rgba(79,70,229,.35);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'/%3E%3C/svg%3E");
 }
-.download-pdf__pdf:hover { background-color: #4338ca; box-shadow: 0 6px 16px rgba(79,70,229,.45); }
+/* Save template — sky */
 .download-pdf__template_download {
   background-color: #0ea5e9;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' /%3E%3C/svg%3E");
-  box-shadow: 0 4px 12px rgba(14,165,233,.3);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4'/%3E%3C/svg%3E");
 }
-.download-pdf__template_download:hover { background-color: #0284c7; }
+/* Upload template — emerald */
 .download-pdf__template_upload {
   background-color: #10b981;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12' /%3E%3C/svg%3E");
-  box-shadow: 0 4px 12px rgba(16,185,129,.3);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12'/%3E%3C/svg%3E");
+  cursor: pointer;
 }
-.download-pdf__template_upload:hover { background-color: #059669; }
 .download-pdf__template_upload input { display: none; }
