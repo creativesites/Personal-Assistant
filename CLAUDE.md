@@ -430,6 +430,8 @@ The Studio page (`apps/web/src/app/(dashboard)/studio/page.tsx`, "Business Knowl
 
 **Zuri Insights** (`GET /api/studio/insights`, `services/api/src/routes/studio.ts`) are deterministic, SQL-driven — not LLM-generated — on purpose: exact thresholds (available ≤ minimum_stock, margin < 15%, supplier reliability < 80% or delivery > 14 days) are more trustworthy for ERP data than a narrative summary, and the AI Business Advisor chat is where a user asks for narrative framing instead. Each relevant Studio tab (Overview, Inventory, Pricing, Suppliers) renders a slice of this endpoint's data as an insight card with an "Ask AI" button; clicking it calls `StudioPage`'s `onAskAI(prompt)`, which switches to the Overview tab and pre-fills (not auto-sends) the chat input via `OverviewModule`'s `initialPrompt`/`onConsumedPrompt` props — one shared endpoint and one shared chat session, not a bespoke LLM call per tab.
 
+**Where Studio is headed:** `docs/STUDIO_ERP_PLAN.md` documents what's already shipped above (suppliers, rich product columns, stock ledger, insights). `docs/BUSINESS_OS_PLAN.md` is the forward-looking plan — turning Studio into a full "AI Business Operating System" (configurable product attributes/families, multi-location inventory, supplier AI memory, purchase orders, projects, and the conversation-to-automatic-ERP-update loop that's the intended product differentiator). Nothing in that doc has been built yet; it's phased, not implemented.
+
 ---
 
 ## Conventions
