@@ -324,9 +324,9 @@ export default function NewDocumentPage() {
   const isLoading = savingDraft || generatingPdf || sendingWa
 
   return (
-    <div className="flex flex-col min-h-full bg-gray-50">
+    <div className="flex flex-col min-h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
+      <div className="bg-white/90 backdrop-blur-xl border-b border-slate-100 px-4 md:px-6 py-4 flex items-center gap-3 sticky top-0 z-10 shadow-sm">
         <Link href="/business" className="inline-flex items-center justify-center w-9 h-9 rounded-lg hover:bg-gray-100 transition-colors">
           <ArrowLeft className="w-4 h-4 text-gray-600" />
         </Link>
@@ -343,7 +343,7 @@ export default function NewDocumentPage() {
         <div className="lg:overflow-y-auto lg:h-[calc(100vh-140px)] p-4 md:p-6 space-y-5 border-r border-gray-200">
 
           {/* 1. Document Type Tabs */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
             <p className="text-xs font-medium text-gray-500 mb-3">Document Type</p>
             <div className="flex gap-2">
               {(['invoice', 'quotation', 'receipt'] as const).map(type => (
@@ -363,7 +363,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 2. Template Selector */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
             <p className="text-xs font-medium text-gray-500 mb-3">Template</p>
             <div className="flex gap-3">
               {(['minimal', 'modern'] as const).map(tmpl => (
@@ -393,7 +393,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 3. Document Info */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 space-y-3">
             <p className="text-xs font-medium text-gray-500">Document Info</p>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Document Number</label>
@@ -428,7 +428,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 4. Company (Seller) — collapsible */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70">
             <button
               onClick={() => setCompanyOpen(o => !o)}
               className="w-full flex items-center justify-between px-4 py-3.5 text-left"
@@ -458,7 +458,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 5. Client (Buyer) */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 space-y-3">
             <p className="text-xs font-medium text-gray-500">Bill To (Client)</p>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Select Client</label>
@@ -491,7 +491,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 6. Line Items */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 space-y-3">
             <p className="text-xs font-medium text-gray-500">Line Items</p>
             <div className="space-y-2">
               {/* Header row (desktop) */}
@@ -547,7 +547,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 7. Financials */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 space-y-3">
             <p className="text-xs font-medium text-gray-500">Financials</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
@@ -608,7 +608,7 @@ export default function NewDocumentPage() {
           </section>
 
           {/* 8. Footer / Notes */}
-          <section className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+          <section className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 space-y-3">
             <p className="text-xs font-medium text-gray-500">Notes &amp; Terms</p>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Notes</label>
@@ -652,7 +652,7 @@ export default function NewDocumentPage() {
               {previewOpen ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
             </button>
             {previewOpen && (
-              <div className="mt-3">
+              <div className="mt-3 overflow-x-auto">
                 <DocumentPreview form={form} items={items} totals={totals} />
               </div>
             )}

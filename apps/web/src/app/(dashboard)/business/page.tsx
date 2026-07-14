@@ -5,10 +5,19 @@ import Link from 'next/link'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
   Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
+  MoreHorizontal, ChevronDown, ChevronUp, Wand2,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
-import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
+import { Avatar, Badge, BadgeVariant, Dropdown, EmptyState, SkeletonCard, useToast } from '@/components/ui'
+
+interface BrandKitSummary {
+  companyName?: string | null
+  logoUrl?: string | null
+  themeColor?: string | null
+  defaultCurrency?: string | null
+  defaultTerms?: string | null
+}
 
 interface DocumentSummary {
   id: string
@@ -323,92 +332,117 @@ export default function BusinessPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <PageHeader
-        title="Documents"
-        description="Quotations and invoices — AI-generated, branded, linked to your contacts."
-        action={
-          <>
-            <button
-              onClick={() => setShowInsights(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              <Lightbulb className="w-4 h-4" />Insights
-            </button>
-            <button
-              onClick={() => setShowPacks(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              <Package className="w-4 h-4" />Packs
-            </button>
-            <button
-              onClick={() => setShowRecurring(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />Recurring
-            </button>
-            <Link href="/documents/new">
-              <button className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors shadow-sm">
-                <FileText className="w-4 h-4" />Full Form
-              </button>
-            </Link>
-            <button
-              onClick={() => setShowNewDoc(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              <Plus className="w-4 h-4" />New Document
-            </button>
-          </>
-        }
-      />
-
-      <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-3 flex items-center gap-6 flex-shrink-0 overflow-x-auto">
-        <div><span className="text-lg font-bold text-gray-900">{stats.drafts}</span><span className="text-xs text-gray-500 ml-1.5">drafts</span></div>
-        <div><span className="text-lg font-bold text-gray-900">{stats.generated}</span><span className="text-xs text-gray-500 ml-1.5">generated</span></div>
-        <div><span className="text-lg font-bold text-gray-900">{stats.paid}</span><span className="text-xs text-gray-500 ml-1.5">paid/accepted</span></div>
-        <div className="relative ml-auto min-w-[200px]">
-          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2" />
-          <input
-            value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); runSearch(e.target.value) }}
-            placeholder="Search documents…"
-            className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-          />
-          {searchQuery && (
-            <div className="absolute right-0 top-full mt-1.5 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-72 overflow-y-auto">
-              {searching ? (
-                <div className="p-3"><Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" /></div>
-              ) : !searchResults || searchResults.length === 0 ? (
-                <p className="text-xs text-gray-400 p-3">No matches.</p>
-              ) : (
-                searchResults.map(r => (
-                  <button
-                    key={r.id}
-                    onClick={() => { setSearchQuery(''); setSearchResults(null); setTypeFilter('all') }}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
-                  >
-                    <p className="text-xs font-medium text-gray-900 truncate">{r.title}</p>
-                    <p className="text-[11px] text-gray-400">{r.contactName ?? 'No contact'} · {r.documentNumber} · {r.status}</p>
-                  </button>
-                ))
-              )}
+    <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
+      <div className="flex-shrink-0 p-4 md:p-6 pb-0">
+        {/* Hero — value prop + manual-creation CTA front and center */}
+        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)]" />
+          <div className="relative z-10">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-[11px] font-semibold text-indigo-700 shadow-sm ring-1 ring-indigo-100">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+                AI-native document management
+              </span>
             </div>
-          )}
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight text-gray-950">Documents</h1>
+            <p className="text-sm text-gray-600 max-w-xl mt-1 leading-relaxed">
+              Branded quotations, invoices &amp; receipts — pulled straight from your Brand Kit and contacts.
+              Type a plain-English instruction, or fill one in yourself with live pricing as you go.
+            </p>
+
+            <div className="flex flex-wrap gap-3 mt-4">
+              <div className="rounded-2xl bg-white/80 px-3 py-2 shadow-sm ring-1 ring-gray-100">
+                <span className="text-lg font-black text-gray-950 tabular-nums">{stats.drafts}</span>
+                <span className="ml-1.5 text-[11px] font-semibold text-gray-500">drafts</span>
+              </div>
+              <div className="rounded-2xl bg-white/80 px-3 py-2 shadow-sm ring-1 ring-gray-100">
+                <span className="text-lg font-black text-gray-950 tabular-nums">{stats.generated}</span>
+                <span className="ml-1.5 text-[11px] font-semibold text-gray-500">generated</span>
+              </div>
+              <div className="rounded-2xl bg-white/80 px-3 py-2 shadow-sm ring-1 ring-gray-100">
+                <span className="text-lg font-black text-gray-950 tabular-nums">{stats.paid}</span>
+                <span className="ml-1.5 text-[11px] font-semibold text-gray-500">paid / accepted</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5 mt-5">
+              <button
+                onClick={() => setShowNewDoc(true)}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white text-sm font-bold rounded-2xl hover:bg-indigo-500 active:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/25 min-h-[44px]"
+              >
+                <Pencil className="w-4 h-4" />Create Document Manually
+              </button>
+              <button
+                onClick={() => setShowNewDoc(true)}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-950 text-white text-sm font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/15 min-h-[44px]"
+              >
+                <Wand2 className="w-4 h-4" />Generate with AI
+              </button>
+              <Dropdown
+                align="left"
+                trigger={
+                  <button className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white/85 border border-white text-gray-700 text-sm font-bold rounded-2xl hover:bg-white transition-all shadow-sm ring-1 ring-gray-100 min-h-[44px] w-full sm:w-auto">
+                    <MoreHorizontal className="w-4 h-4" />More tools
+                  </button>
+                }
+                items={[
+                  { label: 'Insights', icon: <Lightbulb className="w-3.5 h-3.5 text-amber-500" />, onClick: () => setShowInsights(true) },
+                  { label: 'Business Packs', icon: <Package className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowPacks(true) },
+                  { label: 'Recurring Documents', icon: <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowRecurring(true) },
+                  { label: 'Full Form (advanced)', icon: <FileText className="w-3.5 h-3.5 text-gray-500" />, href: '/documents/new' },
+                ]}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-2.5 flex items-center gap-1.5 overflow-x-auto flex-shrink-0">
-        {TYPE_FILTERS.map(f => (
-          <button
-            key={f.key}
-            onClick={() => setTypeFilter(f.key)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              typeFilter === f.key ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="flex-shrink-0 px-4 md:px-6 pt-4">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
+            {TYPE_FILTERS.map(f => (
+              <button
+                key={f.key}
+                onClick={() => setTypeFilter(f.key)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                  typeFilter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative sm:ml-auto sm:min-w-[220px]">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); runSearch(e.target.value) }}
+              placeholder="Search documents…"
+              className="w-full text-xs border border-gray-100 bg-white rounded-2xl pl-8 pr-3 py-2.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+            />
+            {searchQuery && (
+              <div className="absolute right-0 top-full mt-1.5 w-80 max-w-[90vw] bg-white border border-gray-100 rounded-2xl shadow-lg z-20 max-h-72 overflow-y-auto">
+                {searching ? (
+                  <div className="p-3"><Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" /></div>
+                ) : !searchResults || searchResults.length === 0 ? (
+                  <p className="text-xs text-gray-400 p-3">No matches.</p>
+                ) : (
+                  searchResults.map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => { setSearchQuery(''); setSearchResults(null); setTypeFilter('all') }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                    >
+                      <p className="text-xs font-medium text-gray-900 truncate">{r.title}</p>
+                      <p className="text-[11px] text-gray-400">{r.contactName ?? 'No contact'} · {r.documentNumber} · {r.status}</p>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
@@ -430,7 +464,7 @@ export default function BusinessPage() {
         ) : (
           <div className="max-w-3xl mx-auto space-y-3">
             {documents.map(doc => (
-              <div key={doc.id} className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3.5">
+              <div key={doc.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 px-4 py-3.5">
                 <div className="flex items-center gap-3">
                   {doc.contact ? (
                     <Link href={`/contacts/${doc.contact.id}`} className="flex-shrink-0">
@@ -637,6 +671,8 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
   const [validUntil, setValidUntil] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [saving, setSaving] = useState(false)
+  const [brandKit, setBrandKit] = useState<BrandKitSummary | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   useEffect(() => {
     if (!token) return
@@ -644,6 +680,16 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
       .then(data => setContacts(data.contacts))
       .catch(() => {})
   }, [token])
+
+  useEffect(() => {
+    if (!token) return
+    apiClient<BrandKitSummary>('/api/business-profile', { token })
+      .then(setBrandKit)
+      .catch(() => {})
+  }, [token])
+
+  const currency = brandKit?.defaultCurrency || 'ZMW'
+  const selectedContact = contacts.find(c => c.id === contactId) ?? null
 
   const totals = useMemo(() => {
     let subtotal = 0, discount = 0, tax = 0
@@ -712,10 +758,15 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
-          <h2 className="text-sm font-semibold text-gray-900">New Document</h2>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-0 sm:p-4 z-50" onClick={onClose}>
+      <div
+        className={`bg-white rounded-t-[2rem] sm:rounded-[2rem] shadow-xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto ${
+          mode === 'manual' ? 'max-w-4xl' : 'max-w-2xl'
+        }`}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-xl z-10">
+          <h2 className="text-sm font-bold text-gray-900">New Document</h2>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
         </div>
 
@@ -724,8 +775,8 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
             <button
               key={m.id}
               onClick={() => setMode(m.id)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                mode === m.id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              className={`px-3.5 py-1.5 rounded-2xl text-xs font-bold transition-all ${
+                mode === m.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
               }`}
             >
               {m.id === 'ai' && <Sparkles className="w-3 h-3 inline mr-1 -mt-0.5" />}
@@ -733,6 +784,23 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
             </button>
           ))}
         </div>
+
+        {mode === 'manual' && brandKit && (brandKit.companyName || brandKit.logoUrl) && (
+          <div className="mx-5 mt-3.5 flex items-center gap-3 rounded-2xl bg-indigo-50/60 ring-1 ring-indigo-100 px-3.5 py-2.5">
+            {brandKit.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={brandKit.logoUrl} alt="" className="w-9 h-9 rounded-xl object-contain bg-white border border-indigo-100 flex-shrink-0" />
+            ) : (
+              <div className="w-9 h-9 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-black flex-shrink-0">
+                {(brandKit.companyName ?? 'Z')[0]}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-indigo-900 truncate">{brandKit.companyName || 'Your Brand Kit'}</p>
+              <p className="text-[11px] text-indigo-600">Logo, currency &amp; default terms are pre-filled from your Brand Kit</p>
+            </div>
+          </div>
+        )}
 
         {mode === 'ai' ? (
           <>
@@ -796,7 +864,8 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
           </>
         ) : (
         <>
-        <div className="p-5 space-y-4">
+        <div className="lg:grid lg:grid-cols-[1fr_320px]">
+          <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Type</label>
@@ -840,6 +909,31 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
               />
             </div>
           )}
+
+          {/* Mobile: live preview toggle — the desktop sticky column below is hidden on small screens */}
+          <div className="lg:hidden">
+            <button
+              onClick={() => setPreviewOpen(o => !o)}
+              className="w-full flex items-center justify-between rounded-2xl border border-gray-200 bg-white px-3.5 py-2.5 text-xs font-bold text-gray-600 shadow-sm"
+            >
+              <span className="flex items-center gap-1.5"><Eye className="w-3.5 h-3.5" />Live preview</span>
+              {previewOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+            {previewOpen && (
+              <div className="mt-2 overflow-x-auto">
+                <ManualDocumentPreview
+                  documentType={documentType}
+                  brandKit={brandKit}
+                  contactName={selectedContact?.name ?? null}
+                  items={items}
+                  totals={totals}
+                  notes={notes}
+                  terms={terms}
+                  currency={currency}
+                />
+              </div>
+            )}
+          </div>
 
           <div>
             <label className="block text-xs text-gray-500 mb-2">Line items</label>
@@ -891,10 +985,10 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
           </div>
 
           <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
-            <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{formatMoney(totals.subtotal, 'ZMW')}</span></div>
-            {totals.discount > 0 && <div className="flex justify-between text-gray-600"><span>Discount</span><span>-{formatMoney(totals.discount, 'ZMW')}</span></div>}
-            {totals.tax > 0 && <div className="flex justify-between text-gray-600"><span>Tax</span><span>{formatMoney(totals.tax, 'ZMW')}</span></div>}
-            <div className="flex justify-between font-semibold text-gray-900 pt-1 border-t border-gray-200"><span>Total</span><span>{formatMoney(totals.total, 'ZMW')}</span></div>
+            <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{formatMoney(totals.subtotal, currency)}</span></div>
+            {totals.discount > 0 && <div className="flex justify-between text-gray-600"><span>Discount</span><span>-{formatMoney(totals.discount, currency)}</span></div>}
+            {totals.tax > 0 && <div className="flex justify-between text-gray-600"><span>Tax</span><span>{formatMoney(totals.tax, currency)}</span></div>}
+            <div className="flex justify-between font-semibold text-gray-900 pt-1 border-t border-gray-200"><span>Total</span><span>{formatMoney(totals.total, currency)}</span></div>
           </div>
 
           <textarea
@@ -911,6 +1005,26 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
             onChange={e => setTerms(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+          </div>
+
+          {/* Desktop: sticky live preview column */}
+          <div className="hidden lg:block border-l border-gray-100 bg-slate-50/40 p-5">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5" />Live preview
+            </p>
+            <div className="sticky top-4">
+              <ManualDocumentPreview
+                documentType={documentType}
+                brandKit={brandKit}
+                contactName={selectedContact?.name ?? null}
+                items={items}
+                totals={totals}
+                notes={notes}
+                terms={terms}
+                currency={currency}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
@@ -918,7 +1032,7 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
           <button
             onClick={create}
             disabled={saving || !contactId}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-2xl hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-50 shadow-lg shadow-indigo-500/25"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {saving ? 'Creating…' : 'Create & Generate PDF'}
@@ -927,6 +1041,84 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
         </>
         )}
       </div>
+    </div>
+  )
+}
+
+function ManualDocumentPreview({
+  documentType, brandKit, contactName, items, totals, notes, terms, currency,
+}: {
+  documentType: 'quotation' | 'invoice' | 'receipt'
+  brandKit: BrandKitSummary | null
+  contactName: string | null
+  items: LineItem[]
+  totals: { subtotal: number; discount: number; tax: number; total: number }
+  notes: string
+  terms: string
+  currency: string
+}) {
+  const headerColor = brandKit?.themeColor || '#4F46E5'
+  const docLabel = documentType === 'quotation' ? 'QUOTATION' : documentType === 'invoice' ? 'INVOICE' : 'RECEIPT'
+  const validItems = items.filter(i => i.description.trim())
+  const effectiveTerms = terms.trim() || brandKit?.defaultTerms || ''
+
+  return (
+    <div className="w-full min-w-[240px] rounded-2xl overflow-hidden border border-gray-100 shadow-sm bg-white">
+      <div className="flex items-center justify-between gap-2 px-4 py-3" style={{ background: headerColor, color: '#fff' }}>
+        {brandKit?.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={brandKit.logoUrl} alt="" className="h-7 object-contain" />
+        ) : (
+          <p className="text-sm font-bold truncate">{brandKit?.companyName || 'Your Company'}</p>
+        )}
+        <p className="text-xs font-extrabold tracking-wide opacity-90 flex-shrink-0">{docLabel}</p>
+      </div>
+
+      {contactName && (
+        <div className="px-4 py-2.5 border-b border-gray-100">
+          <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Bill To</p>
+          <p className="text-xs font-semibold text-gray-800 truncate">{contactName}</p>
+        </div>
+      )}
+
+      <div className="px-4 py-2.5">
+        {validItems.length === 0 ? (
+          <p className="text-xs text-gray-300 italic text-center py-3">No items yet</p>
+        ) : (
+          <div className="space-y-1">
+            {validItems.map((item, i) => (
+              <div key={i} className="flex justify-between gap-2 text-xs">
+                <span className="text-gray-700 truncate">{item.quantity}× {item.description}</span>
+                <span className="text-gray-600 flex-shrink-0">{formatMoney(Math.round(item.quantity * item.unitPriceCents), currency)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="px-4 py-2.5 border-t border-gray-100 space-y-0.5">
+        <div className="flex justify-between text-xs text-gray-500"><span>Subtotal</span><span>{formatMoney(totals.subtotal, currency)}</span></div>
+        {totals.discount > 0 && <div className="flex justify-between text-xs text-gray-500"><span>Discount</span><span>-{formatMoney(totals.discount, currency)}</span></div>}
+        {totals.tax > 0 && <div className="flex justify-between text-xs text-gray-500"><span>Tax</span><span>{formatMoney(totals.tax, currency)}</span></div>}
+        <div className="flex justify-between text-sm font-bold text-gray-900 pt-1 border-t border-gray-100"><span>Total</span><span>{formatMoney(totals.total, currency)}</span></div>
+      </div>
+
+      {(notes.trim() || effectiveTerms) && (
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 space-y-1.5">
+          {notes.trim() && (
+            <div>
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Notes</p>
+              <p className="text-[11px] text-gray-600">{notes}</p>
+            </div>
+          )}
+          {effectiveTerms && (
+            <div>
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Terms</p>
+              <p className="text-[11px] text-gray-600">{effectiveTerms}</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
