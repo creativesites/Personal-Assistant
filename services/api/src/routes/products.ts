@@ -170,6 +170,7 @@ type ProductRow = {
   attributes?: Record<string, any>
   parent_product_id?: string | null
   variant_count?: string
+  incoming?: number
 }
 
 function toApiShape(p: ProductRow) {
@@ -236,6 +237,9 @@ function toApiShape(p: ProductRow) {
     attributes: p.attributes ?? {},
     parentProductId: p.parent_product_id ?? null,
     variantCount: p.variant_count !== undefined ? Number(p.variant_count) : undefined,
+
+    // Business OS Phase B
+    incoming: p.incoming ?? 0,
   }
 }
 
@@ -257,7 +261,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
                 p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
                 p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
                 p.discount_min_pct, p.discount_max_pct,
-                p.family_id, p.attributes, p.parent_product_id,
+                p.family_id, p.attributes, p.parent_product_id, p.incoming,
                 COUNT(DISTINCT cp.contact_id) AS linked_contacts,
                 COUNT(DISTINCT co.id) FILTER (WHERE co.source_product_id = p.id) AS attributed_leads,
                 COUNT(DISTINCT v.id) AS variant_count
@@ -295,7 +299,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
                 p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
                 p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
                 p.discount_min_pct, p.discount_max_pct,
-                p.family_id, p.attributes, p.parent_product_id
+                p.family_id, p.attributes, p.parent_product_id, p.incoming
          FROM products p
          WHERE p.user_id = $1 AND p.parent_product_id = $2 AND p.status != 'archived'
          ORDER BY p.name ASC`,

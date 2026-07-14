@@ -194,6 +194,33 @@ interface StudioInsights {
   lowStock: { id: string; name: string; available: number; minimumStock: number }[]
   thinMargin: { id: string; name: string; sellingPrice: number; purchaseCost: number; marginPct: number }[]
   supplierFlags: { id: string; company: string; reliabilityScore: number; averageDeliveryTime: number; flag: 'low_reliability' | 'slow_delivery' }[]
+  suggestedPurchaseOrders: {
+    productId: string; productName: string; available: number; minimumStock: number; incoming: number
+    supplierId: string; supplierName: string; unitCost: number | null; leadTimeDays: number | null
+    quantity: number; estimatedCost: number | null
+  }[]
+}
+
+interface SupplierProduct {
+  supplierId: string
+  productId: string
+  productName?: string
+  supplierName?: string
+  cost: number | null
+  leadTimeDays: number | null
+  minimumQty: number | null
+}
+
+interface PurchaseOrderDoc {
+  id: string
+  documentNumber: string
+  title: string
+  status: string
+  supplierId: string | null
+  currency: string
+  totalCents: number
+  structuredData: { supplierName?: string; expectedDeliveryDate?: string | null; items?: { description: string; quantity: number; unitPriceCents: number }[] }
+  createdAt: string
 }
 
 interface AdvisorSession {
@@ -2237,13 +2264,249 @@ const BLANK_SUPPLIER_FORM = {
   paymentTerms: '', notes: '',
 }
 
+// Products a supplier can source, with per-supplier cost/lead-time/minimum
+// qty (Business OS Phase B, docs/BUSINESS_OS_PLAN.md §8.2) — a product can
+// have more than one supplier at different prices, which the single
+// products.supplierId FK can't express.
+function SupplierProductsPanel({ token, supplierId }: { token: string | undefined; supplierId: string }) {
+  const { data, refetch } = useApi<{ supplierProducts: SupplierProduct[] }>(
+    token ? `/api/suppliers/${supplierId}/products` : null, token,
+  )
+  const { data: productsData } = useApi<{ products: Product[] }>(token ? '/api/products' : null, token)
+  const { addToast } = useToast()
+  const supplierProducts = data?.supplierProducts ?? []
+  const products = productsData?.products ?? []
+  const linkedIds = new Set(supplierProducts.map(sp => sp.productId))
+
+  const [showLink, setShowLink] = useState(false)
+  const [form, setForm] = useState({ productId: '', cost: '', leadTimeDays: '', minimumQty: '' })
+  const [saving, setSaving] = useState(false)
+
+  async function linkProduct(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.productId) return
+    setSaving(true)
+    try {
+      await apiClient(`/api/suppliers/${supplierId}/products/${form.productId}`, {
+        method: 'PUT', token,
+        body: JSON.stringify({
+          cost: form.cost ? parseFloat(form.cost) : null,
+          leadTimeDays: form.leadTimeDays ? parseInt(form.leadTimeDays, 10) : null,
+          minimumQty: form.minimumQty ? parseInt(form.minimumQty, 10) : null,
+        }),
+      })
+      setForm({ productId: '', cost: '', leadTimeDays: '', minimumQty: '' })
+      setShowLink(false)
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to link product' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function unlinkProduct(productId: string) {
+    try {
+      await apiClient(`/api/suppliers/${supplierId}/products/${productId}`, { method: 'DELETE', token })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to remove' })
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-gray-500">Products supplied</p>
+        <button onClick={() => setShowLink(v => !v)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">
+          + Link product
+        </button>
+      </div>
+
+      {showLink && (
+        <form onSubmit={linkProduct} className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 rounded-lg p-2.5 mb-2">
+          <select
+            required
+            value={form.productId}
+            onChange={e => setForm(f => ({ ...f, productId: e.target.value }))}
+            className="col-span-2 sm:col-span-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">Product...</option>
+            {products.filter(p => !linkedIds.has(p.id)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input
+            type="number" min="0" step="0.01" placeholder="Cost"
+            value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))}
+            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <input
+            type="number" min="0" placeholder="Lead days"
+            value={form.leadTimeDays} onChange={e => setForm(f => ({ ...f, leadTimeDays: e.target.value }))}
+            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <div className="flex gap-1">
+            <input
+              type="number" min="1" placeholder="Min qty"
+              value={form.minimumQty} onChange={e => setForm(f => ({ ...f, minimumQty: e.target.value }))}
+              className="flex-1 rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <Button type="submit" size="sm" disabled={saving}><Check className="w-3.5 h-3.5" /></Button>
+          </div>
+        </form>
+      )}
+
+      {supplierProducts.length === 0 ? (
+        <p className="text-xs text-gray-400">No products linked to this supplier yet.</p>
+      ) : (
+        <div className="rounded-lg border border-gray-100 divide-y divide-gray-50 overflow-hidden">
+          {supplierProducts.map(sp => (
+            <div key={sp.productId} className="flex items-center gap-2 px-3 py-2 text-xs">
+              <span className="flex-1 truncate text-gray-700">{sp.productName}</span>
+              {sp.cost != null && <span className="text-gray-500">{formatCurrency(sp.cost, 'USD')}</span>}
+              {sp.leadTimeDays != null && <span className="text-gray-400">{sp.leadTimeDays}d</span>}
+              <button onClick={() => unlinkProduct(sp.productId)} className="p-1 rounded hover:bg-gray-100 text-red-400">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PO_STATUS_META: Record<string, { label: string; variant: 'default' | 'info' | 'success' | 'warning' }> = {
+  draft:    { label: 'Draft',    variant: 'default' },
+  sent:     { label: 'Ordered',  variant: 'info' },
+  accepted: { label: 'Received', variant: 'success' },
+}
+
+// Purchase order documents (Business OS Phase B, §8.3) — reuses the shared
+// `documents` table (document_type = 'purchase_order') via the generic
+// GET /api/documents?type= list endpoint, plus the dedicated approve/receive
+// workflow endpoints in purchase-orders.ts.
+function PurchaseOrdersSection({ token }: { token: string | undefined }) {
+  const { data, loading, refetch } = useApi<{ documents: PurchaseOrderDoc[] }>(
+    token ? '/api/documents?type=purchase_order' : null, token,
+  )
+  const { addToast } = useToast()
+  const orders = data?.documents ?? []
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  async function approve(id: string) {
+    setBusyId(id)
+    try {
+      await apiClient(`/api/purchase-orders/${id}/approve`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Purchase order sent' })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to approve' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function receive(id: string) {
+    setBusyId(id)
+    try {
+      await apiClient(`/api/purchase-orders/${id}/receive`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Marked as received — stock updated' })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to mark received' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (!loading && orders.length === 0) return null
+
+  return (
+    <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4 space-y-3">
+      <p className="text-sm font-semibold text-gray-900">Purchase Orders</p>
+      {loading ? (
+        <SkeletonCard />
+      ) : (
+        <div className="rounded-xl border border-gray-100 divide-y divide-gray-50 overflow-hidden">
+          {orders.map(po => {
+            const meta = PO_STATUS_META[po.status] ?? { label: po.status, variant: 'default' as const }
+            const isExpanded = expandedId === po.id
+            return (
+              <div key={po.id}>
+                <button
+                  onClick={() => setExpandedId(isExpanded ? null : po.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800 truncate">{po.documentNumber} — {po.structuredData?.supplierName ?? 'Supplier'}</p>
+                    <p className="text-xs text-gray-400">{formatCurrency(po.totalCents / 100, po.currency)}</p>
+                  </div>
+                  <Badge variant={meta.variant}>{meta.label}</Badge>
+                  {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                </button>
+                {isExpanded && (
+                  <div className="px-3 pb-3 space-y-2">
+                    {(po.structuredData?.items ?? []).map((item, i) => (
+                      <div key={i} className="flex justify-between text-xs text-gray-600">
+                        <span>{item.quantity}× {item.description}</span>
+                        <span>{formatCurrency((item.unitPriceCents * item.quantity) / 100, po.currency)}</span>
+                      </div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      {po.status === 'draft' && (
+                        <Button size="sm" onClick={() => approve(po.id)} disabled={busyId === po.id}>
+                          {busyId === po.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
+                          Approve & Send
+                        </Button>
+                      )}
+                      {po.status === 'sent' && (
+                        <Button size="sm" onClick={() => receive(po.id)} disabled={busyId === po.id}>
+                          {busyId === po.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
+                          Mark Received
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SuppliersModule({ token, onAskAI }: { token: string | undefined; onAskAI: (prompt: string) => void }) {
   const { data: suppliersData, loading, refetch } = useApi<{ suppliers: Supplier[] }>(
     token ? '/api/suppliers' : null, token,
   )
-  const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
+  const { data: insights, refetch: refetchInsights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
   const { addToast } = useToast()
   const suppliers = suppliersData?.suppliers ?? []
+
+  const [creatingPOFor, setCreatingPOFor] = useState<string | null>(null)
+
+  async function createAndApprovePO(suggestion: StudioInsights['suggestedPurchaseOrders'][number]) {
+    setCreatingPOFor(suggestion.productId)
+    try {
+      await apiClient('/api/purchase-orders', {
+        method: 'POST', token,
+        body: JSON.stringify({
+          supplierId: suggestion.supplierId,
+          items: [{ productId: suggestion.productId, quantity: suggestion.quantity }],
+          autoApprove: true,
+        }),
+      })
+      addToast({ variant: 'success', title: `Purchase order sent to ${suggestion.supplierName}` })
+      refetchInsights()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to create purchase order' })
+    } finally {
+      setCreatingPOFor(null)
+    }
+  }
 
   const [showAdd,       setShowAdd]       = useState(false)
   const [saving,        setSaving]        = useState(false)
@@ -2307,6 +2570,39 @@ function SuppliersModule({ token, onAskAI }: { token: string | undefined; onAskA
 
   return (
     <div className="space-y-4">
+      {insights && insights.suggestedPurchaseOrders.length > 0 && (
+        <div className="rounded-[1.75rem] border border-indigo-100 bg-white shadow-sm shadow-indigo-100/70 p-4 space-y-3">
+          <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <Truck className="w-4 h-4 text-indigo-500" />
+            Suggested reorders
+          </p>
+          <div className="space-y-2">
+            {insights.suggestedPurchaseOrders.map(sug => (
+              <div key={sug.productId} className="flex items-center justify-between gap-3 rounded-xl bg-indigo-50/60 ring-1 ring-indigo-100 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {sug.quantity}× {sug.productName}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    from {sug.supplierName}
+                    {sug.unitCost != null && ` · ${formatCurrency(sug.estimatedCost, 'USD')} est.`}
+                    {sug.leadTimeDays != null && ` · ${sug.leadTimeDays}d lead time`}
+                  </p>
+                </div>
+                <Button size="sm" onClick={() => createAndApprovePO(sug)} disabled={creatingPOFor === sug.productId}>
+                  {creatingPOFor === sug.productId
+                    ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                    : <Check className="w-3.5 h-3.5 mr-1" />}
+                  Create & Send PO
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <PurchaseOrdersSection token={token} />
+
       {insights && insights.supplierFlags.length > 0 && (
         <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-orange-50 to-white border border-orange-100 shadow-sm shadow-orange-100/70 p-4">
           <div className="flex items-start gap-3">
@@ -2501,6 +2797,8 @@ function SuppliersModule({ token, onAskAI }: { token: string | undefined; onAskA
                       {s.paymentTerms && <div><span className="text-gray-400">Payment:</span> <span className="font-medium text-gray-700">{s.paymentTerms}</span></div>}
                       {s.outstandingBalance > 0 && <div><span className="text-gray-400">Outstanding:</span> <span className="font-medium text-red-600">${s.outstandingBalance}</span></div>}
                     </div>
+
+                    <SupplierProductsPanel token={token} supplierId={s.id} />
                   </div>
                 )}
               </div>

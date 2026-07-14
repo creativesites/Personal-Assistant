@@ -41,6 +41,7 @@ import { recurringDocumentsRoutes } from './routes/recurring-documents';
 import { suppliersRoutes } from './routes/suppliers';
 import { studioRoutes } from './routes/studio';
 import { productFamiliesRoutes } from './routes/product-families';
+import { purchaseOrdersRoutes } from './routes/purchase-orders';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -108,6 +109,7 @@ export async function buildApp() {
   await fastify.register(suppliersRoutes);
   await fastify.register(studioRoutes);
   await fastify.register(productFamiliesRoutes);
+  await fastify.register(purchaseOrdersRoutes);
 
   return fastify;
 }

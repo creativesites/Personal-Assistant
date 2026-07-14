@@ -103,7 +103,7 @@ export async function assignDocumentNumber(userId: string, documentType: string)
   return `${row.prefix}${row.assigned}`;
 }
 
-function formatDocument(r: any) {
+export function formatDocument(r: any) {
   return {
     id: r.id,
     documentType: r.document_type,
@@ -130,6 +130,7 @@ function formatDocument(r: any) {
     dealId: r.deal_id,
     opportunityId: r.opportunity_id,
     conversationId: r.conversation_id,
+    supplierId: r.supplier_id,
     templateId: r.template_id,
     contact: r.contact_name ? { id: r.contact_id, name: r.contact_name, avatarUrl: r.avatar_url ?? null } : null,
     createdAt: r.created_at,

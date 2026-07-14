@@ -179,4 +179,119 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({ ok: true })
     },
   )
+
+  // ── Supplier products — per-supplier pricing/lead-time for a catalog item
+  // (Business OS Phase B, see docs/BUSINESS_OS_PLAN.md §8.2). A product can
+  // be sourced from more than one supplier at different costs, which a
+  // single products.supplier_id FK can't express. ──
+
+  const supplierProductBody = z.object({
+    cost: z.number().nonnegative().optional().nullable(),
+    leadTimeDays: z.number().int().nonnegative().optional().nullable(),
+    minimumQty: z.number().int().positive().optional().nullable(),
+  })
+
+  function supplierProductApiShape(r: any) {
+    return {
+      supplierId: r.supplier_id,
+      productId: r.product_id,
+      productName: r.product_name ?? undefined,
+      supplierName: r.supplier_name ?? undefined,
+      cost: r.cost != null ? Number(r.cost) : null,
+      leadTimeDays: r.lead_time_days ?? null,
+      minimumQty: r.minimum_qty ?? null,
+      updatedAt: r.updated_at,
+    }
+  }
+
+  // GET /api/suppliers/:id/products — everything this supplier can source
+  fastify.get(
+    '/api/suppliers/:id/products',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows } = await db.query(
+        `SELECT sp.*, p.name AS product_name
+         FROM supplier_products sp
+         JOIN products p ON p.id = sp.product_id AND p.user_id = $1
+         WHERE sp.supplier_id = $2
+         ORDER BY p.name ASC`,
+        [userId, id],
+      )
+
+      return reply.send({ supplierProducts: rows.map(supplierProductApiShape) })
+    },
+  )
+
+  // GET /api/products/:id/suppliers — every supplier that can source this
+  // product, cheapest first (used to auto-pick a supplier for a suggested PO)
+  fastify.get(
+    '/api/products/:id/suppliers',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows } = await db.query(
+        `SELECT sp.*, s.company AS supplier_name
+         FROM supplier_products sp
+         JOIN suppliers s ON s.id = sp.supplier_id AND s.user_id = $1
+         WHERE sp.product_id = $2
+         ORDER BY sp.cost ASC NULLS LAST`,
+        [userId, id],
+      )
+
+      return reply.send({ supplierProducts: rows.map(supplierProductApiShape) })
+    },
+  )
+
+  // PUT /api/suppliers/:id/products/:productId — upsert
+  fastify.put(
+    '/api/suppliers/:id/products/:productId',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, productId } = request.params as { id: string; productId: string }
+      const body = supplierProductBody.parse(request.body)
+
+      const { rows: [supplier] } = await db.query('SELECT id FROM suppliers WHERE id = $1 AND user_id = $2', [id, userId])
+      if (!supplier) return reply.code(404).send({ error: 'Supplier not found' })
+      const { rows: [product] } = await db.query('SELECT id FROM products WHERE id = $1 AND user_id = $2', [productId, userId])
+      if (!product) return reply.code(404).send({ error: 'Product not found' })
+
+      const { rows: [row] } = await db.query(
+        `INSERT INTO supplier_products (supplier_id, product_id, cost, lead_time_days, minimum_qty)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (supplier_id, product_id) DO UPDATE SET
+           cost = EXCLUDED.cost, lead_time_days = EXCLUDED.lead_time_days,
+           minimum_qty = EXCLUDED.minimum_qty, updated_at = NOW()
+         RETURNING *`,
+        [id, productId, body.cost ?? null, body.leadTimeDays ?? null, body.minimumQty ?? null],
+      )
+
+      return reply.code(201).send({ supplierProduct: supplierProductApiShape(row) })
+    },
+  )
+
+  // DELETE /api/suppliers/:id/products/:productId
+  fastify.delete(
+    '/api/suppliers/:id/products/:productId',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, productId } = request.params as { id: string; productId: string }
+
+      const { rowCount } = await db.query(
+        `DELETE FROM supplier_products
+         WHERE supplier_id = $1 AND product_id = $2
+           AND supplier_id IN (SELECT id FROM suppliers WHERE user_id = $3)`,
+        [id, productId, userId],
+      )
+      if (!rowCount) return reply.code(404).send({ error: 'Not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
 }
