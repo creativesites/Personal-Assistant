@@ -22,10 +22,14 @@ import {
   Calendar,
   Loader2,
   RefreshCw,
+  X,
+  CheckCircle,
+  MessageCircle,
+  ShieldCheck,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
-import { Avatar, Badge, HealthBar, SkeletonCard, StatCard, useToast } from '@/components/ui'
+import { Avatar, Badge, HealthBar, SkeletonCard, useToast } from '@/components/ui'
 
 interface Conversation {
   id: string
@@ -119,9 +123,9 @@ function rollupColor(score: number) {
 function RollupStat({ label, value, suffix = '' }: { label: string; value: number | null; suffix?: string }) {
   if (value === null) return null
   return (
-    <div>
+    <div className="rounded-2xl bg-gray-50/90 px-3 py-2.5 ring-1 ring-gray-100">
       <p className={`text-lg font-bold tabular-nums ${rollupColor(value)}`}>{value}{suffix}</p>
-      <p className="text-[10px] text-gray-500 mt-0.5">{label}</p>
+      <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{label}</p>
     </div>
   )
 }
@@ -159,9 +163,9 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200 hover:border-indigo-300 hover:shadow-sm transition-all group"
+      className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white/90 p-4 shadow-sm shadow-gray-200/40 transition-all group hover:border-indigo-200 hover:shadow-md"
     >
-      <div className={`w-10 h-10 rounded-lg ${iconBg} ${iconColor} flex items-center justify-center flex-shrink-0 group-hover:opacity-90 transition-opacity`}>
+      <div className={`w-11 h-11 rounded-2xl ${iconBg} ${iconColor} flex items-center justify-center flex-shrink-0 group-hover:opacity-90 transition-opacity`}>
         <Icon size={18} />
       </div>
       <div className="min-w-0 flex-1">
@@ -171,6 +175,13 @@ function QuickAction({
       <ChevronRight size={16} className="text-gray-300 flex-shrink-0 group-hover:text-indigo-400 transition-colors" />
     </Link>
   )
+}
+
+function sourceLabel(sourceType: BriefItem['sourceType']) {
+  if (sourceType === 'opportunity') return 'Opportunity'
+  if (sourceType === 'health_decline') return 'Health drop'
+  if (sourceType === 'event') return 'Moment'
+  return 'Nudge'
 }
 
 export default function DashboardPage() {
@@ -191,6 +202,8 @@ export default function DashboardPage() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [regenTargetId, setRegenTargetId] = useState<string | null>(null)
   const [instruction, setInstruction] = useState('')
+  const [briefDismissed, setBriefDismissed] = useState(false)
+  const [dismissedBriefItems, setDismissedBriefItems] = useState<string[]>([])
 
   useEffect(() => {
     if (!token) return
@@ -281,15 +294,21 @@ export default function DashboardPage() {
     return { unread, pending, avgHealth, needsAttention, totalContacts: contacts.length, proactiveCount: proactive.length }
   }, [conversations, contacts, proactive])
 
+  const visibleBriefItems = useMemo(() => {
+    const dismissed = new Set(dismissedBriefItems)
+    return brief?.items.filter(item => !dismissed.has(`${item.sourceType}-${item.id}`)) ?? []
+  }, [brief, dismissedBriefItems])
+
   if (session.status === 'loading') {
     return (
-      <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
-        <div className="h-16 bg-gray-200 rounded-xl animate-pulse" />
-        <div className="grid grid-cols-2 gap-3">
-          {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-24 bg-gray-200 rounded-xl animate-pulse" />)}
+      <div className="min-h-full bg-slate-950 p-4 md:p-6">
+        <div className="mx-auto max-w-5xl space-y-4">
+          <div className="h-40 rounded-[2rem] bg-white/10 animate-pulse" />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-28 rounded-3xl bg-white/10 animate-pulse" />)}
+          </div>
+          <SkeletonCard />
         </div>
-        <SkeletonCard />
-        <SkeletonCard />
       </div>
     )
   }
@@ -320,125 +339,223 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   return (
-    <div className="flex flex-col min-h-full bg-gray-50">
-      {/* Hero header */}
-      <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-5 md:py-6">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight">
-              {greeting(session.data?.user.name)}
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {loading
-                ? 'Loading your workspace…'
-                : stats.unread > 0
-                ? `${stats.unread} unread message${stats.unread !== 1 ? 's' : ''} · ${stats.proactiveCount} pending action${stats.proactiveCount !== 1 ? 's' : ''}`
-                : 'All caught up! Your workspace is ready.'}
-            </p>
-          </div>
-          <Link
-            href="/inbox"
-            className="flex-shrink-0 inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 active:bg-indigo-800 transition-colors shadow-sm"
-          >
-            <Inbox size={15} />
-            <span>Open Inbox</span>
-            {stats.unread > 0 && (
-              <span className="bg-white/25 text-white text-xs rounded-full px-1.5 py-0.5 font-semibold">
-                {stats.unread}
-              </span>
-            )}
-          </Link>
-        </div>
-      </div>
+    <div className="flex min-h-full flex-col bg-[linear-gradient(180deg,#0f172a_0%,#111827_220px,#f8fafc_221px,#f8fafc_100%)] md:bg-[linear-gradient(180deg,#0f172a_0%,#111827_260px,#f8fafc_261px,#f8fafc_100%)]">
+      <div className="flex-1 px-4 pb-8 pt-4 md:px-6 md:pt-6">
+        <div className="mx-auto w-full max-w-5xl space-y-5 md:space-y-6">
+          <section className="relative overflow-hidden rounded-[2rem] bg-slate-950 px-4 py-5 text-white shadow-2xl shadow-slate-950/20 ring-1 ring-white/10 sm:px-6 md:px-7 md:py-7">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_10%,rgba(129,140,248,0.45),transparent_34%),radial-gradient(circle_at_10%_80%,rgba(45,212,191,0.22),transparent_30%)]" />
+            <div className="relative">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-indigo-100 ring-1 ring-white/10">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+                    Live relationship OS
+                  </div>
+                  <h1 className="max-w-xl text-2xl font-bold leading-tight tracking-tight md:text-4xl">
+                    {greeting(session.data?.user.name)}
+                  </h1>
+                  <p className="mt-2 max-w-lg text-sm leading-6 text-slate-300 md:text-base">
+                    {loading
+                      ? 'Loading the signals that matter most.'
+                      : stats.unread > 0
+                      ? `${stats.unread} unread message${stats.unread !== 1 ? 's' : ''}, ${stats.proactiveCount} proactive move${stats.proactiveCount !== 1 ? 's' : ''}, and ${stats.needsAttention} relationship${stats.needsAttention !== 1 ? 's' : ''} to protect.`
+                      : 'No urgent messages right now. Zuri is still watching for moments that need your touch.'}
+                  </p>
+                </div>
+                <Link
+                  href="/advisor"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-lg shadow-black/20 transition-transform active:scale-95 md:h-auto md:w-auto md:gap-2 md:px-4 md:py-2.5 md:text-sm md:font-semibold"
+                  aria-label="Open AI Advisor"
+                >
+                  <Brain size={18} />
+                  <span className="hidden md:inline">Ask Zuri</span>
+                </Link>
+              </div>
 
-      <div className="flex-1 px-4 md:px-6 py-5 max-w-4xl mx-auto w-full space-y-6">
-
-        {/* Stats grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {displayStats.map((s, i) => {
-            const Icon = s.icon
-            return (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-sm transition-shadow">
-                <div className="flex items-center justify-between mb-3">
-                  <div className={`w-9 h-9 rounded-lg ${s.iconBg} ${s.iconColor} flex items-center justify-center`}>
-                    <Icon size={16} />
+              <div className="mt-6 grid grid-cols-[1fr_auto] items-end gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Today</p>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-5xl font-black tracking-tight tabular-nums md:text-6xl">{stats.unread}</span>
+                    <span className="pb-2 text-sm font-semibold text-slate-300">unread</span>
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-gray-900 tabular-nums leading-tight">{s.value}</p>
-                <p className="text-xs text-gray-500 mt-0.5 font-medium">{s.label}</p>
+                <Link
+                  href="/inbox"
+                  className="inline-flex min-h-12 items-center gap-2 rounded-2xl bg-indigo-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-950/30 transition-colors hover:bg-indigo-400 active:bg-indigo-600"
+                >
+                  <Inbox size={17} />
+                  Inbox
+                  {stats.unread > 0 && <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">{stats.unread}</span>}
+                </Link>
               </div>
-            )
-          })}
-        </div>
 
-        {/* AI Daily Brief — same greeting/place every morning, real names and numbers */}
-        {brief && (brief.items.length > 0 || brief.revenueAtRisk) && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-            <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-4 md:px-5 py-3.5 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
-                <Sparkles size={15} className="text-white" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-white">
-                  {mode === 'personal' ? "Here's who's on your mind today" : "Here's what changed overnight"}
-                </h2>
-                <p className="text-[11px] text-white/70">
-                  {brief.items.length} item{brief.items.length !== 1 ? 's' : ''} worth a look
-                </p>
+              <div className="mt-5 grid grid-cols-3 gap-2 rounded-3xl bg-white/10 p-2 ring-1 ring-white/10">
+                <Link href="/proactive" className="rounded-2xl px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15">
+                  <p className="text-xl font-bold tabular-nums">{stats.proactiveCount}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-300">Moves</p>
+                </Link>
+                <Link href={mode === 'business' ? '/contacts' : '/relationships'} className="rounded-2xl px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15">
+                  <p className="text-xl font-bold tabular-nums">{stats.totalContacts}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-300">People</p>
+                </Link>
+                <Link href="/analytics/health" className="rounded-2xl px-3 py-3 transition-colors hover:bg-white/10 active:bg-white/15">
+                  <p className="text-xl font-bold tabular-nums">{mode === 'personal' ? stats.avgHealth : stats.pending}</p>
+                  <p className="mt-0.5 text-[10px] font-semibold text-slate-300">{mode === 'personal' ? 'Health' : 'Active'}</p>
+                </Link>
               </div>
             </div>
+          </section>
 
-            <div className="divide-y divide-gray-50">
-              {brief.items.map(item => {
-                const style = BRIEF_STYLES[item.sourceType]
-                const Icon = style.Icon
-                return (
-                  <Link
-                    key={`${item.sourceType}-${item.id}`}
-                    href={`/contacts/${item.contact.id}`}
-                    className="flex items-start gap-3 px-4 md:px-5 py-3 hover:bg-gray-50/80 transition-colors group"
-                  >
-                    <div className={`w-8 h-8 rounded-lg ${style.iconBg} ${style.iconColor} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                      <Icon size={14} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-700 leading-relaxed">
-                        <span className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{item.contact.name}</span>{' '}
-                        {item.headline}
-                      </p>
-                      {item.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{item.detail}</p>}
-                    </div>
-                    {item.amountCents !== null && (
-                      <span className="flex-shrink-0 text-xs font-semibold text-green-700 bg-green-50 rounded-full px-2 py-1 mt-0.5">
-                        {formatCents(item.amountCents)}
-                      </span>
-                    )}
-                  </Link>
-                )
-              })}
-            </div>
-
-            {brief.revenueAtRisk && (
-              <div className="flex items-center gap-3 px-4 md:px-5 py-3 bg-red-50 border-t border-red-100">
-                <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle size={14} />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {displayStats.map((s, i) => {
+              const Icon = s.icon
+              return (
+                <div key={i} className="rounded-3xl border border-white bg-white/95 p-4 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 transition-shadow hover:shadow-md">
+                  <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-2xl ${s.iconBg} ${s.iconColor}`}>
+                    <Icon size={17} />
+                  </div>
+                  <p className="text-2xl font-black leading-none tracking-tight text-gray-950 tabular-nums">{s.value}</p>
+                  <p className="mt-1.5 text-xs font-semibold leading-tight text-gray-500">{s.label}</p>
                 </div>
-                <p className="text-sm text-red-700 leading-relaxed">
-                  Revenue at risk:{' '}
-                  <span className="font-bold">{formatCents(brief.revenueAtRisk.cents)}</span>
-                  {' '}across {brief.revenueAtRisk.contactCount} customer{brief.revenueAtRisk.contactCount !== 1 ? 's' : ''}
-                </p>
-              </div>
-            )}
+              )
+            })}
           </div>
-        )}
+
+          {/* AI Daily Brief — same greeting/place every morning, real names and numbers */}
+          {brief && !briefDismissed && (visibleBriefItems.length > 0 || brief.revenueAtRisk) && (
+            <section className="overflow-hidden rounded-[2rem] bg-white shadow-xl shadow-indigo-950/10 ring-1 ring-indigo-100">
+              <div className="relative bg-gradient-to-br from-indigo-700 via-slate-950 to-cyan-950 px-4 py-4 text-white sm:px-5">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_90%_10%,rgba(34,211,238,0.35),transparent_28%)]" />
+                <div className="relative flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 gap-3">
+                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/15">
+                      <Sparkles size={18} className="text-cyan-100" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-100/80">AI Daily Brief</p>
+                      <h2 className="mt-1 text-lg font-bold tracking-tight">
+                        {mode === 'personal' ? 'People worth your attention' : 'Your highest-leverage moves'}
+                      </h2>
+                      <p className="mt-1 text-xs leading-5 text-white/65">
+                        Clear the deck one signal at a time. Dismiss what is handled, open what needs context.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBriefDismissed(true)}
+                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                    aria-label="Dismiss AI Daily Brief"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="relative mt-4 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                  <Link href="/proactive" className="flex min-w-[138px] items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-xs font-bold text-white ring-1 ring-white/10">
+                    <Zap size={14} className="text-amber-200" />
+                    {visibleBriefItems.length} live signal{visibleBriefItems.length !== 1 ? 's' : ''}
+                  </Link>
+                  {brief.revenueAtRisk && (
+                    <Link href="/analytics/opportunities" className="flex min-w-[164px] items-center gap-2 rounded-2xl bg-red-400/15 px-3 py-2.5 text-xs font-bold text-red-100 ring-1 ring-red-300/20">
+                      <AlertTriangle size={14} />
+                      {formatCents(brief.revenueAtRisk.cents)} at risk
+                    </Link>
+                  )}
+                  <Link href="/advisor" className="flex min-w-[130px] items-center gap-2 rounded-2xl bg-white/10 px-3 py-2.5 text-xs font-bold text-white ring-1 ring-white/10">
+                    <MessageCircle size={14} className="text-cyan-100" />
+                    Ask why
+                  </Link>
+                </div>
+              </div>
+
+              <div className="space-y-3 p-3 sm:p-4">
+                {visibleBriefItems.map(item => {
+                  const style = BRIEF_STYLES[item.sourceType]
+                  const Icon = style.Icon
+                  const itemKey = `${item.sourceType}-${item.id}`
+                  return (
+                    <div key={itemKey} className="rounded-3xl border border-gray-100 bg-gray-50/80 p-3 transition-colors hover:bg-white">
+                      <div className="flex items-start gap-3">
+                        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl ${style.iconBg} ${style.iconColor}`}>
+                          <Icon size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <Avatar name={item.contact.name} src={item.contact.avatarUrl ?? undefined} size="xs" />
+                            <span className="truncate text-sm font-bold text-gray-950">{item.contact.name}</span>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-gray-500 ring-1 ring-gray-100">
+                              {sourceLabel(item.sourceType)}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-5 text-gray-700">
+                            <span className="font-semibold text-gray-950">{item.headline}</span>
+                          </p>
+                          {item.detail && <p className="mt-1 text-xs leading-5 text-gray-500">{item.detail}</p>}
+                          {item.amountCents !== null && (
+                            <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100">
+                              {formatCents(item.amountCents)}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setDismissedBriefItems(prev => [...prev, itemKey])}
+                          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-white hover:text-gray-700"
+                          aria-label={`Dismiss brief item for ${item.contact.name}`}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <Link
+                          href={`/contacts/${item.contact.id}`}
+                          className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-2xl bg-gray-950 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-gray-800"
+                        >
+                          Open profile <ChevronRight size={13} />
+                        </Link>
+                        <Link
+                          href="/proactive"
+                          className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-gray-700 ring-1 ring-gray-200 transition-colors hover:bg-gray-50"
+                        >
+                          Draft move <Sparkles size={13} />
+                        </Link>
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {visibleBriefItems.length === 0 && (
+                  <div className="flex items-center gap-3 rounded-3xl bg-emerald-50 p-4 text-emerald-800 ring-1 ring-emerald-100">
+                    <CheckCircle size={18} />
+                    <div>
+                      <p className="text-sm font-bold">Brief cleared</p>
+                      <p className="text-xs text-emerald-700/80">You dismissed every signal in today&apos;s brief.</p>
+                    </div>
+                  </div>
+                )}
+
+                {brief.revenueAtRisk && (
+                  <Link href="/analytics/opportunities" className="flex items-center gap-3 rounded-3xl bg-red-50 p-4 text-red-800 ring-1 ring-red-100 transition-colors hover:bg-red-100/70">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-red-100 text-red-600">
+                      <ShieldCheck size={16} />
+                    </div>
+                    <p className="text-sm leading-5">
+                      Protect <span className="font-black">{formatCents(brief.revenueAtRisk.cents)}</span> across {brief.revenueAtRisk.contactCount} customer{brief.revenueAtRisk.contactCount !== 1 ? 's' : ''}.
+                    </p>
+                  </Link>
+                )}
+              </div>
+            </section>
+          )}
 
         {/* Health Rollup — composite score across categories already computed
             piecemeal elsewhere; both shapes always fetched, shown per mode */}
         {rollup && (
           <div className="grid md:grid-cols-2 gap-4">
             {(mode === 'business' || mode === 'hybrid') && rollup.business.overall !== null && (
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="rounded-[1.75rem] border border-gray-100 bg-white p-4 shadow-sm shadow-gray-200/70">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-gray-900">Business Health</h2>
                   <span className={`text-2xl font-bold tabular-nums ${rollupColor(rollup.business.overall)}`}>
@@ -456,7 +573,7 @@ export default function DashboardPage() {
               </div>
             )}
             {(mode === 'personal' || mode === 'hybrid') && rollup.personal.overall !== null && (
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="rounded-[1.75rem] border border-gray-100 bg-white p-4 shadow-sm shadow-gray-200/70">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-semibold text-gray-900">Personal Health</h2>
                   <span className={`text-2xl font-bold tabular-nums ${rollupColor(rollup.personal.overall)}`}>
@@ -467,7 +584,7 @@ export default function DashboardPage() {
                   <RollupStat label="Close circle" value={rollup.personal.closeCircleHealth} />
                   <RollupStat label="Events handled" value={rollup.personal.upcomingEventsHandled} suffix="%" />
                   <RollupStat label="Reciprocity" value={rollup.personal.reciprocityBalance} />
-                  <div>
+                  <div className="rounded-2xl bg-gray-50/90 px-3 py-2.5 ring-1 ring-gray-100">
                     <p className="text-lg font-bold tabular-nums text-gray-700">{rollup.personal.dormantCount}</p>
                     <p className="text-[10px] text-gray-500 mt-0.5">Dormant</p>
                   </div>
@@ -480,7 +597,7 @@ export default function DashboardPage() {
         {/* Hybrid: split mode overview */}
         {mode === 'hybrid' && (
           <div className="grid md:grid-cols-2 gap-4">
-            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border border-indigo-100 p-4">
+            <div className="rounded-[1.75rem] border border-indigo-100 bg-gradient-to-br from-indigo-50 to-blue-50 p-4 shadow-sm shadow-indigo-100/60">
               <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-3">Business</p>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -493,7 +610,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border border-purple-100 p-4">
+            <div className="rounded-[1.75rem] border border-rose-100 bg-gradient-to-br from-rose-50 to-orange-50 p-4 shadow-sm shadow-rose-100/60">
               <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-3">Personal</p>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -518,12 +635,12 @@ export default function DashboardPage() {
                 View all <ArrowRight size={12} />
               </Link>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50 overflow-hidden shadow-sm">
+            <div className="overflow-hidden rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
               {recentConversations.map(conv => (
                 <Link
                   key={conv.id}
                   href="/inbox"
-                  className="flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50/80 transition-colors"
+                  className="flex items-center gap-3 border-b border-gray-50 px-4 py-3.5 transition-colors last:border-b-0 hover:bg-gray-50/80"
                 >
                   <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="sm" />
                   <div className="flex-1 min-w-0">
@@ -558,7 +675,7 @@ export default function DashboardPage() {
                 <Link
                   key={contact.id}
                   href={`/contacts/${contact.id}`}
-                  className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200 hover:border-red-200 hover:shadow-sm transition-all"
+                  className="flex items-center gap-3 rounded-[1.75rem] border border-gray-100 bg-white p-4 shadow-sm shadow-gray-200/60 transition-all hover:border-red-200 hover:shadow-md"
                 >
                   <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="md" />
                   <div className="flex-1 min-w-0">
@@ -580,9 +697,9 @@ export default function DashboardPage() {
                 View all <ArrowRight size={12} />
               </Link>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-50 overflow-hidden shadow-sm">
+            <div className="overflow-hidden rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
               {proactive.slice(0, 3).map(s => (
-                <div key={s.id} className="px-4 py-3.5">
+                <div key={s.id} className="border-b border-gray-50 px-4 py-3.5 last:border-b-0">
                   <div className="flex items-center gap-3">
                     <Avatar name={s.contact.name} src={s.contact.avatarUrl ?? undefined} size="sm" />
                     <div className="flex-1 min-w-0">
@@ -645,7 +762,7 @@ export default function DashboardPage() {
                 Open Studio <ArrowRight size={12} />
               </Link>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4 rounded-[1.75rem] border border-gray-100 bg-white p-4 shadow-sm shadow-gray-200/70 sm:grid-cols-4">
               <div>
                 <p className="text-xl font-bold text-gray-900 tabular-nums">{marketing.postsSent}</p>
                 <p className="text-xs text-gray-500 mt-0.5">Posts sent</p>
@@ -669,7 +786,7 @@ export default function DashboardPage() {
         {marketingAccess === 'waitlisted' && (
           <Link
             href="/studio"
-            className="flex items-center gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100 hover:border-indigo-300 transition-colors"
+            className="flex items-center gap-3 rounded-[1.75rem] border border-indigo-100 bg-indigo-50 p-4 shadow-sm shadow-indigo-100/60 transition-colors hover:border-indigo-300"
           >
             <div className="w-10 h-10 rounded-lg bg-white text-indigo-600 flex items-center justify-center flex-shrink-0">
               <Send size={18} />
@@ -709,7 +826,7 @@ export default function DashboardPage() {
 
         {/* Empty state when nothing loaded */}
         {!loading && conversations.length === 0 && contacts.length === 0 && (
-          <div className="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+          <div className="rounded-[2rem] border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm shadow-gray-200/60">
             <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Smartphone size={26} className="text-indigo-600" />
             </div>
@@ -724,6 +841,7 @@ export default function DashboardPage() {
             </Link>
           </div>
         )}
+        </div>
       </div>
     </div>
   )

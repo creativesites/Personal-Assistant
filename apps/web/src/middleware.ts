@@ -26,7 +26,12 @@ const isPublicRoute = createRouteMatcher([
 ])
 
 // Auth pages that signed-in users should be bounced away from
-const isAuthRoute = createRouteMatcher(['/login(.*)', '/register(.*)'])
+const isAuthRoute = createRouteMatcher([
+  '/login',
+  '/login/',
+  '/register',
+  '/register/',
+])
 
 const isApiRoute = createRouteMatcher(['/api/(.*)'])
 
