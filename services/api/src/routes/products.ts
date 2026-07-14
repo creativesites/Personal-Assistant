@@ -47,6 +47,10 @@ const createBody = z.object({
   maxPrice: z.number().nonnegative().optional().nullable(),
   discountMinPct: z.number().min(0).max(100).optional(),
   discountMaxPct: z.number().min(0).max(100).optional(),
+  // Business OS Phase A — configurable families & attributes (see
+  // docs/BUSINESS_OS_PLAN.md §5)
+  familyId: z.string().uuid().optional().nullable(),
+  attributes: z.record(z.any()).optional(),
 })
 
 const patchBody = z.object({
@@ -93,6 +97,14 @@ const patchBody = z.object({
   maxPrice: z.number().nonnegative().optional().nullable(),
   discountMinPct: z.number().min(0).max(100).optional(),
   discountMaxPct: z.number().min(0).max(100).optional(),
+  familyId: z.string().uuid().optional().nullable(),
+  attributes: z.record(z.any()).optional(),
+})
+
+const generateVariantsBody = z.object({
+  // e.g. { color: ["Red", "Blue"], size: ["S", "M", "L"] } — keys must match
+  // is_variant_axis attribute keys on the product's family.
+  axisValues: z.record(z.array(z.string()).min(1)),
 })
 
 const linkContactBody = z.object({
@@ -154,6 +166,10 @@ type ProductRow = {
   max_price?: string | null
   discount_min_pct?: string | null
   discount_max_pct?: string | null
+  family_id?: string | null
+  attributes?: Record<string, any>
+  parent_product_id?: string | null
+  variant_count?: string
 }
 
 function toApiShape(p: ProductRow) {
@@ -214,6 +230,12 @@ function toApiShape(p: ProductRow) {
     maxPrice: p.max_price != null ? Number(p.max_price) : null,
     discountMinPct: p.discount_min_pct != null ? Number(p.discount_min_pct) : 0,
     discountMaxPct: p.discount_max_pct != null ? Number(p.discount_max_pct) : 0,
+
+    // Business OS Phase A
+    familyId: p.family_id ?? null,
+    attributes: p.attributes ?? {},
+    parentProductId: p.parent_product_id ?? null,
+    variantCount: p.variant_count !== undefined ? Number(p.variant_count) : undefined,
   }
 }
 
@@ -235,18 +257,145 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
                 p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
                 p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
                 p.discount_min_pct, p.discount_max_pct,
+                p.family_id, p.attributes, p.parent_product_id,
                 COUNT(DISTINCT cp.contact_id) AS linked_contacts,
-                COUNT(DISTINCT co.id) FILTER (WHERE co.source_product_id = p.id) AS attributed_leads
+                COUNT(DISTINCT co.id) FILTER (WHERE co.source_product_id = p.id) AS attributed_leads,
+                COUNT(DISTINCT v.id) AS variant_count
          FROM products p
          LEFT JOIN contact_products cp ON cp.product_id = p.id AND cp.user_id = p.user_id
          LEFT JOIN contacts co ON co.source_product_id = p.id AND co.user_id = p.user_id
-         WHERE p.user_id = $1 AND p.status != 'archived'
+         LEFT JOIN products v ON v.parent_product_id = p.id AND v.status != 'archived'
+         WHERE p.user_id = $1 AND p.status != 'archived' AND p.parent_product_id IS NULL
          GROUP BY p.id
          ORDER BY p.created_at DESC`,
         [userId],
       )
 
       return reply.send({ products: rows.map(toApiShape) })
+    },
+  )
+
+  // ── GET /api/products/:id/variants — child rows generated from the base
+  // product's variant-axis attributes (see generate-variants below). ──
+  fastify.get(
+    '/api/products/:id/variants',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows } = await db.query<ProductRow>(
+        `SELECT p.id, p.name, p.description, p.price, p.currency, p.serial_number, p.quantity,
+                p.images, p.status, p.whatsapp_catalog_product_id, p.whatsapp_catalog_synced_at,
+                p.whatsapp_catalog_status, p.whatsapp_catalog_error, p.created_at, p.updated_at,
+                p.sku, p.barcode, p.category, p.supplier_id, p.brand, p.item_type, p.videos,
+                p.stock, p.reserved, p.available, p.minimum_stock, p.maximum_stock, p.lead_time,
+                p.supplier_lead_time, p.purchase_cost, p.selling_price, p.margin, p.discount_rules,
+                p.cross_sell, p.upsell, p.replacement_product_id, p.related_products, p.warranty,
+                p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
+                p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
+                p.discount_min_pct, p.discount_max_pct,
+                p.family_id, p.attributes, p.parent_product_id
+         FROM products p
+         WHERE p.user_id = $1 AND p.parent_product_id = $2 AND p.status != 'archived'
+         ORDER BY p.name ASC`,
+        [userId, id],
+      )
+
+      return reply.send({ variants: rows.map(toApiShape) })
+    },
+  )
+
+  // ── POST /api/products/:id/generate-variants — cartesian-product variant
+  // generation off a base product's family variant-axis attributes (e.g.
+  // Size x Color). See docs/BUSINESS_OS_PLAN.md §5. ──
+  fastify.post(
+    '/api/products/:id/generate-variants',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = generateVariantsBody.parse(request.body)
+
+      const { rows: [base] } = await db.query<ProductRow>(
+        `SELECT * FROM products WHERE id = $1 AND user_id = $2`,
+        [id, userId],
+      )
+      if (!base) return reply.code(404).send({ error: 'Product not found' })
+      if (base.parent_product_id) {
+        return reply.code(400).send({ error: 'Cannot generate variants on a variant product' })
+      }
+      if (!base.family_id) {
+        return reply.code(400).send({ error: 'Product has no family — assign a family with variant-axis attributes first' })
+      }
+
+      const { rows: axisDefs } = await db.query<{ key: string; label: string }>(
+        `SELECT key, label FROM product_attribute_definitions
+         WHERE user_id = $1 AND family_id = $2 AND is_variant_axis = true`,
+        [userId, base.family_id],
+      )
+      if (axisDefs.length === 0) {
+        return reply.code(400).send({ error: 'This product\'s family has no variant-axis attributes defined' })
+      }
+
+      const axisKeys = axisDefs.map(a => a.key)
+      const unknownKeys = Object.keys(body.axisValues).filter(k => !axisKeys.includes(k))
+      if (unknownKeys.length > 0) {
+        return reply.code(400).send({ error: `Unknown variant axis keys: ${unknownKeys.join(', ')}` })
+      }
+      const missingKeys = axisKeys.filter(k => !body.axisValues[k]?.length)
+      if (missingKeys.length > 0) {
+        return reply.code(400).send({ error: `Missing values for variant axes: ${missingKeys.join(', ')}` })
+      }
+
+      // Cartesian product across axes, in axis-definition order.
+      let combinations: Record<string, string>[] = [{}]
+      for (const key of axisKeys) {
+        const values = body.axisValues[key]
+        const next: Record<string, string>[] = []
+        for (const combo of combinations) {
+          for (const value of values) {
+            next.push({ ...combo, [key]: value })
+          }
+        }
+        combinations = next
+      }
+
+      const baseAttributes = base.attributes ?? {}
+      const created: ProductRow[] = []
+      for (const combo of combinations) {
+        const suffix = axisKeys.map(k => combo[k]).join(' / ')
+        const variantName = `${base.name} (${suffix})`
+        const variantSku = base.sku ? `${base.sku}-${axisKeys.map(k => combo[k]).join('-')}`.replace(/\s+/g, '') : null
+
+        const { rows: [variant] } = await db.query<ProductRow>(
+          `INSERT INTO products (
+             user_id, name, description, currency, images,
+             sku, barcode, category, supplier_id, brand, item_type, videos,
+             stock, reserved, available, minimum_stock, maximum_stock, lead_time, supplier_lead_time,
+             purchase_cost, selling_price, price, margin, warranty, manual, tags,
+             family_id, attributes, parent_product_id
+           )
+           VALUES (
+             $1, $2, $3, $4, $5::jsonb,
+             $6, $7, $8, $9, $10, $11, $12::jsonb,
+             $13, $14, $15, $16, $17, $18, $19,
+             $20, $21, $22, $23, $24, $25, $26::text[],
+             $27, $28::jsonb, $29
+           )
+           RETURNING *`,
+          [
+            userId, variantName, base.description, base.currency, JSON.stringify(base.images ?? []),
+            variantSku, base.barcode, base.category, base.supplier_id, base.brand, base.item_type, JSON.stringify(base.videos ?? []),
+            0, 0, 0, base.minimum_stock ?? 0, base.maximum_stock ?? null, base.lead_time ?? 1, base.supplier_lead_time ?? 5,
+            base.purchase_cost ?? 0, base.selling_price, base.selling_price, base.margin, base.warranty, base.manual, base.tags ?? [],
+            base.family_id, JSON.stringify({ ...baseAttributes, ...combo }), base.id,
+          ],
+        )
+        created.push(variant)
+      }
+
+      return reply.code(201).send({ variants: created.map(toApiShape) })
     },
   )
 
@@ -268,7 +417,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
            available, minimum_stock, maximum_stock, lead_time, supplier_lead_time,
            purchase_cost, selling_price, margin, discount_rules, cross_sell, upsell,
            replacement_product_id, related_products, warranty, manual, tags,
-           service_details, inventory_details, pricing_details, ai_notes, marketing_copy
+           service_details, inventory_details, pricing_details, ai_notes, marketing_copy,
+           family_id, attributes
          )
          VALUES (
            $1, $2, $3, $4, COALESCE($5, 'ZMW'), $6, $7, COALESCE($8::jsonb, '[]'::jsonb),
@@ -277,7 +427,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
            COALESCE($23, 0.00), $24, $25, COALESCE($26::jsonb, '[]'::jsonb), COALESCE($27::jsonb, '[]'::jsonb),
            COALESCE($28::jsonb, '[]'::jsonb), $29, COALESCE($30::jsonb, '[]'::jsonb), $31, $32,
            COALESCE($33::text[], '{}'::text[]), COALESCE($34::jsonb, '{}'::jsonb), COALESCE($35::jsonb, '{}'::jsonb),
-           COALESCE($36::jsonb, '{}'::jsonb), $37, $38
+           COALESCE($36::jsonb, '{}'::jsonb), $37, $38,
+           $39, COALESCE($40::jsonb, '{}'::jsonb)
          )
          RETURNING *`,
         [
@@ -320,6 +471,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
           body.pricingDetails ? JSON.stringify(body.pricingDetails) : null,
           body.aiNotes ?? null,
           body.marketingCopy ?? null,
+          body.familyId ?? null,
+          body.attributes ? JSON.stringify(body.attributes) : null,
         ],
       )
 
@@ -414,6 +567,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.maxPrice !== undefined) { sets.push(`max_price = $${idx++}`); values.push(body.maxPrice) }
       if (body.discountMinPct !== undefined) { sets.push(`discount_min_pct = $${idx++}`); values.push(body.discountMinPct) }
       if (body.discountMaxPct !== undefined) { sets.push(`discount_max_pct = $${idx++}`); values.push(body.discountMaxPct) }
+      if (body.familyId !== undefined) { sets.push(`family_id = $${idx++}`); values.push(body.familyId) }
+      if (body.attributes !== undefined) { sets.push(`attributes = $${idx++}::jsonb`); values.push(JSON.stringify(body.attributes)) }
 
       const { rowCount } = await db.query(
         `UPDATE products SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2`,
