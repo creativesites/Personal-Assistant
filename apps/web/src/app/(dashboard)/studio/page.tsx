@@ -120,6 +120,13 @@ interface Product {
   attributes: Record<string, any>
   parentProductId: string | null
   variantCount?: number
+  incoming: number
+}
+
+interface InventoryLocation {
+  id: string
+  name: string
+  isDefault: boolean
 }
 
 interface ProductFamily {
@@ -169,7 +176,7 @@ interface BusinessFact {
   createdAt: string
 }
 
-type StockMovementType = 'restock' | 'sale' | 'adjustment' | 'waste' | 'return'
+type StockMovementType = 'restock' | 'sale' | 'adjustment' | 'waste' | 'return' | 'expired' | 'committed' | 'transfer' | 'in_transit'
 
 interface StockMovement {
   id: string
@@ -179,6 +186,8 @@ interface StockMovement {
   newStock: number
   reason: string | null
   createdAt: string
+  locationId?: string | null
+  locationName?: string | null
 }
 
 interface StudioInsights {
@@ -1681,32 +1690,59 @@ const MOVEMENT_TYPE_META: Record<StockMovementType, { label: string; sign: 1 | -
   return:     { label: 'Return',     sign: 1,  color: 'text-emerald-600' },
   sale:       { label: 'Sale',       sign: -1, color: 'text-indigo-600' },
   waste:      { label: 'Waste/Loss', sign: -1, color: 'text-red-600' },
+  expired:    { label: 'Expired',    sign: -1, color: 'text-red-600' },
   adjustment: { label: 'Adjustment', sign: 0,  color: 'text-gray-600' },
+  transfer:   { label: 'Transfer',   sign: 0,  color: 'text-sky-600' },
+  committed:  { label: 'Committed',  sign: 0,  color: 'text-amber-600' },
+  in_transit: { label: 'In Transit', sign: 0,  color: 'text-sky-600' },
 }
+
+// Movement types a person picks from Adjust Stock — `committed`/`in_transit`
+// are system-generated (reservations, purchase-order approval) rather than
+// manual entries, so they're excluded here even though they exist in the DB
+// enum (see docs/BUSINESS_OS_PLAN.md §7.2).
+const MANUAL_MOVEMENT_TYPES: StockMovementType[] = ['restock', 'sale', 'adjustment', 'waste', 'expired', 'return', 'transfer']
 
 function StockAdjustModal({
   product, token, onClose, onSaved,
 }: { product: Product; token: string | undefined; onClose: () => void; onSaved: () => void }) {
   const { addToast } = useToast()
+  const { data: locationsData } = useApi<{ locations: InventoryLocation[] }>(token ? '/api/inventory-locations' : null, token)
+  const locations = locationsData?.locations ?? []
+  const showLocationPicker = locations.length > 1
+
   const [movementType, setMovementType] = useState<StockMovementType>('restock')
   const [quantity,     setQuantity]     = useState('')
   const [reason,       setReason]       = useState('')
+  const [locationId,   setLocationId]   = useState('')
+  const [toLocationId, setToLocationId] = useState('')
   const [saving,       setSaving]       = useState(false)
 
   const meta = MOVEMENT_TYPE_META[movementType]
   const qtyNum = parseInt(quantity, 10) || 0
   const delta = movementType === 'adjustment' ? qtyNum : Math.abs(qtyNum) * (meta.sign as 1 | -1)
   const newStock = Math.max(0, product.stock + delta)
+  const isTransfer = movementType === 'transfer'
 
   async function submit() {
     if (!qtyNum) return
+    if (isTransfer && (!toLocationId || toLocationId === locationId)) {
+      addToast({ variant: 'error', title: 'Pick two different locations to transfer between' })
+      return
+    }
     setSaving(true)
     try {
       await apiClient(`/api/products/${product.id}/stock-movements`, {
         method: 'POST', token,
-        body: JSON.stringify({ movementType, quantityDelta: delta, reason: reason.trim() || undefined }),
+        body: JSON.stringify({
+          movementType,
+          quantityDelta: isTransfer ? Math.abs(qtyNum) : delta,
+          reason: reason.trim() || undefined,
+          locationId: locationId || undefined,
+          toLocationId: isTransfer ? toLocationId : undefined,
+        }),
       })
-      addToast({ variant: 'success', title: 'Stock updated' })
+      addToast({ variant: 'success', title: isTransfer ? 'Stock transferred' : 'Stock updated' })
       onSaved()
       onClose()
     } catch (err: any) {
@@ -1727,7 +1763,7 @@ function StockAdjustModal({
         <div>
           <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type of change</label>
           <div className="grid grid-cols-3 gap-1.5">
-            {(Object.keys(MOVEMENT_TYPE_META) as StockMovementType[]).map(t => (
+            {MANUAL_MOVEMENT_TYPES.map(t => (
               <button
                 key={t}
                 onClick={() => setMovementType(t)}
@@ -1740,6 +1776,35 @@ function StockAdjustModal({
             ))}
           </div>
         </div>
+
+        {showLocationPicker && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">{isTransfer ? 'From' : 'Location'}</label>
+              <select
+                value={locationId}
+                onChange={e => setLocationId(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Default</option>
+                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+            {isTransfer && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">To</label>
+                <select
+                  value={toLocationId}
+                  onChange={e => setToLocationId(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select...</option>
+                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="block text-xs font-semibold text-gray-500 mb-1.5">
@@ -1766,10 +1831,15 @@ function StockAdjustModal({
           />
         </div>
 
-        {qtyNum !== 0 && (
+        {qtyNum !== 0 && !isTransfer && (
           <div className="bg-gray-50 rounded-xl p-3 text-sm flex items-center justify-between">
             <span className="text-gray-500">New stock level</span>
             <span className="font-bold text-gray-900">{product.stock} → {newStock}</span>
+          </div>
+        )}
+        {qtyNum !== 0 && isTransfer && (
+          <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-600">
+            Moves {Math.abs(qtyNum)} units between locations — total stock on hand is unchanged.
           </div>
         )}
 
@@ -1803,6 +1873,7 @@ function MovementHistory({ productId, token }: { productId: string; token: strin
               {MOVEMENT_TYPE_META[m.movementType].label}
             </span>
             <span className="text-gray-400 ml-1.5">{new Date(m.createdAt).toLocaleDateString()}</span>
+            {m.locationName && <span className="text-gray-400 ml-1.5">· {m.locationName}</span>}
             {m.reason && <p className="text-gray-500 mt-0.5">{m.reason}</p>}
           </div>
           <div className="text-right shrink-0 ml-2">
@@ -1814,6 +1885,97 @@ function MovementHistory({ productId, token }: { productId: string; token: strin
         </div>
       ))}
     </div>
+  )
+}
+
+// Business OS Phase C — locations manager (docs/BUSINESS_OS_PLAN.md §7.1).
+// Single-location businesses never need to open this — a default "Main"
+// location is created automatically — but this is the only entry point to
+// add a second one (a warehouse, a truck, a branch).
+function InventoryLocationsManager({ token, onClose }: { token: string | undefined; onClose: () => void }) {
+  const { data, refetch } = useApi<{ locations: InventoryLocation[] }>(token ? '/api/inventory-locations' : null, token)
+  const { addToast } = useToast()
+  const locations = data?.locations ?? []
+
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  async function addLocation(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+    setSaving(true)
+    try {
+      await apiClient('/api/inventory-locations', { method: 'POST', token, body: JSON.stringify({ name: name.trim() }) })
+      setName('')
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to add location' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function makeDefault(id: string) {
+    try {
+      await apiClient(`/api/inventory-locations/${id}`, { method: 'PATCH', token, body: JSON.stringify({ isDefault: true }) })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to update' })
+    }
+  }
+
+  async function deleteLocation(id: string) {
+    try {
+      await apiClient(`/api/inventory-locations/${id}`, { method: 'DELETE', token })
+      setDeleteConfirm(null)
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to delete' })
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Inventory Locations" description="Track stock separately across a warehouse, shop, truck, or branch — most businesses just need the default.">
+      <div className="space-y-4">
+        <form onSubmit={addLocation} className="flex gap-2">
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Warehouse, Branch B, Truck 1..."
+            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+          </Button>
+        </form>
+
+        <div className="rounded-xl border border-gray-100 divide-y divide-gray-50 overflow-hidden">
+          {locations.map(l => (
+            <div key={l.id} className="flex items-center gap-2 px-3 py-2.5">
+              <span className="flex-1 text-sm text-gray-800">{l.name}</span>
+              {l.isDefault ? (
+                <Badge variant="success">Default</Badge>
+              ) : (
+                <button onClick={() => makeDefault(l.id)} className="text-xs text-indigo-600 hover:underline">Make default</button>
+              )}
+              {!l.isDefault && (
+                deleteConfirm === l.id ? (
+                  <div className="flex items-center gap-1 text-xs">
+                    <button onClick={() => deleteLocation(l.id)} className="text-red-600 font-medium hover:underline">Confirm</button>
+                    <button onClick={() => setDeleteConfirm(null)} className="text-gray-500 hover:underline">Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setDeleteConfirm(l.id)} className="p-1 rounded hover:bg-gray-50 text-red-400">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -1830,6 +1992,7 @@ function InventoryModule({ token, onAskAI }: { token: string | undefined; onAskA
 
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null)
   const [historyId, setHistoryId] = useState<string | null>(null)
+  const [showLocations, setShowLocations] = useState(false)
 
   const sorted = [...products].sort((a, b) => {
     const aLow = a.available <= a.minimumStock
@@ -1854,6 +2017,14 @@ function InventoryModule({ token, onAskAI }: { token: string | undefined; onAskA
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button variant="secondary" onClick={() => setShowLocations(true)}>
+          <Truck className="w-4 h-4 mr-1.5" />
+          Locations
+        </Button>
+      </div>
+      {showLocations && <InventoryLocationsManager token={token} onClose={() => setShowLocations(false)} />}
+
       {/* AI Insights */}
       {insights && (insights.lowStock.length > 0 || insights.stats.outOfStockCount > 0) && (
         <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-amber-50 to-white border border-amber-100 shadow-sm shadow-amber-100/70 p-4">
@@ -1934,6 +2105,7 @@ function InventoryModule({ token, onAskAI }: { token: string | undefined; onAskA
                   <div className="text-xs text-gray-500 space-y-0.5">
                     <div>reserved: {p.reserved}</div>
                     <div>reorder at: {p.minimumStock}</div>
+                    {p.incoming > 0 && <div className="text-sky-600 font-medium">incoming: {p.incoming}</div>}
                   </div>
                 </div>
 
