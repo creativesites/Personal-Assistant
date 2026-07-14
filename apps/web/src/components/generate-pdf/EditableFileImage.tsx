@@ -1,3 +1,4 @@
+// @ts-nocheck — @react-pdf/renderer types are incompatible with React 19; runtime is fine
 import { FC, useRef, useState } from 'react'
 import Slider from 'rc-slider'
 import { Image } from '@react-pdf/renderer'

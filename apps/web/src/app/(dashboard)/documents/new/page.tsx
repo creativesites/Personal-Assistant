@@ -1,26 +1,28 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import InvoicePage from '@/components/generate-pdf/InvoicePage'
 import { Invoice } from '@/components/generate-pdf/data/types'
 
-function TestNewPDF() {
-  const savedInvoice = window.localStorage.getItem('invoiceData')
-  let data = null
+export default function TestNewPDF() {
+  const [data, setData] = useState<Invoice | null>(null)
 
-  try {
-    if (savedInvoice) {
-      data = JSON.parse(savedInvoice)
-    }
-  } catch (_e) {}
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('invoiceData')
+      if (saved) setData(JSON.parse(saved))
+    } catch {}
+  }, [])
 
   const onInvoiceUpdated = (invoice: Invoice) => {
-    window.localStorage.setItem('invoiceData', JSON.stringify(invoice))
+    localStorage.setItem('invoiceData', JSON.stringify(invoice))
+    setData(invoice)
   }
 
   return (
     <div className="app">
       <h1 className="center fs-30">React Invoice Generator</h1>
-      <InvoicePage data={data} onChange={onInvoiceUpdated} />
+      <InvoicePage data={data ?? undefined} onChange={onInvoiceUpdated} />
     </div>
   )
 }
-
-export default TestNewPDF

@@ -1,3 +1,4 @@
+// @ts-nocheck — @react-pdf/renderer types are incompatible with React 19; runtime is fine
 import { FC, PropsWithChildren } from 'react'
 import { Document as PdfDocument } from '@react-pdf/renderer'
 

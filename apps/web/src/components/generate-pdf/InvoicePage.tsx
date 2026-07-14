@@ -1,3 +1,5 @@
+'use client'
+
 import { FC, useState, useEffect } from 'react'
 import { Invoice, ProductLine } from './data/types'
 import { initialInvoice, initialProductLine } from './data/initialData'
