@@ -11,14 +11,14 @@ interface Escalation {
   reason: string
   urgency: string
   status: string
-  context_summary: string | null
-  contact_name: string | null
-  agent_name: string
-  conversation_id: string
-  created_at: string
+  contextSummary: string | null
+  contactName: string | null
+  agentName: string
+  conversationId: string
+  createdAt: string
 }
 
-interface EscalationsResponse { escalations: Escalation[]; total: number }
+interface EscalationsResponse { escalations: Escalation[]; total?: number }
 
 const URGENCY_STYLE: Record<string, string> = {
   low:      'bg-gray-100 text-gray-500',
@@ -42,7 +42,7 @@ export default function EscalationsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('pending')
   const { data, loading, refetch } = useApi<EscalationsResponse>(`/api/escalations?status=${statusFilter}`, token)
   const escalations = data?.escalations ?? []
-  const total = data?.total ?? 0
+  const total = data?.total ?? escalations.length
 
   const updateStatus = async (id: string, status: string) => {
     if (!token) return
@@ -92,7 +92,7 @@ export default function EscalationsPage() {
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="text-sm font-semibold text-gray-900">{e.contact_name ?? 'Unknown contact'}</span>
+                      <span className="text-sm font-semibold text-gray-900">{e.contactName ?? 'Unknown contact'}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${URGENCY_STYLE[e.urgency]}`}>{e.urgency}</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-500">
@@ -102,8 +102,8 @@ export default function EscalationsPage() {
                           return <><Icon className="w-3.5 h-3.5 flex-shrink-0" />{label}</>
                         })() : e.reason}
                       </span>
-                      <span>via {e.agent_name}</span>
-                      <span>{new Date(e.created_at).toLocaleString()}</span>
+                      <span>via {e.agentName}</span>
+                      <span>{e.createdAt ? new Date(e.createdAt).toLocaleString() : '—'}</span>
                     </div>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
@@ -122,9 +122,9 @@ export default function EscalationsPage() {
                   </div>
                 </div>
 
-                {e.context_summary && (
+                {e.contextSummary && (
                   <div className="bg-gray-50 rounded-lg px-3 py-2 text-xs text-gray-600">
-                    <span className="font-medium text-gray-700">Context: </span>{e.context_summary}
+                    <span className="font-medium text-gray-700">Context: </span>{e.contextSummary}
                   </div>
                 )}
               </div>

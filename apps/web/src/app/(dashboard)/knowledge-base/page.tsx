@@ -1285,7 +1285,7 @@ export default function KnowledgeBasePage() {
                         )}
                       </td>
                       <td className="px-4 py-3.5"><StatusBadge status={doc.status} /></td>
-                      <td className="px-4 py-3.5 text-right text-gray-700 font-numeric">{doc.chunk_count.toLocaleString()}</td>
+                      <td className="px-4 py-3.5 text-right text-gray-700 font-numeric">{(doc.chunk_count ?? 0).toLocaleString()}</td>
                       <td className="px-4 py-3.5 text-right text-gray-500 font-numeric">{doc.used_count ?? 0}</td>
                       <td className="px-4 py-3.5 text-gray-500 whitespace-nowrap">{relativeTime(doc.updated_at)}</td>
                       <td className="px-5 py-3.5">
