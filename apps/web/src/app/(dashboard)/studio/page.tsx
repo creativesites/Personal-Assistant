@@ -48,6 +48,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SkeletonCard } from '@/components/ui/skeleton'
 import { useToast } from '@/components/ui/toast'
+import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -140,6 +141,33 @@ interface BusinessFact {
   isApproved: boolean
   isActive: boolean
   createdAt: string
+}
+
+type StockMovementType = 'restock' | 'sale' | 'adjustment' | 'waste' | 'return'
+
+interface StockMovement {
+  id: string
+  movementType: StockMovementType
+  quantityDelta: number
+  previousStock: number
+  newStock: number
+  reason: string | null
+  createdAt: string
+}
+
+interface StudioInsights {
+  stats: {
+    totalProducts: number
+    inventoryValue: number
+    lowStockCount: number
+    outOfStockCount: number
+    totalSuppliers: number
+    outstandingSupplierBalance: number
+    activeRules: number
+  }
+  lowStock: { id: string; name: string; available: number; minimumStock: number }[]
+  thinMargin: { id: string; name: string; sellingPrice: number; purchaseCost: number; marginPct: number }[]
+  supplierFlags: { id: string; company: string; reliabilityScore: number; averageDeliveryTime: number; flag: 'low_reliability' | 'slow_delivery' }[]
 }
 
 interface AdvisorSession {
@@ -270,7 +298,11 @@ const MODULES: { id: Module; label: string; Icon: React.ComponentType<{ classNam
 
 // ─── Overview Module ──────────────────────────────────────────────────────────
 
-function OverviewModule({ token }: { token: string | undefined }) {
+function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
+  token: string | undefined
+  initialPrompt?: string | null
+  onConsumedPrompt?: () => void
+}) {
   const { data: productsData, loading: productsLoading } = useApi<{ products: Product[] }>(
     token ? '/api/products' : null, token,
   )
@@ -280,6 +312,7 @@ function OverviewModule({ token }: { token: string | undefined }) {
   const { data: rulesData, loading: rulesLoading } = useApi<{ facts: BusinessFact[] }>(
     token ? '/api/business-facts?category=business_rule' : null, token,
   )
+  const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
 
   const products  = productsData?.products  ?? []
   const suppliers = suppliersData?.suppliers ?? []
@@ -302,6 +335,8 @@ function OverviewModule({ token }: { token: string | undefined }) {
     'Which products have the best margin?',
     'Are any items below reorder point?',
     'What suppliers are most reliable?',
+    'Draft a restock follow-up to my slowest supplier',
+    'Which customers should I follow up with this week?',
   ]
 
   useEffect(() => {
@@ -333,6 +368,14 @@ function OverviewModule({ token }: { token: string | undefined }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, typing])
 
+  // A tab's "Ask AI" insight prefills the input here rather than auto-sending —
+  // keeps the user in control of what actually gets sent to the LLM.
+  useEffect(() => {
+    if (!initialPrompt) return
+    setInput(initialPrompt)
+    onConsumedPrompt?.()
+  }, [initialPrompt]) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function sendMessage(text: string) {
     if (!text.trim() || !sessionId || !token) return
     const userMsg: AdvisorMessage = {
@@ -354,6 +397,45 @@ function OverviewModule({ token }: { token: string | undefined }) {
       addToast({ variant: 'error', title: 'Failed to send message' })
     } finally {
       setTyping(false)
+    }
+  }
+
+  // Business actions the advisor can trigger via [ACTION: ...] tags — same
+  // contract as advisor/page.tsx and inbox/_components/intel-panel.tsx.
+  async function handleChatAction(action: ParsedAction) {
+    if (!token) return
+    switch (action.type) {
+      case 'lead_score': {
+        const [score, contactId] = action.params
+        await apiClient(`/api/contacts/${contactId}`, { method: 'PATCH', token, body: JSON.stringify({ leadScore: parseInt(score, 10) }) })
+        return
+      }
+      case 'pipeline_stage': {
+        const [stage, contactId] = action.params
+        await apiClient(`/api/contacts/${contactId}`, { method: 'PATCH', token, body: JSON.stringify({ pipelineStage: stage }) })
+        return
+      }
+      case 'reminder': {
+        const [title, date] = action.params
+        await apiClient('/api/calendar/events', { method: 'POST', token, body: JSON.stringify({ title, eventDate: date, eventType: 'reminder' }) })
+        return
+      }
+      case 'reply_draft': {
+        const [contactId, draftText] = action.params
+        const res = await apiClient<{ conversationId: string | null }>(`/api/contacts/${contactId}/messages`, { token })
+        if (!res.conversationId) throw new Error('No WhatsApp conversation found for this contact yet')
+        await apiClient(`/api/conversations/${res.conversationId}/messages`, { method: 'POST', token, body: JSON.stringify({ text: draftText }) })
+        return
+      }
+      case 'generate_document': {
+        const [documentType, contactId, ...briefParts] = action.params
+        const brief = briefParts.join(' | ')
+        const data = await apiClient<{ document: { id: string } }>('/api/documents/ai-generate', {
+          method: 'POST', token, body: JSON.stringify({ contactId, documentType, instruction: brief || `Draft a ${documentType}` }),
+        })
+        await apiClient(`/api/documents/${data.document.id}/generate`, { method: 'POST', token })
+        return
+      }
     }
   }
 
@@ -382,20 +464,45 @@ function OverviewModule({ token }: { token: string | undefined }) {
         }
       </div>
 
+      {/* Business Pulse — quick top-line stats from Zuri Insights */}
+      {insights && (
+        <div className="flex flex-wrap gap-3">
+          <div className="flex-1 min-w-[140px] rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-gray-100">
+            <p className="text-[11px] font-semibold text-gray-500">Inventory Value</p>
+            <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(insights.stats.inventoryValue)}</p>
+          </div>
+          <div className="flex-1 min-w-[140px] rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-gray-100">
+            <p className="text-[11px] font-semibold text-gray-500">Owed to Suppliers</p>
+            <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(insights.stats.outstandingSupplierBalance)}</p>
+          </div>
+          <div className="flex-1 min-w-[140px] rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-gray-100">
+            <p className="text-[11px] font-semibold text-gray-500">Needs Attention</p>
+            <p className="text-lg font-black text-gray-950 tabular-nums">
+              {insights.stats.lowStockCount + insights.stats.outOfStockCount + insights.thinMargin.length + insights.supplierFlags.length}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* AI Business Advisor Chat */}
-      <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 flex flex-col" style={{ height: '520px' }}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
-          <Sparkles className="w-4 h-4 text-indigo-600" />
-          <span className="font-semibold text-gray-900 text-sm">AI Business Advisor</span>
+      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white flex flex-col" style={{ height: '620px' }}>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.16),transparent_30%)] pointer-events-none" />
+
+        <div className="relative z-10 flex items-center gap-2.5 px-5 py-4 border-b border-white/60">
+          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shadow-lg shadow-indigo-200">Z</div>
+          <div>
+            <p className="font-bold text-gray-900 text-sm">AI Business Advisor</p>
+            <p className="text-[11px] text-gray-500">Knows your catalog, stock, suppliers &amp; customers</p>
+          </div>
         </div>
 
         {sessionLoading ? (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="relative z-10 flex-1 flex items-center justify-center">
             <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
           </div>
         ) : (
           <>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="relative z-10 flex-1 overflow-y-auto p-4 space-y-4">
               {messages.length === 0 && !typing && (
                 <div className="space-y-3">
                   <p className="text-sm text-gray-500 text-center pt-4">Ask your Business Advisor anything</p>
@@ -404,7 +511,7 @@ function OverviewModule({ token }: { token: string | undefined }) {
                       <button
                         key={prompt}
                         onClick={() => sendMessage(prompt)}
-                        className="text-left text-xs text-gray-700 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded-lg p-3 transition-colors"
+                        className="text-left text-xs font-medium text-gray-700 bg-white/80 hover:bg-white border border-white ring-1 ring-gray-100 rounded-2xl p-3 shadow-sm transition-all hover:-translate-y-0.5"
                       >
                         {prompt}
                       </button>
@@ -412,27 +519,46 @@ function OverviewModule({ token }: { token: string | undefined }) {
                   </div>
                 </div>
               )}
-              {messages.map(msg => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div
-                    className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
-                      msg.role === 'user'
-                        ? 'bg-indigo-100 text-gray-900'
-                        : 'bg-white border border-gray-200 text-gray-800'
-                    }`}
-                  >
-                    {msg.content}
+              {messages.map(msg => {
+                const isUser = msg.role === 'user'
+                return (
+                  <div key={msg.id} className={`flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                    {!isUser && (
+                      <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5 shadow-lg shadow-indigo-200">Z</div>
+                    )}
+                    <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                      isUser
+                        ? 'bg-indigo-600 text-white whitespace-pre-wrap shadow-lg shadow-indigo-200'
+                        : 'bg-white border border-white text-slate-800 shadow-sm shadow-slate-200/80 ring-1 ring-slate-100'
+                    }`}>
+                      {isUser ? (
+                        msg.content
+                      ) : (
+                        <>
+                          <ChatFormatter content={msg.content} theme="light" onAction={handleChatAction} />
+                          <div className="flex items-center justify-end border-t border-slate-100 pt-2 mt-2">
+                            <button onClick={() => navigator.clipboard.writeText(msg.content)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700" title="Copy">
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    {isUser && (
+                      <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-[10px] font-bold flex-shrink-0 mt-0.5">You</div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
               {typing && (
-                <div className="flex justify-start">
-                  <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <div className="flex gap-2.5 items-center">
+                  <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold animate-pulse shadow-lg shadow-indigo-200">Z</div>
+                  <div className="bg-white border border-white rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-slate-100">
                     <span className="flex gap-1">
                       {[0, 150, 300].map(d => (
                         <span
                           key={d}
-                          className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
                           style={{ animationDelay: `${d}ms` }}
                         />
                       ))}
@@ -443,18 +569,22 @@ function OverviewModule({ token }: { token: string | undefined }) {
               <div ref={bottomRef} />
             </div>
 
-            <div className="border-t border-gray-100 px-4 py-3">
+            <div className="relative z-10 border-t border-white/60 px-4 py-3">
               <form onSubmit={e => { e.preventDefault(); sendMessage(input) }} className="flex gap-2">
                 <input
                   value={input}
                   onChange={e => setInput(e.target.value)}
                   placeholder="Ask about your business..."
                   disabled={typing}
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="flex-1 rounded-2xl border border-gray-100 bg-white px-3.5 py-2.5 text-sm shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                 />
-                <Button type="submit" disabled={!input.trim() || typing} className="shrink-0">
+                <button
+                  type="submit"
+                  disabled={!input.trim() || typing}
+                  className="shrink-0 w-10 h-10 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center disabled:opacity-40 transition-all shadow-lg shadow-indigo-500/25"
+                >
                   <Send className="w-4 h-4" />
-                </Button>
+                </button>
               </form>
             </div>
           </>
@@ -984,16 +1114,160 @@ function CatalogModule({ token }: { token: string | undefined }) {
 
 // ─── Inventory Module ─────────────────────────────────────────────────────────
 
-function InventoryModule({ token }: { token: string | undefined }) {
+const MOVEMENT_TYPE_META: Record<StockMovementType, { label: string; sign: 1 | -1 | 0; color: string }> = {
+  restock:    { label: 'Restock',    sign: 1,  color: 'text-emerald-600' },
+  return:     { label: 'Return',     sign: 1,  color: 'text-emerald-600' },
+  sale:       { label: 'Sale',       sign: -1, color: 'text-indigo-600' },
+  waste:      { label: 'Waste/Loss', sign: -1, color: 'text-red-600' },
+  adjustment: { label: 'Adjustment', sign: 0,  color: 'text-gray-600' },
+}
+
+function StockAdjustModal({
+  product, token, onClose, onSaved,
+}: { product: Product; token: string | undefined; onClose: () => void; onSaved: () => void }) {
+  const { addToast } = useToast()
+  const [movementType, setMovementType] = useState<StockMovementType>('restock')
+  const [quantity,     setQuantity]     = useState('')
+  const [reason,       setReason]       = useState('')
+  const [saving,       setSaving]       = useState(false)
+
+  const meta = MOVEMENT_TYPE_META[movementType]
+  const qtyNum = parseInt(quantity, 10) || 0
+  const delta = movementType === 'adjustment' ? qtyNum : Math.abs(qtyNum) * (meta.sign as 1 | -1)
+  const newStock = Math.max(0, product.stock + delta)
+
+  async function submit() {
+    if (!qtyNum) return
+    setSaving(true)
+    try {
+      await apiClient(`/api/products/${product.id}/stock-movements`, {
+        method: 'POST', token,
+        body: JSON.stringify({ movementType, quantityDelta: delta, reason: reason.trim() || undefined }),
+      })
+      addToast({ variant: 'success', title: 'Stock updated' })
+      onSaved()
+      onClose()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to update stock' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-[1.75rem] shadow-xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div>
+          <h3 className="text-base font-bold text-gray-900">Adjust Stock — {product.name}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Current: {product.stock} on hand · {product.available} available</p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type of change</label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {(Object.keys(MOVEMENT_TYPE_META) as StockMovementType[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setMovementType(t)}
+                className={`text-xs font-semibold py-2 rounded-xl border-2 transition-colors ${
+                  movementType === t ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-600'
+                }`}
+              >
+                {MOVEMENT_TYPE_META[t].label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+            {movementType === 'adjustment' ? 'Change (use – for a decrease)' : 'Quantity'}
+          </label>
+          <input
+            type="number"
+            value={quantity}
+            onChange={e => setQuantity(e.target.value)}
+            placeholder={movementType === 'adjustment' ? 'e.g. -3 or 5' : 'e.g. 10'}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            autoFocus
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1.5">Reason (optional)</label>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="e.g. Delivery from supplier, stock count correction..."
+            rows={2}
+            className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+          />
+        </div>
+
+        {qtyNum !== 0 && (
+          <div className="bg-gray-50 rounded-xl p-3 text-sm flex items-center justify-between">
+            <span className="text-gray-500">New stock level</span>
+            <span className="font-bold text-gray-900">{product.stock} → {newStock}</span>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={saving || !qtyNum}>
+            {saving ? <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
+            Save
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MovementHistory({ productId, token }: { productId: string; token: string | undefined }) {
+  const { data, loading } = useApi<{ movements: StockMovement[] }>(
+    token ? `/api/products/${productId}/stock-movements` : null, token,
+  )
+  const movements = data?.movements ?? []
+
+  if (loading) return <p className="text-xs text-gray-400 py-2">Loading history...</p>
+  if (movements.length === 0) return <p className="text-xs text-gray-400 py-2">No stock movements recorded yet.</p>
+
+  return (
+    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+      {movements.map(m => (
+        <div key={m.id} className="flex items-center justify-between text-xs bg-gray-50 rounded-lg px-2.5 py-2">
+          <div>
+            <span className={`font-semibold ${MOVEMENT_TYPE_META[m.movementType].color}`}>
+              {MOVEMENT_TYPE_META[m.movementType].label}
+            </span>
+            <span className="text-gray-400 ml-1.5">{new Date(m.createdAt).toLocaleDateString()}</span>
+            {m.reason && <p className="text-gray-500 mt-0.5">{m.reason}</p>}
+          </div>
+          <div className="text-right shrink-0 ml-2">
+            <span className={`font-bold ${m.quantityDelta > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {m.quantityDelta > 0 ? '+' : ''}{m.quantityDelta}
+            </span>
+            <p className="text-gray-400">{m.previousStock} → {m.newStock}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function InventoryModule({ token, onAskAI }: { token: string | undefined; onAskAI: (prompt: string) => void }) {
   const { data: productsData, loading, refetch } = useApi<{ products: Product[] }>(
     token ? '/api/products' : null, token,
   )
-  const { addToast } = useToast()
+  const { data: suppliersData } = useApi<{ suppliers: Supplier[] }>(
+    token ? '/api/suppliers' : null, token,
+  )
+  const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
   const products = productsData?.products ?? []
+  const suppliers = suppliersData?.suppliers ?? []
 
-  const [editStockId, setEditStockId] = useState<string | null>(null)
-  const [stockInput,  setStockInput]  = useState('')
-  const [savingId,    setSavingId]    = useState<string | null>(null)
+  const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
 
   const sorted = [...products].sort((a, b) => {
     const aLow = a.available <= a.minimumStock
@@ -1008,27 +1282,44 @@ function InventoryModule({ token }: { token: string | undefined }) {
   const lowStock    = products.filter(p => p.available <= p.minimumStock && p.available > 0).length
   const outOfStock  = products.filter(p => p.available === 0).length
 
-  async function saveStock(id: string) {
-    const val = parseInt(stockInput)
-    if (isNaN(val) || val < 0) return
-    setSavingId(id)
-    try {
-      await apiClient(`/api/products/${id}`, {
-        method: 'PATCH', token,
-        body: JSON.stringify({ stock: val }),
-      })
-      addToast({ variant: 'success', title: 'Stock updated' })
-      setEditStockId(null)
-      refetch()
-    } catch (err: any) {
-      addToast({ variant: 'error', title: err.message ?? 'Failed to update stock' })
-    } finally {
-      setSavingId(null)
-    }
+  function reorderLink(p: Product): string | null {
+    const supplier = suppliers.find(s => s.id === p.supplierId)
+    if (!supplier?.whatsapp) return null
+    const suggestedQty = Math.max(p.minimumStock * 2 - p.available, p.minimumStock, 1)
+    const text = `Hi ${supplier.contact ?? supplier.company}, we're running low on ${p.name} (${p.available} left). Could you send a quote for restocking ${suggestedQty} units?`
+    return `https://wa.me/${supplier.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`
   }
 
   return (
     <div className="space-y-4">
+      {/* AI Insights */}
+      {insights && (insights.lowStock.length > 0 || insights.stats.outOfStockCount > 0) && (
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-amber-50 to-white border border-amber-100 shadow-sm shadow-amber-100/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-4.5 h-4.5 text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900">
+                {insights.stats.outOfStockCount > 0
+                  ? `${insights.stats.outOfStockCount} item${insights.stats.outOfStockCount !== 1 ? 's are' : ' is'} out of stock`
+                  : `${insights.stats.lowStockCount} item${insights.stats.lowStockCount !== 1 ? 's need' : ' needs'} reordering`}
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                {insights.lowStock.slice(0, 3).map(p => p.name).join(', ')}
+                {insights.lowStock.length > 3 ? ` +${insights.lowStock.length - 3} more` : ''} — worth restocking before you run out.
+              </p>
+              <button
+                onClick={() => onAskAI(`Help me plan reorders for: ${insights.lowStock.map(p => p.name).join(', ')}`)}
+                className="mt-2 text-xs font-bold text-amber-700 hover:text-amber-800 inline-flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" />Ask AI to plan reorders
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Summary row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -1056,6 +1347,8 @@ function InventoryModule({ token }: { token: string | undefined }) {
             const sv       = stockVariant(p.available, p.minimumStock)
             const pct      = p.stock > 0 ? Math.min(100, (p.available / p.stock) * 100) : 0
             const barColor = sv === 'error' ? 'bg-red-500' : sv === 'warning' ? 'bg-amber-500' : 'bg-green-500'
+            const wa       = sv !== 'success' ? reorderLink(p) : null
+            const isHistoryOpen = historyId === p.id
             return (
               <div key={p.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
                 <div className="flex items-start justify-between gap-2 mb-3">
@@ -1069,33 +1362,13 @@ function InventoryModule({ token }: { token: string | undefined }) {
                 </div>
 
                 <div className="flex items-center gap-3 mb-2">
-                  {editStockId === p.id ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number" min="0"
-                        value={stockInput}
-                        onChange={e => setStockInput(e.target.value)}
-                        className="w-20 rounded-lg border border-indigo-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveStock(p.id)}
-                        disabled={savingId === p.id}
-                        className="text-xs text-indigo-600 font-medium hover:underline disabled:opacity-50"
-                      >
-                        {savingId === p.id ? 'Saving...' : 'Save'}
-                      </button>
-                      <button onClick={() => setEditStockId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => { setEditStockId(p.id); setStockInput(p.available.toString()) }}
-                      className="text-2xl font-bold text-gray-900 hover:text-indigo-600 transition-colors"
-                      title="Click to update stock"
-                    >
-                      {p.available}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setAdjustingProduct(p)}
+                    className="text-2xl font-bold text-gray-900 hover:text-indigo-600 transition-colors"
+                    title="Adjust stock"
+                  >
+                    {p.available}
+                  </button>
                   <div className="text-xs text-gray-500 space-y-0.5">
                     <div>reserved: {p.reserved}</div>
                     <div>reorder at: {p.minimumStock}</div>
@@ -1106,10 +1379,56 @@ function InventoryModule({ token }: { token: string | undefined }) {
                   <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
                 </div>
                 <p className="text-xs text-gray-400 mt-1">{p.available} available of {p.stock} total</p>
+
+                <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-50">
+                  <button
+                    onClick={() => setAdjustingProduct(p)}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />Adjust
+                  </button>
+                  <button
+                    onClick={() => setHistoryId(isHistoryOpen ? null : p.id)}
+                    className="text-xs font-semibold text-gray-500 hover:text-gray-700 inline-flex items-center gap-1"
+                  >
+                    History {isHistoryOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                  {wa && (
+                    <a
+                      href={wa} target="_blank" rel="noopener noreferrer"
+                      className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 ml-auto"
+                    >
+                      <MessageSquare className="w-3 h-3" />Reorder via WhatsApp
+                    </a>
+                  )}
+                  {!wa && sv !== 'success' && (
+                    <button
+                      onClick={() => onAskAI(`Draft a restock message for ${p.name} — we're down to ${p.available} units, reorder point is ${p.minimumStock}`)}
+                      className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 ml-auto"
+                    >
+                      <Sparkles className="w-3 h-3" />Ask AI to draft reorder
+                    </button>
+                  )}
+                </div>
+
+                {isHistoryOpen && (
+                  <div className="mt-3 pt-3 border-t border-gray-50">
+                    <MovementHistory productId={p.id} token={token} />
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
+      )}
+
+      {adjustingProduct && (
+        <StockAdjustModal
+          product={adjustingProduct}
+          token={token}
+          onClose={() => setAdjustingProduct(null)}
+          onSaved={refetch}
+        />
       )}
     </div>
   )
@@ -1117,13 +1436,14 @@ function InventoryModule({ token }: { token: string | undefined }) {
 
 // ─── Pricing Module ───────────────────────────────────────────────────────────
 
-function PricingModule({ token }: { token: string | undefined }) {
+function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI: (prompt: string) => void }) {
   const { data: productsData, loading: productsLoading, refetch } = useApi<{ products: Product[] }>(
     token ? '/api/products' : null, token,
   )
   const { data: pricingRulesData, loading: rulesLoading } = useApi<{ facts: BusinessFact[] }>(
     token ? '/api/business-facts?category=pricing' : null, token,
   )
+  const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
   const { addToast } = useToast()
 
   const products     = productsData?.products   ?? []
@@ -1175,6 +1495,31 @@ function PricingModule({ token }: { token: string | undefined }) {
 
   return (
     <div className="space-y-6">
+      {insights && insights.thinMargin.length > 0 && (
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-rose-50 to-white border border-rose-100 shadow-sm shadow-rose-100/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4.5 h-4.5 text-rose-600 rotate-180" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900">
+                {insights.thinMargin.length} product{insights.thinMargin.length !== 1 ? 's have' : ' has'} thin margins
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                {insights.thinMargin.slice(0, 3).map(p => `${p.name} (${p.marginPct}%)`).join(', ')}
+                {insights.thinMargin.length > 3 ? ` +${insights.thinMargin.length - 3} more` : ''} — under 15% margin.
+              </p>
+              <button
+                onClick={() => onAskAI(`Should I raise prices on these thin-margin products: ${insights.thinMargin.map(p => p.name).join(', ')}?`)}
+                className="mt-2 text-xs font-bold text-rose-700 hover:text-rose-800 inline-flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" />Ask AI about pricing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {productsLoading ? (
         <SkeletonCard />
       ) : products.length === 0 ? (
@@ -1357,10 +1702,11 @@ const BLANK_SUPPLIER_FORM = {
   paymentTerms: '', notes: '',
 }
 
-function SuppliersModule({ token }: { token: string | undefined }) {
+function SuppliersModule({ token, onAskAI }: { token: string | undefined; onAskAI: (prompt: string) => void }) {
   const { data: suppliersData, loading, refetch } = useApi<{ suppliers: Supplier[] }>(
     token ? '/api/suppliers' : null, token,
   )
+  const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
   const { addToast } = useToast()
   const suppliers = suppliersData?.suppliers ?? []
 
@@ -1426,6 +1772,33 @@ function SuppliersModule({ token }: { token: string | undefined }) {
 
   return (
     <div className="space-y-4">
+      {insights && insights.supplierFlags.length > 0 && (
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-orange-50 to-white border border-orange-100 shadow-sm shadow-orange-100/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-orange-100 flex items-center justify-center shrink-0">
+              <Truck className="w-4.5 h-4.5 text-orange-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900">
+                {insights.supplierFlags.length} supplier{insights.supplierFlags.length !== 1 ? 's need' : ' needs'} attention
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                {insights.supplierFlags.slice(0, 3).map(s => s.flag === 'low_reliability'
+                  ? `${s.company} (${s.reliabilityScore}% reliable)`
+                  : `${s.company} (${s.averageDeliveryTime}d delivery)`).join(', ')}
+                {insights.supplierFlags.length > 3 ? ` +${insights.supplierFlags.length - 3} more` : ''}
+              </p>
+              <button
+                onClick={() => onAskAI(`Which of these suppliers should I consider replacing or renegotiating with, and why: ${insights.supplierFlags.map(s => s.company).join(', ')}?`)}
+                className="mt-2 text-xs font-bold text-orange-700 hover:text-orange-800 inline-flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" />Ask AI about suppliers
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <Button onClick={() => setShowAdd(v => !v)}>
           <Plus className="w-4 h-4 mr-1.5" />
@@ -2409,14 +2782,18 @@ export default function StudioPage() {
   const token = session.data?.accessToken ?? undefined
 
   const [activeModule, setActiveModule] = useState<Module>('overview')
+  // Lets any tab's "Ask AI" insight jump to the Overview chat with a
+  // pre-filled question instead of duplicating LLM calls per tab.
+  const [askPrompt, setAskPrompt] = useState<string | null>(null)
+  const onAskAI = (prompt: string) => { setAskPrompt(prompt); setActiveModule('overview') }
 
   function renderModule() {
     switch (activeModule) {
-      case 'overview':  return <OverviewModule  token={token} />
+      case 'overview':  return <OverviewModule  token={token} initialPrompt={askPrompt} onConsumedPrompt={() => setAskPrompt(null)} />
       case 'catalog':   return <CatalogModule   token={token} />
-      case 'inventory': return <InventoryModule  token={token} />
-      case 'pricing':   return <PricingModule    token={token} />
-      case 'suppliers': return <SuppliersModule  token={token} />
+      case 'inventory': return <InventoryModule  token={token} onAskAI={onAskAI} />
+      case 'pricing':   return <PricingModule    token={token} onAskAI={onAskAI} />
+      case 'suppliers': return <SuppliersModule  token={token} onAskAI={onAskAI} />
       case 'rules':     return <RulesModule      token={token} />
       case 'brand':     return <BrandModule      token={token} />
       case 'knowledge': return <KnowledgeModule  token={token} />

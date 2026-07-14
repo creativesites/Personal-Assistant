@@ -39,6 +39,7 @@ import { businessProfileRoutes } from './routes/business-profile';
 import { documentsRoutes } from './routes/documents';
 import { recurringDocumentsRoutes } from './routes/recurring-documents';
 import { suppliersRoutes } from './routes/suppliers';
+import { studioRoutes } from './routes/studio';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -104,6 +105,7 @@ export async function buildApp() {
   await fastify.register(documentsRoutes);
   await fastify.register(recurringDocumentsRoutes);
   await fastify.register(suppliersRoutes);
+  await fastify.register(studioRoutes);
 
   return fastify;
 }

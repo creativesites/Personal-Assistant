@@ -425,6 +425,92 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ── Stock movements — typed, reasoned inventory adjustments (see CLAUDE.md
+  // "Studio ERP") replacing the blind PATCH {stock: N} overwrite above with
+  // an auditable restock/sale/adjustment/waste/return trail. ──────────────
+
+  const stockMovementBody = z.object({
+    movementType: z.enum(['restock', 'sale', 'adjustment', 'waste', 'return']),
+    quantityDelta: z.number().int().refine(n => n !== 0, 'quantityDelta must not be zero'),
+    reason: z.string().max(500).optional().nullable(),
+  })
+
+  fastify.post(
+    '/api/products/:id/stock-movements',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = stockMovementBody.parse(request.body)
+
+      const { rows: [existing] } = await db.query(
+        'SELECT stock, reserved FROM products WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Product not found' })
+
+      const previousStock = existing.stock
+      const newStock = Math.max(0, previousStock + body.quantityDelta)
+      const newAvailable = Math.max(0, newStock - existing.reserved)
+
+      const { rows: [movement] } = await db.query(
+        `INSERT INTO stock_movements
+           (user_id, product_id, movement_type, quantity_delta, previous_stock, new_stock, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, movement_type, quantity_delta, previous_stock, new_stock, reason, created_at`,
+        [userId, id, body.movementType, body.quantityDelta, previousStock, newStock, body.reason ?? null],
+      )
+
+      await db.query(
+        `UPDATE products SET stock = $1, quantity = $1, available = $2, updated_at = NOW()
+         WHERE id = $3 AND user_id = $4`,
+        [newStock, newAvailable, id, userId],
+      )
+
+      return reply.code(201).send({
+        movement: {
+          id: movement.id,
+          movementType: movement.movement_type,
+          quantityDelta: movement.quantity_delta,
+          previousStock: movement.previous_stock,
+          newStock: movement.new_stock,
+          reason: movement.reason,
+          createdAt: movement.created_at,
+        },
+        stock: newStock,
+        available: newAvailable,
+      })
+    },
+  )
+
+  fastify.get(
+    '/api/products/:id/stock-movements',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows } = await db.query(
+        `SELECT id, movement_type, quantity_delta, previous_stock, new_stock, reason, created_at
+         FROM stock_movements WHERE user_id = $1 AND product_id = $2
+         ORDER BY created_at DESC LIMIT 50`,
+        [userId, id],
+      )
+
+      return reply.send({
+        movements: rows.map((m: any) => ({
+          id: m.id,
+          movementType: m.movement_type,
+          quantityDelta: m.quantity_delta,
+          previousStock: m.previous_stock,
+          newStock: m.new_stock,
+          reason: m.reason,
+          createdAt: m.created_at,
+        })),
+      })
+    },
+  )
+
   fastify.get(
     '/api/products/:id/contacts',
     { preHandler: [authenticate, requireMarketingAccess] },

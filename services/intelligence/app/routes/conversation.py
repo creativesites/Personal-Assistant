@@ -324,7 +324,7 @@ class StudioAskRequest(BaseModel):
 
 @studio_router.post('/ask')
 async def studio_ask(body: StudioAskRequest):
-    """Business advisor — answers questions using real catalog, rules, and supplier data."""
+    """Business advisor — answers questions using real catalog, rules, supplier, and contact data."""
     catalog_items = await memory.get_relevant_catalog(body.user_id, limit=50)
     business_facts = await memory.get_business_facts(body.user_id, limit=30)
     catalog_text = memory.format_catalog_items(catalog_items)
@@ -338,6 +338,27 @@ async def studio_ask(body: StudioAskRequest):
                FROM suppliers WHERE user_id = $1 ORDER BY company ASC LIMIT 20''',
             body.user_id,
         )
+        # Recent/active contacts — gives the advisor contact_ids so it can
+        # suggest CRM/messaging actions (lead_score, reply_draft, generate_document, ...)
+        # the same way the global Advisor's contact context does.
+        contact_rows = await conn.fetch(
+            '''SELECT co.id AS contact_id,
+                      COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+                      c.last_message_preview, c.last_message_at,
+                      co.lead_score, co.pipeline_stage
+               FROM conversations c
+               JOIN contacts co ON co.id = c.contact_id
+               WHERE c.user_id = $1 AND c.is_archived = false AND co.is_group = false
+               ORDER BY c.last_message_at DESC NULLS LAST
+               LIMIT 20''',
+            body.user_id,
+        )
+        low_stock_rows = await conn.fetch(
+            '''SELECT name, available, minimum_stock
+               FROM products WHERE user_id = $1 AND available <= minimum_stock
+               ORDER BY available ASC LIMIT 10''',
+            body.user_id,
+        )
 
     supplier_lines = []
     for s in supplier_rows:
@@ -348,17 +369,36 @@ async def studio_ask(body: StudioAskRequest):
         )
     suppliers_text = '\n'.join(supplier_lines) or 'No suppliers configured.'
 
+    contact_lines = []
+    for row in contact_rows:
+        preview = (row['last_message_preview'] or '')[:80]
+        contact_lines.append(
+            f"- {row['contact_name']} (contact_id: {row['contact_id']}): "
+            f"lead_score={row.get('lead_score') or 0}, stage={row.get('pipeline_stage') or 'unknown'}, "
+            f"last: \"{preview}\""
+        )
+    contacts_text = '\n'.join(contact_lines) or 'No recent customer conversations found.'
+
+    low_stock_lines = [
+        f"- {r['name']}: {r['available']} available (reorder at {r['minimum_stock']})"
+        for r in low_stock_rows
+    ]
+    low_stock_text = '\n'.join(low_stock_lines) or 'Nothing currently at or below its reorder point.'
+
     system_prompt = (
         'You are the Zuri AI Business Advisor, a specialist in helping small business owners '
         'manage their operations efficiently. You have access to the business\'s real catalog, '
-        'pricing rules, business policies, and supplier information shown below. '
+        'pricing rules, business policies, supplier information, and recent customer contacts shown below. '
         'Answer questions concisely. Give actionable, specific advice. '
         'When asked about stock, pricing, or availability — use the exact numbers from the catalog. '
         'When citing a price or stock level, be precise. '
         'Format responses with clear headings and bullet points when helpful.\n\n'
         f'CATALOG (Products & Services):\n{catalog_text or "No catalog items found."}\n\n'
+        f'LOW / OUT OF STOCK:\n{low_stock_text}\n\n'
         f'BUSINESS RULES & FACTS:\n{facts_text or "No business facts configured."}\n\n'
-        f'SUPPLIERS:\n{suppliers_text}'
+        f'SUPPLIERS:\n{suppliers_text}\n\n'
+        f'RECENT CUSTOMER CONTACTS:\n{contacts_text}\n'
+        + ZURI_ACTION_INSTRUCTIONS
     )
 
     chat_history = []

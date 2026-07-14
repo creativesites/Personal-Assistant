@@ -387,7 +387,7 @@ Message flow: WhatsApp → Baileys → `messages.incoming` queue → Intelligenc
 
 ## Database
 
-PostgreSQL 16 with pgvector. 54 migrations applied (0001–0054) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
+PostgreSQL 16 with pgvector. 55 migrations applied (0001–0055) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
 
 **Domains:** Core · Contacts & Relationships · Conversations & Messages · AI Intelligence · Proactive System · Calendar · AI Advisor · Notifications · Business Workspace (`business_profiles`, `document_templates`, `documents`, `document_events`, `deal_stage_history`, `document_chat_messages`, `recurring_documents`, `document_pack_runs` — migrations 0043–0046)
 
@@ -413,6 +413,22 @@ Key design notes:
 - The group's own display name is kept in sync from WhatsApp chat metadata (`phone_chats` event → `MessageHandler.updateGroupNames`) rather than frozen on whoever sent the first message.
 
 **Incoming media (images, documents, etc.) uploads to Supabase Storage.** `services/whatsapp/src/lib/supabase-storage.ts` uploads every downloaded WhatsApp media buffer to the **`chat-media`** bucket (public, create it in the Supabase dashboard — same bucket already reserved in `apps/web/src/lib/storage.ts`'s `StorageBucket` union) using the **service-role key** (`SUPABASE_SERVICE_ROLE_KEY`, not the anon key — this is a trusted backend service writing arbitrary contacts' files, not a user's own browser upload). `messages.media_url` then stores the Supabase public URL directly. If `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` aren't set, it falls back to the pre-existing local-disk `wa_media` volume + `GET /api/media/:filename` route — this is what local dev without Supabase creds still uses. The Inbox frontend (`message-content.tsx`) renders both transparently.
+
+---
+
+## Studio ERP & AI Business Advisor
+
+The Studio page (`apps/web/src/app/(dashboard)/studio/page.tsx`, "Business Knowledge Hub") is being built out into a proper small-business ERP, not just a catalog/rules editor.
+
+**AI Business Advisor** (`OverviewModule`'s chat) now matches the main Advisor page's polish and capability instead of being a plain-text Q&A box:
+- Markdown + interactive action cards render via the shared `ChatFormatter` component (`apps/web/src/components/ui/chat-formatter.tsx`) — the same hand-rolled markdown parser and `[ACTION: type | param | param]` tag system the main Advisor and Inbox's `intel-panel.tsx` use. No new parsing mechanism was introduced; Studio's chat was wired into the existing one.
+- `services/intelligence/app/routes/conversation.py::studio_ask` now appends `ZURI_ACTION_INSTRUCTIONS` to its system prompt and includes a recent-contacts context block (id/name/lead_score/pipeline_stage) plus a low/out-of-stock products block, alongside its existing catalog/rules/suppliers context — giving the model contact_ids and stock context to act on.
+- `OverviewModule`'s `handleChatAction` wires all five existing action types: `lead_score`/`pipeline_stage` → `PATCH /api/contacts/:id`, `reminder` → `POST /api/calendar/events`, `reply_draft` → resolves the contact's conversation via `GET /api/contacts/:id/messages` then sends via `POST /api/conversations/:id/messages` (Studio has no conversation already in view, unlike Inbox), `generate_document` → `POST /api/documents/ai-generate` + render, same as the main Advisor.
+- There is a second, unrelated tool-calling mechanism in this codebase — `services/intelligence/app/services/agent_engine.py`'s prompt-described tool list + JSON dispatch, used only by the Autonomous Agent Engine (agent-assigned WhatsApp conversations). Don't confuse the two; the `[ACTION: ...]` tag system is the right fit for anything rendered in a chat UI with a confirm step.
+
+**Inventory is a real stock ledger, not a single overwritable number.** Migration `0055_stock_movements.sql` adds a `stock_movements` table (`restock`/`sale`/`adjustment`/`waste`/`return`, signed `quantity_delta`, `previous_stock`/`new_stock`, optional `reason`). `POST /api/products/:id/stock-movements` records a movement and updates `products.stock`/`available` atomically (replacing the old blind `PATCH /api/products/:id {stock: N}` overwrite, which is still used elsewhere for cases like initial catalog entry); `GET /api/products/:id/stock-movements` returns the last 50 for the expandable history view in `InventoryModule`. Low/out-of-stock items get a one-click "Reorder via WhatsApp" `wa.me` link (pre-filled message) when a supplier with a WhatsApp number is linked, or an "Ask AI to draft reorder" fallback otherwise.
+
+**Zuri Insights** (`GET /api/studio/insights`, `services/api/src/routes/studio.ts`) are deterministic, SQL-driven — not LLM-generated — on purpose: exact thresholds (available ≤ minimum_stock, margin < 15%, supplier reliability < 80% or delivery > 14 days) are more trustworthy for ERP data than a narrative summary, and the AI Business Advisor chat is where a user asks for narrative framing instead. Each relevant Studio tab (Overview, Inventory, Pricing, Suppliers) renders a slice of this endpoint's data as an insight card with an "Ask AI" button; clicking it calls `StudioPage`'s `onAskAI(prompt)`, which switches to the Overview tab and pre-fills (not auto-sends) the chat input via `OverviewModule`'s `initialPrompt`/`onConsumedPrompt` props — one shared endpoint and one shared chat session, not a bespoke LLM call per tab.
 
 ---
 
