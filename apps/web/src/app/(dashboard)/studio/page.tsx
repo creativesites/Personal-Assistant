@@ -30,6 +30,17 @@ import {
   Layers,
   MessageSquare,
   ShoppingCart,
+  Upload,
+  Image,
+  Phone,
+  Mail,
+  Globe,
+  Link2,
+  ExternalLink,
+  Radio,
+  Tv2,
+  Film,
+  AtSign,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,6 +51,7 @@ import { useToast } from '@/components/ui/toast'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
+import { uploadProductImage } from '@/lib/storage'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,6 +65,7 @@ type Module =
   | 'brand'
   | 'knowledge'
   | 'marketing'
+  | 'social'
 
 interface Product {
   id: string
@@ -94,6 +107,10 @@ interface Product {
   whatsappCatalogProductId: string | null
   linkedContacts: number
   attributedLeads: number
+  minPrice: number | null
+  maxPrice: number | null
+  discountMinPct: number
+  discountMaxPct: number
   createdAt: string
   updatedAt: string
 }
@@ -248,6 +265,7 @@ const MODULES: { id: Module; label: string; Icon: React.ComponentType<{ classNam
   { id: 'brand',      label: 'Brand',      Icon: Palette },
   { id: 'knowledge',  label: 'Knowledge',  Icon: BookOpen },
   { id: 'marketing',  label: 'Marketing',  Icon: Megaphone },
+  { id: 'social',     label: 'Social',     Icon: Globe },
 ]
 
 // ─── Overview Module ──────────────────────────────────────────────────────────
@@ -486,6 +504,9 @@ function CatalogModule({ token }: { token: string | undefined }) {
   const [syncingId,      setSyncingId]      = useState<string | null>(null)
   const [saving,         setSaving]         = useState(false)
   const [form,           setForm]           = useState({ ...BLANK_CATALOG_FORM })
+  const [uploadingImgId, setUploadingImgId] = useState<string | null>(null)
+  const imgInputRef                         = useRef<HTMLInputElement>(null)
+  const [imgTargetId,    setImgTargetId]    = useState<string | null>(null)
 
   const filtered = filter === 'All' ? products : products.filter(p => p.itemType === filter)
 
@@ -559,6 +580,37 @@ function CatalogModule({ token }: { token: string | undefined }) {
       addToast({ variant: 'error', title: err.message ?? 'WA sync failed' })
     } finally {
       setSyncingId(null)
+    }
+  }
+
+  async function handleImageUpload(file: File, product: Product) {
+    setUploadingImgId(product.id)
+    try {
+      const url = await uploadProductImage(product.id, file)
+      const newImages = [...(product.images ?? []), url]
+      await apiClient(`/api/products/${product.id}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({ images: newImages }),
+      })
+      addToast({ variant: 'success', title: 'Image uploaded' })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Upload failed' })
+    } finally {
+      setUploadingImgId(null)
+    }
+  }
+
+  async function handleRemoveImage(product: Product, imgUrl: string) {
+    const newImages = product.images.filter(u => u !== imgUrl)
+    try {
+      await apiClient(`/api/products/${product.id}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({ images: newImages }),
+      })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to remove image' })
     }
   }
 
@@ -808,6 +860,52 @@ function CatalogModule({ token }: { token: string | undefined }) {
                 {isExpanded && (
                   <div className="border-t border-gray-100 p-4 space-y-4">
                     {p.description && <p className="text-sm text-gray-600">{p.description}</p>}
+
+                    {/* Images */}
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1.5">
+                        <Image className="w-3.5 h-3.5" />
+                        Images
+                      </p>
+                      <div className="flex gap-2 flex-wrap items-start">
+                        {p.images?.map(url => (
+                          <div key={url} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-200">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url} alt="" className="w-full h-full object-cover" />
+                            <button
+                              onClick={() => handleRemoveImage(p, url)}
+                              className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                            >
+                              <X className="w-4 h-4 text-white" />
+                            </button>
+                          </div>
+                        ))}
+                        <label
+                          className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 hover:border-indigo-400 flex flex-col items-center justify-center cursor-pointer transition-colors gap-1"
+                          title="Upload image"
+                        >
+                          {uploadingImgId === p.id
+                            ? <RefreshCw className="w-4 h-4 text-indigo-500 animate-spin" />
+                            : <>
+                                <Upload className="w-4 h-4 text-gray-400" />
+                                <span className="text-[10px] text-gray-400">Add</span>
+                              </>
+                          }
+                          <input
+                            type="file"
+                            accept="image/*,video/*"
+                            className="sr-only"
+                            disabled={uploadingImgId === p.id}
+                            onChange={e => {
+                              const file = e.target.files?.[0]
+                              if (file) handleImageUpload(file, p)
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div><span className="text-gray-500">Cost:</span> <span className="font-medium">{formatCurrency(p.purchaseCost, p.currency)}</span></div>
                       <div>
@@ -820,6 +918,18 @@ function CatalogModule({ token }: { token: string | undefined }) {
                       <div><span className="text-gray-500">Min stock:</span> <span className="font-medium">{p.minimumStock}</span></div>
                       {p.warranty  && <div><span className="text-gray-500">Warranty:</span> <span className="font-medium">{p.warranty}</span></div>}
                       {p.leadTime > 0 && <div><span className="text-gray-500">Lead time:</span> <span className="font-medium">{p.leadTime}d</span></div>}
+                      {(p.discountMinPct > 0 || p.discountMaxPct > 0) && (
+                        <div className="col-span-2">
+                          <span className="text-gray-500">Discount range:</span>{' '}
+                          <span className="font-medium text-amber-700">{p.discountMinPct}% – {p.discountMaxPct}%</span>
+                        </div>
+                      )}
+                      {(p.minPrice != null || p.maxPrice != null) && (
+                        <div className="col-span-2">
+                          <span className="text-gray-500">Price range:</span>{' '}
+                          <span className="font-medium">{formatCurrency(p.minPrice, p.currency)} – {formatCurrency(p.maxPrice, p.currency)}</span>
+                        </div>
+                      )}
                     </div>
 
                     {p.tags.length > 0 && (
@@ -1019,24 +1129,45 @@ function PricingModule({ token }: { token: string | undefined }) {
   const products     = productsData?.products   ?? []
   const pricingRules = pricingRulesData?.facts  ?? []
 
-  const [editPriceId, setEditPriceId] = useState<string | null>(null)
-  const [priceInput,  setPriceInput]  = useState('')
+  const [selectedId,  setSelectedId]  = useState<string | null>(null)
   const [savingId,    setSavingId]    = useState<string | null>(null)
+  const [editFields,  setEditFields]  = useState<Record<string, string>>({})
 
-  async function savePrice(id: string) {
-    const val = parseFloat(priceInput)
-    if (isNaN(val) || val < 0) return
-    setSavingId(id)
+  const selectedProduct = products.find(p => p.id === selectedId) ?? null
+
+  function openDetail(p: Product) {
+    setSelectedId(p.id)
+    setEditFields({
+      sellingPrice:   (p.sellingPrice    ?? 0).toString(),
+      purchaseCost:   (p.purchaseCost    ?? 0).toString(),
+      minPrice:       (p.minPrice        ?? '').toString(),
+      maxPrice:       (p.maxPrice        ?? '').toString(),
+      discountMinPct: (p.discountMinPct  ?? 0).toString(),
+      discountMaxPct: (p.discountMaxPct  ?? 0).toString(),
+    })
+  }
+
+  async function saveDetail() {
+    if (!selectedId) return
+    setSavingId(selectedId)
     try {
-      await apiClient(`/api/products/${id}`, {
+      const patch: Record<string, number | null> = {}
+      if (editFields.sellingPrice !== '') patch.sellingPrice = parseFloat(editFields.sellingPrice)
+      if (editFields.purchaseCost !== '') patch.purchaseCost = parseFloat(editFields.purchaseCost)
+      patch.minPrice       = editFields.minPrice       ? parseFloat(editFields.minPrice)       : null
+      patch.maxPrice       = editFields.maxPrice       ? parseFloat(editFields.maxPrice)       : null
+      patch.discountMinPct = editFields.discountMinPct ? parseFloat(editFields.discountMinPct) : 0
+      patch.discountMaxPct = editFields.discountMaxPct ? parseFloat(editFields.discountMaxPct) : 0
+
+      await apiClient(`/api/products/${selectedId}`, {
         method: 'PATCH', token,
-        body: JSON.stringify({ sellingPrice: val }),
+        body: JSON.stringify(patch),
       })
-      addToast({ variant: 'success', title: 'Price updated' })
-      setEditPriceId(null)
+      addToast({ variant: 'success', title: 'Pricing saved' })
+      setSelectedId(null)
       refetch()
     } catch (err: any) {
-      addToast({ variant: 'error', title: err.message ?? 'Failed to update price' })
+      addToast({ variant: 'error', title: err.message ?? 'Failed to save' })
     } finally {
       setSavingId(null)
     }
@@ -1054,58 +1185,40 @@ function PricingModule({ token }: { token: string | undefined }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Name', 'Cost', 'Selling Price', 'Margin %', 'Margin Value', 'Edit'].map(h => (
+                  {['Name', 'Cost', 'Selling Price', 'Margin %', 'Discount Range', 'Floor / Ceiling', ''].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {products.map(p => {
-                  const margin      = calcMargin(p.sellingPrice, p.purchaseCost)
-                  const marginValue = p.sellingPrice != null ? p.sellingPrice - p.purchaseCost : null
+                  const margin = calcMargin(p.sellingPrice, p.purchaseCost)
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50/50">
+                    <tr key={p.id} className="hover:bg-gray-50/50 cursor-pointer" onClick={() => openDetail(p)}>
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900">{p.name}</p>
                         {p.category && <p className="text-xs text-gray-400">{p.category}</p>}
                       </td>
                       <td className="px-4 py-3 text-gray-700">{formatCurrency(p.purchaseCost, p.currency)}</td>
-                      <td className="px-4 py-3">
-                        {editPriceId === p.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="number" min="0" step="0.01"
-                              value={priceInput}
-                              onChange={e => setPriceInput(e.target.value)}
-                              className="w-24 rounded-lg border border-indigo-300 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                              autoFocus
-                            />
-                            <button onClick={() => savePrice(p.id)} disabled={savingId === p.id} className="text-xs text-indigo-600 font-medium hover:underline">
-                              {savingId === p.id ? '...' : 'Save'}
-                            </button>
-                            <button onClick={() => setEditPriceId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => { setEditPriceId(p.id); setPriceInput((p.sellingPrice ?? 0).toString()) }}
-                            className="font-medium text-gray-900 hover:text-indigo-600 transition-colors flex items-center gap-1"
-                          >
-                            {formatCurrency(p.sellingPrice, p.currency)}
-                            <Edit2 className="w-3 h-3 opacity-40" />
-                          </button>
-                        )}
-                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{formatCurrency(p.sellingPrice, p.currency)}</td>
                       <td className="px-4 py-3">
                         {margin != null
                           ? <span className={`font-semibold ${marginColor(margin)}`}>{margin.toFixed(1)}%</span>
                           : <span className="text-gray-400">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-gray-700">
-                        {marginValue != null ? formatCurrency(marginValue, p.currency) : '—'}
+                      <td className="px-4 py-3 text-amber-700 text-xs font-medium">
+                        {p.discountMinPct > 0 || p.discountMaxPct > 0
+                          ? `${p.discountMinPct}% – ${p.discountMaxPct}%`
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">
+                        {p.minPrice != null || p.maxPrice != null
+                          ? `${formatCurrency(p.minPrice, p.currency)} – ${formatCurrency(p.maxPrice, p.currency)}`
+                          : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => { setEditPriceId(p.id); setPriceInput((p.sellingPrice ?? 0).toString()) }}
+                          onClick={e => { e.stopPropagation(); openDetail(p) }}
                           className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-indigo-600"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1136,6 +1249,102 @@ function PricingModule({ token }: { token: string | undefined }) {
           </div>
         </div>
       )}
+
+      {/* Pricing Detail Modal */}
+      {selectedProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setSelectedId(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">{selectedProduct.name}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Edit pricing &amp; AI negotiation parameters</p>
+              </div>
+              <button onClick={() => setSelectedId(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Purchase Cost</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={editFields.purchaseCost}
+                  onChange={e => setEditFields(f => ({ ...f, purchaseCost: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Selling Price</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={editFields.sellingPrice}
+                  onChange={e => setEditFields(f => ({ ...f, sellingPrice: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="bg-amber-50 rounded-xl border border-amber-100 p-4 space-y-3">
+              <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5" />
+                AI Negotiation Parameters
+              </p>
+              <p className="text-xs text-amber-700">Set the range AI can use when negotiating price autonomously in WhatsApp conversations.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Floor Price (min)</label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={editFields.minPrice}
+                    onChange={e => setEditFields(f => ({ ...f, minPrice: e.target.value }))}
+                    placeholder="Lowest AI can go"
+                    className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Ceiling Price (max)</label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={editFields.maxPrice}
+                    onChange={e => setEditFields(f => ({ ...f, maxPrice: e.target.value }))}
+                    placeholder="Highest to quote"
+                    className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Min Discount %</label>
+                  <input
+                    type="number" min="0" max="100" step="0.5"
+                    value={editFields.discountMinPct}
+                    onChange={e => setEditFields(f => ({ ...f, discountMinPct: e.target.value }))}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Max Discount %</label>
+                  <input
+                    type="number" min="0" max="100" step="0.5"
+                    value={editFields.discountMaxPct}
+                    onChange={e => setEditFields(f => ({ ...f, discountMaxPct: e.target.value }))}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-amber-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setSelectedId(null)}>Cancel</Button>
+              <Button onClick={saveDetail} disabled={savingId === selectedProduct.id}>
+                {savingId === selectedProduct.id ? <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
+                Save pricing
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1158,6 +1367,7 @@ function SuppliersModule({ token }: { token: string | undefined }) {
   const [showAdd,       setShowAdd]       = useState(false)
   const [saving,        setSaving]        = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [expandedId,    setExpandedId]    = useState<string | null>(null)
   const [form,          setForm]          = useState({ ...BLANK_SUPPLIER_FORM })
 
   async function handleAdd(e: React.FormEvent) {
@@ -1273,58 +1483,118 @@ function SuppliersModule({ token }: { token: string | undefined }) {
         <div className="space-y-3">
           {suppliers.map(s => {
             const rv = reliabilityVariant(s.reliabilityScore)
+            const isExpanded = expandedId === s.id
             return (
-              <div key={s.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-gray-900">{s.company}</p>
-                      <Badge variant={rv}>Reliability: {s.reliabilityScore}/100</Badge>
-                    </div>
-                    {s.contact && <p className="text-sm text-gray-600 mt-1">{s.contact}</p>}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs">
-                      <div>
-                        <p className="text-gray-400">Delivery time</p>
-                        <p className="font-medium text-gray-700">{s.averageDeliveryTime}d avg</p>
+              <div key={s.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <button
+                      className="flex-1 text-left"
+                      onClick={() => setExpandedId(isExpanded ? null : s.id)}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-gray-900">{s.company}</p>
+                        <Badge variant={rv}>Reliability: {s.reliabilityScore}/100</Badge>
                       </div>
-                      {s.paymentTerms && (
+                      {s.contact && <p className="text-sm text-gray-600 mt-1">{s.contact}</p>}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs">
                         <div>
-                          <p className="text-gray-400">Payment terms</p>
-                          <p className="font-medium text-gray-700">{s.paymentTerms}</p>
+                          <p className="text-gray-400">Delivery time</p>
+                          <p className="font-medium text-gray-700">{s.averageDeliveryTime}d avg</p>
                         </div>
-                      )}
-                      {s.minimumOrder > 0 && (
-                        <div>
-                          <p className="text-gray-400">Min order</p>
-                          <p className="font-medium text-gray-700">${s.minimumOrder}</p>
-                        </div>
-                      )}
-                      {s.outstandingBalance > 0 && (
-                        <div>
-                          <p className="text-gray-400">Outstanding</p>
-                          <p className="font-medium text-red-600">${s.outstandingBalance}</p>
-                        </div>
-                      )}
-                    </div>
-                    {s.notes && <p className="text-xs text-gray-500 mt-2 italic">{s.notes}</p>}
-                  </div>
-                  <div className="shrink-0">
-                    {deleteConfirm === s.id ? (
-                      <div className="flex items-center gap-1.5 text-sm">
-                        <span className="text-gray-500">Delete?</span>
-                        <button onClick={() => handleDelete(s.id)} className="text-red-600 font-medium hover:underline">Yes</button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-gray-500 hover:underline">No</button>
+                        {s.paymentTerms && (
+                          <div>
+                            <p className="text-gray-400">Payment terms</p>
+                            <p className="font-medium text-gray-700">{s.paymentTerms}</p>
+                          </div>
+                        )}
+                        {s.minimumOrder > 0 && (
+                          <div>
+                            <p className="text-gray-400">Min order</p>
+                            <p className="font-medium text-gray-700">${s.minimumOrder}</p>
+                          </div>
+                        )}
+                        {s.outstandingBalance > 0 && (
+                          <div>
+                            <p className="text-gray-400">Outstanding</p>
+                            <p className="font-medium text-red-600">${s.outstandingBalance}</p>
+                          </div>
+                        )}
                       </div>
-                    ) : (
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={() => setDeleteConfirm(s.id)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500"
+                        onClick={() => setExpandedId(isExpanded ? null : s.id)}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                       </button>
-                    )}
+                      {deleteConfirm === s.id ? (
+                        <div className="flex items-center gap-1.5 text-sm">
+                          <span className="text-gray-500 text-xs">Delete?</span>
+                          <button onClick={() => handleDelete(s.id)} className="text-red-600 text-xs font-medium hover:underline">Yes</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="text-gray-500 text-xs hover:underline">No</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(s.id)}
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-500"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {isExpanded && (
+                  <div className="border-t border-gray-100 p-4 space-y-4">
+                    {s.notes && <p className="text-sm text-gray-600 italic">{s.notes}</p>}
+
+                    {/* Contact actions */}
+                    <div className="flex flex-wrap gap-2">
+                      {s.phone && (
+                        <a
+                          href={`tel:${s.phone}`}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-gray-500" />
+                          {s.phone}
+                        </a>
+                      )}
+                      {s.whatsapp && (
+                        <a
+                          href={`https://wa.me/${s.whatsapp.replace(/\D/g, '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700 hover:bg-green-100 transition-colors"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          WhatsApp
+                        </a>
+                      )}
+                      {s.email && (
+                        <a
+                          href={`mailto:${s.email}`}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-sm text-indigo-700 hover:bg-indigo-100 transition-colors"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          {s.email}
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Full detail grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 rounded-lg p-3">
+                      {s.contact && <div><span className="text-gray-400">Contact person:</span> <span className="font-medium text-gray-700">{s.contact}</span></div>}
+                      <div><span className="text-gray-400">Avg delivery:</span> <span className="font-medium text-gray-700">{s.averageDeliveryTime} days</span></div>
+                      <div><span className="text-gray-400">Reliability:</span> <span className="font-medium text-gray-700">{s.reliabilityScore}/100</span></div>
+                      {s.minimumOrder > 0 && <div><span className="text-gray-400">Min order:</span> <span className="font-medium text-gray-700">${s.minimumOrder}</span></div>}
+                      {s.paymentTerms && <div><span className="text-gray-400">Payment:</span> <span className="font-medium text-gray-700">{s.paymentTerms}</span></div>}
+                      {s.outstandingBalance > 0 && <div><span className="text-gray-400">Outstanding:</span> <span className="font-medium text-red-600">${s.outstandingBalance}</span></div>}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -1973,6 +2243,164 @@ function MarketingModule({ token }: { token: string | undefined }) {
   )
 }
 
+// ─── Social Module ────────────────────────────────────────────────────────────
+
+const SOCIAL_PLATFORMS = [
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    color: 'text-blue-600',
+    bg: 'bg-blue-50',
+    border: 'border-blue-200',
+    icon: Globe,
+    desc: 'Post to your Facebook Page and reach your audience.',
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    color: 'text-pink-600',
+    bg: 'bg-pink-50',
+    border: 'border-pink-200',
+    icon: AtSign,
+    desc: 'Share photos and reels to grow your brand.',
+  },
+  {
+    id: 'tiktok',
+    name: 'TikTok',
+    color: 'text-gray-900',
+    bg: 'bg-gray-50',
+    border: 'border-gray-200',
+    icon: Film,
+    desc: 'Create short-form video content for TikTok.',
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    color: 'text-red-600',
+    bg: 'bg-red-50',
+    border: 'border-red-200',
+    icon: Tv2,
+    desc: 'Upload videos and manage your channel.',
+  },
+  {
+    id: 'twitter',
+    name: 'X / Twitter',
+    color: 'text-gray-900',
+    bg: 'bg-gray-50',
+    border: 'border-gray-200',
+    icon: MessageSquare,
+    desc: 'Engage your audience with posts and threads.',
+  },
+  {
+    id: 'linkedin',
+    name: 'LinkedIn',
+    color: 'text-blue-700',
+    bg: 'bg-blue-50',
+    border: 'border-blue-200',
+    icon: Building2,
+    desc: 'Reach professionals and business decision-makers.',
+  },
+]
+
+function SocialModule({ token: _token }: { token: string | undefined }) {
+  const { data: accountsData } = useApi<{ accounts: SocialAccount[] }>(
+    _token ? '/api/social-accounts' : null, _token,
+  )
+  const accounts = accountsData?.accounts ?? []
+
+  function isConnected(platformId: string) {
+    return accounts.some(a => a.platform === platformId && a.connected)
+  }
+
+  function getHandle(platformId: string) {
+    return accounts.find(a => a.platform === platformId)?.username
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+        <div className="flex items-start gap-3">
+          <Globe className="w-5 h-5 text-indigo-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-indigo-800">Social Media Integrations</p>
+            <p className="text-xs text-indigo-600 mt-1">
+              Connect your social accounts so Zuri can publish AI-generated content, track engagement, and keep your brand consistent across all platforms.
+              OAuth setup is required — connections will open in a new tab.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {SOCIAL_PLATFORMS.map(({ id, name, color, bg, border, icon: Icon, desc }) => {
+          const connected = isConnected(id)
+          const handle = getHandle(id)
+          return (
+            <div key={id} className={`bg-white rounded-xl border ${border} shadow-sm p-4`}>
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}>
+                  <Icon className={`w-5 h-5 ${color}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-gray-900 text-sm">{name}</p>
+                    {connected && (
+                      <Badge variant="success">Connected</Badge>
+                    )}
+                  </div>
+                  {handle && <p className="text-xs text-gray-500 mt-0.5">@{handle}</p>}
+                  {!connected && <p className="text-xs text-gray-500 mt-1">{desc}</p>}
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                {connected ? (
+                  <>
+                    <button className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                      <ExternalLink className="w-3 h-3" />
+                      View page
+                    </button>
+                    <span className="text-gray-200">|</span>
+                    <button className="text-xs text-red-500 hover:text-red-700">Disconnect</button>
+                  </>
+                ) : (
+                  <button
+                    className={`text-xs font-medium ${color} ${bg} border ${border} px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity flex items-center gap-1.5`}
+                    onClick={() => alert(`${name} OAuth connection coming soon. This will open an authorization flow.`)}
+                  >
+                    <Link2 className="w-3 h-3" />
+                    Connect {name}
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+        <p className="text-xs font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+          What Zuri will do with connected accounts
+        </p>
+        <ul className="text-xs text-gray-600 space-y-1.5">
+          {[
+            'Auto-publish AI-generated product marketing content on schedule',
+            'Import your follower and engagement data into relationship intelligence',
+            'Generate platform-optimized captions, hashtags, and call-to-actions',
+            'Alert you when posts are performing unusually well or getting negative engagement',
+            'Cross-post WhatsApp catalog items to Instagram and Facebook shops',
+          ].map(item => (
+            <li key={item} className="flex items-start gap-1.5">
+              <Check className="w-3.5 h-3.5 text-green-500 mt-0.5 shrink-0" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page Component ──────────────────────────────────────────────────────
 
 export default function StudioPage() {
@@ -1993,6 +2421,7 @@ export default function StudioPage() {
       case 'brand':     return <BrandModule      token={token} />
       case 'knowledge': return <KnowledgeModule  token={token} />
       case 'marketing': return <MarketingModule  token={token} />
+      case 'social':    return <SocialModule     token={token} />
       default:          return null
     }
   }

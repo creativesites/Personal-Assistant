@@ -43,6 +43,10 @@ const createBody = z.object({
   pricingDetails: z.record(z.any()).optional(),
   aiNotes: z.string().optional().nullable(),
   marketingCopy: z.string().optional().nullable(),
+  minPrice: z.number().nonnegative().optional().nullable(),
+  maxPrice: z.number().nonnegative().optional().nullable(),
+  discountMinPct: z.number().min(0).max(100).optional(),
+  discountMaxPct: z.number().min(0).max(100).optional(),
 })
 
 const patchBody = z.object({
@@ -85,6 +89,10 @@ const patchBody = z.object({
   pricingDetails: z.record(z.any()).optional(),
   aiNotes: z.string().optional().nullable(),
   marketingCopy: z.string().optional().nullable(),
+  minPrice: z.number().nonnegative().optional().nullable(),
+  maxPrice: z.number().nonnegative().optional().nullable(),
+  discountMinPct: z.number().min(0).max(100).optional(),
+  discountMaxPct: z.number().min(0).max(100).optional(),
 })
 
 const linkContactBody = z.object({
@@ -142,6 +150,10 @@ type ProductRow = {
   pricing_details?: Record<string, any>
   ai_notes?: string | null
   marketing_copy?: string | null
+  min_price?: string | null
+  max_price?: string | null
+  discount_min_pct?: string | null
+  discount_max_pct?: string | null
 }
 
 function toApiShape(p: ProductRow) {
@@ -198,6 +210,10 @@ function toApiShape(p: ProductRow) {
     pricingDetails: p.pricing_details ?? {},
     aiNotes: p.ai_notes ?? null,
     marketingCopy: p.marketing_copy ?? null,
+    minPrice: p.min_price != null ? Number(p.min_price) : null,
+    maxPrice: p.max_price != null ? Number(p.max_price) : null,
+    discountMinPct: p.discount_min_pct != null ? Number(p.discount_min_pct) : 0,
+    discountMaxPct: p.discount_max_pct != null ? Number(p.discount_max_pct) : 0,
   }
 }
 
@@ -217,7 +233,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
                 p.supplier_lead_time, p.purchase_cost, p.selling_price, p.margin, p.discount_rules,
                 p.cross_sell, p.upsell, p.replacement_product_id, p.related_products, p.warranty,
                 p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
-                p.ai_notes, p.marketing_copy,
+                p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
+                p.discount_min_pct, p.discount_max_pct,
                 COUNT(DISTINCT cp.contact_id) AS linked_contacts,
                 COUNT(DISTINCT co.id) FILTER (WHERE co.source_product_id = p.id) AS attributed_leads
          FROM products p
@@ -393,6 +410,10 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.pricingDetails !== undefined) { sets.push(`pricing_details = $${idx++}::jsonb`); values.push(JSON.stringify(body.pricingDetails)) }
       if (body.aiNotes !== undefined) { sets.push(`ai_notes = $${idx++}`); values.push(body.aiNotes) }
       if (body.marketingCopy !== undefined) { sets.push(`marketing_copy = $${idx++}`); values.push(body.marketingCopy) }
+      if (body.minPrice !== undefined) { sets.push(`min_price = $${idx++}`); values.push(body.minPrice) }
+      if (body.maxPrice !== undefined) { sets.push(`max_price = $${idx++}`); values.push(body.maxPrice) }
+      if (body.discountMinPct !== undefined) { sets.push(`discount_min_pct = $${idx++}`); values.push(body.discountMinPct) }
+      if (body.discountMaxPct !== undefined) { sets.push(`discount_max_pct = $${idx++}`); values.push(body.discountMaxPct) }
 
       const { rowCount } = await db.query(
         `UPDATE products SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2`,
