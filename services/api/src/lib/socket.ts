@@ -9,7 +9,7 @@ type JwtVerifyFn = (token: string) => { userId: string };
 export function setupSocket(httpServer: HttpServer, jwtVerify?: JwtVerifyFn): Server {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.WEB_URL || 'http://localhost:3000',
+      origin: process.env.CORS_ORIGIN || process.env.WEB_URL || 'http://localhost:3000',
       methods: ['GET', 'POST'],
     },
     transports: ['websocket', 'polling'],

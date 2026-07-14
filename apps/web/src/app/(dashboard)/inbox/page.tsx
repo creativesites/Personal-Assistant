@@ -114,8 +114,8 @@ export default function InboxPage() {
   // Analysis
   const [analysing, setAnalysing] = useState(false)
 
-  // Per-conversation auto-reply overrides (local session state)
-  const [autoReplyOverrides, setAutoReplyOverrides] = useState<Map<string, boolean>>(() => new Map())
+  // Global auto-reply toggle (persisted to API)
+  const [globalAutoReply, setGlobalAutoReply] = useState<boolean>(false)
 
   // Sync progress
   const [syncing, setSyncing] = useState(false)
@@ -224,6 +224,9 @@ export default function InboxPage() {
     loadConversations()
     loadBriefing()
     loadSyncStatus()
+    apiClient<{ enabled: boolean }>('/api/settings/auto-response', { token })
+      .then(d => setGlobalAutoReply(d.enabled ?? false))
+      .catch(() => {})
     const socket = getSocket(token)
 
     const handleNewMessage = (payload: string) => {
@@ -656,6 +659,20 @@ export default function InboxPage() {
     } finally { setAIActionLoading(null) }
   }
 
+  const toggleAutoReply = async () => {
+    const next = !globalAutoReply
+    setGlobalAutoReply(next)  // optimistic
+    try {
+      await apiClient('/api/settings/auto-response', {
+        method: 'PUT',
+        token: token ?? '',
+        body: JSON.stringify({ enabled: next }),
+      })
+    } catch {
+      setGlobalAutoReply(!next)  // revert on failure
+    }
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const filtered = conversations.filter(c => {
@@ -932,24 +949,20 @@ export default function InboxPage() {
                   )}
                   Analyse
                 </button>
-                {/* Per-conversation auto-reply toggle */}
+                {/* Global auto-reply toggle */}
                 <button
-                  onClick={() => setAutoReplyOverrides(prev => {
-                    const next = new Map(prev)
-                    next.set(selectedId!, !(prev.get(selectedId!) ?? false))
-                    return next
-                  })}
-                  title={autoReplyOverrides.get(selectedId!) ? 'Auto-reply ON — click to disable' : 'Auto-reply OFF — click to enable'}
+                  onClick={toggleAutoReply}
+                  title={globalAutoReply ? 'Auto-reply ON — click to disable' : 'Auto-reply OFF — click to enable'}
                   className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    autoReplyOverrides.get(selectedId!)
+                    globalAutoReply
                       ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
                       : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
                   }`}
                 >
-                  <span className={`w-5 h-2.5 rounded-full relative transition-colors ${autoReplyOverrides.get(selectedId!) ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-1.5 h-1.5 bg-white rounded-full shadow transition-transform ${autoReplyOverrides.get(selectedId!) ? 'translate-x-2.5' : 'translate-x-0.5'}`} />
+                  <span className={`w-5 h-2.5 rounded-full relative transition-colors ${globalAutoReply ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-1.5 h-1.5 bg-white rounded-full shadow transition-transform ${globalAutoReply ? 'translate-x-2.5' : 'translate-x-0.5'}`} />
                   </span>
-                  Auto
+                  Auto-reply
                 </button>
                 <button
                   className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"

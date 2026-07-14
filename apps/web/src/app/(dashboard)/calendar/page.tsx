@@ -61,6 +61,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: 'anniversary',label: 'Anniversary' },
   { value: 'travel',     label: 'Travel' },
   { value: 'celebration',label: 'Celebration' },
+  { value: 'loss',       label: 'Loss' },
   { value: 'job_change', label: 'Job Change' },
   { value: 'life_event', label: 'Life Event' },
   { value: 'other',      label: 'Other' },
