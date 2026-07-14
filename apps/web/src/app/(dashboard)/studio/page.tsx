@@ -141,15 +141,25 @@ interface AdvisorMessage {
 
 interface BusinessProfile {
   id: string
-  business_name: string | null
+  companyName: string | null
   tagline: string | null
   industry: string | null
-  logo_url: string | null
-  primary_color: string | null
-  secondary_color: string | null
-  accent_color: string | null
-  brand_voice: string | null
-  company_values: string | null
+  logoUrl: string | null
+  themeColor: string | null
+  accentColor: string | null
+  brandVoice: string | null
+  companyValues: string | null
+  address: string | null
+  phone: string | null
+  email: string | null
+  website: string | null
+  bankDetails: Record<string, string>
+  mobileMoney: Record<string, string>
+  defaultCurrency: string | null
+  defaultTaxRate: number
+  footerText: string | null
+  defaultTerms: string | null
+  paymentInstructions: string | null
 }
 
 interface KBDocument {
@@ -1429,43 +1439,83 @@ function RulesModule({ token }: { token: string | undefined }) {
 // ─── Brand Module ─────────────────────────────────────────────────────────────
 
 function BrandModule({ token }: { token: string | undefined }) {
-  const { data: profileData, loading, refetch } = useApi<{ profile: BusinessProfile }>(
+  const { data: profile, loading, refetch } = useApi<BusinessProfile>(
     token ? '/api/business-profile' : null, token,
   )
   const { addToast } = useToast()
-  const profile = profileData?.profile
 
-  const [editing, setEditing] = useState(false)
-  const [saving,  setSaving]  = useState(false)
+  const [editing,       setEditing]       = useState(false)
+  const [saving,        setSaving]        = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const logoInputRef = useRef<HTMLInputElement>(null)
+
   const [form, setForm] = useState({
-    business_name:   '',
-    tagline:         '',
-    industry:        '',
-    primary_color:   '#6366f1',
-    secondary_color: '#8b5cf6',
-    brand_voice:     '',
-    company_values:  '',
+    companyName:   '',
+    tagline:       '',
+    industry:      '',
+    themeColor:    '#4F46E5',
+    accentColor:   '#818CF8',
+    brandVoice:    '',
+    companyValues: '',
+    address:       '',
+    phone:         '',
+    email:         '',
+    website:       '',
+    footerText:    '',
+    defaultTerms:  '',
+    paymentInstructions: '',
+    defaultCurrency: 'ZMW',
+    defaultTaxRate:  0,
   })
 
   useEffect(() => {
     if (profile) {
       setForm({
-        business_name:   profile.business_name   ?? '',
-        tagline:         profile.tagline          ?? '',
-        industry:        profile.industry         ?? '',
-        primary_color:   profile.primary_color    ?? '#6366f1',
-        secondary_color: profile.secondary_color  ?? '#8b5cf6',
-        brand_voice:     profile.brand_voice      ?? '',
-        company_values:  profile.company_values   ?? '',
+        companyName:         profile.companyName         ?? '',
+        tagline:             profile.tagline             ?? '',
+        industry:            profile.industry            ?? '',
+        themeColor:          profile.themeColor          ?? '#4F46E5',
+        accentColor:         profile.accentColor         ?? '#818CF8',
+        brandVoice:          profile.brandVoice          ?? '',
+        companyValues:       profile.companyValues       ?? '',
+        address:             profile.address             ?? '',
+        phone:               profile.phone               ?? '',
+        email:               profile.email               ?? '',
+        website:             profile.website             ?? '',
+        footerText:          profile.footerText          ?? '',
+        defaultTerms:        profile.defaultTerms        ?? '',
+        paymentInstructions: profile.paymentInstructions ?? '',
+        defaultCurrency:     profile.defaultCurrency     ?? 'ZMW',
+        defaultTaxRate:      profile.defaultTaxRate       ?? 0,
       })
     }
   }, [profile])
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !profile?.id) return
+    setUploadingLogo(true)
+    try {
+      const { uploadBrandLogo } = await import('@/lib/storage')
+      const url = await uploadBrandLogo(profile.id, file)
+      await apiClient('/api/business-profile', {
+        method: 'PUT', token,
+        body: JSON.stringify({ logoUrl: url }),
+      })
+      addToast({ variant: 'success', title: 'Logo uploaded' })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: 'Logo upload failed', description: err.message ?? 'Check Supabase bucket policies allow INSERT.' })
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     try {
-      await apiClient('/api/business-profile', { method: 'PATCH', token, body: JSON.stringify(form) })
+      await apiClient('/api/business-profile', { method: 'PUT', token, body: JSON.stringify(form) })
       addToast({ variant: 'success', title: 'Brand profile saved' })
       setEditing(false)
       refetch()
@@ -1480,153 +1530,153 @@ function BrandModule({ token }: { token: string | undefined }) {
 
   return (
     <div className="space-y-6">
-      {/* Profile display */}
-      {profile && !editing && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-4">
-              {profile.logo_url ? (
-                <img
-                  src={profile.logo_url}
-                  alt="Logo"
-                  className="w-16 h-16 rounded-xl object-cover border border-gray-200"
-                />
+      {/* Logo + identity card (always visible) */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            {/* Logo with upload overlay */}
+            <div className="relative group">
+              {profile?.logoUrl ? (
+                <img src={profile.logoUrl} alt="Logo" className="w-20 h-20 rounded-xl object-contain border border-gray-200 bg-gray-50" />
               ) : (
                 <div
-                  className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-xl font-bold"
-                  style={{ background: profile.primary_color ?? '#6366f1' }}
+                  className="w-20 h-20 rounded-xl flex items-center justify-center text-white text-2xl font-bold"
+                  style={{ background: profile?.themeColor ?? '#4F46E5' }}
                 >
-                  {(profile.business_name ?? 'B')[0].toUpperCase()}
+                  {(profile?.companyName ?? 'B')[0]?.toUpperCase()}
                 </div>
               )}
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">{profile.business_name ?? 'Untitled Business'}</h2>
-                {profile.tagline  && <p className="text-sm text-gray-500 mt-0.5">{profile.tagline}</p>}
-                {profile.industry && <Badge variant="info" className="mt-2">{profile.industry}</Badge>}
-              </div>
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={uploadingLogo}
+                className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium"
+              >
+                {uploadingLogo ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Palette className="w-4 h-4" />}
+              </button>
+              <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
             </div>
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              <Edit2 className="w-4 h-4 mr-1.5" />
-              Edit
-            </Button>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{profile?.companyName ?? 'Untitled Business'}</h2>
+              {profile?.tagline  && <p className="text-sm text-gray-500 mt-0.5">{profile.tagline}</p>}
+              {profile?.industry && <Badge variant="info" className="mt-2">{profile.industry}</Badge>}
+              <p className="text-xs text-gray-400 mt-1">Click logo to change</p>
+            </div>
           </div>
-
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {profile.brand_voice && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Brand Voice</p>
-                <p className="text-sm text-gray-700">{profile.brand_voice}</p>
-              </div>
-            )}
-            {profile.company_values && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Company Values</p>
-                <p className="text-sm text-gray-700">{profile.company_values}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-4 flex gap-3 items-center">
-            <p className="text-xs text-gray-500">Brand colors:</p>
-            {[profile.primary_color, profile.secondary_color, profile.accent_color]
-              .filter(Boolean)
-              .map((c, i) => (
-                <div
-                  key={i}
-                  className="w-6 h-6 rounded-full border border-gray-200 shadow-sm"
-                  style={{ background: c! }}
-                  title={c!}
-                />
-              ))}
-          </div>
+          <Button variant="secondary" onClick={() => setEditing(e => !e)}>
+            <Edit2 className="w-4 h-4 mr-1.5" />
+            {editing ? 'Cancel' : 'Edit Brand'}
+          </Button>
         </div>
-      )}
 
-      {/* Edit / Create form */}
-      {(editing || !profile) && (
-        <form onSubmit={handleSave} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-4">
-          <p className="font-semibold text-gray-900">
-            {profile ? 'Edit Brand Profile' : 'Set Up Your Brand'}
-          </p>
+        {!editing && profile && (
+          <>
+            {(profile.brandVoice || profile.companyValues) && (
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                {profile.brandVoice && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Brand Voice</p>
+                    <p className="text-sm text-gray-700">{profile.brandVoice}</p>
+                  </div>
+                )}
+                {profile.companyValues && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Company Values</p>
+                    <p className="text-sm text-gray-700">{profile.companyValues}</p>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap gap-3 items-center pt-4 border-t border-gray-100">
+              <p className="text-xs text-gray-500">Brand colors:</p>
+              {[profile.themeColor, profile.accentColor].filter(Boolean).map((c, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 rounded-full border border-gray-200 shadow-sm" style={{ background: c! }} />
+                  <span className="text-xs text-gray-400 font-mono">{c}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Edit form */}
+      {editing && (
+        <form onSubmit={handleSave} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-5">
+          <p className="font-semibold text-gray-900">Edit Brand Profile</p>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Business Name</label>
-              <input
-                value={form.business_name}
-                onChange={e => setForm(f => ({ ...f, business_name: e.target.value }))}
-                placeholder="Acme Ltd"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <input value={form.companyName} onChange={e => setForm(f => ({ ...f, companyName: e.target.value }))} placeholder="Acme Ltd" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Tagline</label>
-              <input
-                value={form.tagline}
-                onChange={e => setForm(f => ({ ...f, tagline: e.target.value }))}
-                placeholder="Building the future of..."
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <input value={form.tagline} onChange={e => setForm(f => ({ ...f, tagline: e.target.value }))} placeholder="Building the future of..." className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Industry</label>
-              <input
-                value={form.industry}
-                onChange={e => setForm(f => ({ ...f, industry: e.target.value }))}
-                placeholder="Technology, Retail, Services..."
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <input value={form.industry} onChange={e => setForm(f => ({ ...f, industry: e.target.value }))} placeholder="Technology, Retail, Services..." className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Default Currency</label>
+              <input value={form.defaultCurrency} onChange={e => setForm(f => ({ ...f, defaultCurrency: e.target.value.toUpperCase() }))} placeholder="ZMW" maxLength={3} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Phone</label>
+              <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+260 97 000 0000" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Email</label>
+              <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="hello@business.com" type="email" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Website</label>
+              <input value={form.website} onChange={e => setForm(f => ({ ...f, website: e.target.value }))} placeholder="https://business.com" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Tax Rate (%)</label>
+              <input value={form.defaultTaxRate} onChange={e => setForm(f => ({ ...f, defaultTaxRate: Number(e.target.value) }))} type="number" min={0} max={100} step={0.5} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             <div className="flex gap-4">
               <div className="flex-1">
                 <label className="block text-xs text-gray-500 mb-1">Primary Color</label>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.primary_color}
-                    onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))}
-                    className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer p-1"
-                  />
-                  <span className="text-xs text-gray-500 font-mono">{form.primary_color}</span>
+                  <input type="color" value={form.themeColor} onChange={e => setForm(f => ({ ...f, themeColor: e.target.value }))} className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer p-1" />
+                  <span className="text-xs text-gray-400 font-mono">{form.themeColor}</span>
                 </div>
               </div>
               <div className="flex-1">
-                <label className="block text-xs text-gray-500 mb-1">Secondary Color</label>
+                <label className="block text-xs text-gray-500 mb-1">Accent Color</label>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.secondary_color}
-                    onChange={e => setForm(f => ({ ...f, secondary_color: e.target.value }))}
-                    className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer p-1"
-                  />
-                  <span className="text-xs text-gray-500 font-mono">{form.secondary_color}</span>
+                  <input type="color" value={form.accentColor} onChange={e => setForm(f => ({ ...f, accentColor: e.target.value }))} className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer p-1" />
+                  <span className="text-xs text-gray-400 font-mono">{form.accentColor}</span>
                 </div>
               </div>
             </div>
             <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Address</label>
+              <textarea value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="123 Main St, Lusaka, Zambia" rows={2} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+            </div>
+            <div className="sm:col-span-2">
               <label className="block text-xs text-gray-500 mb-1">Brand Voice</label>
-              <textarea
-                value={form.brand_voice}
-                onChange={e => setForm(f => ({ ...f, brand_voice: e.target.value }))}
-                placeholder="Professional but approachable. We avoid jargon and speak plainly..."
-                rows={3}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              />
+              <textarea value={form.brandVoice} onChange={e => setForm(f => ({ ...f, brandVoice: e.target.value }))} placeholder="Professional but approachable. We avoid jargon and speak plainly..." rows={3} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs text-gray-500 mb-1">Company Values</label>
-              <textarea
-                value={form.company_values}
-                onChange={e => setForm(f => ({ ...f, company_values: e.target.value }))}
-                placeholder="Customer first. Quality over speed. Transparency in all dealings..."
-                rows={3}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-              />
+              <textarea value={form.companyValues} onChange={e => setForm(f => ({ ...f, companyValues: e.target.value }))} placeholder="Customer first. Quality over speed. Transparency in all dealings..." rows={2} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Default Payment Instructions</label>
+              <textarea value={form.paymentInstructions} onChange={e => setForm(f => ({ ...f, paymentInstructions: e.target.value }))} placeholder="Bank transfer: ABC Bank, Account 1234567..." rows={2} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs text-gray-500 mb-1">Default Document Terms</label>
+              <textarea value={form.defaultTerms} onChange={e => setForm(f => ({ ...f, defaultTerms: e.target.value }))} placeholder="Payment due within 30 days. Late fees may apply..." rows={2} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            {profile && (
-              <Button variant="secondary" type="button" onClick={() => setEditing(false)}>Cancel</Button>
-            )}
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button variant="secondary" type="button" onClick={() => setEditing(false)}>Cancel</Button>
             <Button type="submit" disabled={saving}>
               {saving ? <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
               Save Profile

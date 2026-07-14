@@ -44,6 +44,15 @@ const SUGGESTED_CHIPS = [
   { icon: MessageSquare, label: 'Find opportunities', query: 'Which conversations show buying intent or opportunities I should act on?' },
 ]
 
+const SPOTLIGHT_CARDS = [
+  { icon: Star, label: 'Daily priority map', text: 'Rank replies by urgency, value, and relationship risk.', query: 'Build my priority map for today. Who should I respond to first and why?' },
+  { icon: ShieldAlert, label: 'Relationship risk scan', text: 'Find quiet VIPs, declining warmth, and exposed revenue.', query: 'Scan my relationships for risk. Which important contacts are cooling off?' },
+  { icon: FileText, label: 'Executive brief', text: 'Turn messy conversations into a clean operating summary.', query: 'Give me an executive brief of the most important activity across my WhatsApp conversations.' },
+]
+
+const COMMANDS = ['/contact', '/chat', '/report', '/knowledge', '/automation', '/calendar', '/send']
+const MENTIONS = ['@Grace_Clothing', '@Peter_Banda', '@Mary_Phiri', '@June_Report']
+
 function timeAgo(date: Date): string {
   const mins = Math.floor((Date.now() - date.getTime()) / 60000)
   if (mins < 1) return 'just now'
@@ -286,7 +295,7 @@ export default function AdvisorPage() {
       <div className="p-3 space-y-2.5">
         <button
           onClick={startNewChat}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all flex items-center justify-center gap-2"
+          className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-4 rounded-2xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-200"
         >
           <Plus className="w-3.5 h-3.5" /> New Chat
         </button>
@@ -294,13 +303,13 @@ export default function AdvisorPage() {
           <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-500" />
           <input type="text" placeholder="Search conversations..." value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 text-xs rounded-xl pl-9 pr-4 py-2 text-slate-300 placeholder-slate-500 focus:outline-none focus:border-slate-700" />
+            className="w-full bg-white border border-slate-200 text-xs rounded-2xl pl-9 pr-4 py-2.5 text-slate-700 placeholder-slate-400 shadow-sm focus:outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100" />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-2 py-1 space-y-3">
         {loadingSessions && (
           <div className="space-y-1.5 px-2">
-            {[1,2,3].map(i => <div key={i} className="h-8 bg-slate-900 rounded-xl animate-pulse" />)}
+            {[1,2,3].map(i => <div key={i} className="h-8 bg-slate-50 rounded-xl animate-pulse" />)}
           </div>
         )}
         {!loadingSessions && filteredSessions.length === 0 && (
@@ -313,7 +322,7 @@ export default function AdvisorPage() {
             </p>
             {todaySessions.map(sess => (
               <button key={sess.id} onClick={() => switchSession(sess)}
-                className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all group ${activeSessionId === sess.id ? 'bg-slate-800/80 text-white border border-slate-700/50' : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border border-transparent'}`}>
+                className={`w-full text-left px-3 py-2.5 rounded-2xl text-xs transition-all group ${activeSessionId === sess.id ? 'bg-indigo-50 text-indigo-900 border border-indigo-100 shadow-sm' : 'text-slate-500 hover:bg-slate-50/80 hover:text-slate-800 border border-transparent'}`}>
                 <div className="flex items-center gap-2 truncate">
                   <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
                   <span className="truncate">{sess.title}</span>
@@ -327,7 +336,7 @@ export default function AdvisorPage() {
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3 py-1">Recent</p>
             {olderSessions.map(sess => (
               <button key={sess.id} onClick={() => switchSession(sess)}
-                className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all group ${activeSessionId === sess.id ? 'bg-slate-800/80 text-white border border-slate-700/50' : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border border-transparent'}`}>
+                className={`w-full text-left px-3 py-2.5 rounded-2xl text-xs transition-all group ${activeSessionId === sess.id ? 'bg-indigo-50 text-indigo-900 border border-indigo-100 shadow-sm' : 'text-slate-500 hover:bg-slate-50/80 hover:text-slate-800 border border-transparent'}`}>
                 <div className="flex items-center gap-2 truncate">
                   <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
                   <span className="truncate">{sess.title}</span>
@@ -338,7 +347,7 @@ export default function AdvisorPage() {
         )}
         {searchTerm && filteredSessions.map(sess => (
           <button key={sess.id} onClick={() => switchSession(sess)}
-            className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${activeSessionId === sess.id ? 'bg-slate-800/80 text-white' : 'text-slate-400 hover:bg-slate-900/60'}`}>
+            className={`w-full text-left px-3 py-2.5 rounded-2xl text-xs transition-all ${activeSessionId === sess.id ? 'bg-indigo-50 text-indigo-900' : 'text-slate-500 hover:bg-slate-50/80'}`}>
             <span className="truncate block">{sess.title}</span>
           </button>
         ))}
@@ -347,19 +356,19 @@ export default function AdvisorPage() {
   )
 
   return (
-    <div className="flex h-screen w-full bg-slate-900 text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-full min-h-full w-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)] text-slate-900 font-sans overflow-hidden">
 
       {/* MOBILE SIDEBAR OVERLAY */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setSidebarOpen(false)} />
-          <div className="absolute left-0 top-0 bottom-0 w-72 bg-slate-950 border-r border-slate-800 flex flex-col">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
-              <span className="text-xs font-bold text-white">Conversations</span>
-              <button onClick={() => setSidebarOpen(false)} className="p-1 text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+          <div className="absolute inset-0 bg-slate-950/30" onClick={() => setSidebarOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-white border-r border-slate-200 flex flex-col shadow-2xl shadow-slate-950/20">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+              <span className="text-xs font-bold text-slate-950">Conversations</span>
+              <button onClick={() => setSidebarOpen(false)} className="p-1 text-slate-500 hover:text-slate-950"><X className="w-4 h-4" /></button>
             </div>
             <SidebarContent />
-            <div className="p-3 bg-slate-950 border-t border-slate-800 text-[10px] text-slate-500 flex items-center justify-between flex-shrink-0">
+            <div className="p-3 bg-white border-t border-slate-200 text-[10px] text-slate-500 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 <span>Connected</span>
@@ -370,9 +379,9 @@ export default function AdvisorPage() {
       )}
 
       {/* DESKTOP SIDEBAR */}
-      <div className="w-72 bg-slate-950 border-r border-slate-800 flex-col h-full flex-shrink-0 hidden lg:flex">
+      <div className="w-72 bg-white/90 border-r border-slate-200 flex-col h-full flex-shrink-0 hidden lg:flex backdrop-blur-xl">
         <SidebarContent />
-        <div className="p-3 bg-slate-950 border-t border-slate-800 text-[10px] text-slate-500 flex items-center justify-between flex-shrink-0">
+        <div className="p-3 bg-white border-t border-slate-200 text-[10px] text-slate-500 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>Connected</span>
@@ -382,30 +391,30 @@ export default function AdvisorPage() {
       </div>
 
       {/* MAIN CHAT AREA */}
-      <div className="flex-1 flex flex-col h-full bg-slate-900 relative min-w-0">
+      <div className="flex-1 flex flex-col h-full bg-transparent relative min-w-0">
 
         {/* HEADER */}
-        <header className="h-14 md:h-16 border-b border-slate-800 bg-slate-950 px-3 md:px-5 flex items-center justify-between flex-shrink-0 gap-2 z-20">
+        <header className="h-14 md:h-16 border-b border-white/80 bg-white/80 px-3 md:px-5 flex items-center justify-between flex-shrink-0 gap-2 z-20 backdrop-blur-xl shadow-sm shadow-indigo-100/50">
           <div className="flex items-center gap-2 md:gap-3 min-w-0">
-            <button onClick={() => setSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white lg:hidden">
+            <button onClick={() => setSidebarOpen(true)} className="p-2 text-slate-500 hover:text-slate-950 lg:hidden">
               <Menu className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <div className="w-8 h-8 rounded-lg bg-white/5 p-0.5 flex items-center justify-center">
-                <Brain className="w-5 h-5 text-indigo-400" />
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-200">
+                <Brain className="w-5 h-5 text-white" />
               </div>
               <div className="hidden sm:block">
-                <h4 className="text-sm font-bold text-white leading-tight">AI Advisor</h4>
+                <h4 className="text-sm font-bold text-slate-950 leading-tight">AI Advisor</h4>
                 <p className="text-[10px] text-slate-500">Ask anything about your contacts & conversations</p>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
-            <button onClick={startNewChat} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors">
+            <button onClick={startNewChat} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-xl transition-colors">
               <Plus className="w-3.5 h-3.5" /> New
             </button>
-            <button onClick={() => setInspectorOpen(!inspectorOpen)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-colors xl:hidden" title="Context panel">
+            <button onClick={() => setInspectorOpen(!inspectorOpen)} className="p-2 text-slate-500 hover:text-slate-950 hover:bg-slate-50 rounded-lg transition-colors xl:hidden" title="Context panel">
               <Sliders className="w-4 h-4" />
             </button>
           </div>
@@ -414,27 +423,53 @@ export default function AdvisorPage() {
         {/* MESSAGES AREA */}
         <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-6 space-y-5">
           {isEmpty ? (
-            <div className="max-w-2xl mx-auto space-y-6 pt-2 md:pt-6">
-              <div className="text-center space-y-2">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 flex items-center justify-center mx-auto mb-3">
-                  <Brain className="w-7 h-7 text-indigo-400" />
+            <div className="max-w-4xl mx-auto space-y-6 pt-2 md:pt-6">
+              <div className="relative overflow-hidden rounded-[2rem] bg-white px-5 py-7 text-center shadow-xl shadow-indigo-200/30 ring-1 ring-white md:px-8">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_82%_10%,rgba(34,211,238,0.22),transparent_30%),radial-gradient(circle_at_12%_88%,rgba(99,102,241,0.18),transparent_34%)]" />
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center mx-auto mb-4 shadow-xl shadow-indigo-200">
+                    <Brain className="w-8 h-8 text-white" />
+                  </div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-indigo-600">Advisor cockpit</p>
+                  <h2 className="mt-2 text-2xl md:text-3xl font-black tracking-tight text-slate-950">Ask Zuri what to do next</h2>
+                  <p className="mt-3 text-sm text-slate-600 max-w-xl mx-auto leading-6">
+                    Turn WhatsApp chaos into decisions, drafts, next steps, and relationship intelligence. Start with a question or tap a mission below.
+                  </p>
                 </div>
-                <h2 className="text-lg md:text-xl font-bold text-white">Your AI Business Assistant</h2>
-                <p className="text-xs md:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
-                  I have full context on all your WhatsApp conversations and contacts. Ask me anything — draft messages, find opportunities, or get a status update on your relationships.
-                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {SPOTLIGHT_CARDS.map((card) => {
+                  const Icon = card.icon
+                  return (
+                    <button
+                      key={card.label}
+                      onClick={() => sendMessage(card.query)}
+                      className="group text-left rounded-[1.75rem] border border-white bg-white/90 p-4 shadow-sm shadow-indigo-100/60 ring-1 ring-slate-100 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-100"
+                    >
+                      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <p className="text-sm font-black text-slate-950">{card.label}</p>
+                      <p className="mt-1.5 text-xs leading-5 text-slate-500">{card.text}</p>
+                      <span className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-indigo-600">
+                        Run mission <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
 
               <div className="space-y-2">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Try asking</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {SUGGESTED_CHIPS.map((chip, idx) => {
                     const Icon = chip.icon
                     return (
                       <button key={idx} onClick={() => sendMessage(chip.query)}
-                        className="text-left p-3 bg-slate-950/60 hover:bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-xl transition-all flex items-start gap-2.5 group">
-                        <Icon className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
-                        <span className="text-xs text-slate-300 group-hover:text-white leading-snug">{chip.label}</span>
+                        className="text-left p-3.5 bg-white/80 hover:bg-white border border-white hover:border-indigo-100 rounded-2xl shadow-sm shadow-slate-200/60 transition-all flex items-start gap-2.5 group">
+                        <Icon className="w-4 h-4 text-indigo-500 flex-shrink-0 mt-0.5" />
+                        <span className="text-xs text-slate-700 group-hover:text-slate-950 leading-snug">{chip.label}</span>
                       </button>
                     )
                   })}
@@ -442,19 +477,19 @@ export default function AdvisorPage() {
               </div>
             </div>
           ) : (
-            <div className="max-w-2xl mx-auto space-y-5">
+            <div className="max-w-3xl mx-auto space-y-5">
               {messages.map(msg => {
                 const isUser = msg.role === 'user'
                 return (
                   <div key={msg.id} className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
                     {!isUser && (
-                      <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">Z</div>
+                      <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5 shadow-lg shadow-indigo-200">Z</div>
                     )}
                     <div className={`space-y-2 max-w-[88%] ${isUser ? 'order-1' : 'order-2'}`}>
                       <div className={`rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
                         isUser
-                          ? 'bg-indigo-600 text-white whitespace-pre-wrap'
-                          : 'bg-slate-950 border border-slate-800 text-slate-200'
+                          ? 'bg-indigo-600 text-white whitespace-pre-wrap shadow-lg shadow-indigo-200'
+                          : 'bg-white border border-white text-slate-800 shadow-sm shadow-slate-200/80 ring-1 ring-slate-100'
                       }`}>
                         {isUser ? (
                           <>{msg.content}<div className="text-[9px] text-indigo-300/70 mt-1.5">{timeAgo(msg.timestamp)}</div></>
@@ -462,14 +497,15 @@ export default function AdvisorPage() {
                           <>
                             <ChatFormatter
                               content={msg.content}
-                              theme="dark"
+                              theme="light"
                               onAction={handleChatAction}
                             />
-                            <div className="text-[9px] text-slate-500 mt-2 flex items-center gap-2">
+                            <div className="text-[9px] text-slate-500 mt-3 flex items-center gap-2 border-t border-slate-100 pt-2">
                               {timeAgo(msg.timestamp)}
                               <div className="flex items-center gap-1 ml-auto">
-                                <button onClick={() => navigator.clipboard.writeText(msg.content)} className="p-0.5 hover:text-white" title="Copy"><Copy className="w-3 h-3" /></button>
-                                <button className="p-0.5 hover:text-emerald-400"><ThumbsUp className="w-3 h-3" /></button>
+                                <button onClick={() => navigator.clipboard.writeText(msg.content)} className="rounded-lg p-1 hover:bg-slate-50 hover:text-slate-950" title="Copy"><Copy className="w-3 h-3" /></button>
+                                <button className="rounded-lg p-1 hover:bg-emerald-50 hover:text-emerald-600"><ThumbsUp className="w-3 h-3" /></button>
+                                <button className="rounded-lg p-1 hover:bg-rose-50 hover:text-rose-500"><ThumbsDown className="w-3 h-3" /></button>
                               </div>
                             </div>
                           </>
@@ -478,17 +514,17 @@ export default function AdvisorPage() {
 
                       {/* WhatsApp draft preview */}
                       {!isUser && msg.componentType === 'whatsapp_preview' && msg.componentData && (
-                        <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5 max-w-sm">
+                        <div className="bg-gradient-to-br from-emerald-50 to-cyan-50 border border-emerald-100 rounded-3xl p-3.5 space-y-2.5 max-w-sm shadow-sm shadow-emerald-100/80">
                           <div className="flex items-center justify-between text-[10px]">
                             <span className="text-emerald-400 font-bold">WhatsApp Draft</span>
                             <span className="text-slate-500">{msg.componentData.confidence as number}% confidence</span>
                           </div>
-                          <div className="bg-slate-900 border border-slate-700 rounded-xl p-3">
-                            <p className="text-[11px] text-slate-300 leading-relaxed">{msg.componentData.preview as string}</p>
+                          <div className="bg-white border border-emerald-100 rounded-2xl p-3 shadow-sm">
+                            <p className="text-[11px] text-slate-700 leading-relaxed">{msg.componentData.preview as string}</p>
                           </div>
                           <div className="flex gap-2 justify-end">
-                            <button onClick={() => navigator.clipboard.writeText(msg.componentData!.preview as string)} className="px-3 py-1.5 text-[10px] text-slate-400 hover:text-white font-medium border border-slate-800 rounded-lg">Copy</button>
-                            <button className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-lg flex items-center gap-1">
+                            <button onClick={() => navigator.clipboard.writeText(msg.componentData!.preview as string)} className="px-3 py-1.5 text-[10px] text-slate-500 hover:text-slate-950 font-medium border border-slate-200 rounded-lg">Copy</button>
+                            <button className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded-xl flex items-center gap-1 shadow-sm">
                               <CheckCircle2 className="w-3 h-3" /> Use Draft
                             </button>
                           </div>
@@ -496,15 +532,15 @@ export default function AdvisorPage() {
                       )}
                     </div>
                     {isUser && (
-                      <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">W</div>
+                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-xs font-bold flex-shrink-0 mt-0.5">W</div>
                     )}
                   </div>
                 )
               })}
               {loading && (
                 <div className="flex gap-3 items-center">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white text-xs font-bold animate-pulse">Z</div>
-                  <div className="bg-slate-950 border border-slate-800 rounded-2xl px-4 py-2.5">
+                  <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold animate-pulse">Z</div>
+                  <div className="bg-white border border-white rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-slate-100">
                     <div className="flex gap-1">
                       <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce" />
                       <span className="w-1 h-1 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
@@ -520,26 +556,38 @@ export default function AdvisorPage() {
 
         {/* SLASH / MENTION POPUPS */}
         {showSlashMenu && (
-          <div className="absolute bottom-24 left-4 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl p-1.5 w-56 z-30">
+          <div className="absolute bottom-24 left-4 bg-white border border-white rounded-2xl shadow-2xl shadow-slate-950/10 p-1.5 w-60 z-30 ring-1 ring-slate-100">
             <p className="text-[9px] font-bold text-slate-500 uppercase px-2 py-1">Commands</p>
-            {['/contact', '/chat', '/report', '/knowledge', '/automation', '/calendar', '/send'].map(cmd => (
-              <button key={cmd} onClick={() => selectCommand(cmd)} className="w-full text-left text-xs px-2 py-1.5 text-slate-300 hover:bg-slate-900 rounded-lg font-mono">{cmd}</button>
+            {COMMANDS.map(cmd => (
+              <button key={cmd} onClick={() => selectCommand(cmd)} className="w-full text-left text-xs px-2.5 py-2 text-slate-700 hover:bg-indigo-50 hover:text-indigo-800 rounded-xl font-mono">{cmd}</button>
             ))}
           </div>
         )}
         {showMentionMenu && (
-          <div className="absolute bottom-24 left-4 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl p-1.5 w-56 z-30">
+          <div className="absolute bottom-24 left-4 bg-white border border-white rounded-2xl shadow-2xl shadow-slate-950/10 p-1.5 w-60 z-30 ring-1 ring-slate-100">
             <p className="text-[9px] font-bold text-slate-500 uppercase px-2 py-1">Mention</p>
-            {['@Grace_Clothing', '@Peter_Banda', '@Mary_Phiri', '@June_Report'].map(m => (
-              <button key={m} onClick={() => selectMention(m)} className="w-full text-left text-xs px-2 py-1.5 text-slate-300 hover:bg-slate-900 rounded-lg">{m}</button>
+            {MENTIONS.map(m => (
+              <button key={m} onClick={() => selectMention(m)} className="w-full text-left text-xs px-2.5 py-2 text-slate-700 hover:bg-indigo-50 hover:text-indigo-800 rounded-xl">{m}</button>
             ))}
           </div>
         )}
 
         {/* FIXED BOTTOM INPUT */}
-        <div className="flex-shrink-0 bg-slate-950 border-t border-slate-800 px-3 py-3 md:px-6 z-20">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2 focus-within:border-slate-700 transition-all relative">
+        <div className="flex-shrink-0 bg-white/80 border-t border-white px-3 py-3 md:px-6 z-20 backdrop-blur-xl shadow-[0_-16px_40px_rgba(15,23,42,0.05)]">
+          <div className="max-w-3xl mx-auto">
+            <div className="bg-white border border-white rounded-[1.75rem] p-2 focus-within:border-indigo-200 focus-within:ring-4 focus-within:ring-indigo-100 transition-all relative shadow-xl shadow-indigo-100/40 ring-1 ring-slate-100">
+              <div className="mb-1 flex flex-wrap gap-1.5 px-2 pt-1">
+                {['Priority map', 'Draft reply', 'Risk scan'].map(label => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setInput(label === 'Draft reply' ? 'Draft a warm WhatsApp reply to ' : `Run a ${label.toLowerCase()} for me`)}
+                    className="rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-100 hover:bg-indigo-50 hover:text-indigo-700"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <textarea
                 ref={inputRef}
                 value={input}
@@ -547,22 +595,22 @@ export default function AdvisorPage() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask about your contacts, draft a message, or type / for commands..."
                 rows={1}
-                className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 resize-none focus:outline-none px-2 pt-1.5 pb-10 min-h-[44px]"
+                className="w-full bg-transparent text-sm text-slate-900 placeholder-slate-400 resize-none focus:outline-none px-2 pt-1.5 pb-10 min-h-[44px]"
                 style={{ maxHeight: '120px' }}
               />
               <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
                 <div className="flex items-center gap-1 pointer-events-auto">
-                  <button className="p-2 text-slate-500 hover:text-slate-300 rounded-lg hover:bg-slate-800 transition-colors" title="Attach file">
+                  <button className="p-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Attach file">
                     <Paperclip className="w-4 h-4" />
                   </button>
-                  <button className="p-2 text-slate-500 hover:text-slate-300 rounded-lg hover:bg-slate-800 transition-colors" title="Voice input">
+                  <button className="p-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Voice input">
                     <Mic className="w-4 h-4" />
                   </button>
                 </div>
                 <button
                   onClick={() => sendMessage(input)}
                   disabled={!input.trim() || loading}
-                  className="pointer-events-auto w-9 h-9 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-md"
+                  className="pointer-events-auto w-10 h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-200"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -576,23 +624,23 @@ export default function AdvisorPage() {
       </div>
 
       {/* RIGHT INSPECTOR PANEL */}
-      <div className={`w-80 bg-slate-950 border-l border-slate-800 flex-col h-full flex-shrink-0 ${inspectorOpen ? 'fixed right-0 top-0 bottom-0 z-40 xl:relative xl:z-0 flex' : 'hidden xl:flex'}`}>
-        <div className="p-4 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+      <div className={`w-80 bg-white/90 border-l border-slate-200 flex-col h-full flex-shrink-0 backdrop-blur-xl ${inspectorOpen ? 'fixed right-0 top-0 bottom-0 z-40 xl:relative xl:z-0 flex shadow-2xl shadow-slate-950/15' : 'hidden xl:flex'}`}>
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
             <Sliders className="w-3.5 h-3.5 text-indigo-400" /> Context
           </p>
-          <button onClick={() => setInspectorOpen(false)} className="p-1 text-slate-400 hover:text-white xl:hidden"><X className="w-4 h-4" /></button>
+          <button onClick={() => setInspectorOpen(false)} className="p-1 text-slate-500 hover:text-slate-950 xl:hidden"><X className="w-4 h-4" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
           {/* Active session info */}
           {activeSessionId && (
             <div>
               <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Active Session</label>
-              <div className="bg-slate-900 border border-slate-800 p-2.5 rounded-xl">
-                <p className="text-xs font-semibold text-white truncate">
+              <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl">
+                <p className="text-xs font-semibold text-slate-950 truncate">
                   {sessions.find(s => s.id === activeSessionId)?.title ?? 'Session'}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
+                <p className="text-[10px] text-slate-500 mt-0.5">
                   {sessions.find(s => s.id === activeSessionId)?.message_count ?? 0} messages
                 </p>
               </div>
@@ -609,7 +657,7 @@ export default function AdvisorPage() {
                 'Show my top opportunities',
               ].map((a, i) => (
                 <button key={i} onClick={() => sendMessage(a)}
-                  className="w-full text-left p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-300 hover:bg-slate-800 transition-colors flex items-center gap-2">
+                  className="w-full text-left p-2.5 bg-white border border-slate-100 rounded-2xl text-xs text-slate-700 hover:bg-indigo-50 hover:border-indigo-100 hover:text-indigo-900 transition-colors flex items-center gap-2 shadow-sm">
                   <ChevronRight className="w-3.5 h-3.5 text-slate-500" /> {a}
                 </button>
               ))}
@@ -618,14 +666,14 @@ export default function AdvisorPage() {
 
           <div>
             <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Tips</label>
-            <div className="space-y-2 text-[11px] text-slate-400">
-              <p>Type <kbd className="bg-slate-800 px-1 py-0.5 rounded text-[10px] font-mono">/</kbd> for commands</p>
-              <p>Type <kbd className="bg-slate-800 px-1 py-0.5 rounded text-[10px] font-mono">@</kbd> to mention a contact</p>
+            <div className="space-y-2 text-[11px] text-slate-500">
+              <p>Type <kbd className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">/</kbd> for commands</p>
+              <p>Type <kbd className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">@</kbd> to mention a contact</p>
               <p>Ask me to draft a WhatsApp message and I&apos;ll show a preview with a Copy button</p>
             </div>
           </div>
         </div>
-        <div className="p-4 bg-slate-950 border-t border-slate-800 text-[10px] text-slate-500 flex items-center gap-2 flex-shrink-0">
+        <div className="p-4 bg-white border-t border-slate-200 text-[10px] text-slate-500 flex items-center gap-2 flex-shrink-0">
           <ShieldAlert className="w-3.5 h-3.5 text-indigo-500/80" />
           <span>Your data stays private</span>
         </div>

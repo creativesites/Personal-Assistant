@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
-  Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search,
+  Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -74,6 +74,7 @@ const TYPE_FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'quotation', label: 'Quotations' },
   { key: 'invoice', label: 'Invoices' },
+  { key: 'receipt', label: 'Receipts' },
 ]
 
 // quotation -> invoice -> receipt (see plan §15 Phase 1) — matches the
@@ -179,6 +180,8 @@ export default function BusinessPage() {
   const [loading, setLoading] = useState(true)
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [showNewDoc, setShowNewDoc] = useState(false)
+  const [viewDataDoc, setViewDataDoc] = useState<DocumentSummary | null>(null)
+  const [editDoc, setEditDoc] = useState<DocumentSummary | null>(null)
   const [showRecurring, setShowRecurring] = useState(false)
   const [showPacks, setShowPacks] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
@@ -344,6 +347,11 @@ export default function BusinessPage() {
             >
               <RefreshCw className="w-4 h-4" />Recurring
             </button>
+            <Link href="/documents/new">
+              <button className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors shadow-sm">
+                <FileText className="w-4 h-4" />Full Form
+              </button>
+            </Link>
             <button
               onClick={() => setShowNewDoc(true)}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
@@ -449,6 +457,28 @@ export default function BusinessPage() {
                     </span>
                   )}
                   <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
+                  <button
+                    onClick={() => {
+                      if (doc.hasPdf) {
+                        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+                        window.open(`${apiUrl}/api/proxy/documents/${doc.id}/pdf`, '_blank')
+                      } else {
+                        setViewDataDoc(doc)
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-indigo-600 transition-colors"
+                    title={doc.hasPdf ? 'View PDF' : 'View data'}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    {doc.hasPdf ? 'View' : 'Data'}
+                  </button>
+                  <button
+                    onClick={() => setEditDoc(doc)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-gray-700 transition-colors"
+                    title="Edit document"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 {doc.aiSummary && (
@@ -515,7 +545,7 @@ export default function BusinessPage() {
                   <DocumentChatPanel documentId={doc.id} token={token} onChanged={loadDocuments} />
                 )}
 
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
+                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-50">
                   {CONVERSION_TARGETS[doc.documentType] ? (
                     <button
                       onClick={() => convertDocument(doc)}
@@ -525,16 +555,28 @@ export default function BusinessPage() {
                       {convertingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightCircle className="w-3.5 h-3.5" />}
                       Convert to {CONVERSION_TARGETS[doc.documentType][0].toUpperCase() + CONVERSION_TARGETS[doc.documentType].slice(1)}
                     </button>
-                  ) : <span />}
-                  <select
-                    value=""
-                    disabled={statusUpdatingId === doc.id}
-                    onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
-                    className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-50"
-                  >
-                    <option value="">Update status…</option>
-                    {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
+                  ) : null}
+                  {['generated', 'sent', 'viewed'].includes(doc.status) && (
+                    <button
+                      onClick={() => setStatus(doc.id, 'paid')}
+                      disabled={statusUpdatingId === doc.id}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg px-2.5 py-1.5 disabled:opacity-50 transition-colors"
+                    >
+                      {statusUpdatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                      Mark Paid
+                    </button>
+                  )}
+                  <div className="ml-auto">
+                    <select
+                      value=""
+                      disabled={statusUpdatingId === doc.id}
+                      onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
+                      className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-50"
+                    >
+                      <option value="">Update status…</option>
+                      {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
             ))}
@@ -547,6 +589,19 @@ export default function BusinessPage() {
           token={token}
           onClose={() => setShowNewDoc(false)}
           onCreated={() => { setShowNewDoc(false); loadDocuments() }}
+        />
+      )}
+
+      {viewDataDoc && (
+        <ViewDataModal doc={viewDataDoc} onClose={() => setViewDataDoc(null)} />
+      )}
+
+      {editDoc && (
+        <EditDocumentModal
+          doc={editDoc}
+          token={token}
+          onClose={() => setEditDoc(null)}
+          onSaved={() => { setEditDoc(null); loadDocuments() }}
         />
       )}
 
@@ -572,7 +627,7 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
   const [mode, setMode] = useState<'manual' | 'ai'>('manual')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [contactId, setContactId] = useState('')
-  const [documentType, setDocumentType] = useState<'quotation' | 'invoice'>('quotation')
+  const [documentType, setDocumentType] = useState<'quotation' | 'invoice' | 'receipt'>('quotation')
   const [aiDocumentType, setAiDocumentType] = useState<typeof AI_DOCUMENT_TYPES[number]>('quotation')
   const [instruction, setInstruction] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
@@ -624,6 +679,7 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
           contactId, documentType, items: validItems, notes: notes || undefined, terms: terms || undefined,
           validUntil: documentType === 'quotation' ? (validUntil || undefined) : undefined,
           dueDate: documentType === 'invoice' ? (dueDate || undefined) : undefined,
+          // receipt: no dueDate or validUntil sent
         }),
       })
       await apiClient(`/api/documents/${data.document.id}/generate`, { method: 'POST', token })
@@ -745,7 +801,7 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
             <div>
               <label className="block text-xs text-gray-500 mb-1">Type</label>
               <div className="flex gap-2">
-                {(['quotation', 'invoice'] as const).map(t => (
+                {(['quotation', 'invoice', 'receipt'] as const).map(t => (
                   <button
                     key={t}
                     onClick={() => setDocumentType(t)}
@@ -771,17 +827,19 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">
-              {documentType === 'quotation' ? 'Valid until' : 'Due date'}
-            </label>
-            <input
-              type="date"
-              value={documentType === 'quotation' ? validUntil : dueDate}
-              onChange={e => documentType === 'quotation' ? setValidUntil(e.target.value) : setDueDate(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
+          {documentType !== 'receipt' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                {documentType === 'quotation' ? 'Valid until' : 'Due date'}
+              </label>
+              <input
+                type="date"
+                value={documentType === 'quotation' ? validUntil : dueDate}
+                onChange={e => documentType === 'quotation' ? setValidUntil(e.target.value) : setDueDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-xs text-gray-500 mb-2">Line items</label>
@@ -1165,6 +1223,120 @@ function PacksModal({ token, onClose, onRun }: { token: string | null | undefine
           >
             {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
             {running ? 'Running…' : 'Run Pack'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ViewDataModal({ doc, onClose }: { doc: DocumentSummary; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-sm font-semibold text-gray-900">{doc.title} — Data</h2>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+        </div>
+        <div className="p-5">
+          <pre className="text-xs text-gray-700 bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">
+            {JSON.stringify(doc, null, 2)}
+          </pre>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditDocumentModal({ doc, token, onClose, onSaved }: {
+  doc: DocumentSummary
+  token: string | null | undefined
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { addToast } = useToast()
+  const [title, setTitle] = useState(doc.title)
+  const [notes, setNotes] = useState('')
+  const [structuredJson, setStructuredJson] = useState('')
+  const isDraft = doc.status === 'draft'
+  const [saving, setSaving] = useState(false)
+  const [jsonError, setJsonError] = useState('')
+
+  const save = async () => {
+    if (!token) return
+    setSaving(true)
+    setJsonError('')
+    try {
+      const body: Record<string, unknown> = { title, notes }
+      if (isDraft && structuredJson.trim()) {
+        try {
+          body.structuredData = JSON.parse(structuredJson)
+        } catch {
+          setJsonError('Invalid JSON — please fix before saving.')
+          setSaving(false)
+          return
+        }
+      }
+      await apiClient(`/api/documents/${doc.id}`, {
+        method: 'PATCH', token, body: JSON.stringify(body),
+      })
+      addToast({ variant: 'success', title: 'Document updated' })
+      onSaved()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to update', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white">
+          <h2 className="text-sm font-semibold text-gray-900">Edit Document</h2>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Title</label>
+            <input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Notes</label>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          {isDraft && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Structured Data (JSON) — leave blank to keep existing</label>
+              <textarea
+                rows={8}
+                value={structuredJson}
+                onChange={e => { setStructuredJson(e.target.value); setJsonError('') }}
+                placeholder='{ "items": [], "clientName": "..." }'
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {jsonError && <p className="text-xs text-red-600 mt-1">{jsonError}</p>}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100 sticky bottom-0 bg-white">
+          <button onClick={onClose} className="px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-xl">Cancel</button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
       </div>

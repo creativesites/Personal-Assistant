@@ -9,6 +9,11 @@ import { config } from '../config';
 
 const updateBody = z.object({
   companyName: z.string().max(255).optional(),
+  tagline: z.string().max(500).optional().nullable(),
+  industry: z.string().max(100).optional().nullable(),
+  brandVoice: z.string().optional().nullable(),
+  companyValues: z.string().optional().nullable(),
+  logoUrl: z.string().max(2048).optional().nullable(),
   address: z.string().max(2000).optional(),
   phone: z.string().max(50).optional(),
   email: z.string().email().max(255).optional().or(z.literal('')),
@@ -36,9 +41,19 @@ const updateBody = z.object({
 });
 
 function formatProfile(r: any) {
+  const logoUrl = r.logo_url
+    ? r.logo_url
+    : r.logo_storage_path
+      ? `/api/documents/assets/${r.id}/logo`
+      : null;
   return {
+    id: r.id,
     companyName: r.company_name,
-    logoUrl: r.logo_storage_path ? `/api/documents/assets/${r.id}/logo` : null,
+    tagline: r.tagline ?? null,
+    industry: r.industry ?? null,
+    brandVoice: r.brand_voice ?? null,
+    companyValues: r.company_values ?? null,
+    logoUrl,
     address: r.address,
     phone: r.phone,
     email: r.email,
@@ -87,7 +102,8 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
     return reply.send(formatProfile(profile));
   });
 
-  fastify.put('/api/business-profile', { preHandler: authenticate }, async (request, reply) => {
+  // Also register PATCH as an alias so the frontend can use either method
+  const putHandler = async (request: any, reply: any) => {
     const { userId } = request.user as { userId: string };
     const body = updateBody.parse(request.body);
     await getOrCreateProfile(userId);
@@ -95,27 +111,37 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
     const { rows: [updated] } = await db.query(
       `UPDATE business_profiles SET
          company_name         = COALESCE($1, company_name),
-         address              = COALESCE($2, address),
-         phone                = COALESCE($3, phone),
-         email                = COALESCE($4, email),
-         website              = COALESCE($5, website),
-         tax_id               = COALESCE($6, tax_id),
-         registration_number  = COALESCE($7, registration_number),
-         bank_details         = COALESCE($8, bank_details),
-         mobile_money         = COALESCE($9, mobile_money),
-         theme_color          = COALESCE($10, theme_color),
-         accent_color         = COALESCE($11, accent_color),
-         footer_text          = COALESCE($12, footer_text),
-         default_terms        = COALESCE($13, default_terms),
-         payment_instructions = COALESCE($14, payment_instructions),
-         default_currency     = COALESCE($15, default_currency),
-         default_tax_rate     = COALESCE($16, default_tax_rate),
-         default_template_id  = CASE WHEN $17::boolean THEN $18::uuid ELSE default_template_id END,
+         tagline              = COALESCE($2, tagline),
+         industry             = COALESCE($3, industry),
+         brand_voice          = COALESCE($4, brand_voice),
+         company_values       = COALESCE($5, company_values),
+         logo_url             = COALESCE($6, logo_url),
+         address              = COALESCE($7, address),
+         phone                = COALESCE($8, phone),
+         email                = COALESCE($9, email),
+         website              = COALESCE($10, website),
+         tax_id               = COALESCE($11, tax_id),
+         registration_number  = COALESCE($12, registration_number),
+         bank_details         = COALESCE($13, bank_details),
+         mobile_money         = COALESCE($14, mobile_money),
+         theme_color          = COALESCE($15, theme_color),
+         accent_color         = COALESCE($16, accent_color),
+         footer_text          = COALESCE($17, footer_text),
+         default_terms        = COALESCE($18, default_terms),
+         payment_instructions = COALESCE($19, payment_instructions),
+         default_currency     = COALESCE($20, default_currency),
+         default_tax_rate     = COALESCE($21, default_tax_rate),
+         default_template_id  = CASE WHEN $22::boolean THEN $23::uuid ELSE default_template_id END,
          updated_at           = NOW()
-       WHERE user_id = $19
+       WHERE user_id = $24
        RETURNING *`,
       [
         body.companyName ?? null,
+        body.tagline ?? null,
+        body.industry ?? null,
+        body.brandVoice ?? null,
+        body.companyValues ?? null,
+        body.logoUrl ?? null,
         body.address ?? null,
         body.phone ?? null,
         body.email ?? null,
@@ -138,7 +164,10 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
     );
 
     return reply.send(formatProfile(updated));
-  });
+  };
+
+  fastify.put('/api/business-profile', { preHandler: authenticate }, putHandler);
+  fastify.patch('/api/business-profile', { preHandler: authenticate }, putHandler);
 
   // ── POST /api/business-profile/assets?type=logo|signature|stamp ────────────
   fastify.post('/api/business-profile/assets', { preHandler: authenticate }, async (request, reply) => {
