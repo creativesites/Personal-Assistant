@@ -385,9 +385,9 @@ Message flow: WhatsApp → Baileys → `messages.incoming` queue → Intelligenc
 
 ## Database
 
-PostgreSQL 16 with pgvector. 30 tables across 8 domains + 2 system tables. 25 migrations applied. See `docs/SCHEMA.md` for full reference.
+PostgreSQL 16 with pgvector. 46 migrations applied (0001–0046) — `docs/SCHEMA.md`'s table/domain reference reflects the original 25-migration baseline and has not been kept current with everything shipped since (Marketing Studio, Deals/Opportunities, Business Workspace, etc.); treat its counts as a floor, not an exact figure.
 
-**Domains:** Core · Contacts & Relationships · Conversations & Messages · AI Intelligence · Proactive System · Calendar · AI Advisor · Notifications
+**Domains:** Core · Contacts & Relationships · Conversations & Messages · AI Intelligence · Proactive System · Calendar · AI Advisor · Notifications · Business Workspace (`business_profiles`, `document_templates`, `documents`, `document_events`, `deal_stage_history`, `document_chat_messages`, `recurring_documents`, `document_pack_runs` — migrations 0043–0046)
 
 Key design notes:
 - All PKs are `uuid` (gen_random_uuid())
@@ -395,6 +395,8 @@ Key design notes:
 - `context_snapshots` holds compressed relationship summaries with vector embeddings — replaces raw message history in prompts
 - `relationship_health_logs` is append-only — `relationships.health_score` is the live value
 - `events` (AI-extracted) and `calendar_events` (user-facing) are separate — linked via `source_event_id`
+- `documents` is strictly AI/template-generated business documents (quotations, invoices, proposals, contracts, etc.) — distinct from `contact_documents`, which is human-uploaded files; cross-linked via `contact_documents.generated_document_id`
+- `documents.embedding` (pgvector) powers semantic search; `documents.share_token` is the unauthenticated view-tracking link sent over WhatsApp
 
 ---
 
@@ -445,6 +447,7 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 | 9 — Business Intelligence & Executive Intelligence Platform | ✅ Complete |
 | 10 — Production Polish | 🔄 Active |
 | 11 — Enterprise Features | ⏳ Planned |
+| — Business Workspace (Documents — quotations/invoices/proposals/contracts) | ✅ Complete (Phases 0–4) |
 | — Kotlin Companion App | ✅ Built |
 | — React Native Mobile | 🔄 Scaffold done |
 
@@ -468,6 +471,12 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 - [x] Production Docker Compose on ECS: api + whatsapp + intelligence + redis + nginx
 - [x] Phase 8 — Autonomous Agent Engine: AI agents with roles, tool calling, knowledge base, escalation rules, trust levels (Observe → Autonomous), AI Workforce UI
 - [x] Phase 9 — Business Intelligence & Executive Intelligence Platform: 11 intelligence API endpoints, Executive Dashboard, Sales/Customer/Conversation/Operations/Opportunities/Predictions/Health Score/ROI/Timeline/Reports pages, Business Health Score (0-100 with A-F grading), AnalyticsSubNav
+- [x] Business Workspace (`/business` page) — AI-native document management, shipped across 5 phases (migrations 0043–0046, see `docs/BUSINESS_WORKSPACE_PLAN.md`):
+  - Phase 0: Brand Kit (`business_profiles`), Jinja2 + Playwright rendering pipeline, quotation/invoice generation, `document_templates`
+  - Phase 1: status lifecycle (draft→generated→sent→viewed→downloaded→accepted/rejected/expired/paid→archived), one-click quotation→invoice→receipt conversion, WhatsApp PDF delivery, version history, Business Timeline (`GET /api/contacts/:id/business-timeline`)
+  - Phase 2: conversational AI generation (`POST /api/documents/ai-generate`), AI Document Memory (`contact_insights.source_document_id`), `documents.ai_summary`, quality checker, derived business-stage label, Inbox AI Action card
+  - Phase 3: per-document AI chat assistant, `create_document` autonomous-agent tool, scheduled/recurring documents, expiring-quotation/overdue-invoice follow-ups via `proactive_queue`, Advisor `[ACTION: generate_document]` tag
+  - Phase 4: semantic document search (`documents.embedding`), view tracking via `share_token`-scoped public links, a documents signal in the Relationship Engine health score, "AI Compares Documents" insights, pricing benchmarks (`business_facts.category = 'pricing_benchmark'`), Automatic Business Packs (`document_pack_runs`)
 
 **What's next:** See `docs/NEXT_PHASE.md`.
 

@@ -1,8 +1,10 @@
 # Database Schema
 
-PostgreSQL 16 + pgvector. 30 tables across 8 domains + 2 system tables.
+PostgreSQL 16 + pgvector. 46 migrations applied (0001–0046).
 
-Migration files live in `db/migrations/`. Run with `npm run db:migrate`. 25 migrations applied (0001–0025).
+Migration files live in `db/migrations/`. Run with `npm run db:migrate`.
+
+> **Coverage note:** this reference was last fully audited at migration 0025 (30 tables across the 8 domains below). The **Business Workspace** domain (migrations 0043–0046) was added in full as part of that feature shipping. Domains/tables added in between (0026–0042 — Marketing Studio, Deals/Opportunities/Connections, Contact Products/Life Events/Network Value, Relationship Goals, Business Facts, Agent Workforce/Memory, Social Publishing, etc.) are **not yet reflected here** — check the migration files directly for those.
 
 ---
 
@@ -18,6 +20,7 @@ Migration files live in `db/migrations/`. Run with `npm run db:migrate`. 25 migr
 | 6 | Calendar | `calendars`, `calendar_events`, `calendar_reminders`, `calendar_event_attendees` | Native calendar — auto-populated from extracted events |
 | 7 | AI Advisor | `advisor_sessions`, `advisor_messages` | Direct user ↔ AI conversations |
 | 8 | Notifications | `notification_preferences`, `notifications` | Push log and delivery settings |
+| 9 | Business Workspace | `business_profiles`, `document_templates`, `documents`, `document_events`, `deal_stage_history`, `document_chat_messages`, `recurring_documents`, `document_pack_runs` | AI-generated quotations/invoices/proposals/contracts (Brand Kit, status lifecycle, per-document AI chat, scheduled/recurring generation, Business Packs) — see `docs/BUSINESS_WORKSPACE_PLAN.md` |
 | System | Sync & Automation | `sync_jobs`, `auto_response_settings` | History sync progress tracking, auto-reply config |
 
 ---
@@ -43,6 +46,13 @@ Migration files live in `db/migrations/`. Run with `npm run db:migrate`. 25 migr
 **pgvector columns:**
 - `message_analyses.embedding` — semantic search across messages
 - `context_snapshots.embedding` — semantic retrieval of relevant compressed context
+- `documents.embedding` — semantic search across generated business documents (migration 0043; populated on render)
+
+**`documents`** is strictly AI/template-generated business documents (quotations, invoices, receipts, proposals, contracts, etc.) — distinct from `contact_documents`, which is human-uploaded files. Cross-linked via `contact_documents.generated_document_id` for "customer sent back the signed version." Status is a single lifecycle (`draft → generated → sent → viewed → downloaded → accepted/rejected/expired/paid → archived`), never a parallel vocabulary. `document_events` is the append-only timeline behind it (same pattern as `relationship_health_logs`).
+
+**`documents.share_token`** (migration 0046) is a dedicated, unguessable UUID — never the row's `id` — used by the one unauthenticated route in the API (`GET /api/documents/shared/:token`) so a customer can open/view a document without a Zuri login. This is how `view_count`/`viewed_at` get populated, since a WhatsApp file attachment gives no "they opened it" signal on its own.
+
+**`business_facts.category`** (migration 0029, widened in 0046) now includes `'pricing_benchmark'` — rows written by a periodic aggregation job (`source = 'aggregation'`, not `'ai_inference'`), read back through the same `get_approved_facts()` path every other business fact already uses.
 
 ---
 
@@ -202,6 +212,39 @@ IDX: `(user_id)` · `(status)`
 
 ---
 
+### Business Workspace Domain
+
+See `docs/BUSINESS_WORKSPACE_PLAN.md` for the full design. Migrations 0043–0046.
+
+#### `business_profiles`
+One row per user (Brand Kit). `id` (PK) · `user_id` (FK UNIQUE) · `company_name` · `logo_storage_path` · `address` · `phone` · `email` · `website` · `tax_id` · `registration_number` · `bank_details` (jsonb) · `mobile_money` (jsonb) · `signature_storage_path` · `stamp_storage_path` · `theme_color` (default #4F46E5) · `accent_color` (default #818CF8) · `default_template_id` (FK → document_templates) · `footer_text` · `default_terms` · `payment_instructions` · `default_currency` (default ZMW) · `default_tax_rate` · `numbering` (jsonb — per-document-type `{prefix, next}` counters, claimed atomically via `SELECT ... FOR UPDATE`) · `created_at` · `updated_at`
+
+#### `document_templates`
+`id` (PK) · `user_id` (FK, NULL for system templates) · `name` · `layout_key` (maps to a Jinja2 HTML file — the DB never stores markup) · `category` · `applicable_to` (jsonb array of document types) · `is_system` · `created_at`
+
+#### `documents`
+The core object. `id` (PK) · `user_id` (FK) · `contact_id` (FK, nullable — operations docs like a timesheet have none) · `deal_id` (FK, nullable) · `opportunity_id` (FK, nullable) · `conversation_id` (FK, nullable) · `agent_id` (FK, nullable) · `template_id` (FK) · `document_type` (quotation/invoice/receipt/purchase_order/delivery_note/credit_note/contract/proposal/certificate/letter/custom/statement_of_work/inspection_report/visit_report/timesheet/expense_claim/purchase_request/project_plan/meeting_minutes/service_agreement/maintenance_contract/nda/rental_agreement/employment_letter/offer_letter) · `document_category` (sales/operations/legal/hr) · `document_number` (UNIQUE per user) · `title` · `status` (draft/generated/sent/viewed/downloaded/accepted/rejected/expired/paid/archived) · `structured_data` (jsonb — items/sections/notes/terms/validUntil/dueDate; AI only ever fills this, never layout) · `currency` · `subtotal_cents` · `discount_cents` · `tax_cents` · `total_cents` · `storage_path` · `version` · `source_document_id` (FK → documents, self-referential — powers both /convert and /revise chains) · `requested_by` (user/customer/agent/schedule) · `ai_generated` · `ai_reasoning` · `ai_summary` · `source_message_ids` (jsonb) · `embedding` (VEC) · `share_token` (UNIQUE, migration 0046 — public view-tracking link) · `view_count` (migration 0046) · `expires_at` · `sent_at` · `viewed_at` · `paid_at` · `created_at` · `updated_at`
+IDX: `(user_id, document_type)` · `(contact_id)` · `(user_id, status)` · UNIQUE `(user_id, document_number)` · UNIQUE `(share_token)`
+
+#### `document_events`
+Append-only timeline (same pattern as `relationship_health_logs`). `id` (PK) · `document_id` (FK) · `event_type` (created/edited/generated/sent/viewed/expired/converted/follow_up_suggested, etc.) · `metadata` (jsonb) · `occurred_at`
+
+#### `deal_stage_history`
+Append-only — `deals` only stores current stage + `entered_stage_at`, no history before this. `id` (PK) · `deal_id` (FK) · `from_stage` · `to_stage` (NN) · `changed_at`
+
+#### `document_chat_messages`
+Per-document AI Assistant — mirrors `advisor_messages`' shape, scoped to a document instead of a session. `id` (PK) · `document_id` (FK) · `role` (user/assistant) · `content` (NN) · `created_at`
+
+#### `recurring_documents`
+A rule, not a queued job — a 60s polling worker (`recurring-documents-worker.ts`) checks `next_run_at`. `id` (PK) · `user_id` (FK) · `contact_id` (FK) · `document_type` · `template_data` (jsonb — same shape as `structured_data`) · `recurrence` (weekly/monthly/quarterly/yearly) · `day_of_period` · `auto_send` (generate-only vs. generate + WhatsApp send) · `is_active` · `next_run_at` · `last_run_at` · `last_document_id` (FK → documents) · `created_at` · `updated_at`
+IDX: `(next_run_at)` WHERE is_active = TRUE
+
+#### `document_pack_runs`
+Records what got generated together by an Automatic Business Pack (pack *definitions* are code constants, not DB rows). `id` (PK) · `user_id` (FK) · `contact_id` (FK) · `pack_key` (e.g. `new_customer_sales_pack`) · `document_ids` (jsonb array) · `created_at`
+IDX: `(user_id, created_at DESC)`
+
+---
+
 ## Migration History
 
 | File | Description |
@@ -231,3 +274,8 @@ IDX: `(user_id)` · `(status)`
 | 0023_contact_tasks.sql | Contact task/todo tracking |
 | 0024_ai_profile_fields_documents.sql | Extended contact_profiles fields; contact_documents table; new event types |
 | 0025_history_sync.sql | sync_jobs table; auto_response_settings table |
+| 0026–0042 | *(not documented here — see individual migration files: Marketing Studio/social publishing, Deals, Opportunities & Connections, Contact Products/Life Events/Network Value, Relationship Goals, Business Facts, Agent Workforce/Memory, Knowledge Base enhancements)* |
+| 0043_business_workspace_phase0.sql | business_profiles, document_templates, documents, document_events, deal_stage_history; contact_documents.generated_document_id |
+| 0044_business_workspace_phase2.sql | contact_insights.source_document_id (AI Document Memory) |
+| 0045_business_workspace_phase3.sql | document_chat_messages, recurring_documents |
+| 0046_business_workspace_phase4.sql | documents.share_token/view_count; business_facts category/source widened (pricing_benchmark/aggregation); document_pack_runs |

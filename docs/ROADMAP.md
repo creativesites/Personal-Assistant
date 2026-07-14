@@ -29,6 +29,7 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 | 9 — Business Intelligence & Executive Intelligence Platform | ✅ Complete |
 | 10 — Production Polish | 🔄 Active |
 | 11 — Enterprise Features | ⏳ Planned |
+| — Business Workspace (Documents) | ✅ Complete (Phases 0–4) |
 | — Historical Sync + First Impression | ✅ Complete |
 | — Auto Response Engine | ✅ Complete (execution wiring remaining) |
 | — Global WA Status System | ✅ Complete |
@@ -268,6 +269,48 @@ See `docs/NEXT_PHASE.md` for detailed implementation tasks for the active phases
 - [x] Business Timeline: event feed across contacts, conversations, and AI detections
 - [x] Reports & Exports hub: links to all intelligence pages; export center placeholder
 - [x] AnalyticsSubNav: horizontal scrollable sub-nav on all 11 intelligence pages
+
+---
+
+## Business Workspace (Documents — Quotations, Invoices, Proposals, Contracts) ✅
+
+**Goal:** An AI-native document management layer on top of the WhatsApp Relationship OS — quotations, invoices, receipts, proposals, and contracts that are generated, tracked, and delivered without leaving the product. See `docs/BUSINESS_WORKSPACE_PLAN.md` for the full design (migrations `0043`–`0046`).
+
+### Phase 0 — Foundation ✅
+- [x] Brand Kit (`business_profiles`): logo, signature, stamp, bank/mobile money details, theme colours, numbering per document type
+- [x] `document_templates` — Minimal + Modern system layouts (Jinja2 HTML, headless Chromium/Playwright rendering — AI never touches layout)
+- [x] `documents` table shipped with the full expanded `document_type` catalog (sales/operations/legal/hr categories) from day one
+- [x] Quotation/invoice creation + PDF generation (`/business` page)
+
+### Phase 1 — Business Workflow + Business Timeline ✅
+- [x] Status lifecycle: draft → generated → sent → viewed → downloaded → accepted/rejected/expired/paid → archived
+- [x] One-click convert: quotation → invoice → receipt
+- [x] WhatsApp PDF delivery (closes the real `SessionManager` document-send gap)
+- [x] Version history (revise without mutating what the customer already saw)
+- [x] Business Timeline — `GET /api/contacts/:id/business-timeline`, new tab on `/contacts/[id]` (deals, documents, and events composed at read time, no new log table)
+
+### Phase 2 — AI Generation + Document Memory ✅
+- [x] Conversational document creation — `POST /api/documents/ai-generate`, picks a real contact + product catalog, never invents pricing
+- [x] AI Document Memory — reuses `contact_insights` (`source_document_id` column), no parallel memory table
+- [x] `documents.ai_summary` — qualitative per-document AI summary (no fabricated conversion-likelihood stats)
+- [x] Quality checker — advisory only, never blocks sending
+- [x] Derived business-stage label (computed from `deals.stage` + document status — never persisted)
+- [x] Inbox AI Action card — one-click "Generate Quotation" surfaced from `contact_products` signals
+
+### Phase 3 — AI Document Assistant + Automation ✅
+- [x] Per-document AI chat assistant (`document_chat_messages`) — same "regenerate with instruction" mechanism as `proactive_queue`, made multi-turn
+- [x] `create_document` autonomous-agent tool, wired through trust levels (send only fires at `delegated`/`autonomous`)
+- [x] Scheduled/recurring documents (`recurring_documents` + a 60s polling worker, same house style as `social-publish-worker.ts`)
+- [x] Expiring-quotation / overdue-invoice follow-ups through the existing `proactive_queue` (daily job, 08:00 UTC)
+- [x] Advisor `[ACTION: generate_document]` tag — "generate a quotation for Grace" becomes a normal Advisor turn
+
+### Phase 4 — Business Intelligence ✅
+- [x] Semantic document search (`documents.embedding`, falls back to keyword search with no embedding key configured)
+- [x] View tracking — `documents.share_token`-scoped public link sent alongside the WhatsApp PDF attachment
+- [x] Relationship Engine health feed — an overdue invoice or a recently accepted quotation/proposal now feeds `health.py`'s signal set
+- [x] AI Compares Documents ("sales-analyst mode") — aggregated stats in, grounded suggestions out, mirroring the Marketing recommendations endpoint shape
+- [x] Pricing benchmarks — daily aggregation into `business_facts` (`category = 'pricing_benchmark'`), read back into document generation
+- [x] Automatic Business Packs — New Customer Sales / Renewal / Project Kickoff, code-constant definitions + `document_pack_runs`
 
 ---
 
