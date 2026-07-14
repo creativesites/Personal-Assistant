@@ -332,8 +332,8 @@ export default function BusinessPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
-      <div className="flex-shrink-0 p-4 md:p-6 pb-0">
+    <div className="bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
+      <div className="p-4 md:p-6 pb-0">
         {/* Hero — value prop + manual-creation CTA front and center */}
         <div className="relative rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">
           {/* Decorative gradient overlay clipped separately so it doesn't clip the dropdown */}
@@ -400,7 +400,7 @@ export default function BusinessPage() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 px-4 md:px-6 pt-4">
+      <div className="px-4 md:px-6 pt-4">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
           <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
             {TYPE_FILTERS.map(f => (
@@ -448,7 +448,7 @@ export default function BusinessPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+      <div className="p-4 md:p-6">
         {loading ? (
           <div className="max-w-3xl mx-auto space-y-4">
             {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}
