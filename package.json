@@ -18,8 +18,15 @@
     "db:seed": "node db/seed.js"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.5.1",
+    "@uidotdev/usehooks": "^2.4.1",
+    "date-fns": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "rc-slider": "^11.1.9",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-datepicker": "^9.1.0",
+    "react-dom": "^19.0.0",
+    "react-textarea-autosize": "^8.5.9"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
