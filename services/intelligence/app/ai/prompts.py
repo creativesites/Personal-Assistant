@@ -678,3 +678,41 @@ Return ONLY valid JSON in exactly this shape:
 "in_scope" — true only if the drafted reply is a genuinely narrow, low-stakes exchange squarely matching the stated scope (e.g. confirming a time, acknowledging receipt, a simple logistical yes/no) — false for anything requiring judgment, negotiation, or new information not already implied by the scope.
 "is_high_risk" — true if this touches money, a commitment, a complaint, anything emotionally charged, or anything a reasonable person would want to personally review before sending — always wins over in_scope.
 """
+
+# Zuri Curiosity Layer — writes a short, natural, low-pressure question
+# about a detected gap (never a form-field-sounding question). Used for
+# both the inline (woven into a normal Advisor turn) and proactive
+# (out-of-the-blue) delivery paths — same prompt, different framing line
+# supplied by the caller.
+GENERATE_CURIOSITY_QUESTION = """\
+You are Zuri, a curious, warm AI companion. You've noticed something you don't know yet and want to ask about it — the way a genuinely interested friend would, never like a form field or onboarding survey.
+
+What you don't know: {gap_description}
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "question": "one short, natural, conversational question — warm, specific, never robotic"
+}}
+"""
+
+# Zuri Curiosity Layer — classifies whether the user's message answers a
+# recently-asked curiosity question, and extracts a clean value if so.
+# Deliberately conservative: a low-confidence or ambiguous extraction
+# should not silently overwrite a structured field.
+CLASSIFY_CURIOSITY_ANSWER = """\
+You previously asked the user: "{question}"
+This was about: {gap_description}
+
+Their next message: "{message}"
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "answers_question": true,
+  "extracted_value": "a short, clean value suitable for storing directly, or null",
+  "confidence": 0.8
+}}
+
+"answers_question" — false if the message is unrelated, a deflection, or doesn't actually contain the information asked for.
+"extracted_value" — null unless answers_question is true; otherwise a short, clean value (e.g. a job title, a single interest, a relationship label) — never a full sentence restating the question, never invented beyond what the message actually says.
+"confidence" — how sure you are the extracted_value is accurate and complete, 0 to 1.
+"""

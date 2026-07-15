@@ -23,6 +23,7 @@ routes/conversation.py — its context shape (catalog/rules/suppliers) is
 unrelated to either of these.
 """
 import json
+import random
 import structlog
 
 from ..ai.client import get_ai_client
@@ -31,6 +32,7 @@ from ..database import get_pool
 from ..memory import retrieval_service as memory
 from ..neural.emotion import get_emotion_engine, emotional_congruence
 from .scoped_automation import get_scoped_automation
+from .curiosity_engine import get_curiosity_engine
 
 log = structlog.get_logger()
 
@@ -44,6 +46,11 @@ _ANALYSIS_INTENTS = {'chat_analysis', 'relationship_advice', 'emotional_support'
 _LOW_VALENCE_THRESHOLD = -0.2
 _HIGH_AROUSAL_THRESHOLD = 0.6
 _RECENT_CONTACT_SIGNAL_DAYS = 14
+
+# Zuri Curiosity Layer — the inline, "global" half; the proactive random-
+# ask half lives in curiosity_engine.py's own cron. Kept low so it reads
+# as occasional curiosity, not a recurring interrogation.
+_CURIOSITY_ASK_PROBABILITY = 0.2
 
 _DEFAULT_PROFILE = {
     'display_persona': {}, 'tone_preferences': {}, 'boundaries': {},
@@ -100,8 +107,9 @@ class AdvisorCompanionService:
             # separate action type; only reachable once a tradition is set.
             companion_mode = 'spiritual_companion'
         contacts_context = await self._get_contact_context(user_id, emotional_state)
+        curiosity_line = await self._curiosity_context_line(user_id, question, session_id)
 
-        system_prompt = self._build_system_prompt(profile, memories, emotional_state, companion_mode, contacts_context)
+        system_prompt = self._build_system_prompt(profile, memories, emotional_state, companion_mode, contacts_context, curiosity_line)
 
         chat_history = await self._get_session_history(session_id) if session_id else []
         prompt_messages = [{'role': 'system', 'content': system_prompt}]
@@ -237,6 +245,7 @@ class AdvisorCompanionService:
         if emotional_state.get('valence', 0.0) < _LOW_VALENCE_THRESHOLD and emotional_state.get('arousal', 0.0) > _HIGH_AROUSAL_THRESHOLD:
             emotional_context_line = "\nThe user seems to be in a tense or anxious mood right now — acknowledge that briefly if it's relevant, without making a big deal of it."
         emotional_context_line += self._spiritual_verse_line(profile, emotional_state)
+        emotional_context_line += await self._curiosity_context_line(user_id, question, session_id)
 
         is_analysis = intent in _ANALYSIS_INTENTS
         ai = get_ai_client()
@@ -458,7 +467,7 @@ class AdvisorCompanionService:
         return '\n'.join(context_lines)
 
     def _build_system_prompt(self, profile: dict, memories: list[dict], emotional_state: dict,
-                              companion_mode: str, contacts_context: str) -> str:
+                              companion_mode: str, contacts_context: str, curiosity_line: str = '') -> str:
         persona_line = ''
         tone_prefs = profile.get('tone_preferences') or {}
         if tone_prefs:
@@ -482,7 +491,7 @@ class AdvisorCompanionService:
             'You are Zuri, an AI relationship intelligence assistant and companion. '
             'You have deep knowledge of the user\'s WhatsApp contacts and conversations. '
             f'{mode_instruction}'
-            f'{persona_line}{boundaries_line}{memories_line}{mood_line}{spiritual_line}\n\n'
+            f'{persona_line}{boundaries_line}{memories_line}{mood_line}{spiritual_line}{curiosity_line}\n\n'
             'Answer questions concisely and be specific. Reference contacts by name. '
             'When drafting a message, write it naturally as a WhatsApp message — '
             'no formal salutations, no quotation marks. Return only the draft text when asked to draft.\n'
@@ -507,6 +516,36 @@ class AdvisorCompanionService:
             f"\nThe user has opted into {tradition} spiritual companionship and seems to be carrying a lot "
             "right now — you may briefly offer a relevant, properly-attributed verse and a short word of "
             "comfort if it feels natural, but never force it or bring up faith unprompted otherwise."
+        )
+
+    async def _curiosity_context_line(self, user_id: str, question: str, session_id: str | None) -> str:
+        """Zuri Curiosity Layer — the "global" always-on half (the other
+        half is the proactive cron in curiosity_engine.py). First checks
+        whether this message actually answers a curiosity question asked
+        in the last 3 days (writes the structured field if so, and folds
+        a brief acknowledgment instruction into the prompt); otherwise,
+        with a 20% chance per turn, suggests one new gap-filling question
+        the model MAY weave in naturally — never forced, never every turn."""
+        engine = get_curiosity_engine()
+        answered = await engine.check_pending_answer(user_id, question)
+        if answered:
+            return (
+                f"\nThe user just told you something you'd asked about ({answered['gapDescription']}): "
+                f"\"{answered['extractedValue']}\" — acknowledge this warmly and briefly before continuing."
+            )
+
+        if random.random() >= _CURIOSITY_ASK_PROBABILITY:
+            return ''
+        gap = await engine.pick_next_gap(user_id)
+        if not gap:
+            return ''
+        asked = await engine.ask_gap(user_id, gap, delivery='inline', session_id=session_id)
+        if not asked:
+            return ''
+        return (
+            f"\nYou're curious about something you don't know yet — if it feels natural given the conversation, "
+            f"you may also ask: \"{asked['question']}\" — but only if it doesn't feel forced or out of place; "
+            "otherwise skip it silently and just answer normally."
         )
 
     async def _assess_boundary_risk(self, user_id: str, contact_id: str, emotional_state: dict,

@@ -15,6 +15,7 @@ from ..services.interest_companion import get_interest_companion
 from ..services.spiritual_companion import get_spiritual_companion
 from ..services.motivational_detector import get_motivational_detector
 from ..services.advisor_memory_learner import get_advisor_memory_learner
+from ..services.curiosity_engine import get_curiosity_engine
 
 log = structlog.get_logger()
 
@@ -39,6 +40,7 @@ _interest_cron_queue = Queue('companion.run_interest_cron', {'connection': redis
 _spiritual_devotional_queue = Queue('companion.send_devotionals', {'connection': redis_conn_opts()})
 _motivational_nudge_queue = Queue('companion.check_motivational', {'connection': redis_conn_opts()})
 _advisor_memory_learning_queue = Queue('advisor.learn_memories', {'connection': redis_conn_opts()})
+_curiosity_proactive_queue = Queue('curiosity.ask_proactively', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -352,6 +354,36 @@ async def run_advisor_memory_learning_scheduler() -> None:
             await _advisor_memory_learning_queue.add('learn', {})
         except Exception as exc:
             log.error('advisor_memory_learning_enqueue_failed', error=str(exc))
+
+
+async def _process_curiosity_proactive(job, token: str):
+    count = await get_curiosity_engine().run_proactive_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_curiosity_proactive_worker() -> Worker:
+    return Worker('curiosity.ask_proactively', _process_curiosity_proactive, {'connection': redis_conn_opts()})
+
+
+async def run_curiosity_proactive_scheduler() -> None:
+    """Zuri Curiosity Layer: daily at 16:00 UTC — after the advisor
+    memory learner (15:00). The "randomly ask about something" feel comes
+    from a per-user probability roll inside run_proactive_for_all_users()
+    itself, not from this scheduler's cadence — every opted-in user is
+    checked daily, but only a fraction actually get asked on any given day."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('curiosity_proactive_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('curiosity_proactive_enqueue')
+            await _curiosity_proactive_queue.add('ask', {})
+        except Exception as exc:
+            log.error('curiosity_proactive_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

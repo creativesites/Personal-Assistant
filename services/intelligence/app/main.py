@@ -30,6 +30,7 @@ from .workers.daily_worker import (
     create_spiritual_devotional_worker, run_spiritual_devotional_scheduler,
     create_motivational_nudge_worker, run_motivational_nudge_scheduler,
     create_advisor_memory_learning_worker, run_advisor_memory_learning_scheduler,
+    create_curiosity_proactive_worker, run_curiosity_proactive_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
     spiritual_devotional_worker = create_spiritual_devotional_worker()
     motivational_nudge_worker = create_motivational_nudge_worker()
     advisor_memory_learning_worker = create_advisor_memory_learning_worker()
+    curiosity_proactive_worker = create_curiosity_proactive_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -80,6 +82,7 @@ async def lifespan(app: FastAPI):
     spiritual_devotional_task = asyncio.create_task(run_spiritual_devotional_scheduler())
     motivational_nudge_task = asyncio.create_task(run_motivational_nudge_scheduler())
     advisor_memory_learning_task = asyncio.create_task(run_advisor_memory_learning_scheduler())
+    curiosity_proactive_task = asyncio.create_task(run_curiosity_proactive_scheduler())
 
     yield
 
@@ -88,7 +91,7 @@ async def lifespan(app: FastAPI):
         document_followup_task, pricing_benchmark_task, inventory_forecast_task,
         reflection_task, emotion_reconsolidation_task,
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
-        advisor_memory_learning_task,
+        advisor_memory_learning_task, curiosity_proactive_task,
     ):
         task.cancel()
         try:
@@ -115,6 +118,7 @@ async def lifespan(app: FastAPI):
     await spiritual_devotional_worker.close()
     await motivational_nudge_worker.close()
     await advisor_memory_learning_worker.close()
+    await curiosity_proactive_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()
