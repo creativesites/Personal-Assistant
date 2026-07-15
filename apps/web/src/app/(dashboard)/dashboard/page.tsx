@@ -26,6 +26,8 @@ import {
   CheckCircle,
   MessageCircle,
   ShieldCheck,
+  ListChecks,
+  FolderKanban,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -69,7 +71,7 @@ interface MarketingSummary {
 // appends detail/amount — no client-side composition logic needed.
 interface BriefItem {
   id: string
-  sourceType: 'suggestion' | 'opportunity' | 'health_decline' | 'event'
+  sourceType: 'suggestion' | 'opportunity' | 'health_decline' | 'event' | 'task_overdue' | 'project_behind'
   headline: string
   detail: string | null
   amountCents: number | null
@@ -92,6 +94,8 @@ const BRIEF_STYLES: Record<BriefItem['sourceType'], { Icon: LucideIcon; iconBg: 
   opportunity: { Icon: TrendingUp, iconBg: 'bg-green-50', iconColor: 'text-green-600' },
   health_decline: { Icon: AlertTriangle, iconBg: 'bg-red-50', iconColor: 'text-red-600' },
   event: { Icon: Calendar, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+  task_overdue: { Icon: ListChecks, iconBg: 'bg-amber-50', iconColor: 'text-amber-600' },
+  project_behind: { Icon: FolderKanban, iconBg: 'bg-violet-50', iconColor: 'text-violet-600' },
 }
 
 // Health Rollup (docs/RELATIONSHIP_OS_PLAN.md §5.10/§6.9) — a composite
@@ -181,6 +185,8 @@ function sourceLabel(sourceType: BriefItem['sourceType']) {
   if (sourceType === 'opportunity') return 'Opportunity'
   if (sourceType === 'health_decline') return 'Health drop'
   if (sourceType === 'event') return 'Moment'
+  if (sourceType === 'task_overdue') return 'Task overdue'
+  if (sourceType === 'project_behind') return 'Project behind'
   return 'Nudge'
 }
 

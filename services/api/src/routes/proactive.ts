@@ -332,6 +332,28 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
                 WHERE pq2.contact_id = e.contact_id AND pq2.user_id = $1
                   AND pq2.suggested_for_date = CURRENT_DATE AND pq2.status = 'pending'
               )
+
+            UNION ALL
+
+            -- Business OS Phase F (docs/BUSINESS_OS_PLAN.md §11) — the "AI
+            -- Project Manager" morning update is this same brief, not a new
+            -- notification system. Only projects/tasks with a linked contact
+            -- surface here, since every brief item needs one to render.
+            SELECT 'task_overdue'::text AS source_type, pt.id, p.contact_id,
+                   ('Task overdue: ' || pt.title) AS headline, ('Project: ' || p.title) AS detail,
+                   NULL::bigint AS amount_cents, 80::decimal AS score
+            FROM project_tasks pt
+            JOIN projects p ON p.id = pt.project_id AND p.user_id = $1
+            WHERE pt.status != 'done' AND pt.due_date < CURRENT_DATE AND p.contact_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT 'project_behind'::text AS source_type, p.id, p.contact_id,
+                   ('Project behind schedule: ' || p.title) AS headline,
+                   ('Was due ' || p.due_date::text) AS detail,
+                   NULL::bigint AS amount_cents, 75::decimal AS score
+            FROM projects p
+            WHERE p.user_id = $1 AND p.status = 'active' AND p.due_date < CURRENT_DATE AND p.contact_id IS NOT NULL
           )
           SELECT i.*, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url
           FROM today_suggestions i
