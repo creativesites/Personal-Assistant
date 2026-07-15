@@ -211,6 +211,21 @@ interface StudioInsights {
   topProfitable: { id: string; name: string; unitsSold: number; totalProfit: number }[]
   topVelocity: { id: string; name: string; unitsSold30d: number }[]
   avgOrderSize: number
+  stockoutForecasts: {
+    productId: string; productName: string; expectedStockoutDate: string
+    recommendedOrderQty: number; recommendedOrderDate: string; cashRequired: number | null
+  }[]
+}
+
+// Business OS Phase G (§13) — Operational Financial Overview. Explicitly
+// not accounting (no ledger/double-entry) — a rollup over documents,
+// products, and stock_movements that already exist.
+interface FinancialOverview {
+  revenue: { cashCollectedCents: number; outstandingCents: number; totalInvoicedCents: number }
+  purchases: { allTimeCents: number; last30DaysCents: number }
+  inventoryValueCents: number
+  avgMarginPct: number
+  expenses: { claimCount: number; totalCents: number; note: string }
 }
 
 interface CoPurchase {
@@ -386,6 +401,7 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
     token ? '/api/business-facts?category=business_rule' : null, token,
   )
   const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
+  const { data: financials } = useApi<FinancialOverview>(token ? '/api/studio/financial-overview' : null, token)
 
   const products  = productsData?.products  ?? []
   const suppliers = suppliersData?.suppliers ?? []
@@ -554,6 +570,41 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
               {insights.stats.lowStockCount + insights.stats.outOfStockCount + insights.thinMargin.length + insights.supplierFlags.length}
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Business OS Phase G (§13) — Operational Financial Overview: a
+          rollup over documents/products/stock_movements, not accounting
+          (no ledger, no double-entry). Expenses stay a soft note until the
+          expense_claim document type is actually in use. */}
+      {financials && (
+        <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
+          <p className="text-sm font-semibold text-gray-900 mb-3">Financial Overview</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-2xl bg-emerald-50/70 px-3 py-2.5 ring-1 ring-emerald-100">
+              <p className="text-[11px] font-semibold text-emerald-700">Cash Collected</p>
+              <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(financials.revenue.cashCollectedCents / 100)}</p>
+            </div>
+            <div className="rounded-2xl bg-amber-50/70 px-3 py-2.5 ring-1 ring-amber-100">
+              <p className="text-[11px] font-semibold text-amber-700">Outstanding</p>
+              <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(financials.revenue.outstandingCents / 100)}</p>
+            </div>
+            <div className="rounded-2xl bg-gray-50/90 px-3 py-2.5 ring-1 ring-gray-100">
+              <p className="text-[11px] font-semibold text-gray-500">Purchases (30d)</p>
+              <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(financials.purchases.last30DaysCents / 100)}</p>
+            </div>
+            <div className="rounded-2xl bg-indigo-50/70 px-3 py-2.5 ring-1 ring-indigo-100">
+              <p className="text-[11px] font-semibold text-indigo-700">Avg Margin</p>
+              <p className="text-lg font-black text-gray-950 tabular-nums">{financials.avgMarginPct.toFixed(1)}%</p>
+            </div>
+          </div>
+          {financials.expenses.claimCount === 0 ? (
+            <p className="text-[11px] text-gray-400 mt-3">{financials.expenses.note}</p>
+          ) : (
+            <p className="text-[11px] text-gray-500 mt-3">
+              Expenses: {formatCurrency(financials.expenses.totalCents / 100)} across {financials.expenses.claimCount} claim{financials.expenses.claimCount !== 1 ? 's' : ''}
+            </p>
+          )}
         </div>
       )}
 
@@ -2120,6 +2171,42 @@ function InventoryModule({ token, onAskAI }: { token: string | undefined; onAskA
                 className="mt-2 text-xs font-bold text-amber-700 hover:text-amber-800 inline-flex items-center gap-1"
               >
                 <Sparkles className="w-3 h-3" />Ask AI to plan reorders
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Business OS Phase G (§7.3) — forecasted stockouts, computed from
+          sales velocity over the trailing 30 days rather than a static
+          minimum_stock threshold. Only shows once a business has enough
+          stock_movements history for the intelligence service to compute a
+          forecast — silently absent otherwise. */}
+      {insights && insights.stockoutForecasts.length > 0 && (
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-violet-50 to-white border border-violet-100 shadow-sm shadow-violet-100/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4.5 h-4.5 text-violet-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-gray-900">
+                {insights.stockoutForecasts.length} product{insights.stockoutForecasts.length !== 1 ? 's' : ''} projected to stock out within 14 days
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {insights.stockoutForecasts.slice(0, 4).map(f => (
+                  <p key={f.productId} className="text-xs text-gray-600">
+                    <span className="font-semibold text-gray-800">{f.productName}</span>
+                    {' — stockout ~'}{new Date(f.expectedStockoutDate).toLocaleDateString()}
+                    {', order '}{f.recommendedOrderQty} units by {new Date(f.recommendedOrderDate).toLocaleDateString()}
+                    {f.cashRequired != null && ` (${formatCurrency(f.cashRequired)})`}
+                  </p>
+                ))}
+              </div>
+              <button
+                onClick={() => onAskAI(`Help me plan reorders ahead of these projected stockouts: ${insights.stockoutForecasts.map(f => `${f.productName} (order ${f.recommendedOrderQty} by ${new Date(f.recommendedOrderDate).toLocaleDateString()})`).join('; ')}`)}
+                className="mt-2 text-xs font-bold text-violet-700 hover:text-violet-800 inline-flex items-center gap-1"
+              >
+                <Sparkles className="w-3 h-3" />Ask AI to plan ahead
               </button>
             </div>
           </div>

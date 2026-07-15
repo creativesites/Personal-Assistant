@@ -7,6 +7,7 @@ from ..services.proactive import ProactiveService
 from ..services.health import RelationshipHealthService
 from ..services.document_followups import DocumentFollowupService
 from ..services.pricing_benchmarks import PricingBenchmarkService
+from ..services.inventory_forecast import InventoryForecastService
 
 log = structlog.get_logger()
 
@@ -14,6 +15,7 @@ _proactive = ProactiveService()
 _health = RelationshipHealthService()
 _document_followups = DocumentFollowupService()
 _pricing_benchmarks = PricingBenchmarkService()
+_inventory_forecast = InventoryForecastService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
 _temporal_queue      = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
@@ -21,6 +23,7 @@ _world_queue         = Queue('world.knowledge_check',    {'connection': redis_co
 _consolidation_queue = Queue('memory.consolidate',       {'connection': redis_conn_opts()})
 _document_followup_queue = Queue('documents.check_followups', {'connection': redis_conn_opts()})
 _pricing_benchmark_queue = Queue('documents.refresh_pricing_benchmarks', {'connection': redis_conn_opts()})
+_inventory_forecast_queue = Queue('inventory.refresh_forecasts', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -52,6 +55,15 @@ async def _process_pricing_benchmarks(job, token: str):
 
 def create_pricing_benchmark_worker() -> Worker:
     return Worker('documents.refresh_pricing_benchmarks', _process_pricing_benchmarks, {'connection': redis_conn_opts()})
+
+
+async def _process_inventory_forecast(job, token: str):
+    count = await _inventory_forecast.generate_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_inventory_forecast_worker() -> Worker:
+    return Worker('inventory.refresh_forecasts', _process_inventory_forecast, {'connection': redis_conn_opts()})
 
 
 async def run_daily_scheduler() -> None:
@@ -107,6 +119,25 @@ async def run_pricing_benchmark_scheduler() -> None:
             await _pricing_benchmark_queue.add('refresh', {})
         except Exception as exc:
             log.error('pricing_benchmark_enqueue_failed', error=str(exc))
+
+
+async def run_inventory_forecast_scheduler() -> None:
+    """Asyncio background task: refresh inventory forecasts (plan §7.3) once
+    per day at 10:00 UTC — after pricing benchmarks (09:00), spreading the
+    daily jobs out so the DB isn't hit by all of them at once."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('inventory_forecast_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('inventory_forecast_enqueue')
+            await _inventory_forecast_queue.add('refresh', {})
+        except Exception as exc:
+            log.error('inventory_forecast_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

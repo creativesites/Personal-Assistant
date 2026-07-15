@@ -15,7 +15,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
 
       const [statsResult, lowStockResult, thinMarginResult, supplierFlagsResult, suggestedPORows,
-        topProfitableResult, topVelocityResult, avgOrderSizeResult] = await Promise.all([
+        topProfitableResult, topVelocityResult, avgOrderSizeResult, stockoutForecastResult] = await Promise.all([
         db.query(
           `SELECT
              (SELECT COUNT(*) FROM products WHERE user_id = $1) AS total_products,
@@ -97,6 +97,19 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
            WHERE user_id = $1 AND relation_type = 'purchased' AND quantity IS NOT NULL`,
           [userId],
         ),
+        // Business OS Phase G (§7.3) — read the intelligence service's
+        // precomputed forecasts rather than a raw low-stock threshold, since
+        // "will stock out this week" needs sales velocity, not just a static
+        // minimum_stock comparison.
+        db.query(
+          `SELECT f.product_id, p.name AS product_name, f.expected_stockout_date,
+                  f.recommended_order_qty, f.recommended_order_date, f.cash_required
+           FROM inventory_forecasts f
+           JOIN products p ON p.id = f.product_id AND p.user_id = $1
+           WHERE f.expected_stockout_date IS NOT NULL AND f.expected_stockout_date <= CURRENT_DATE + INTERVAL '14 days'
+           ORDER BY f.expected_stockout_date ASC LIMIT 10`,
+          [userId],
+        ),
       ])
 
       const s = statsResult.rows[0]
@@ -151,6 +164,91 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
           id: r.id, name: r.name, unitsSold30d: Number(r.units_sold_30d),
         })),
         avgOrderSize: parseFloat(avgOrderSizeResult.rows[0].avg_order_size),
+        stockoutForecasts: stockoutForecastResult.rows.map((r: any) => ({
+          productId: r.product_id,
+          productName: r.product_name,
+          expectedStockoutDate: r.expected_stockout_date,
+          recommendedOrderQty: r.recommended_order_qty,
+          recommendedOrderDate: r.recommended_order_date,
+          cashRequired: r.cash_required != null ? parseFloat(r.cash_required) : null,
+        })),
+      })
+    },
+  )
+
+  // Business OS Phase G (§13) — Operational Financial Overview. Explicitly
+  // *not* accounting: no ledger, no double-entry, no chart of accounts —
+  // a rollup over data that already exists (documents, products, stock
+  // movements). Expenses are the one genuinely missing input; per the
+  // plan's own recommendation this reuses the already-defined-but-unbuilt
+  // `expense_claim` document type rather than a parallel ledger table, so
+  // it's surfaced as a note rather than a hard number until that exists.
+  fastify.get(
+    '/api/studio/financial-overview',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const [invoiceTotalsResult, purchasesResult, marginResult, expenseClaimsResult] = await Promise.all([
+        db.query(
+          `SELECT
+             COALESCE(SUM(total_cents) FILTER (WHERE status = 'paid'), 0) AS cash_collected_cents,
+             COALESCE(SUM(total_cents) FILTER (WHERE status IN ('sent', 'viewed', 'downloaded')), 0) AS outstanding_cents
+           FROM documents
+           WHERE user_id = $1 AND document_type = 'invoice'`,
+          [userId],
+        ),
+        db.query(
+          `SELECT
+             COALESCE(SUM(sm.quantity_delta * p.purchase_cost), 0) AS purchases_all_time,
+             COALESCE(SUM(sm.quantity_delta * p.purchase_cost) FILTER (WHERE sm.created_at >= NOW() - INTERVAL '30 days'), 0) AS purchases_30d
+           FROM stock_movements sm
+           JOIN products p ON p.id = sm.product_id
+           WHERE sm.user_id = $1 AND sm.movement_type = 'restock'`,
+          [userId],
+        ),
+        db.query(
+          `SELECT
+             COALESCE(SUM(available * purchase_cost), 0) AS inventory_value,
+             COALESCE(AVG(margin) FILTER (WHERE margin IS NOT NULL), 0) AS avg_margin_pct
+           FROM products WHERE user_id = $1`,
+          [userId],
+        ),
+        db.query(
+          `SELECT COUNT(*) AS count, COALESCE(SUM(total_cents), 0) AS total_cents
+           FROM documents WHERE user_id = $1 AND document_type = 'expense_claim'`,
+          [userId],
+        ),
+      ])
+
+      const invoiceTotals = invoiceTotalsResult.rows[0]
+      const purchases = purchasesResult.rows[0]
+      const margin = marginResult.rows[0]
+      const expenseClaims = expenseClaimsResult.rows[0]
+
+      const cashCollectedCents = parseInt(invoiceTotals.cash_collected_cents, 10)
+      const outstandingCents = parseInt(invoiceTotals.outstanding_cents, 10)
+
+      return reply.send({
+        revenue: {
+          cashCollectedCents,
+          outstandingCents,
+          totalInvoicedCents: cashCollectedCents + outstandingCents,
+        },
+        purchases: {
+          allTimeCents: Math.round(parseFloat(purchases.purchases_all_time) * 100),
+          last30DaysCents: Math.round(parseFloat(purchases.purchases_30d) * 100),
+        },
+        inventoryValueCents: Math.round(parseFloat(margin.inventory_value) * 100),
+        avgMarginPct: parseFloat(margin.avg_margin_pct),
+        expenses: {
+          // Deferred per plan §13 — recommend the expense_claim document
+          // type over a parallel ledger table. Zero counts just mean the
+          // feature hasn't been used yet, not that expenses are actually 0.
+          claimCount: parseInt(expenseClaims.count, 10),
+          totalCents: parseInt(expenseClaims.total_cents, 10),
+          note: 'Track expenses by generating an "expense_claim" document — a dedicated expense ledger is not yet built.',
+        },
       })
     },
   )
