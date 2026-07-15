@@ -8,6 +8,7 @@ from ..models import MessageAnalysis, ReplySuggestions
 from ..queue import publish_event
 from ..memory import retrieval_service as memory
 from .auto_response import AutoResponseService
+from .scoped_automation import get_scoped_automation
 from .web_search import get_web_search
 
 log = structlog.get_logger()
@@ -198,15 +199,39 @@ class ReplyGenerator:
         log.info('replies_generated', message_id=message_id, count=len(suggestions_model.suggestions))
 
         if inserted_suggestions:
-            decision = await self._auto_response.evaluate(
+            # check_eligibility (not evaluate) so a scoped-automation grant
+            # can override just the approval_mode gate below while every
+            # other safety check (business hours, exclusions, escalation
+            # keywords, group/broadcast skipping) still applies exactly as
+            # it would for a normal auto-response.
+            eligibility = await self._auto_response.check_eligibility(
                 user_id=user_id,
                 conversation_id=conversation_id,
                 contact_id=contact_id,
                 message_body=body,
             )
 
-            if decision.should_send and decision.recipient_jid:
-                selected = inserted_suggestions[0]
+            selected = inserted_suggestions[0]
+            should_auto_send = False
+            grant = None
+            scope_reason = None
+            if eligibility.should_send:
+                if eligibility.approval_mode == 'auto':
+                    should_auto_send = True
+                else:
+                    # Advisor Companion Plan Phase 6 (§3.5/§9) — Safe Scoped
+                    # Automation: a time-limited, conversation-specific
+                    # grant can auto-send even when the account's global
+                    # approval_mode requires review, but only for a reply
+                    # judged in-scope and low-risk for THIS exchange.
+                    grant = await get_scoped_automation().find_active_grant(conversation_id)
+                    if grant:
+                        in_scope, scope_reason = await get_scoped_automation().check_reply_in_scope(
+                            grant, body, selected['text'],
+                        )
+                        should_auto_send = in_scope
+
+            if should_auto_send and eligibility.recipient_jid:
                 async with pool.acquire() as conn:
                     await conn.execute(
                         """
@@ -226,23 +251,35 @@ class ReplyGenerator:
                     user_id=user_id,
                     message_id=message_id,
                     suggested_reply_id=selected['id'],
-                    recipient_jid=decision.recipient_jid,
+                    recipient_jid=eligibility.recipient_jid,
                     text=selected['text'],
-                    delay_seconds=decision.delay_seconds,
+                    delay_seconds=eligibility.delay_seconds,
                 )
                 log.info(
                     'auto_response_send_enqueued',
                     message_id=message_id,
                     suggestion_id=selected['id'],
-                    delay_seconds=decision.delay_seconds,
+                    delay_seconds=eligibility.delay_seconds,
+                    via_scoped_grant=bool(grant),
                 )
+                if grant:
+                    await get_scoped_automation().log_audit(
+                        grant['id'], user_id, conversation_id, message_id,
+                        'auto_sent', scope_reason or 'in_scope', selected['text'],
+                    )
             else:
                 log.info(
                     'auto_response_not_sent',
                     message_id=message_id,
-                    reason=decision.reason,
-                    approval_mode=decision.approval_mode,
+                    reason=eligibility.reason,
+                    approval_mode=eligibility.approval_mode,
                 )
+                if grant and scope_reason:
+                    await get_scoped_automation().log_audit(
+                        grant['id'], user_id, conversation_id, message_id,
+                        'skipped_high_risk' if scope_reason == 'high_risk' else 'skipped_out_of_scope',
+                        scope_reason,
+                    )
 
         await publish_event(
             f'suggestion:ready:{user_id}',

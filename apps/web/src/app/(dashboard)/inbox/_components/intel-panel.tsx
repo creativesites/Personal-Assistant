@@ -55,6 +55,23 @@ interface Watch {
   status: string
 }
 
+// Advisor Companion Plan Phase 6 (docs/ADVISOR_COMPANION_PLAN.md §3.5/§9) —
+// a time-limited, conversation-scoped auto-send grant.
+interface AutomationGrant {
+  id: string
+  scopeDescription: string
+  status: 'active' | 'revoked' | 'expired'
+  expiresAt: string
+}
+
+interface AutomationLogEntry {
+  id: string
+  action: 'auto_sent' | 'skipped_out_of_scope' | 'skipped_high_risk'
+  detail: string | null
+  sentText: string | null
+  createdAt: string
+}
+
 interface ChatMsg {
   id: string
   role: 'user' | 'assistant'
@@ -223,6 +240,13 @@ export function IntelPanel({
   const [updateInputValue, setUpdateInputValue] = useState('')
   const [watch, setWatch] = useState<Watch | null>(null)
   const [watchLoading, setWatchLoading] = useState(false)
+  const [automationGrant, setAutomationGrant] = useState<AutomationGrant | null>(null)
+  const [automationLoading, setAutomationLoading] = useState(false)
+  const [automationFormOpen, setAutomationFormOpen] = useState(false)
+  const [automationScopeInput, setAutomationScopeInput] = useState('')
+  const [automationDuration, setAutomationDuration] = useState(30)
+  const [automationPanelOpen, setAutomationPanelOpen] = useState(false)
+  const [automationLog, setAutomationLog] = useState<AutomationLogEntry[] | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   // Load persisted history when a conversation is selected
@@ -273,6 +297,19 @@ export function IntelPanel({
               setWatch(watchData.watches[0] ?? null)
             }
           } catch { /* silent — the toggle just starts unwatched */ }
+
+          // Advisor Companion Plan Phase 6 (§3.5/§9) — restore an active
+          // scoped-automation grant on reload, whether it was created via
+          // the panel or the "handle this conversation for X minutes" chat intent.
+          try {
+            const grantRes = await fetch(`${API_URL}/api/advisor/automation-grants?conversationId=${convId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (grantRes.ok) {
+              const grantData = await grantRes.json() as { grants: AutomationGrant[] }
+              setAutomationGrant(grantData.grants.find(g => g.status === 'active') ?? null)
+            }
+          } catch { /* silent — the panel just starts unset */ }
         }
 
         if (data.messages.length > 0) {
@@ -300,6 +337,10 @@ export function IntelPanel({
     setLastDraftText(null)
     setActiveUpdateForm(null)
     setWatch(null)
+    setAutomationGrant(null)
+    setAutomationFormOpen(false)
+    setAutomationPanelOpen(false)
+    setAutomationLog(null)
     if (selectedConv?.id) loadChatHistory(selectedConv.id)
   }, [selectedConv?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -355,6 +396,55 @@ export function IntelPanel({
       }
     } catch { /* toggle just stays in its previous state */ }
     finally { setWatchLoading(false) }
+  }
+
+  // Advisor Companion Plan Phase 6 (§3.5/§9) — Safe Scoped Automation.
+  const handleCreateAutomationGrant = async () => {
+    if (!token || !selectedConv?.id || !chatSessionId || !automationScopeInput.trim()) return
+    setAutomationLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/automation-grants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          sessionId: chatSessionId, conversationId: selectedConv.id,
+          scopeDescription: automationScopeInput.trim(), durationMinutes: automationDuration,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json() as { grant: AutomationGrant }
+        setAutomationGrant(data.grant)
+        setAutomationFormOpen(false)
+        setAutomationScopeInput('')
+      }
+    } catch { /* form just stays open for retry */ }
+    finally { setAutomationLoading(false) }
+  }
+
+  const handleRevokeAutomationGrant = async () => {
+    if (!token || !automationGrant) return
+    setAutomationLoading(true)
+    try {
+      await fetch(`${API_URL}/api/advisor/automation-grants/${automationGrant.id}/revoke`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+      setAutomationGrant(null)
+      setAutomationPanelOpen(false)
+    } catch { /* already reflected optimistically on next reload */ }
+    finally { setAutomationLoading(false) }
+  }
+
+  const loadAutomationLog = async () => {
+    if (!token || !automationGrant) return
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/automation-grants/${automationGrant.id}/audit-log`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json() as { entries: AutomationLogEntry[] }
+        setAutomationLog(data.entries)
+      }
+    } catch { /* silent — log panel just stays empty */ }
   }
 
   useEffect(() => {
@@ -1160,13 +1250,90 @@ export function IntelPanel({
                     has been sent (see chatSessionId's lifecycle above). */}
                 <button onClick={handleToggleWatch} disabled={watchLoading || !selectedConv || !chatSessionId}
                   title={!chatSessionId ? 'Ask something first to start watching' : undefined}
-                  className={`flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-full border transition-colors disabled:opacity-40 ml-auto ${
+                  className={`flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-full border transition-colors disabled:opacity-40 ${
                     watch ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 hover:bg-gray-100 text-gray-500 border-gray-200'
                   }`}>
                   {watch ? <Eye size={9} /> : <EyeOff size={9} />}
                   {watch ? 'Watching' : 'Watch'}
                 </button>
+                {/* Advisor Companion Plan Phase 6 (§3.5/§9) — Safe Scoped
+                    Automation. A time-limited, conversation-specific
+                    auto-send grant, layered on top of the existing
+                    auto-response trust tiers rather than a parallel send path. */}
+                <button
+                  onClick={() => automationGrant ? setAutomationPanelOpen(o => !o) : setAutomationFormOpen(o => !o)}
+                  disabled={automationLoading || !selectedConv || !chatSessionId}
+                  title={!chatSessionId ? 'Ask something first to enable scoped automation' : undefined}
+                  className={`flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-full border transition-colors disabled:opacity-40 ml-auto ${
+                    automationGrant ? 'bg-violet-50 hover:bg-violet-100 text-violet-700 border-violet-200' : 'bg-gray-50 hover:bg-gray-100 text-gray-500 border-gray-200'
+                  }`}>
+                  <Zap size={9} />
+                  {automationGrant ? 'Automating' : 'Automate'}
+                </button>
               </div>
+
+              {/* Scoped automation grant creation form */}
+              {automationFormOpen && !automationGrant && (
+                <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-2.5 space-y-2">
+                  <p className="text-[10px] font-bold text-violet-500 uppercase tracking-wide">Auto-send scope</p>
+                  <input value={automationScopeInput} onChange={e => setAutomationScopeInput(e.target.value)}
+                    placeholder='e.g. "logistical confirmations like meeting times"'
+                    className="w-full px-2.5 py-1.5 text-xs border border-violet-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400/20 bg-white placeholder-gray-400" />
+                  <div className="flex items-center gap-2">
+                    <select value={automationDuration} onChange={e => setAutomationDuration(Number(e.target.value))}
+                      className="px-2 py-1.5 text-xs border border-violet-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                      <option value={15}>15 minutes</option>
+                      <option value={30}>30 minutes</option>
+                      <option value={60}>1 hour</option>
+                    </select>
+                    <button onClick={handleCreateAutomationGrant} disabled={automationLoading || !automationScopeInput.trim()}
+                      className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                      <Zap size={9} />Start
+                    </button>
+                    <button onClick={() => setAutomationFormOpen(false)}
+                      className="text-[10px] font-medium px-2 py-1.5 text-gray-500 hover:text-gray-700 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Active grant panel: scope, expiry, revoke, audit log */}
+              {automationPanelOpen && automationGrant && (
+                <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-2.5 space-y-2">
+                  <p className="text-[11px] text-violet-900 leading-relaxed">
+                    Auto-sending for: <span className="font-semibold">&ldquo;{automationGrant.scopeDescription}&rdquo;</span>
+                  </p>
+                  <p className="text-[10px] text-violet-500">
+                    Expires {new Date(automationGrant.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <div className="flex gap-1.5">
+                    <button onClick={handleRevokeAutomationGrant} disabled={automationLoading}
+                      className="text-[10px] font-bold px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 rounded-lg disabled:opacity-50 transition-colors">
+                      Revoke
+                    </button>
+                    <button onClick={loadAutomationLog}
+                      className="text-[10px] font-semibold px-2.5 py-1.5 text-violet-600 hover:text-violet-700 border border-violet-200 bg-white rounded-lg transition-colors">
+                      View log
+                    </button>
+                  </div>
+                  {automationLog && (
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {automationLog.length === 0 ? (
+                        <p className="text-[10px] text-violet-400">No activity yet.</p>
+                      ) : automationLog.map(entry => (
+                        <div key={entry.id} className="text-[10px] bg-white rounded-lg px-2 py-1.5 border border-violet-100">
+                          <span className={`font-bold ${entry.action === 'auto_sent' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                            {entry.action === 'auto_sent' ? 'Sent' : entry.action === 'skipped_high_risk' ? 'Skipped (high-risk)' : 'Skipped (out of scope)'}
+                          </span>
+                          {entry.sentText && <p className="text-gray-600 mt-0.5">{entry.sentText}</p>}
+                          <p className="text-gray-400 mt-0.5">{formatTime(entry.createdAt)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Contact update chips — only when a contact is loaded */}
               {contact && (

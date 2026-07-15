@@ -619,4 +619,108 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     if (!rowCount) return reply.code(404).send({ error: 'Not found' });
     return reply.send({ ok: true });
   });
+
+  // ── Scoped Automation (Advisor Companion Plan Phase 6, §3.5/§9) ──────────
+  // A time-limited, conversation-specific auto-send grant, layered on top
+  // of the existing auto-response eligibility checks in
+  // services/intelligence/app/services/reply_gen.py — it never bypasses
+  // business hours/exclusions/escalation keywords, only the approval_mode
+  // gate, and only for a reply judged in-scope by check_reply_in_scope().
+
+  function automationGrantApiShape(r: any) {
+    const effectiveStatus = r.status === 'active' && new Date(r.expires_at) <= new Date() ? 'expired' : r.status;
+    return {
+      id: r.id,
+      conversationId: r.conversation_id,
+      scopeDescription: r.scope_description,
+      status: effectiveStatus,
+      expiresAt: r.expires_at,
+      revokedAt: r.revoked_at,
+      createdAt: r.created_at,
+    };
+  }
+
+  const createAutomationGrantBody = z.object({
+    sessionId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    scopeDescription: z.string().min(1).max(500),
+    durationMinutes: z.number().int().min(5).max(240).optional(),
+  });
+
+  fastify.post('/api/advisor/automation-grants', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { sessionId, conversationId, scopeDescription, durationMinutes } = createAutomationGrantBody.parse(request.body);
+
+    const { rows: [conversation] } = await db.query(
+      'SELECT id FROM conversations WHERE id = $1 AND user_id = $2',
+      [conversationId, userId],
+    );
+    if (!conversation) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const { rows: [session] } = await db.query(
+      'SELECT id FROM advisor_sessions WHERE id = $1 AND user_id = $2 AND is_archived = false',
+      [sessionId, userId],
+    );
+    if (!session) return reply.code(404).send({ error: 'Session not found' });
+
+    const minutes = durationMinutes ?? 30;
+    const { rows: [grant] } = await db.query(
+      `INSERT INTO advisor_automation_grants
+         (user_id, session_id, conversation_id, scope_description, expires_at)
+       VALUES ($1, $2, $3, $4, NOW() + make_interval(mins => $5))
+       RETURNING *`,
+      [userId, sessionId, conversationId, scopeDescription, minutes],
+    );
+    return reply.code(201).send({ grant: automationGrantApiShape(grant) });
+  });
+
+  fastify.get('/api/advisor/automation-grants', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { conversationId } = request.query as { conversationId?: string };
+
+    const filters = ['user_id = $1'];
+    const params: unknown[] = [userId];
+    if (conversationId) { params.push(conversationId); filters.push(`conversation_id = $${params.length}`); }
+
+    const { rows } = await db.query(
+      `SELECT * FROM advisor_automation_grants WHERE ${filters.join(' AND ')} ORDER BY created_at DESC LIMIT 20`,
+      params,
+    );
+    return reply.send({ grants: rows.map(automationGrantApiShape) });
+  });
+
+  fastify.post('/api/advisor/automation-grants/:id/revoke', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { rowCount } = await db.query(
+      `UPDATE advisor_automation_grants SET status = 'revoked', revoked_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND status = 'active'`,
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Grant not found or already ended' });
+    return reply.send({ ok: true });
+  });
+
+  fastify.get('/api/advisor/automation-grants/:id/audit-log', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [grant] } = await db.query(
+      'SELECT id FROM advisor_automation_grants WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    );
+    if (!grant) return reply.code(404).send({ error: 'Grant not found' });
+
+    const { rows } = await db.query(
+      `SELECT id, message_id, action, detail, sent_text, created_at
+       FROM advisor_automation_audit_log WHERE grant_id = $1 ORDER BY created_at DESC LIMIT 100`,
+      [id],
+    );
+    return reply.send({
+      entries: rows.map(r => ({
+        id: r.id, messageId: r.message_id, action: r.action,
+        detail: r.detail, sentText: r.sent_text, createdAt: r.created_at,
+      })),
+    });
+  });
 }

@@ -30,6 +30,7 @@ from ..ai.prompts import CLASSIFY_ADVISOR_TURN, RELATIONSHIP_ADVICE_POLICY, ANAL
 from ..database import get_pool
 from ..memory import retrieval_service as memory
 from ..neural.emotion import get_emotion_engine, emotional_congruence
+from .scoped_automation import get_scoped_automation
 
 log = structlog.get_logger()
 
@@ -180,6 +181,26 @@ class AdvisorCompanionService:
                 await self._create_watch(user_id, session_id, conversation_id, contact_id)
                 reply = f"Got it — I'm watching this conversation now. I'll let you know as soon as {contact_name} replies, plus a few suggested responses."
             return self._response(reply, intent, mood='neutral', confidence=0.9)
+
+        # Advisor Companion Plan Phase 6 (§3.5/§9) — "handle this
+        # conversation for 10 minutes, auto-send only logistical
+        # confirmations." Scope description is the user's literal
+        # message; duration defaults to 30 minutes per the plan's own
+        # worked example. Revocation is REST-only (no chat-intent
+        # counterpart), same asymmetry Phase 4's watch already has.
+        if intent == 'scoped_automation':
+            if not (contact_id and session_id):
+                return self._response(
+                    "I need an open conversation to scope this to — open a specific chat first.",
+                    intent, mood='neutral', confidence=0.6,
+                )
+            grant = await get_scoped_automation().create_grant(user_id, session_id, conversation_id, question)
+            reply = (
+                f"Got it — for the next 30 minutes, I'll auto-send replies to {contact_name} that clearly match "
+                f"what you described (\"{question}\"), and leave anything else for you to review. "
+                "You can revoke this any time from the conversation panel."
+            )
+            return self._response(reply, intent, mood='neutral', confidence=0.85)
 
         emotional_state = await get_emotion_engine().get_current_emotional_state(user_id)
         profile = await self._get_profile(user_id)

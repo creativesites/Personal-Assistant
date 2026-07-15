@@ -507,12 +507,12 @@ Message: "{text}"
 
 Return JSON in exactly this format:
 {{
-  "intent": "casual_chat|relationship_advice|chat_analysis|draft_reply|send_message|watch_replies|business_analysis|memory_update|settings_update|emotional_support|gossip|spiritual|motivational|activate_personal_mode|deactivate_personal_mode|unknown",
+  "intent": "casual_chat|relationship_advice|chat_analysis|draft_reply|send_message|watch_replies|scoped_automation|business_analysis|memory_update|settings_update|emotional_support|gossip|spiritual|motivational|activate_personal_mode|deactivate_personal_mode|unknown",
   "needs_clarification": false,
   "memory_suggestion": null
 }}
 
-"intent" — pick the single best match. "activate_personal_mode"/"deactivate_personal_mode" only for an explicit request like "activate personal mode" / "turn off personal mode" / "give me the full experience" / "go back to normal" — not casual mentions of the phrase.
+"intent" — pick the single best match. "activate_personal_mode"/"deactivate_personal_mode" only for an explicit request like "activate personal mode" / "turn off personal mode" / "give me the full experience" / "go back to normal" — not casual mentions of the phrase. "scoped_automation" only for an explicit, narrow auto-send request like "handle this conversation for 10 minutes, auto-send anything about the meeting time" — not a general request to draft or send one message.
 
 "needs_clarification" — true only if the message is genuinely too vague to act on without a follow-up question.
 
@@ -655,4 +655,26 @@ Return ONLY valid JSON in exactly this shape:
 {{
   "message": "a short, warm, non-shaming nudge naming what's stacking up and offering one concrete easiest-first next step — never parental, never guilt-tripping"
 }}
+"""
+
+# Advisor Companion Plan Phase 6 (docs/ADVISOR_COMPANION_PLAN.md §3.5/§9)
+# — Safe Scoped Automation. Never trusts the grant's own scope
+# description alone to greenlight a specific reply; re-checks each
+# candidate exchange against it, and is_high_risk always wins over
+# in_scope regardless of what the grant nominally covers.
+CLASSIFY_SCOPED_AUTOMATION = """\
+The user has granted temporary, narrow auto-send permission for this WhatsApp conversation, described in their own words as: "{scope}"
+
+Their contact just sent: "{incoming_message}"
+The drafted reply is: "{draft_reply}"
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "in_scope": true,
+  "is_high_risk": false,
+  "reasoning": "one short sentence"
+}}
+
+"in_scope" — true only if the drafted reply is a genuinely narrow, low-stakes exchange squarely matching the stated scope (e.g. confirming a time, acknowledging receipt, a simple logistical yes/no) — false for anything requiring judgment, negotiation, or new information not already implied by the scope.
+"is_high_risk" — true if this touches money, a commitment, a complaint, anything emotionally charged, or anything a reasonable person would want to personally review before sending — always wins over in_scope.
 """
