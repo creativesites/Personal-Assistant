@@ -492,3 +492,30 @@ Return JSON in exactly this format:
 
 Each score is 0.0-1.0. Most messages are near-zero on most emotions — only score an emotion above 0.3 if it is clearly present. A neutral, purely informational message should score close to zero on all six.
 """
+
+# Advisor Companion Plan Phase 1 (docs/ADVISOR_COMPANION_PLAN.md §6.2/§6.5)
+# — a single structured call combining intent classification with a light
+# memory-suggestion proposal, so a turn doesn't need two separate LLM
+# calls beyond the main answer generation. memory_suggestion should be
+# null on most turns — only propose one when the user has stated
+# something durable about themselves (a preference, boundary, trait,
+# goal, or a reaction to advice), never from one-off small talk.
+CLASSIFY_ADVISOR_TURN = """\
+Classify this message from a user talking to their AI relationship advisor. Return ONLY valid JSON.
+
+Message: "{text}"
+
+Return JSON in exactly this format:
+{{
+  "intent": "casual_chat|relationship_advice|chat_analysis|draft_reply|send_message|watch_replies|business_analysis|memory_update|settings_update|emotional_support|gossip|spiritual|motivational|activate_personal_mode|deactivate_personal_mode|unknown",
+  "needs_clarification": false,
+  "memory_suggestion": null
+}}
+
+"intent" — pick the single best match. "activate_personal_mode"/"deactivate_personal_mode" only for an explicit request like "activate personal mode" / "turn off personal mode" / "give me the full experience" / "go back to normal" — not casual mentions of the phrase.
+
+"needs_clarification" — true only if the message is genuinely too vague to act on without a follow-up question.
+
+"memory_suggestion" — null on most turns. Only populate when the user states something durable and worth remembering long-term (a stated preference, a boundary, a personality trait, a goal, or explicit feedback on advice given), in exactly this shape when present:
+{{"type": "preference|boundary|trait|goal|relationship_pattern|successful_advice|disliked_advice", "key": "short_snake_case_key", "value": "one sentence describing what was learned", "confidence": 0.6}}
+"""

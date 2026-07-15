@@ -8,7 +8,7 @@ import {
   AlertCircle, TrendingUp, Zap, Clock, Users, ShieldAlert,
   MessageSquare, Star, Edit3,
   MoreHorizontal, Download, RefreshCw, Menu, PanelRight,
-  Plus, Trash2, Copy, ThumbsUp, ThumbsDown
+  Plus, Trash2, Copy, ThumbsUp, ThumbsDown, BookHeart, UserCog, Smile
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
@@ -30,9 +30,60 @@ interface AdvisorSession {
   title: string
   message_count: number
   contact_name: string | null
+  companion_mode?: string
   created_at: string
   updated_at: string
 }
+
+// Advisor Companion Plan Phase 1 (docs/ADVISOR_COMPANION_PLAN.md §4.2/§4.5/
+// §6.1/§7.2/§7.3/§7.6) — companion mode chips, the memory drawer, and the
+// (hidden, discovery-only) Personalisation tab.
+interface AssistantState {
+  mood: string
+  companionMode: string
+  confidence: number
+  needsClarification: boolean
+  intent: string
+}
+
+interface AdvisorMemory {
+  id: string
+  memoryType: string
+  memoryKey: string
+  memoryValue: string
+  confidence: number
+  evidenceCount: number
+  lastSeenAt: string
+  createdAt: string
+}
+
+interface AdvisorProfile {
+  displayPersona: Record<string, unknown>
+  tonePreferences: Record<string, unknown>
+  advicePreferences: Record<string, unknown>
+  boundaries: Record<string, unknown>
+  relationshipContext: Record<string, unknown>
+  interests: string[]
+  spiritualPreferences: { tradition?: string; denomination?: string; devotionalTime?: string; preferredTranslation?: string }
+  motivationalStyle: Record<string, unknown>
+  gossipStyle: Record<string, unknown>
+  companionFeaturesPaused: boolean
+  personalModeEnabled: boolean
+}
+
+// §4.4/§7.2 — gossip and spiritual_companion are included per Phase 1's own
+// bullet list; spiritual_companion is only rendered once a tradition is set
+// (§3.9/§8.5's consent gate — reachability, not consent, is what Phase 1 ships).
+const COMPANION_MODES: { key: string; label: string }[] = [
+  { key: 'balanced', label: 'Balanced' },
+  { key: 'best_friend', label: 'Best friend' },
+  { key: 'coach', label: 'Coach' },
+  { key: 'therapist_like', label: 'Soft mode' },
+  { key: 'business_partner', label: 'Business brain' },
+  { key: 'dating_advisor', label: 'Dating advice' },
+  { key: 'analyst', label: 'Analyst' },
+  { key: 'gossip', label: 'Gossip mode' },
+]
 
 // --- STATIC CONTENT ---
 const SUGGESTED_CHIPS = [
@@ -90,6 +141,15 @@ export default function AdvisorPage() {
   const [showMentionMenu, setShowMentionMenu] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
 
+  // Advisor Companion Plan Phase 1
+  const [companionMode, setCompanionMode] = useState('balanced')
+  const [lastAssistantState, setLastAssistantState] = useState<AssistantState | null>(null)
+  const [inspectorTab, setInspectorTab] = useState<'context' | 'memory' | 'personalize'>('context')
+  const [memories, setMemories] = useState<AdvisorMemory[]>([])
+  const [profile, setProfile] = useState<AdvisorProfile | null>(null)
+  const [newMemoryText, setNewMemoryText] = useState('')
+  const [newInterest, setNewInterest] = useState('')
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -118,13 +178,113 @@ export default function AdvisorPage() {
 
   useEffect(() => { loadSessions() }, [loadSessions])
 
+  // ── Companion Brain: memories + profile (Advisor Companion Plan Phase 1) ──
+
+  const loadMemories = useCallback(async () => {
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/memories`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json() as { memories: AdvisorMemory[] }
+      setMemories(data.memories)
+    } catch {}
+  }, [token])
+
+  const loadProfile = useCallback(async () => {
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json() as { profile: AdvisorProfile }
+      setProfile(data.profile)
+    } catch {}
+  }, [token])
+
+  useEffect(() => { loadMemories(); loadProfile() }, [loadMemories, loadProfile])
+
+  const patchProfile = async (patch: Partial<AdvisorProfile>) => {
+    if (!token) return
+    try {
+      await fetch(`${API_URL}/api/advisor/profile`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      })
+      setProfile(prev => prev ? { ...prev, ...patch } : prev)
+    } catch {}
+  }
+
+  const addMemory = async () => {
+    if (!token || !newMemoryText.trim()) return
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/memories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          memoryType: 'preference',
+          memoryKey: `manual_${Date.now()}`,
+          memoryValue: newMemoryText.trim(),
+        }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { memory: AdvisorMemory }
+      setMemories(prev => [data.memory, ...prev])
+      setNewMemoryText('')
+    } catch {}
+  }
+
+  const forgetMemory = async (id: string) => {
+    if (!token) return
+    setMemories(prev => prev.filter(m => m.id !== id))
+    try {
+      await fetch(`${API_URL}/api/advisor/memories/${id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch {}
+  }
+
+  const addInterest = async () => {
+    if (!newInterest.trim() || !profile) return
+    const interests = [...profile.interests, newInterest.trim()]
+    setNewInterest('')
+    await patchProfile({ interests })
+  }
+
+  const removeInterest = async (interest: string) => {
+    if (!profile) return
+    await patchProfile({ interests: profile.interests.filter(i => i !== interest) })
+  }
+
+  const togglePersonalMode = async () => {
+    if (!profile) return
+    await patchProfile({ personalModeEnabled: !profile.personalModeEnabled })
+  }
+
+  // ── Companion mode chips ──────────────────────────────────────────────────
+
+  const changeCompanionMode = async (mode: string) => {
+    setCompanionMode(mode)
+    if (!token || !activeSessionId) return
+    try {
+      await fetch(`${API_URL}/api/advisor/sessions/${activeSessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ companionMode: mode }),
+      })
+    } catch {}
+  }
+
   const createSession = async (title?: string): Promise<AdvisorSession | null> => {
     if (!token) return null
     try {
       const res = await fetch(`${API_URL}/api/advisor/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ title: title ?? 'New conversation' }),
+        body: JSON.stringify({ title: title ?? 'New conversation', companionMode }),
       })
       const data = await res.json() as { session: AdvisorSession }
       setSessions(prev => [data.session, ...prev])
@@ -156,6 +316,8 @@ export default function AdvisorPage() {
     if (sess.id === activeSessionId) return
     setActiveSessionId(sess.id)
     setMessages([])
+    setCompanionMode(sess.companion_mode ?? 'balanced')
+    setLastAssistantState(null)
     setSidebarOpen(false)
     await loadSessionMessages(sess.id)
   }
@@ -163,6 +325,8 @@ export default function AdvisorPage() {
   const startNewChat = async () => {
     setMessages([])
     setActiveSessionId(null)
+    setCompanionMode('balanced')
+    setLastAssistantState(null)
     setSidebarOpen(false)
     inputRef.current?.focus()
   }
@@ -203,8 +367,17 @@ export default function AdvisorPage() {
 
       if (!res.ok) throw new Error('API error')
 
-      const data = await res.json() as { message: { id: string; role: string; content: string; created_at: string } }
+      const data = await res.json() as {
+        message: { id: string; role: string; content: string; created_at: string }
+        assistantState?: AssistantState | null
+        memorySuggestion?: { key: string; value: string } | null
+      }
       const answerText = data.message.content
+      if (data.assistantState) {
+        setLastAssistantState(data.assistantState)
+        setCompanionMode(data.assistantState.companionMode)
+      }
+      if (data.memorySuggestion) loadMemories()
 
       // Detect component type from question intent
       const componentType = detectComponentType(text)
@@ -234,7 +407,7 @@ export default function AdvisorPage() {
     } finally {
       setLoading(false)
     }
-  }, [loading, token, activeSessionId, loadSessions])
+  }, [loading, token, activeSessionId, loadSessions, loadMemories, companionMode])
 
   // Handle AI-embedded action tags. Only `generate_document` is wired here —
   // the global Advisor (unlike the per-contact IntelPanel chat) has no single
@@ -419,6 +592,42 @@ export default function AdvisorPage() {
             </button>
           </div>
         </header>
+
+        {/* COMPANION MODE CHIPS — Advisor Companion Plan Phase 1 (§4.4/§7.2) */}
+        <div className="flex-shrink-0 border-b border-white/80 bg-white/60 px-3 md:px-6 py-2 overflow-x-auto backdrop-blur-xl">
+          <div className="flex items-center gap-1.5 w-max">
+            {COMPANION_MODES.map(mode => (
+              <button
+                key={mode.key}
+                onClick={() => changeCompanionMode(mode.key)}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${
+                  companionMode === mode.key
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-500 ring-1 ring-slate-100 hover:bg-slate-50'
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
+            {profile?.spiritualPreferences?.tradition && (
+              <button
+                onClick={() => changeCompanionMode('spiritual_companion')}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${
+                  companionMode === 'spiritual_companion'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-500 ring-1 ring-slate-100 hover:bg-slate-50'
+                }`}
+              >
+                Spiritual companion
+              </button>
+            )}
+            {lastAssistantState && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-100">
+                <Smile className="w-3 h-3" /> reading: {lastAssistantState.mood}
+              </span>
+            )}
+          </div>
+        </div>
 
         {/* MESSAGES AREA */}
         <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-6 space-y-5">
@@ -625,54 +834,162 @@ export default function AdvisorPage() {
 
       {/* RIGHT INSPECTOR PANEL */}
       <div className={`w-80 bg-white/90 border-l border-slate-200 flex-col h-full flex-shrink-0 backdrop-blur-xl ${inspectorOpen ? 'fixed right-0 top-0 bottom-0 z-40 xl:relative xl:z-0 flex shadow-2xl shadow-slate-950/15' : 'hidden xl:flex'}`}>
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-            <Sliders className="w-3.5 h-3.5 text-indigo-400" /> Context
-          </p>
+        <div className="p-3 border-b border-slate-200 flex items-center justify-between flex-shrink-0 gap-1">
+          <div className="flex items-center gap-1 flex-1">
+            {([
+              { key: 'context', label: 'Context', Icon: Sliders },
+              { key: 'memory', label: 'Memory', Icon: BookHeart },
+              { key: 'personalize', label: 'Personalize', Icon: UserCog },
+            ] as const).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setInspectorTab(t.key)}
+                className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-[10px] font-bold transition-colors ${
+                  inspectorTab === t.key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'
+                }`}
+              >
+                <t.Icon className="w-3.5 h-3.5" /> {t.label}
+              </button>
+            ))}
+          </div>
           <button onClick={() => setInspectorOpen(false)} className="p-1 text-slate-500 hover:text-slate-950 xl:hidden"><X className="w-4 h-4" /></button>
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
-          {/* Active session info */}
-          {activeSessionId && (
+
+        {inspectorTab === 'context' && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
+            {/* Active session info */}
+            {activeSessionId && (
+              <div>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Active Session</label>
+                <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl">
+                  <p className="text-xs font-semibold text-slate-950 truncate">
+                    {sessions.find(s => s.id === activeSessionId)?.title ?? 'Session'}
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    {sessions.find(s => s.id === activeSessionId)?.message_count ?? 0} messages
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Active Session</label>
-              <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-2xl">
-                <p className="text-xs font-semibold text-slate-950 truncate">
-                  {sessions.find(s => s.id === activeSessionId)?.title ?? 'Session'}
-                </p>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  {sessions.find(s => s.id === activeSessionId)?.message_count ?? 0} messages
-                </p>
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Quick Actions</label>
+              <div className="space-y-1.5">
+                {[
+                  'Summarize today\'s conversations',
+                  'Which contacts need follow-up?',
+                  'Draft a check-in message',
+                  'Show my top opportunities',
+                ].map((a, i) => (
+                  <button key={i} onClick={() => sendMessage(a)}
+                    className="w-full text-left p-2.5 bg-white border border-slate-100 rounded-2xl text-xs text-slate-700 hover:bg-indigo-50 hover:border-indigo-100 hover:text-indigo-900 transition-colors flex items-center gap-2 shadow-sm">
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500" /> {a}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
 
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Quick Actions</label>
-            <div className="space-y-1.5">
-              {[
-                'Summarize today\'s conversations',
-                'Which contacts need follow-up?',
-                'Draft a check-in message',
-                'Show my top opportunities',
-              ].map((a, i) => (
-                <button key={i} onClick={() => sendMessage(a)}
-                  className="w-full text-left p-2.5 bg-white border border-slate-100 rounded-2xl text-xs text-slate-700 hover:bg-indigo-50 hover:border-indigo-100 hover:text-indigo-900 transition-colors flex items-center gap-2 shadow-sm">
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-500" /> {a}
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Tips</label>
+              <div className="space-y-2 text-[11px] text-slate-500">
+                <p>Type <kbd className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">/</kbd> for commands</p>
+                <p>Type <kbd className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">@</kbd> to mention a contact</p>
+                <p>Ask me to draft a WhatsApp message and I&apos;ll show a preview with a Copy button</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MEMORY DRAWER — Advisor Companion Plan Phase 1 (§3.4/§7.3) */}
+        {inspectorTab === 'memory' && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">What Zuri remembers about you</label>
+              <div className="flex gap-1.5 mb-3">
+                <input
+                  type="text" value={newMemoryText} onChange={e => setNewMemoryText(e.target.value)}
+                  placeholder="Remember something..."
+                  onKeyDown={e => { if (e.key === 'Enter') addMemory() }}
+                  className="flex-1 text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-300"
+                />
+                <button onClick={addMemory} disabled={!newMemoryText.trim()} className="px-2.5 py-1.5 bg-indigo-600 text-white rounded-xl text-[10px] font-bold disabled:opacity-40">Save</button>
+              </div>
+              {memories.length === 0 ? (
+                <p className="text-[11px] text-slate-500 py-4 text-center">Nothing yet — Zuri learns as you chat, or add something yourself above.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {memories.map(m => (
+                    <div key={m.id} className="bg-white border border-slate-100 rounded-2xl p-2.5 shadow-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[9px] font-bold uppercase tracking-wide text-indigo-500">{m.memoryType.replace(/_/g, ' ')}</span>
+                          <p className="text-xs text-slate-700 leading-snug mt-0.5">{m.memoryValue}</p>
+                        </div>
+                        <button onClick={() => forgetMemory(m.id)} title="Forget this" className="p-1 text-slate-500 hover:text-rose-500 flex-shrink-0">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* PERSONALISATION TAB (hidden, discovery-only) — §7.6 */}
+        {inspectorTab === 'personalize' && profile && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs">
+            <div className="bg-gradient-to-br from-indigo-50 to-cyan-50 border border-indigo-100 rounded-2xl p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold text-slate-950">Personal Mode</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Unlocks gossip, interests, and check-ins right away instead of waiting for Zuri to notice you want them.</p>
+                </div>
+                <button
+                  onClick={togglePersonalMode}
+                  className={`relative flex-shrink-0 w-9 h-5 rounded-full transition-colors ${profile.personalModeEnabled ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${profile.personalModeEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
                 </button>
-              ))}
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Tips</label>
-            <div className="space-y-2 text-[11px] text-slate-500">
-              <p>Type <kbd className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">/</kbd> for commands</p>
-              <p>Type <kbd className="bg-slate-100 px-1 py-0.5 rounded text-[10px] font-mono">@</kbd> to mention a contact</p>
-              <p>Ask me to draft a WhatsApp message and I&apos;ll show a preview with a Copy button</p>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Interests</label>
+              <div className="flex gap-1.5 mb-2">
+                <input
+                  type="text" value={newInterest} onChange={e => setNewInterest(e.target.value)}
+                  placeholder="e.g. Formula 1, stocks..."
+                  onKeyDown={e => { if (e.key === 'Enter') addInterest() }}
+                  className="flex-1 text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-300"
+                />
+                <button onClick={addInterest} disabled={!newInterest.trim()} className="px-2.5 py-1.5 bg-indigo-600 text-white rounded-xl text-[10px] font-bold disabled:opacity-40">Add</button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {profile.interests.map(interest => (
+                  <span key={interest} className="inline-flex items-center gap-1 bg-white border border-slate-100 rounded-full px-2.5 py-1 text-[10px] text-slate-700 shadow-sm">
+                    {interest}
+                    <button onClick={() => removeInterest(interest)}><X className="w-3 h-3 text-slate-500 hover:text-rose-500" /></button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Spiritual companion</label>
+              <select
+                value={profile.spiritualPreferences?.tradition ?? ''}
+                onChange={e => patchProfile({ spiritualPreferences: { ...profile.spiritualPreferences, tradition: e.target.value || undefined } })}
+                className="w-full text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-indigo-300"
+              >
+                <option value="">Off (no faith-based content)</option>
+                <option value="christian">Christian</option>
+              </select>
             </div>
           </div>
-        </div>
+        )}
+
         <div className="p-4 bg-white border-t border-slate-200 text-[10px] text-slate-500 flex items-center gap-2 flex-shrink-0">
           <ShieldAlert className="w-3.5 h-3.5 text-indigo-500/80" />
           <span>Your data stays private</span>

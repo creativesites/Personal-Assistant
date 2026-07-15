@@ -6,7 +6,7 @@ from ..database import get_pool
 from ..ai.client import get_ai_client
 from ..queue import redis_conn_opts
 from ..memory import retrieval_service as memory
-from ..neural.emotion import get_emotion_engine, emotional_congruence
+from ..neural.emotion import get_emotion_engine
 
 studio_router = APIRouter(prefix='/internal/studio', tags=['studio'])
 
@@ -265,109 +265,16 @@ class AdvisorAskRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-async def _rerank_contacts_by_congruence(user_id: str, rows: list) -> list:
-    """Advisor Companion Plan Phase 0 (§6.7) — state-dependent retrieval
-    weighting: blend each contact's recency rank with how emotionally
-    congruent that contact's recent signal is with the user's *current*
-    state, so the global advisor's contact context isn't purely recency-
-    ordered. One ranked list in, one ranked list out — not a separate
-    retrieval path."""
-    if not rows:
-        return rows
-
-    contact_ids = [row['contact_id'] for row in rows]
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        signal_rows = await conn.fetch(
-            '''SELECT contact_id, AVG(valence) AS avg_valence, AVG(arousal) AS avg_arousal
-               FROM emotional_signals
-               WHERE user_id = $1 AND contact_id = ANY($2::uuid[])
-                 AND created_at > NOW() - INTERVAL '14 days'
-               GROUP BY contact_id''',
-            user_id, contact_ids,
-        )
-    congruence_by_contact = {str(r['contact_id']): (float(r['avg_valence']), float(r['avg_arousal'])) for r in signal_rows}
-
-    current_state = await get_emotion_engine().get_current_emotional_state(user_id)
-    current_valence = current_state.get('valence', 0.0)
-    current_arousal = current_state.get('arousal', 0.3)
-
-    n = len(rows)
-    scored = []
-    for i, row in enumerate(rows):
-        recency_rank = 1.0 - (i / n)  # 1.0 for most recent, near 0 for least
-        pair = congruence_by_contact.get(str(row['contact_id']))
-        congruence = emotional_congruence(current_valence, current_arousal, *pair) if pair else 0.5
-        scored.append((0.7 * recency_rank + 0.3 * congruence, row))
-
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [row for _, row in scored]
-
-
 @advisor_router.post('/ask')
 async def advisor_ask(body: AdvisorAskRequest):
-    """Global advisor — answers questions about the user's full contact network."""
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            '''SELECT co.id AS contact_id,
-                      COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
-                      c.last_message_preview, c.unread_count,
-                      COALESCE(r.health_score, 50) AS health_score,
-                      co.lead_score, co.pipeline_stage,
-                      c.last_message_at
-               FROM conversations c
-               JOIN contacts co ON co.id = c.contact_id
-               LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = c.user_id
-               WHERE c.user_id = $1 AND c.is_archived = false
-               ORDER BY c.last_message_at DESC NULLS LAST
-               LIMIT 20''',
-            body.user_id,
-        )
-
-    rows = await _rerank_contacts_by_congruence(body.user_id, rows)
-
-    context_lines = []
-    for row in rows:
-        preview = (row['last_message_preview'] or '')[:100]
-        context_lines.append(
-            f"- {row['contact_name']} (ID: {row['contact_id']}): "
-            f"health={row['health_score']}%, lead_score={row.get('lead_score') or 0}, "
-            f"stage={row.get('pipeline_stage') or 'unknown'}, "
-            f"unread={row['unread_count']}, last: \"{preview}\""
-        )
-    context = '\n'.join(context_lines) or 'No recent conversations found.'
-
-    # Load prior chat history for conversational memory
-    chat_history = []
-    if body.session_id:
-        chat_history = await _get_session_history(body.session_id)
-
-    system_prompt = (
-        'You are Zuri, an AI relationship intelligence assistant. '
-        'You have deep knowledge of the user\'s WhatsApp contacts and conversations. '
-        'Answer questions concisely and be specific. Reference contacts by name. '
-        'When drafting a message, write it naturally as a WhatsApp message — '
-        'no formal salutations, no quotation marks. Return only the draft text when asked to draft.\n'
-        + ZURI_ACTION_INSTRUCTIONS
-    )
-
-    prompt_messages = [{'role': 'system', 'content': system_prompt}]
-    prompt_messages.extend(chat_history)
-    prompt_messages.append({
-        'role': 'user',
-        'content': f'Recent contacts context:\n{context}\n\nQuestion: {body.question}',
-    })
-
-    ai = get_ai_client()
-    result = await ai.complete_text(prompt_messages)
-
-    # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — see the
-    # matching note in ask_ai() above. No single contact here since this is
-    # the global advisor.
-    await get_emotion_engine().record_advisor_turn(body.user_id, body.session_id, body.question)
-
-    return {'answer': result}
+    """Global advisor — answers questions about the user's full contact
+    network. Advisor Companion Plan Phase 1 (docs/ADVISOR_COMPANION_PLAN.md
+    §6.1) — delegates the full turn (intent classification, profile/
+    memory/emotional-state retrieval, dynamic prompt assembly, memory
+    suggestion) to AdvisorCompanionService rather than building it inline
+    here; this route is intentionally thin now."""
+    from ..services.advisor_companion import get_advisor_companion_service
+    return await get_advisor_companion_service().handle_turn(body.user_id, body.question, body.session_id)
 
 
 class StudioAskRequest(BaseModel):
