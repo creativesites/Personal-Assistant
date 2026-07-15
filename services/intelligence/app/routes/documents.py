@@ -8,25 +8,30 @@ from ..services.document_generator import (
     chat_about_document,
     compute_document_insights,
     contact_display_name,
+    format_money,
     generate_document_data,
-    render_and_save,
     search_documents,
     summarize_content,
+    summarize_document,
 )
 from ..services.document_packs import run_pack
-from ..services.document_renderer import format_money
 
 router = APIRouter(prefix='/internal/documents', tags=['documents'])
 
 
-class RenderRequest(BaseModel):
+class SummarizeRequest(BaseModel):
     user_id: str
 
 
-@router.post('/{document_id}/render')
-async def render_document(document_id: str, body: RenderRequest):
+@router.post('/{document_id}/summarize')
+async def summarize(document_id: str, body: SummarizeRequest):
+    """Computes ai_summary/embedding after services/api has rendered and
+    stored the PDF — see document_generator.py's summarize_document() for
+    why this is decoupled from rendering itself. Called fire-and-forget by
+    Node; a failure here shouldn't surface as a render failure, but a 404
+    for an unknown document still should."""
     try:
-        return await render_and_save(document_id, body.user_id)
+        return await summarize_document(document_id, body.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

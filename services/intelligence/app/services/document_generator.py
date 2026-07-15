@@ -12,7 +12,6 @@ from ..ai.client import get_ai_client
 from ..ai.prompts import DOCUMENT_AI_SUMMARY, DOCUMENT_CHAT, DOCUMENT_INSIGHTS, GENERATE_DOCUMENT_DATA
 from ..database import get_pool
 from ..queue import get_queue
-from .document_renderer import format_money, render_document_pdf, storage_path_for
 
 log = structlog.get_logger()
 
@@ -20,6 +19,17 @@ DOCUMENT_CATEGORY = {
     'quotation': 'sales', 'invoice': 'sales', 'proposal': 'sales', 'contract': 'legal',
     'service_agreement': 'legal', 'project_plan': 'operations',
 }
+
+# Was in document_renderer.py, alongside the Jinja2/Playwright rendering
+# engine that lived there — rendering itself moved to services/api
+# (@react-pdf/renderer), but this formatting helper is still needed here
+# (summarize_document()) and by routes/documents.py's quality_check.
+CURRENCY_SYMBOLS = {'ZMW': 'K', 'USD': '$', 'GBP': '£', 'EUR': '€', 'KES': 'KSh', 'BWP': 'P', 'NAD': 'N$'}
+
+
+def format_money(cents: int, currency: str) -> str:
+    symbol = CURRENCY_SYMBOLS.get(currency, currency + ' ')
+    return f'{symbol}{cents / 100:,.2f}'
 
 
 def contact_display_name(contact) -> str:
@@ -221,50 +231,36 @@ async def create_document_row(
     return dict(row)
 
 
-async def render_and_save(document_id: str, user_id: str) -> dict:
+async def summarize_document(document_id: str, user_id: str) -> dict:
+    """ai_summary/embedding computation, extracted from render_and_save()'s
+    tail now that rendering itself lives in services/api (Node,
+    @react-pdf/renderer) — this is purely structured_data-derived text, never
+    the rendered PDF bytes, so it's unaffected by which engine renders the
+    PDF. Called fire-and-forget by Node right after a successful render."""
     pool = await get_pool()
-
     async with pool.acquire() as conn:
         document = await conn.fetchrow('SELECT * FROM documents WHERE id = $1 AND user_id = $2', document_id, user_id)
         if not document:
             raise ValueError('Document not found')
-
-        business_profile = await conn.fetchrow('SELECT * FROM business_profiles WHERE user_id = $1', user_id)
-        contact = None
+        contact_dict = None
         if document['contact_id']:
             contact = await conn.fetchrow(
                 'SELECT custom_name, display_name, phone_number, company, email, whatsapp_jid FROM contacts WHERE id = $1',
                 document['contact_id'],
             )
+            contact_dict = dict(contact) if contact else None
 
-        template = None
-        if document['template_id']:
-            template = await conn.fetchrow('SELECT layout_key FROM document_templates WHERE id = $1', document['template_id'])
-        elif business_profile and business_profile['default_template_id']:
-            template = await conn.fetchrow('SELECT layout_key FROM document_templates WHERE id = $1', business_profile['default_template_id'])
-        layout_key = template['layout_key'] if template else 'minimal'
-
-    business_profile_dict = dict(business_profile) if business_profile else {}
-    contact_dict = dict(contact) if contact else None
-
-    pdf_bytes = await render_document_pdf(dict(document), business_profile_dict, contact_dict, layout_key)
-
-    path = storage_path_for(user_id, document_id)
-    with open(path, 'wb') as f:
-        f.write(pdf_bytes)
-
-    new_status = 'generated' if document['status'] == 'draft' else document['status']
+    structured = document['structured_data'] or {}
 
     ai_summary = None
     try:
-        structured = document['structured_data'] or {}
         ai = get_ai_client()
         prompt = DOCUMENT_AI_SUMMARY.format(
             document_type=document['document_type'],
             user_name='the business owner',
             contact_name=contact_display_name(contact_dict),
             total_display=format_money(document['total_cents'], document['currency']),
-            status=new_status,
+            status=document['status'],
             content_summary=summarize_content(structured),
             notes=structured.get('notes') or 'none',
             reasoning_line=(f"Why generated: {document['ai_reasoning']}" if document['ai_reasoning'] else ''),
@@ -276,12 +272,8 @@ async def render_and_save(document_id: str, user_id: str) -> dict:
     except Exception:
         ai_summary = None
 
-    # Embedding for semantic search (plan §15 Phase 4) — a compact text
-    # representation of the document, not the raw structured_data JSON, so
-    # the vector reflects what the document is *about* rather than its shape.
     embedding_vec = None
     try:
-        structured = document['structured_data'] or {}
         embedding_text = ' | '.join(filter(None, [
             document['title'], document['document_type'],
             contact_display_name(contact_dict), summarize_content(structured),
@@ -296,21 +288,16 @@ async def render_and_save(document_id: str, user_id: str) -> dict:
         if embedding_vec is not None:
             import numpy as np
             await conn.execute(
-                "UPDATE documents SET storage_path = $1, status = $2, ai_summary = COALESCE($3, ai_summary), "
-                "embedding = $4, updated_at = NOW() WHERE id = $5",
-                path, new_status, ai_summary, np.array(embedding_vec, dtype=np.float32), document_id,
+                "UPDATE documents SET ai_summary = COALESCE($1, ai_summary), embedding = $2, updated_at = NOW() WHERE id = $3",
+                ai_summary, np.array(embedding_vec, dtype=np.float32), document_id,
             )
         else:
             await conn.execute(
-                "UPDATE documents SET storage_path = $1, status = $2, ai_summary = COALESCE($3, ai_summary), updated_at = NOW() WHERE id = $4",
-                path, new_status, ai_summary, document_id,
+                "UPDATE documents SET ai_summary = COALESCE($1, ai_summary), updated_at = NOW() WHERE id = $2",
+                ai_summary, document_id,
             )
-        await conn.execute(
-            "INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'generated', '{}'::jsonb)",
-            document_id,
-        )
 
-    return {'id': document_id, 'status': new_status, 'storagePath': path, 'aiSummary': ai_summary, 'contact': contact_dict}
+    return {'aiSummary': ai_summary}
 
 
 async def search_documents(user_id: str, query: str, limit: int = 10) -> list[dict]:

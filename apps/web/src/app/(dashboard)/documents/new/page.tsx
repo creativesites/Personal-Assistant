@@ -1,28 +1,15 @@
 'use client'
 
-// @ts-nocheck — @react-pdf/renderer types incompatible with React 19; runtime fine
-
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import dynamic from 'next/dynamic'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft, ArrowRight, Check, FileText, FileCheck, BookOpen, File,
   Search, X, Plus, Trash2, ChevronDown, Download, Building2, User,
-  CreditCard, StickyNote, Eye, Loader2,
+  CreditCard, StickyNote, Eye, Loader2, AlertCircle,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { apiClient } from '@/lib/api'
-import type { ZuriDocData } from '@/components/documents/ZuriDocumentPDF'
-
-// ── Dynamic imports so PDF renderer only loads client-side ───────────────────
-const PDFDownloadLink = dynamic(
-  () => import('@react-pdf/renderer').then(m => ({ default: m.PDFDownloadLink })),
-  { ssr: false, loading: () => null }
-)
-const ZuriDocumentPDF = dynamic(
-  () => import('@/components/documents/ZuriDocumentPDF'),
-  { ssr: false }
-)
+import { apiClient, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ui'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,9 +28,10 @@ interface FormData {
   docNumber: string
   issueDate: string
   dueDate: string
-  reference: string
   currency: string
-  // Company (from brand, editable)
+  // Company (display-only — always sourced live from Brand Kit on the
+  // actual generated PDF; editing here would silently do nothing, so this
+  // is read-only with a link out to /business to make an actual change).
   companyName: string
   companyAddress: string
   companyPhone: string
@@ -51,15 +39,9 @@ interface FormData {
   companyWebsite: string
   companyLogoUrl: string
   taxId: string
-  // Banking (from brand, editable)
-  bankName: string
-  accountName: string
-  accountNumber: string
-  branchCode: string
   // Client
   clientName: string
   clientCompany: string
-  clientAddress: string
   clientPhone: string
   clientEmail: string
   // Items
@@ -68,7 +50,6 @@ interface FormData {
   // Extras
   notes: string
   terms: string
-  footerText: string
 }
 
 interface Contact {
@@ -89,7 +70,7 @@ const DOC_TYPES: { id: DocType; label: string; icon: React.FC<{ className?: stri
   { id: 'contract',  label: 'Contract',   icon: File,       desc: 'Formal agreement with terms' },
 ]
 
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'ZAR', 'NGN', 'GHS', 'TZS', 'UGX', 'XOF', 'MAD', 'EGP']
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'ZAR', 'NGN', 'GHS', 'TZS', 'UGX', 'XOF', 'MAD', 'EGP', 'ZMW']
 const TAX_PRESETS = ['0', '5', '7.5', '10', '14', '15', '16', '18', '20', '25']
 
 function newLineItem(): LineItem {
@@ -106,24 +87,41 @@ function in30DaysStr() {
   return d.toISOString().slice(0, 10)
 }
 
+// Mirrors services/api's computeTotals() exactly (discount applied per line
+// before tax, then aggregated) so this preview matches what the server
+// actually stores/renders once the global discount rate below is converted
+// into a uniform per-line discountPct at submit time.
 function calcTotals(items: LineItem[], discountRate: number) {
-  const subtotal = items.reduce((s, li) => {
-    const q = parseFloat(li.quantity) || 0
-    const p = parseFloat(li.unitPrice) || 0
-    return s + q * p
-  }, 0)
-  const tax = items.reduce((s, li) => {
+  let subtotal = 0
+  let discount = 0
+  let tax = 0
+  for (const li of items) {
     const q = parseFloat(li.quantity) || 0
     const p = parseFloat(li.unitPrice) || 0
     const t = parseFloat(li.taxRate) || 0
-    return s + q * p * (t / 100)
-  }, 0)
-  const discount = subtotal * (discountRate / 100)
-  return { subtotal, tax, discount, grand: subtotal + tax - discount }
+    const lineSubtotal = q * p
+    const lineDiscount = lineSubtotal * (discountRate / 100)
+    const afterDiscount = lineSubtotal - lineDiscount
+    const lineTax = afterDiscount * (t / 100)
+    subtotal += lineSubtotal
+    discount += lineDiscount
+    tax += lineTax
+  }
+  return { subtotal, tax, discount, grand: subtotal - discount + tax }
 }
 
 function fmt(cur: string, n: number) {
   return `${cur} ${n.toFixed(2)}`
+}
+
+// The company logo comes back from /api/business-profile as a bare,
+// JWT-protected relative path — an <img> tag can't attach an Authorization
+// header, so it needs the same /api/proxy + ?token= wrapping every other
+// authenticated asset URL in this app uses (see business/page.tsx).
+function brandAssetUrl(path: string, token?: string | null): string {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  return `/api/proxy${path}?token=${encodeURIComponent(token ?? '')}`
 }
 
 // ── Contact Picker ───────────────────────────────────────────────────────────
@@ -224,40 +222,42 @@ const STEPS = [
 export default function NewDocumentPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
+  const { addToast } = useToast()
 
   const [step, setStep] = useState(1)
   const [brandLoaded, setBrandLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [documentId, setDocumentId] = useState<string | null>(null)
+  const [pdfReady, setPdfReady] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
 
   const [form, setForm] = useState<FormData>({
     docType: 'invoice',
     docNumber: `INV-${String(Date.now()).slice(-6)}`,
     issueDate: todayStr(),
     dueDate: in30DaysStr(),
-    reference: '',
     currency: 'USD',
     companyName: '', companyAddress: '', companyPhone: '', companyEmail: '',
     companyWebsite: '', companyLogoUrl: '', taxId: '',
-    bankName: '', accountName: '', accountNumber: '', branchCode: '',
-    clientName: '', clientCompany: '', clientAddress: '', clientPhone: '', clientEmail: '',
+    clientName: '', clientCompany: '', clientPhone: '', clientEmail: '',
     lineItems: [newLineItem()],
     discountRate: 0,
     notes: '',
     terms: 'Payment is due within 30 days of the invoice date.',
-    footerText: '',
   })
 
   const set = useCallback(<K extends keyof FormData>(key: K, val: FormData[K]) => {
     setForm(f => ({ ...f, [key]: val }))
   }, [])
 
-  // Load brand profile
+  // Load brand profile — display-only now; the actual generated PDF always
+  // pulls the live business_profiles row server-side, never these values.
   useEffect(() => {
     if (!token) return
-    apiClient<{ profile: Record<string, unknown> }>('/api/business-profile', { token })
-      .then(d => {
-        const p = d.profile || {}
-        const bank = (p.bankDetails as Record<string, string>) || {}
+    apiClient<Record<string, unknown>>('/api/business-profile', { token })
+      .then(p => {
         setForm(f => ({
           ...f,
           companyName: (p.companyName as string) || f.companyName,
@@ -267,11 +267,6 @@ export default function NewDocumentPage() {
           companyWebsite: (p.website as string) || f.companyWebsite,
           companyLogoUrl: (p.logoUrl as string) || f.companyLogoUrl,
           taxId: (p.taxId as string) || f.taxId,
-          footerText: (p.footerText as string) || f.footerText,
-          bankName: bank.bankName || f.bankName,
-          accountName: bank.accountName || f.accountName,
-          accountNumber: bank.accountNumber || f.accountNumber,
-          branchCode: bank.branchCode || f.branchCode,
           currency: (p.defaultCurrency as string) || f.currency,
         }))
         setBrandLoaded(true)
@@ -279,11 +274,13 @@ export default function NewDocumentPage() {
       .catch(() => setBrandLoaded(true))
   }, [token])
 
-  // Derive doc number prefix from doc type
+  // Derive doc number prefix from doc type — a client-side preview only;
+  // the server always assigns the real document number on save.
   useEffect(() => {
+    if (documentId) return
     const prefixes: Record<DocType, string> = { invoice: 'INV', quotation: 'QT', proposal: 'PROP', contract: 'CON' }
     setForm(f => ({ ...f, docNumber: `${prefixes[f.docType]}-${String(Date.now()).slice(-6)}` }))
-  }, [form.docType])
+  }, [form.docType, documentId])
 
   // ── Line items helpers ──────────────────────────────────────────────────────
   const updateLine = (id: string, field: keyof LineItem, val: string) => {
@@ -294,15 +291,21 @@ export default function NewDocumentPage() {
     ...f, lineItems: f.lineItems.length > 1 ? f.lineItems.filter(li => li.id !== id) : f.lineItems
   }))
 
-  // Contact fill
+  // Contact fill — a picked contact's info always renders from the real
+  // contacts row server-side, so once selected these fields go read-only
+  // (editing them here would silently have no effect on the actual PDF).
   const fillContact = (c: Contact | null) => {
-    if (!c) return
+    if (!c) {
+      setSelectedContactId(null)
+      return
+    }
+    setSelectedContactId(c.id)
     setForm(f => ({
       ...f,
-      clientName: c.name || f.clientName,
-      clientCompany: c.company || f.clientCompany,
-      clientPhone: c.phone || f.clientPhone,
-      clientEmail: c.email || f.clientEmail,
+      clientName: c.name || '',
+      clientCompany: c.company || '',
+      clientPhone: c.phone || '',
+      clientEmail: c.email || '',
     }))
   }
 
@@ -312,36 +315,90 @@ export default function NewDocumentPage() {
     [form.lineItems, form.discountRate]
   )
 
-  // PDF data
-  const pdfData: ZuriDocData = { ...form }
-
-  // Save to backend
-  const saveDocument = async () => {
+  // Create the document (matching the real createBody schema) and render
+  // its PDF server-side — the single source of truth every other document
+  // surface in the app (/business, /advisor, contacts) already uses.
+  const createAndGenerate = useCallback(async () => {
     if (!token) return
     setSaving(true)
+    setSaveError(null)
+    setPdfReady(false)
+
+    const items = form.lineItems
+      .filter(li => li.description.trim())
+      .map(li => ({
+        description: li.description,
+        quantity: parseFloat(li.quantity) || 0,
+        unitPriceCents: Math.round((parseFloat(li.unitPrice) || 0) * 100),
+        taxPct: parseFloat(li.taxRate) || 0,
+        discountPct: form.discountRate || undefined,
+      }))
+
+    if (items.length === 0) {
+      setSaveError('Add at least one line item before generating.')
+      setSaving(false)
+      return
+    }
+
+    const body: Record<string, unknown> = {
+      documentType: form.docType,
+      currency: form.currency,
+      items,
+      notes: form.notes || undefined,
+      terms: form.terms || undefined,
+      dueDate: form.dueDate || undefined,
+      validUntil: form.dueDate || undefined,
+    }
+    if (selectedContactId) {
+      body.contactId = selectedContactId
+    } else if (form.clientName.trim()) {
+      body.manualContact = {
+        name: form.clientName.trim(),
+        company: form.clientCompany || undefined,
+        email: form.clientEmail || undefined,
+        phone: form.clientPhone || undefined,
+      }
+    }
+
     try {
-      await apiClient('/api/documents', {
-        token,
-        method: 'POST',
-        body: JSON.stringify({
-          type: form.docType,
-          title: `${form.docType.charAt(0).toUpperCase() + form.docType.slice(1)} – ${form.clientName || 'Draft'}`,
-          content: form,
-          status: 'draft',
-          clientName: form.clientName,
-          totalAmount: grand,
-          currency: form.currency,
-        }),
-      })
-    } catch {
-      // ok — proceed to preview anyway
+      const { document: created } = await apiClient<{ document: { id: string; documentNumber: string } }>(
+        '/api/documents', { token, method: 'POST', body: JSON.stringify(body) },
+      )
+      setDocumentId(created.id)
+      setForm(f => ({ ...f, docNumber: created.documentNumber }))
+
+      await apiClient(`/api/documents/${created.id}/generate`, { token, method: 'POST' })
+      setPdfReady(true)
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Failed to generate document')
     } finally {
       setSaving(false)
+    }
+  }, [token, form, selectedContactId])
+
+  const downloadPdf = async () => {
+    if (!token || !documentId) return
+    setDownloading(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      const res = await fetch(`${apiUrl}/api/documents/${documentId}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${form.docNumber}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to download PDF' })
+    } finally {
+      setDownloading(false)
     }
   }
 
   const goNext = () => {
-    if (step === 3) saveDocument()
+    if (step === 3) createAndGenerate()
     setStep(s => Math.min(s + 1, 4))
     window.scrollTo({ top: 0 })
   }
@@ -440,37 +497,53 @@ export default function NewDocumentPage() {
                 Client Details
               </h2>
               <div className="space-y-3">
-                <p className="text-xs text-gray-500">Search your contacts to auto-fill, or type manually.</p>
-                <ContactPicker token={token ?? undefined} onSelect={fillContact} />
-                <div className="flex gap-3">
-                  <Field label="Client / Individual Name *" half>
-                    <input value={form.clientName} onChange={e => set('clientName', e.target.value)}
-                      placeholder="John Doe" className={inputCls} />
-                  </Field>
-                  <Field label="Company (optional)" half>
-                    <input value={form.clientCompany} onChange={e => set('clientCompany', e.target.value)}
-                      placeholder="Acme Ltd." className={inputCls} />
-                  </Field>
-                </div>
-                <Field label="Address">
-                  <textarea value={form.clientAddress} onChange={e => set('clientAddress', e.target.value)}
-                    placeholder="123 Main St, City, Country" rows={2} className={textareaCls} />
-                </Field>
-                <div className="flex gap-3">
-                  <Field label="Email" half>
-                    <input type="email" value={form.clientEmail} onChange={e => set('clientEmail', e.target.value)}
-                      placeholder="client@company.com" className={inputCls} />
-                  </Field>
-                  <Field label="Phone" half>
-                    <input value={form.clientPhone} onChange={e => set('clientPhone', e.target.value)}
-                      placeholder="+1 555 000 0000" className={inputCls} />
-                  </Field>
-                </div>
+                {selectedContactId ? (
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-gray-900 truncate">{form.clientName || 'Contact'}</p>
+                      {form.clientCompany && <p className="text-xs text-gray-500 truncate">{form.clientCompany}</p>}
+                      {(form.clientEmail || form.clientPhone) && (
+                        <p className="text-xs text-gray-500 truncate">
+                          {[form.clientEmail, form.clientPhone].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                    <button onClick={() => fillContact(null)}
+                      className="flex-shrink-0 text-xs text-indigo-600 hover:text-indigo-700 font-semibold flex items-center gap-1">
+                      <X className="w-3 h-3" />Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-500">Search your contacts to auto-fill, or type manually.</p>
+                    <ContactPicker token={token ?? undefined} onSelect={fillContact} />
+                    <div className="flex gap-3">
+                      <Field label="Client / Individual Name *" half>
+                        <input value={form.clientName} onChange={e => set('clientName', e.target.value)}
+                          placeholder="John Doe" className={inputCls} />
+                      </Field>
+                      <Field label="Company (optional)" half>
+                        <input value={form.clientCompany} onChange={e => set('clientCompany', e.target.value)}
+                          placeholder="Acme Ltd." className={inputCls} />
+                      </Field>
+                    </div>
+                    <div className="flex gap-3">
+                      <Field label="Email" half>
+                        <input type="email" value={form.clientEmail} onChange={e => set('clientEmail', e.target.value)}
+                          placeholder="client@company.com" className={inputCls} />
+                      </Field>
+                      <Field label="Phone" half>
+                        <input value={form.clientPhone} onChange={e => set('clientPhone', e.target.value)}
+                          placeholder="+1 555 000 0000" className={inputCls} />
+                      </Field>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Your company (collapsed by default) */}
-            <CompanySection form={form} set={set} />
+            {/* Your company (read-only, from Brand Kit) */}
+            <CompanySection form={form} token={token} />
           </div>
         )}
 
@@ -599,16 +672,11 @@ export default function NewDocumentPage() {
                 Document Info
               </h2>
               <div className="space-y-3">
-                <div className="flex gap-3">
-                  <Field label="Document Number" half>
-                    <input value={form.docNumber} onChange={e => set('docNumber', e.target.value)}
-                      className={inputCls} />
-                  </Field>
-                  <Field label="Reference / PO No." half>
-                    <input value={form.reference} onChange={e => set('reference', e.target.value)}
-                      placeholder="Optional" className={inputCls} />
-                  </Field>
-                </div>
+                <Field label="Document Number">
+                  <input value={form.docNumber} disabled
+                    className={inputCls + ' opacity-60 cursor-not-allowed'} />
+                  <p className="text-[10px] text-gray-400 mt-1">Assigned automatically when you generate the document.</p>
+                </Field>
                 <div className="flex gap-3">
                   <Field label="Issue Date" half>
                     <input type="date" value={form.issueDate} onChange={e => set('issueDate', e.target.value)}
@@ -634,42 +702,20 @@ export default function NewDocumentPage() {
                   <textarea value={form.terms} onChange={e => set('terms', e.target.value)}
                     rows={3} className={textareaCls} />
                 </Field>
-                <Field label="Footer Text (appears at bottom of PDF)">
-                  <input value={form.footerText} onChange={e => set('footerText', e.target.value)}
-                    placeholder={`Thank you for your business — ${form.companyName || 'Your Company'}`}
-                    className={inputCls} />
-                </Field>
               </div>
             </div>
 
-            {/* Banking */}
+            {/* Payment details — from Brand Kit, not editable per-document */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
-              <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
+              <div className="flex items-center gap-2 mb-1">
                 <CreditCard className="w-4 h-4 text-indigo-600" />
-                Banking Details (shown on PDF)
-              </h2>
-              <div className="space-y-3">
-                <div className="flex gap-3">
-                  <Field label="Bank Name" half>
-                    <input value={form.bankName} onChange={e => set('bankName', e.target.value)}
-                      placeholder="First National Bank" className={inputCls} />
-                  </Field>
-                  <Field label="Account Name" half>
-                    <input value={form.accountName} onChange={e => set('accountName', e.target.value)}
-                      placeholder="Your Company LLC" className={inputCls} />
-                  </Field>
-                </div>
-                <div className="flex gap-3">
-                  <Field label="Account Number" half>
-                    <input value={form.accountNumber} onChange={e => set('accountNumber', e.target.value)}
-                      placeholder="1234567890" className={inputCls} />
-                  </Field>
-                  <Field label="Branch Code / SWIFT" half>
-                    <input value={form.branchCode} onChange={e => set('branchCode', e.target.value)}
-                      placeholder="250655" className={inputCls} />
-                  </Field>
-                </div>
+                <h2 className="text-sm font-black text-gray-950">Payment Details</h2>
               </div>
+              <p className="text-xs text-gray-500">
+                Banking details and payment instructions shown on the PDF come from your{' '}
+                <Link href="/business" className="text-indigo-600 hover:text-indigo-700 font-semibold">Brand Kit</Link>{' '}
+                — update them there and every document will reflect it.
+              </p>
             </div>
           </div>
         )}
@@ -713,11 +759,13 @@ export default function NewDocumentPage() {
                   const q = parseFloat(li.quantity) || 0
                   const p = parseFloat(li.unitPrice) || 0
                   const t = parseFloat(li.taxRate) || 0
+                  const d = form.discountRate || 0
+                  const afterDiscount = q * p * (1 - d / 100)
                   return (
                     <div key={li.id} className={`grid grid-cols-[1fr_60px_90px] px-4 py-3 border-b border-gray-50 last:border-0 ${i % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
                       <p className="text-sm text-gray-900">{li.description}</p>
                       <p className="text-sm text-gray-600 text-right">{li.quantity}</p>
-                      <p className="text-sm font-semibold text-gray-900 text-right">{fmt(form.currency, q * p * (1 + t / 100))}</p>
+                      <p className="text-sm font-semibold text-gray-900 text-right">{fmt(form.currency, afterDiscount * (1 + t / 100))}</p>
                     </div>
                   )
                 })}
@@ -740,30 +788,47 @@ export default function NewDocumentPage() {
               </div>
             </div>
 
-            {/* Download */}
+            {/* Generate / Download */}
             <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-[1.75rem] p-5 text-white shadow-lg shadow-indigo-300/40">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
-                  <Download className="w-6 h-6 text-white" />
+                  {saveError ? <AlertCircle className="w-6 h-6 text-white" /> : <Download className="w-6 h-6 text-white" />}
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-black text-lg">Download PDF</h3>
-                  <p className="text-indigo-200 text-sm mt-0.5">
-                    Your branded {form.docType} is ready. The PDF includes your company logo, banking details, and all line items.
-                  </p>
-                  <div className="mt-4">
-                    <PDFDownloadLink
-                      document={<ZuriDocumentPDF data={pdfData} />}
-                      fileName={`${form.docNumber}-${form.clientName || 'document'}.pdf`.replace(/\s+/g, '-').toLowerCase()}
-                    >
-                      {({ loading: pdfLoading }) => (
-                        <button className="inline-flex items-center gap-2.5 px-5 py-3 bg-white text-indigo-700 font-black rounded-2xl hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-900/20 text-sm">
-                          {pdfLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                          {pdfLoading ? 'Preparing PDF…' : `Download ${form.docType.charAt(0).toUpperCase() + form.docType.slice(1)} PDF`}
+                  {saving ? (
+                    <>
+                      <h3 className="font-black text-lg">Generating your document…</h3>
+                      <p className="text-indigo-200 text-sm mt-0.5">This only takes a moment.</p>
+                    </>
+                  ) : saveError ? (
+                    <>
+                      <h3 className="font-black text-lg">Couldn&apos;t generate the document</h3>
+                      <p className="text-indigo-200 text-sm mt-0.5">{saveError}</p>
+                      <button onClick={createAndGenerate}
+                        className="mt-4 inline-flex items-center gap-2.5 px-5 py-3 bg-white text-indigo-700 font-black rounded-2xl hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-900/20 text-sm">
+                        Try again
+                      </button>
+                    </>
+                  ) : pdfReady ? (
+                    <>
+                      <h3 className="font-black text-lg">Your document is ready</h3>
+                      <p className="text-indigo-200 text-sm mt-0.5">
+                        Your branded {form.docType} includes your company logo, payment details, and all line items.
+                      </p>
+                      <div className="mt-4">
+                        <button onClick={downloadPdf} disabled={downloading}
+                          className="inline-flex items-center gap-2.5 px-5 py-3 bg-white text-indigo-700 font-black rounded-2xl hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-900/20 text-sm disabled:opacity-60">
+                          {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                          {downloading ? 'Downloading…' : `Download ${form.docType.charAt(0).toUpperCase() + form.docType.slice(1)} PDF`}
                         </button>
-                      )}
-                    </PDFDownloadLink>
-                  </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="font-black text-lg">Preparing your document…</h3>
+                      <p className="text-indigo-200 text-sm mt-0.5">This only takes a moment.</p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -795,7 +860,7 @@ export default function NewDocumentPage() {
           {step < 4 ? (
             <button onClick={goNext}
               className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-500 active:bg-indigo-700 transition-all shadow-sm shadow-indigo-200">
-              {step === 3 ? (saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</> : <>Preview<Eye className="w-4 h-4" /></>) : <>Next<ArrowRight className="w-4 h-4" /></>}
+              {step === 3 ? <>Generate<Eye className="w-4 h-4" /></> : <>Next<ArrowRight className="w-4 h-4" /></>}
             </button>
           ) : (
             <Link href="/business"
@@ -809,11 +874,10 @@ export default function NewDocumentPage() {
   )
 }
 
-// ── Company Section (collapsible) ─────────────────────────────────────────────
+// ── Company Section (read-only — always sourced from Brand Kit) ──────────────
 
-function CompanySection({ form, set }: { form: FormData; set: <K extends keyof FormData>(k: K, v: FormData[K]) => void }) {
+function CompanySection({ form, token }: { form: FormData; token?: string | null }) {
   const [open, setOpen] = useState(false)
-  const hasBrand = form.companyName || form.companyAddress
 
   return (
     <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm overflow-hidden">
@@ -828,48 +892,27 @@ function CompanySection({ form, set }: { form: FormData; set: <K extends keyof F
           <div>
             <p className="text-sm font-black text-gray-950">Your Company Details</p>
             <p className="text-[11px] text-gray-500">
-              {hasBrand ? `${form.companyName} — auto-filled from Brand Kit` : 'Auto-filled from Brand Kit · tap to edit'}
+              {form.companyName ? `${form.companyName} — from your Brand Kit` : 'Set up your Brand Kit to appear on documents'}
             </p>
           </div>
         </div>
         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="px-5 pb-5 space-y-3 border-t border-gray-50">
-          <div className="flex gap-3 pt-3">
-            <Field label="Company Name" half>
-              <input value={form.companyName} onChange={e => set('companyName', e.target.value)}
-                placeholder="Your Company" className={inputCls} />
-            </Field>
-            <Field label="Tax ID / VAT" half>
-              <input value={form.taxId} onChange={e => set('taxId', e.target.value)}
-                placeholder="Optional" className={inputCls} />
-            </Field>
-          </div>
-          <Field label="Address">
-            <textarea value={form.companyAddress} onChange={e => set('companyAddress', e.target.value)}
-              rows={2} placeholder="123 Business Rd, City, Country" className={textareaCls} />
-          </Field>
-          <div className="flex gap-3">
-            <Field label="Phone" half>
-              <input value={form.companyPhone} onChange={e => set('companyPhone', e.target.value)}
-                placeholder="+1 555 000 0000" className={inputCls} />
-            </Field>
-            <Field label="Email" half>
-              <input value={form.companyEmail} onChange={e => set('companyEmail', e.target.value)}
-                placeholder="hello@company.com" className={inputCls} />
-            </Field>
-          </div>
-          <Field label="Website">
-            <input value={form.companyWebsite} onChange={e => set('companyWebsite', e.target.value)}
-              placeholder="www.company.com" className={inputCls} />
-          </Field>
+        <div className="px-5 pb-5 space-y-2 border-t border-gray-50 pt-3">
           {form.companyLogoUrl && (
-            <div>
-              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Logo (from Brand Kit)</p>
-              <img src={form.companyLogoUrl} alt="Logo" className="h-12 object-contain rounded-lg border border-gray-100 bg-gray-50 p-1.5" />
-            </div>
+            <img src={brandAssetUrl(form.companyLogoUrl, token)} alt="Logo"
+              className="h-10 object-contain rounded-lg border border-gray-100 bg-gray-50 p-1.5 mb-2" />
           )}
+          <p className="text-sm text-gray-700">{form.companyName || '—'}</p>
+          {form.companyAddress && <p className="text-xs text-gray-500">{form.companyAddress}</p>}
+          <p className="text-xs text-gray-500">
+            {[form.companyPhone, form.companyEmail, form.companyWebsite].filter(Boolean).join(' · ') || '—'}
+          </p>
+          {form.taxId && <p className="text-xs text-gray-500">Tax ID: {form.taxId}</p>}
+          <Link href="/business" className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 pt-2">
+            Edit in Brand Kit →
+          </Link>
         </div>
       )}
     </div>

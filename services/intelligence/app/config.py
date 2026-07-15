@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     port: int = 8000
     environment: str = 'development'
     api_url: str = 'http://localhost:3000'
+    internal_api_secret: str = ''
     kb_storage_dir: str = '/app/kb-storage'
     doc_storage_dir: str = '/app/doc-storage'
 

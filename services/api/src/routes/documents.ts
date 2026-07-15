@@ -8,6 +8,7 @@ import { getOrCreateProfile } from './business-profile';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
 import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
+import { renderAndSaveDocument, NotFoundError } from '../services/document-render';
 
 // quotation -> invoice -> receipt. Each target renders fine with the Phase 0
 // templates (they're generic line-item layouts, not quotation/invoice-
@@ -16,10 +17,13 @@ const CONVERSION_MAP: Record<string, string> = { quotation: 'invoice', invoice: 
 
 const MANUAL_STATUSES = ['sent', 'accepted', 'rejected', 'paid', 'archived'] as const;
 
-// Phase 0 only ships a renderer for these two — the full document_type list
-// already exists on the documents table (see migration 0043) to avoid a
-// churny type-widening migration once later phases add more templates.
-const PHASE_0_TYPES = ['quotation', 'invoice'] as const;
+// Widened from the original Phase 0 quotation/invoice-only list — the
+// minimal/modern templates already render narrative "sections" generically
+// for proposals/contracts (same reasoning AI_GENERATE_TYPES below already
+// used), and the documents.document_type CHECK constraint (migration 0043)
+// already allows both, so the plain createBody path should too rather than
+// forcing every proposal/contract through the separate ai-generate path.
+const PHASE_0_TYPES = ['quotation', 'invoice', 'proposal', 'contract'] as const;
 
 // Phase 2 (AI generation) additionally supports proposals/contracts — the
 // minimal/modern templates render narrative "sections" generically, so no
@@ -38,8 +42,22 @@ const lineItemSchema = z.object({
   taxPct: z.number().min(0).max(100).optional(),
 });
 
+// A document without a linked contact (e.g. /documents/new's "enter client
+// details manually" path) has nowhere else to keep who it's for — stored
+// inside structured_data and read back out by the renderer's contact
+// resolution (services/api/src/services/document-render.ts) only when
+// contactId isn't set, same as every other structured_data field that's
+// document-specific rather than business-profile-specific.
+const manualContactSchema = z.object({
+  name: z.string().min(1).max(255),
+  company: z.string().max(255).optional(),
+  email: z.string().email().max(255).optional().or(z.literal('')),
+  phone: z.string().max(50).optional(),
+});
+
 const createBody = z.object({
   contactId: z.string().uuid().optional(),
+  manualContact: manualContactSchema.optional(),
   documentType: z.enum(PHASE_0_TYPES),
   title: z.string().max(255).optional(),
   currency: z.string().length(3).optional(),
@@ -294,6 +312,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       terms: body.terms ?? null,
       validUntil: body.validUntil ?? null,
       dueDate: body.dueDate ?? null,
+      manualContact: body.contactId ? null : (body.manualContact ?? null),
     };
 
     const { rows: [doc] } = await db.query(
@@ -367,34 +386,51 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ document: formatDocument(updated) });
   });
 
-  // ── POST /api/documents/:id/generate — renders the PDF via the
-  // intelligence service, which owns the actual layout/PDF work (see
-  // docs/BUSINESS_WORKSPACE_PLAN.md §4). This route is a thin proxy, same
-  // pattern as conversations.ts's /summarize.
+  // ── POST /api/documents/:id/generate — renders the PDF in-process using
+  // @react-pdf/renderer (services/api/src/lib/pdf). Previously proxied to
+  // the intelligence service's Jinja2+Playwright pipeline; now Node owns
+  // rendering directly, since the PDF template is Node/React now too.
   fastify.post('/api/documents/:id/generate', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
 
-    const { rows: [doc] } = await db.query('SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
-    if (!doc) return reply.code(404).send({ error: 'Document not found' });
-
-    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
     try {
-      const res = await fetch(`${intelligenceUrl}/internal/documents/${id}/render`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        fastify.log.error({ errText }, 'document_render_failed');
-        return reply.code(502).send({ error: 'Failed to generate document' });
-      }
-      const data = await res.json() as { id: string; status: string; storagePath: string };
-      return reply.send({ ok: true, status: data.status });
+      const result = await renderAndSaveDocument(id, userId);
+      return reply.send({ ok: true, status: result.status });
     } catch (err) {
+      if (err instanceof NotFoundError) return reply.code(404).send({ error: 'Document not found' });
       fastify.log.error({ err }, 'document_render_error');
-      return reply.code(502).send({ error: 'Failed to generate document' });
+      return reply.code(500).send({ error: 'Failed to generate document' });
+    }
+  });
+
+  // ── POST /api/documents/internal/:id/render — the same renderer, reached
+  // over HTTP by services/intelligence (the autonomous agent's create_document
+  // tool and Automatic Business Packs, which have no user JWT in scope).
+  // Mirrors auth.ts's clerk-sync x-internal-secret pattern, in reverse
+  // direction — permissive if INTERNAL_API_SECRET is unset (dev), enforced
+  // in prod where the env var is always set on both containers.
+  fastify.post('/api/documents/internal/:id/render', async (request, reply) => {
+    const secret = (request.headers['x-internal-secret'] as string) ?? '';
+    if (config.INTERNAL_API_SECRET && secret !== config.INTERNAL_API_SECRET) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+
+    const { id } = request.params as { id: string };
+    let body: { userId: string };
+    try {
+      body = z.object({ userId: z.string().uuid() }).parse(request.body);
+    } catch (err: any) {
+      return reply.code(400).send({ error: 'Invalid request body', detail: err.message });
+    }
+
+    try {
+      const result = await renderAndSaveDocument(id, body.userId);
+      return reply.send(result);
+    } catch (err) {
+      if (err instanceof NotFoundError) return reply.code(404).send({ error: 'Document not found' });
+      fastify.log.error({ err }, 'document_internal_render_error');
+      return reply.code(500).send({ error: 'Failed to generate document' });
     }
   });
 

@@ -17,8 +17,9 @@ import structlog
 
 from ..database import get_pool
 from .document_generator import (
-    assign_document_number, contact_display_name, create_document_row, generate_document_data, render_and_save,
+    assign_document_number, contact_display_name, create_document_row, generate_document_data,
 )
+from .document_render_client import render_document
 
 log = structlog.get_logger()
 
@@ -54,7 +55,7 @@ async def run_pack(user_id: str, contact_id: str, pack_key: str, instruction: st
     for document_type in pack['document_types']:
         generated = await generate_document_data(user_id, contact_id, document_type, instruction)
         doc = await create_document_row(user_id, contact_id, document_type, generated, requested_by='user')
-        await render_and_save(doc['id'], user_id)
+        await render_document(doc['id'], user_id)
         document_ids.append(str(doc['id']))
 
     await _record_pack_run(user_id, contact_id, pack_key, document_ids)
@@ -101,7 +102,7 @@ async def _run_renewal_pack(user_id: str, contact_id: str) -> dict:
             row['id'], json.dumps({'renewalOf': str(prior['id'])}),
         )
 
-    await render_and_save(row['id'], user_id)
+    await render_document(row['id'], user_id)
     document_ids = [str(row['id'])]
     await _record_pack_run(user_id, contact_id, RENEWAL_PACK_KEY, document_ids)
 

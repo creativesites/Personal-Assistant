@@ -13,6 +13,7 @@
     "@fastify/jwt": "^9.0.0",
     "@fastify/multipart": "^9.0.0",
     "@fastify/websocket": "^8.0.0",
+    "@react-pdf/renderer": "^4.5.1",
     "pdf-parse": "^1.1.1",
     "xlsx": "^0.18.5",
     "@zuri/types": "*",
@@ -22,6 +23,8 @@
     "fastify": "^5.2.0",
     "ioredis": "^5.4.0",
     "pg": "^8.13.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "socket.io": "^4.8.0",
     "zod": "^3.24.0"
   },
@@ -30,6 +33,7 @@
     "@types/pdf-parse": "^1.1.4",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
+    "@types/react": "^19.0.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"

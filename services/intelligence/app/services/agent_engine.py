@@ -15,7 +15,8 @@ from ..models import AgentMemoryCandidate
 from ..queue import publish_event
 from .auto_response import AutoResponseService
 from .agent_memory import AgentMemoryService
-from .document_generator import create_document_row, generate_document_data, render_and_save, send_document_whatsapp
+from .document_generator import create_document_row, generate_document_data, send_document_whatsapp
+from .document_render_client import render_document
 
 log = structlog.get_logger()
 _agent_memory = AgentMemoryService()
@@ -664,7 +665,7 @@ async def execute_tool(
 
             generated = await generate_document_data(user_id, contact_id, document_type, instruction)
             doc = await create_document_row(user_id, contact_id, document_type, generated, requested_by='agent')
-            await render_and_save(str(doc['id']), user_id)
+            await render_document(str(doc['id']), user_id)
 
             if params.get('send') and trust_level in ('autonomous', 'delegated'):
                 await send_document_whatsapp(str(doc['id']), user_id)

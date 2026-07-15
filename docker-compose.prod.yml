@@ -68,6 +68,10 @@ services:
     volumes:
       - wa_sessions:/app/db/sessions
       - wa_media:/app/media
+      # Baileys' sendDocument() does fs.readFile() directly on the
+      # BullMQ job's mediaPath (an absolute path under doc-storage) — this
+      # volume must be mounted here or every WhatsApp document send fails.
+      - doc_storage:/app/doc-storage
     restart: unless-stopped
     expose:
       - "3001"
