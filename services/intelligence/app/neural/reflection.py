@@ -1,0 +1,192 @@
+"""Zuri Neural Layer — Reflection Engine (docs/NEURAL_LAYER_PLAN.md §4.7).
+
+Fully net-new: nothing like this existed before this phase. A weekly job
+synthesizes what changed for a user, purely from signal sources every
+other engine already produces — no new detection pass, no LLM call. Each
+highlight only appears if the underlying signal actually crossed a
+meaningful threshold; a quiet week produces fewer highlights, not
+padded/invented ones.
+"""
+import json
+import structlog
+from datetime import date, timedelta
+
+from ..database import get_pool
+
+log = structlog.get_logger()
+
+_MIN_EMOTIONAL_SIGNALS = 3
+_EMOTIONAL_DELTA_THRESHOLD = 0.15
+_LATENCY_CHANGE_THRESHOLD = 0.2  # 20% faster/slower to be worth mentioning
+
+
+class ReflectionService:
+    async def generate_for_all_users(self, period_type: str = 'weekly') -> int:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            user_ids = await conn.fetch('SELECT id FROM users')
+
+        generated = 0
+        for row in user_ids:
+            highlights = await self._build_highlights(str(row['id']), period_type)
+            await self._save(str(row['id']), period_type, highlights)
+            generated += 1
+
+        log.info('reflection_summaries_generated', period_type=period_type, count=generated)
+        return generated
+
+    async def _period_bounds(self, period_type: str) -> tuple[date, date]:
+        today = date.today()
+        if period_type == 'monthly':
+            return today - timedelta(days=30), today
+        if period_type == 'daily':
+            return today - timedelta(days=1), today
+        return today - timedelta(days=7), today  # weekly (default)
+
+    async def _build_highlights(self, user_id: str, period_type: str) -> list[dict]:
+        period_start, period_end = await self._period_bounds(period_type)
+        window_days = (period_end - period_start).days
+        highlights: list[dict] = []
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            # Emotional trend — reuses emotional_signals (Neural Layer Phase 1),
+            # no new signal invented.
+            emo = await conn.fetchrow(
+                """SELECT
+                     AVG(valence) FILTER (WHERE created_at >= $2) AS current_avg,
+                     AVG(valence) FILTER (WHERE created_at < $2 AND created_at >= $2 - ($3 || ' days')::interval) AS prior_avg,
+                     COUNT(*) FILTER (WHERE created_at >= $2) AS current_count
+                   FROM emotional_signals WHERE user_id = $1""",
+                user_id, period_start, window_days,
+            )
+            if emo and emo['current_count'] and emo['current_count'] >= _MIN_EMOTIONAL_SIGNALS and emo['prior_avg'] is not None:
+                delta = float(emo['current_avg']) - float(emo['prior_avg'])
+                if delta > _EMOTIONAL_DELTA_THRESHOLD:
+                    highlights.append({
+                        'category': 'emotional', 'text': 'Your conversations trended more positive this period.',
+                        'evidence': [f"Average tone moved from {float(emo['prior_avg']):.2f} to {float(emo['current_avg']):.2f} (valence, -1..1)"],
+                    })
+                elif delta < -_EMOTIONAL_DELTA_THRESHOLD:
+                    highlights.append({
+                        'category': 'emotional', 'text': 'Things felt a bit heavier in your conversations this period.',
+                        'evidence': [f"Average tone moved from {float(emo['prior_avg']):.2f} to {float(emo['current_avg']):.2f} (valence, -1..1)"],
+                    })
+
+            # Relationship health improvements — relationship_health_logs
+            # (rOS, shipped), top 3 by total positive delta in the window.
+            improved = await conn.fetch(
+                """SELECT COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+                          SUM(rhl.health_score - rhl.previous_score) AS total_delta
+                   FROM relationship_health_logs rhl
+                   JOIN relationships r ON r.id = rhl.relationship_id
+                   JOIN contacts c ON c.id = r.contact_id
+                   WHERE r.user_id = $1 AND rhl.logged_at >= $2
+                   GROUP BY contact_name
+                   HAVING SUM(rhl.health_score - rhl.previous_score) > 0
+                   ORDER BY total_delta DESC LIMIT 3""",
+                user_id, period_start,
+            )
+            for row in improved:
+                highlights.append({
+                    'category': 'relationship',
+                    'text': f"Your relationship with {row['contact_name']} improved.",
+                    'evidence': [f"Health score up {int(row['total_delta'])} points this period"],
+                })
+
+            # Response latency trend — same reply-latency computation
+            # health.py already does per-relationship, applied globally.
+            latency = await conn.fetchrow(
+                """WITH ordered AS (
+                     SELECT m.whatsapp_timestamp, m.sender_type,
+                            LAG(m.whatsapp_timestamp) OVER (PARTITION BY m.conversation_id ORDER BY m.whatsapp_timestamp) AS prev_ts,
+                            LAG(m.sender_type) OVER (PARTITION BY m.conversation_id ORDER BY m.whatsapp_timestamp) AS prev_sender
+                     FROM messages m
+                     JOIN conversations c ON c.id = m.conversation_id
+                     WHERE c.user_id = $1 AND m.is_deleted = false
+                       AND m.whatsapp_timestamp > $2 - ($3 || ' days')::interval
+                   )
+                   SELECT
+                     AVG(EXTRACT(EPOCH FROM (whatsapp_timestamp - prev_ts)) / 3600)
+                       FILTER (WHERE sender_type = 'user' AND prev_sender = 'contact' AND whatsapp_timestamp >= $2) AS current_hours,
+                     AVG(EXTRACT(EPOCH FROM (whatsapp_timestamp - prev_ts)) / 3600)
+                       FILTER (WHERE sender_type = 'user' AND prev_sender = 'contact' AND whatsapp_timestamp < $2) AS prior_hours
+                   FROM ordered""",
+                user_id, period_start, window_days,
+            )
+            if latency and latency['current_hours'] and latency['prior_hours']:
+                current_h = float(latency['current_hours'])
+                prior_h = float(latency['prior_hours'])
+                if current_h < prior_h * (1 - _LATENCY_CHANGE_THRESHOLD):
+                    highlights.append({
+                        'category': 'responsiveness', 'text': "You've been replying faster than usual.",
+                        'evidence': [f"Average reply time dropped from {prior_h:.1f}h to {current_h:.1f}h"],
+                    })
+                elif current_h > prior_h * (1 + _LATENCY_CHANGE_THRESHOLD):
+                    highlights.append({
+                        'category': 'responsiveness', 'text': 'Your replies have been slower than usual.',
+                        'evidence': [f"Average reply time rose from {prior_h:.1f}h to {current_h:.1f}h"],
+                    })
+
+            # Completed tasks — project_tasks.completed_at (this migration).
+            done_count = await conn.fetchval(
+                """SELECT COUNT(*) FROM project_tasks pt
+                   JOIN projects p ON p.id = pt.project_id
+                   WHERE p.user_id = $1 AND pt.completed_at >= $2""",
+                user_id, period_start,
+            )
+            if done_count:
+                highlights.append({
+                    'category': 'projects',
+                    'text': f"You completed {done_count} task{'s' if done_count != 1 else ''} this period.",
+                    'evidence': [],
+                })
+
+            # Goal progress — achieved goals first, else just an activity count.
+            achieved = await conn.fetch(
+                """SELECT title FROM goal_profiles
+                   WHERE user_id = $1 AND status = 'achieved' AND updated_at >= $2""",
+                user_id, period_start,
+            )
+            for row in achieved:
+                highlights.append({'category': 'goals', 'text': f"You achieved your goal: {row['title']}.", 'evidence': []})
+
+            if not achieved:
+                event_count = await conn.fetchval(
+                    """SELECT COUNT(*) FROM goal_events ge
+                       JOIN goal_profiles gp ON gp.id = ge.goal_id
+                       WHERE gp.user_id = $1 AND ge.created_at >= $2""",
+                    user_id, period_start,
+                )
+                if event_count:
+                    highlights.append({
+                        'category': 'goals',
+                        'text': f"{event_count} update{'s' if event_count != 1 else ''} on your goals this period.",
+                        'evidence': [],
+                    })
+
+            # Deals closed — revenue_events (already exists).
+            deal_row = await conn.fetchrow(
+                """SELECT COUNT(*) AS cnt, COALESCE(SUM(amount_cents), 0) AS total_cents
+                   FROM revenue_events WHERE user_id = $1 AND event_type = 'deal_closed' AND created_at >= $2""",
+                user_id, period_start,
+            )
+            if deal_row and deal_row['cnt']:
+                amount = float(deal_row['total_cents']) / 100
+                highlights.append({
+                    'category': 'business',
+                    'text': f"You closed {deal_row['cnt']} deal{'s' if deal_row['cnt'] != 1 else ''} this period.",
+                    'evidence': [f"Total value {amount:,.2f}"],
+                })
+
+        return highlights
+
+    async def _save(self, user_id: str, period_type: str, highlights: list[dict]) -> None:
+        period_start, period_end = await self._period_bounds(period_type)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO reflection_summaries (user_id, period_type, period_start, period_end, highlights)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                user_id, period_type, period_start, period_end, json.dumps(highlights),
+            )

@@ -64,6 +64,24 @@ interface MarketingSummary {
   topProduct: string | null
 }
 
+// Zuri Neural Layer Phase 3 (docs/NEURAL_LAYER_PLAN.md §4.7) — a weekly
+// synthesis over signals every other engine already produces, not a new
+// detector. Renders only when the intelligence service's scheduled job has
+// actually generated one for this user.
+interface ReflectionHighlight {
+  category: string
+  text: string
+  evidence: string[]
+}
+interface ReflectionData {
+  id: string
+  periodType: string
+  periodStart: string
+  periodEnd: string
+  highlights: ReflectionHighlight[]
+  generatedAt: string
+}
+
 // AI Daily Brief (docs/RELATIONSHIP_OS_PLAN.md §5.3/§6.2) — a rendering
 // layer over proactive_queue/opportunities/relationships, not a new
 // detector. Every item already reads as a complete sentence fragment from
@@ -202,6 +220,7 @@ export default function DashboardPage() {
   const [proactive, setProactive] = useState<ProactiveSuggestion[]>([])
   const [brief, setBrief] = useState<BriefData | null>(null)
   const [rollup, setRollup] = useState<HealthRollup | null>(null)
+  const [reflection, setReflection] = useState<ReflectionData | null>(null)
   const [marketing, setMarketing] = useState<MarketingSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [actioningId, setActioningId] = useState<string | null>(null)
@@ -219,12 +238,14 @@ export default function DashboardPage() {
       apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', { token }),
       apiClient<BriefData>('/api/proactive/brief', { token }),
       apiClient<HealthRollup>('/api/analytics/health-rollup', { token }),
-    ]).then(([convRes, contactRes, proRes, briefRes, rollupRes]) => {
+      apiClient<{ reflection: ReflectionData | null }>('/api/reflection/latest', { token }),
+    ]).then(([convRes, contactRes, proRes, briefRes, rollupRes, reflectionRes]) => {
       if (convRes.status === 'fulfilled') setConversations(convRes.value.conversations)
       if (contactRes.status === 'fulfilled') setContacts(contactRes.value.contacts)
       if (proRes.status === 'fulfilled') setProactive(proRes.value.suggestions)
       if (briefRes.status === 'fulfilled') setBrief(briefRes.value)
       if (rollupRes.status === 'fulfilled') setRollup(rollupRes.value)
+      if (reflectionRes.status === 'fulfilled') setReflection(reflectionRes.value.reflection)
       setLoading(false)
     })
   }, [token])
@@ -597,6 +618,44 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Weekly Reflection — Zuri Neural Layer Phase 3, a synthesis over
+            signals every other engine already produces (docs/NEURAL_LAYER_PLAN.md §4.7) */}
+        {reflection && reflection.highlights.length > 0 && (
+          <div className="relative overflow-hidden rounded-[1.75rem] border border-white bg-gradient-to-br from-white via-indigo-50 to-cyan-50 p-5 shadow-sm shadow-indigo-200/40 ring-1 ring-white">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 shadow-lg shadow-indigo-200 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Your Week in Review</h2>
+                  <p className="text-[11px] text-gray-500">
+                    {new Date(reflection.periodStart).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    {' – '}
+                    {new Date(reflection.periodEnd).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+              <Link href="/timeline" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
+                Life Timeline <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
+            <ul className="space-y-2">
+              {reflection.highlights.map((h, i) => (
+                <li key={i} className="flex items-start gap-2.5 rounded-2xl bg-white/80 px-3 py-2.5 ring-1 ring-indigo-100/70">
+                  <div className="mt-0.5 w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                  <div>
+                    <p className="text-sm text-gray-800">{h.text}</p>
+                    {h.evidence.length > 0 && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">{h.evidence.join(' · ')}</p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

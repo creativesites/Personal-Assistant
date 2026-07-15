@@ -8,6 +8,7 @@ from ..services.health import RelationshipHealthService
 from ..services.document_followups import DocumentFollowupService
 from ..services.pricing_benchmarks import PricingBenchmarkService
 from ..services.inventory_forecast import InventoryForecastService
+from ..neural.reflection import ReflectionService
 
 log = structlog.get_logger()
 
@@ -16,6 +17,7 @@ _health = RelationshipHealthService()
 _document_followups = DocumentFollowupService()
 _pricing_benchmarks = PricingBenchmarkService()
 _inventory_forecast = InventoryForecastService()
+_reflection = ReflectionService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
 _temporal_queue      = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
@@ -24,6 +26,7 @@ _consolidation_queue = Queue('memory.consolidate',       {'connection': redis_co
 _document_followup_queue = Queue('documents.check_followups', {'connection': redis_conn_opts()})
 _pricing_benchmark_queue = Queue('documents.refresh_pricing_benchmarks', {'connection': redis_conn_opts()})
 _inventory_forecast_queue = Queue('inventory.refresh_forecasts', {'connection': redis_conn_opts()})
+_reflection_queue = Queue('reflection.generate_weekly', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -64,6 +67,15 @@ async def _process_inventory_forecast(job, token: str):
 
 def create_inventory_forecast_worker() -> Worker:
     return Worker('inventory.refresh_forecasts', _process_inventory_forecast, {'connection': redis_conn_opts()})
+
+
+async def _process_reflection(job, token: str):
+    count = await _reflection.generate_for_all_users('weekly')
+    return {'ok': True, 'count': count}
+
+
+def create_reflection_worker() -> Worker:
+    return Worker('reflection.generate_weekly', _process_reflection, {'connection': redis_conn_opts()})
 
 
 async def run_daily_scheduler() -> None:
@@ -138,6 +150,29 @@ async def run_inventory_forecast_scheduler() -> None:
             await _inventory_forecast_queue.add('refresh', {})
         except Exception as exc:
             log.error('inventory_forecast_enqueue_failed', error=str(exc))
+
+
+async def run_reflection_scheduler() -> None:
+    """Asyncio background task: generate weekly reflection summaries (plan
+    §4.7/§10 Phase 3) every Monday at 11:00 UTC — after inventory forecasts
+    (10:00), same load-spreading convention as the other daily jobs. This is
+    the first scheduler in this file with a day-of-week gate rather than a
+    plain daily cadence."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=11, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        while target.weekday() != 0:  # Monday
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('reflection_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('reflection_enqueue')
+            await _reflection_queue.add('generate', {})
+        except Exception as exc:
+            log.error('reflection_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

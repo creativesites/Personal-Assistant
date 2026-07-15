@@ -256,7 +256,13 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
       const values: unknown[] = [taskId, id]
       let idx = 3
       if (body.title !== undefined) { sets.push(`title = $${idx++}`); values.push(body.title) }
-      if (body.status !== undefined) { sets.push(`status = $${idx++}`); values.push(body.status) }
+      if (body.status !== undefined) {
+        sets.push(`status = $${idx++}`); values.push(body.status)
+        // Zuri Neural Layer Phase 3 (docs/NEURAL_LAYER_PLAN.md §4.7) — the
+        // Reflection Engine's "you completed N tasks this week" highlight
+        // needs to know *when* a task was done, not just its current status.
+        sets.push(`completed_at = ${body.status === 'done' ? 'NOW()' : 'NULL'}`)
+      }
       if (body.dueDate !== undefined) { sets.push(`due_date = $${idx++}`); values.push(body.dueDate) }
       if (body.assignedTo !== undefined) { sets.push(`assigned_to = $${idx++}`); values.push(body.assignedTo) }
       if (sets.length === 0) return reply.send({ ok: true })

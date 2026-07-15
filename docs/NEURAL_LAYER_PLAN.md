@@ -1,6 +1,6 @@
 # Zuri Neural Layer — Master Architecture Plan
 
-**Status:** Phase 1 (Platform-Wide Emotion Engine, §4.2/§10) and Phase 2 (Cross-Module Goal Engine, §4.4/§10) shipped — migrations `0062`/`0063`, see `CLAUDE.md`'s "Zuri Neural Layer" section. Phases 3–6 remain unstarted. This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
+**Status:** Phase 1 (Platform-Wide Emotion Engine, §4.2/§10), Phase 2 (Cross-Module Goal Engine, §4.4/§10), and Phase 3 (Reflection Engine + Life Timeline, §4.7/§10) shipped — migrations `0062`/`0063`/`0064`, see `CLAUDE.md`'s "Zuri Neural Layer" section. Phases 4–6 remain unstarted. This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
 
 ---
 
@@ -380,11 +380,16 @@ Success criteria: a user can create a cross-module goal, link entities to it, an
 **Scope note:** the "link to goal" affordance shipped on `/projects/[id]` and inside the `/goals/[id]` detail page's own linker (which supports deal/project/product/contact/document); deals, products, and documents don't yet have their own inline "link to goal" button on their existing pages — reachable today only via the goal detail page's linker, not a bespoke button on every module. The goal-conflict check is a deterministic heuristic (price-drop % / margin threshold), not a call into a formal Reasoning Engine service — §4.6's full retrieve→reason→verify→act contract remains a future phase; this is deliberately the smallest real pilot of that pattern. `goal_memories` has no writer yet.
 
 ### Phase 3 — Reflection Engine + Life Timeline
+
+**✅ Shipped** (migration `0064`). See `CLAUDE.md`'s "Zuri Neural Layer" section for the summary of what's live.
+
 - Migration: `reflection_summaries` (§4.7)
 - Weekly synthesis job (reuses existing signal sources, no new detection)
 - Frontend: Weekly Reflection card + Life Timeline page
 
 Success criteria: a user who's been active for 2+ weeks sees a genuinely accurate, evidence-backed weekly reflection without asking for it.
+
+**Scope note:** the plan's own worked examples referenced a `gossip_worthy_events`/`signal_type = 'tone_shift'` table that was never built (Advisor Companion Plan's Personal Mode Suite remains unimplemented) — the emotional-trend highlight was adapted to compute directly from `emotional_signals.valence` current-vs-prior-period averages instead, which is honestly derivable from what actually exists today. `project_tasks` gained a `completed_at` column (this migration) since it previously had no timestamp for when a task was actually marked done, only its current status. The weekly job runs every Monday at 11:00 UTC (`run_reflection_scheduler` in `daily_worker.py`) — the first scheduler in that file with a day-of-week gate, not just a fixed hour. `services/api/src/routes/reflection.ts` exposes `GET /api/reflection/latest` and `GET /api/reflection/timeline` (the latter a `UNION ALL` across `reflection_summaries`, `goal_events`, `contact_life_events`, and `deal_stage_history`'s closed-won/lost transitions); daily/monthly `period_type`s are supported by the same service but only the weekly cadence has a scheduler wired up so far.
 
 ### Phase 4 — Knowledge Graph Query Layer
 - `neural/knowledge_graph.py`'s `traverse()` unioning existing FK relationships (§4.5) — no migration needed for the structural edges
