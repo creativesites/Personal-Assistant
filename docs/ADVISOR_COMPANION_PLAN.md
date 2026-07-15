@@ -4,7 +4,7 @@
 
 **Goal:** Turn Advisor from a useful Q&A panel into Zuri's most addictive daily surface: a highly conversational, emotionally intelligent companion that learns the user, adapts in the moment, analyzes WhatsApp relationships deeply, gossips safely and in the user's own tone, initiates conversation when it notices something worth sharing, gives opinions with evidence, drafts/sends messages with approval, narrates replies as they arrive, and — for users who want it — shows up as a source of daily motivation and (for those who want it) quiet spiritual companionship.
 
-This is not a replacement for the Relationship OS engines. It is the conversational interface on top of them — and, as of this revision, an emotional memory layer that makes that interface feel less like a tool and more like a friend with a good memory.
+This is not a replacement for the Relationship OS engines. It is the conversational interface on top of them — and, as of this revision, an emotional memory layer that makes that interface feel less like a tool and more like a friend with a good memory. **As of `docs/NEURAL_LAYER_PLAN.md`, that emotional layer is no longer Advisor's alone to own** — see §1.3/§3.6/§9 of that document for the reconciliation. Advisor is the first and most conversational interface to the Zuri Neural Layer, not the whole of Zuri's intelligence; Studio, CRM, Inventory, Projects, and Suppliers all draw on the same substrate.
 
 ---
 
@@ -39,6 +39,10 @@ Everything else new in this document — **Gossip Mode, the Proactive Interest C
 **Activation, in full, on request.** A user can say something to the effect of *"activate personal mode"* (recognized loosely by the intent classifier — §6.2's new `activate_personal_mode` intent, not an exact-phrase match) and Advisor immediately turns the entire Personal Mode Suite on at once — `advisor_user_profiles.personal_mode_enabled = true` (§4.5) — skipping the gradual per-capability discovery entirely. This exists for two reasons: it makes the whole suite trivially testable without having to manufacture each capability's individual discovery trigger, and it gives users who already know they want the full companion experience a direct way to ask for it instead of stumbling into it over weeks. It is reversible ("turn off personal mode" sets the flag back to `false` — already-discovered individual capabilities stay reachable on request, but proactive initiation of anything not yet naturally discovered stops).
 
 `personal_mode_enabled` is a convenience *unlock*, not the same thing as `companion_features_paused` (§4.5/§7.8), which is a stronger *stop everything* honesty switch — pause always wins if both are somehow set. Personal mode also never bypasses a capability's own consent requirement: turning it on does not set a spiritual tradition for a user who hasn't stated one (§3.9/§8.5 still apply in full) — it only removes the discovery-timing gate, not the consent gate.
+
+### 1.3 Advisor Orchestrates — It Doesn't Answer (New, See `docs/NEURAL_LAYER_PLAN.md` §3)
+
+"Reply to Grace" should not resolve to "generate a plausible-sounding reply from one retrieval pass." It should resolve to a small orchestration: retrieve memory (Personal/Relationship/Business, `docs/NEURAL_LAYER_PLAN.md` §4.1), inspect the actual conversation, inspect relationship history and the communication profile, inspect the user's and the contact's current emotional state (§3.6), inspect any active goal that touches this relationship, inspect calendar/reminders, inspect prior advice already given — then synthesize, citing what it actually looked at. This isn't a new mechanism on top of what §6.1's orchestrator already does (retrieve → build prompt → call the model → parse structured response) — it's a naming fix: those retrieval steps are calls into named Neural Layer engines (Memory, Relationship, Emotion, Goal, Reasoning), not ad-hoc lookups the orchestrator happens to perform. `docs/NEURAL_LAYER_PLAN.md` §3/§6 is the canonical description; this section is the pointer to it from Advisor's side.
 
 ---
 
@@ -184,7 +188,9 @@ Examples:
 
 Execution must use explicit approval and trust tiers. Advisor should never silently send a personal/relationship message unless the user has clearly granted that scope.
 
-### 3.6 The Emotional Engine (New)
+### 3.6 The Emotional Engine (Now Platform-Wide — See `docs/NEURAL_LAYER_PLAN.md`)
+
+**Superseded in scope, not in substance.** Everything below in this section was originally designed as an Advisor-only capability. It has since been promoted to a platform-wide Emotion Engine (`docs/NEURAL_LAYER_PLAN.md` §4.2) — Advisor is one of several writers/readers of the shared `emotional_signals` table, not the owner of the schema. The affect-vector model (weighted encoding, state-dependent retrieval, reconsolidation, associative graph) described here is unchanged in mechanism; only the schema location moved (§4.5's `interaction_affect` table is superseded by `emotional_signals`, see that document's §9 for the exact reconciliation). Keep reading this section for the *behavior* Advisor should exhibit — just mentally substitute `emotional_signals` wherever `interaction_affect` is mentioned in §4.6/§6.6–§6.8 below.
 
 **Tier: Always-On Intelligence (§1.2)** — active for every user, unconditionally, regardless of `personal_mode_enabled`.
 
@@ -416,7 +422,9 @@ ALTER TABLE advisor_user_profiles
 
 All five preference fields (`interests`, `spiritual_preferences`, `motivational_style`, `gossip_style`) are populated the same two ways every other Advisor preference already is: explicit user edit (§7.6 Personalisation tab) or inferred and proposed by the memory learner (§6.5) with a confidence score, never silently overwritten. `personal_mode_enabled` is set only two ways: the `activate_personal_mode`/`deactivate_personal_mode` intents (§6.2) or the Personalisation tab toggle (§7.6) — never inferred.
 
-### 4.6 New Table: `interaction_affect` (New)
+### 4.6 New Table: `interaction_affect` — Superseded by `emotional_signals` (See `docs/NEURAL_LAYER_PLAN.md` §4.2)
+
+**Do not build this table as designed below.** It's kept here only so the shape of what Advisor needs is visible; the actual schema to build is the platform-wide `emotional_signals` table in `docs/NEURAL_LAYER_PLAN.md` §4.2, which generalizes every column here (`session_id`/`message_id` become part of a polymorphic `entity_type`/`entity_id`) so CRM/Projects/Suppliers can write to the same table. Advisor turns write rows with `entity_type = 'advisor_turn'`.
 
 Stores the affect vector for every significant user interaction — the raw substrate the emotional engine (§3.6) is built on.
 
@@ -737,21 +745,23 @@ Rules:
 - Store sensitive inferences with lower confidence and make them editable.
 - Never infer protected classes or medical facts.
 
-### 6.6 Emotional State Computation (New)
+### 6.6 Emotional State Computation (Now `neural/emotion.py` — See `docs/NEURAL_LAYER_PLAN.md` §4.2/§5)
 
-Create `services/intelligence/app/services/emotional_state.py`.
+**Build location changed, behavior unchanged.** This is no longer an Advisor-owned service — build it as `services/intelligence/app/neural/emotion.py` (the shared namespace `docs/NEURAL_LAYER_PLAN.md` §5 defines), and Advisor's orchestrator (§6.1) calls into it the same way Studio/CRM/Projects/Suppliers eventually will.
+
+Create `services/intelligence/app/neural/emotion.py` (not a standalone `emotional_state.py`).
 
 - After each Advisor turn: a small structured LLM call classifies the emotion vector, cross-referenced against `user_communication_profiles` for the formality/vocabulary/emoji-density deltas, and against session telemetry (§7, new heartbeat events) for latency/burstiness/duration. Writes one `interaction_affect` row.
 - Passively, on the existing per-message analysis pass (`message_worker.py`) — no new pass, just reading the `sentiment`/`intent` fields `message_analyses` already produces — updates the rolling `emotional_baseline` without writing a full `interaction_affect` row (that table is Advisor-turn-scoped; WhatsApp messages only ever update the baseline).
 - Writes `advisor_user_profiles.current_emotional_state` after every update so it's cheap to read elsewhere (retrieval weighting, gossip timing, boundary keeper) without recomputing.
 
-### 6.7 State-Dependent Retrieval Weighting (New)
+### 6.7 State-Dependent Retrieval Weighting (`neural/emotion.py` — See `docs/NEURAL_LAYER_PLAN.md` §4.2)
 
-Extend the existing memory retrieval logic (`services/intelligence/app/memory/retrieval_service.py`) with an emotional-congruence term: when scoring candidate memories/context for a reply, daily nudge, or analysis, add a factor based on how close a memory's stored affect (from `interaction_affect`, or a `contact_insights`/`context_snapshot`'s own sentiment tag where no affect row exists) is to `current_emotional_state`. This is a weighting term added to the existing semantic-relevance score, not a separate retrieval path — one ranked list in, one ranked list out.
+Extend the existing memory retrieval logic (`services/intelligence/app/memory/retrieval_service.py`) with an emotional-congruence term: when scoring candidate memories/context for a reply, daily nudge, or analysis, add a factor based on how close a memory's stored affect (from `emotional_signals`, or a `contact_insights`/`context_snapshot`'s own sentiment tag where no affect row exists) is to `current_emotional_state`. This is a weighting term added to the existing semantic-relevance score, not a separate retrieval path — one ranked list in, one ranked list out. This weighting function lives in `neural/emotion.py` so any module's retrieval, not just Advisor's, can apply it.
 
-### 6.8 Reconsolidation Job (New)
+### 6.8 Reconsolidation Job (`neural/emotion.py` — See `docs/NEURAL_LAYER_PLAN.md` §4.2)
 
-A nightly worker, same asyncio-scheduler convention as `daily_worker.py` (staggered to a free hour): revisits `interaction_affect` rows accessed during the day (a `last_retrieved_at` column, or a same-day join against advisor session activity) and recalculates `memory_weight` against any new context — e.g. a contact who ghosted and then reappeared warmly gets that earlier low-valence memory's weight pulled down. Also recomputes `advisor_user_profiles.emotional_baseline` as a rolling 30-day average.
+A nightly worker, same asyncio-scheduler convention as `daily_worker.py` (staggered to a free hour): revisits `emotional_signals` rows accessed during the day (a `last_retrieved_at` column, or a same-day join against session activity) and recalculates `memory_weight` against any new context — e.g. a contact who ghosted and then reappeared warmly gets that earlier low-valence memory's weight pulled down. Also recomputes `advisor_user_profiles.emotional_baseline` as a rolling 30-day average. This job runs once, platform-wide, in `neural/emotion.py` — not a separate Advisor-only nightly job.
 
 ### 6.9 Gossip Worthiness Detector (New)
 
@@ -955,18 +965,20 @@ The "Pause Companion Features" toggle (§7.8) disables proactive delivery only �
 
 ## 9. Phased Build
 
-### Phase 0 — Emotional Foundation (New)
+### Phase 0 — Emotional Foundation (Depends on `docs/NEURAL_LAYER_PLAN.md` Phase 1 Landing First)
 
-- Add `interaction_affect` (§4.6)
-- Extend `advisor_user_profiles` with `interests`, `spiritual_preferences`, `motivational_style`, `gossip_style`, `current_emotional_state`, `emotional_baseline`, `companion_features_paused` (§4.5)
-- Implement emotional state vector computation on every Advisor turn (§6.6)
-- Implement basic state-dependent retrieval weighting in the memory retrieval service (§6.7)
-- Nightly reconsolidation job (§6.8)
+**Sequencing note:** the platform-wide Emotion Engine (`docs/NEURAL_LAYER_PLAN.md` §4.2, its own Phase 1) should ship *before* this phase — building Advisor's emotional engine first and promoting it to platform-wide afterward would mean migrating `interaction_affect` into `emotional_signals` later instead of building the shared table once. This phase becomes "adopt the Neural Layer's Emotion Engine," not "build the Emotion Engine."
+
+- ~~Add `interaction_affect`~~ — superseded; `emotional_signals` is built once, platform-wide, in `docs/NEURAL_LAYER_PLAN.md` Phase 1 (§4.6 above documents the mapping)
+- Extend `advisor_user_profiles` with `interests`, `spiritual_preferences`, `motivational_style`, `gossip_style`, `current_emotional_state`, `emotional_baseline`, `companion_features_paused` (§4.5) — these stay genuinely Advisor-specific
+- Wire Advisor turns to write `emotional_signals` rows (`entity_type = 'advisor_turn'`) via `neural/emotion.py` (§6.6)
+- Wire Advisor's memory retrieval to the shared state-dependent weighting function (§6.7)
+- Reconsolidation (§6.8) runs platform-wide already — nothing Advisor-specific to add here
 - Frontend: none — backend only, deliberately invisible until Phase 1's memory drawer surfaces it
 
 Success criteria:
 
-- Every Advisor interaction stores an emotional state vector.
+- Every Advisor interaction stores an emotional state vector in the shared `emotional_signals` table.
 - Memory retrieval measurably biases toward emotionally congruent memories (verify with a scripted before/after query, not just eyeballing responses).
 
 ### Phase 1 — Companion Brain Foundation
