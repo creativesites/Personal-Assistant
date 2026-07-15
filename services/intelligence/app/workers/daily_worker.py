@@ -9,6 +9,7 @@ from ..services.document_followups import DocumentFollowupService
 from ..services.pricing_benchmarks import PricingBenchmarkService
 from ..services.inventory_forecast import InventoryForecastService
 from ..neural.reflection import ReflectionService
+from ..neural.emotion import get_emotion_engine
 
 log = structlog.get_logger()
 
@@ -27,6 +28,7 @@ _document_followup_queue = Queue('documents.check_followups', {'connection': red
 _pricing_benchmark_queue = Queue('documents.refresh_pricing_benchmarks', {'connection': redis_conn_opts()})
 _inventory_forecast_queue = Queue('inventory.refresh_forecasts', {'connection': redis_conn_opts()})
 _reflection_queue = Queue('reflection.generate_weekly', {'connection': redis_conn_opts()})
+_emotion_reconsolidation_queue = Queue('emotion.reconsolidate', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -76,6 +78,15 @@ async def _process_reflection(job, token: str):
 
 def create_reflection_worker() -> Worker:
     return Worker('reflection.generate_weekly', _process_reflection, {'connection': redis_conn_opts()})
+
+
+async def _process_emotion_reconsolidation(job, token: str):
+    count = await get_emotion_engine().reconsolidate()
+    return {'ok': True, 'count': count}
+
+
+def create_emotion_reconsolidation_worker() -> Worker:
+    return Worker('emotion.reconsolidate', _process_emotion_reconsolidation, {'connection': redis_conn_opts()})
 
 
 async def run_daily_scheduler() -> None:
@@ -173,6 +184,28 @@ async def run_reflection_scheduler() -> None:
             await _reflection_queue.add('generate', {})
         except Exception as exc:
             log.error('reflection_enqueue_failed', error=str(exc))
+
+
+async def run_emotion_reconsolidation_scheduler() -> None:
+    """Asyncio background task: nightly emotional-memory reconsolidation
+    (Advisor Companion Plan §6.8) at 04:00 UTC — after consolidation's
+    03:00, same load-spreading convention as every other daily job. This
+    is platform-wide (Neural Layer, not Advisor-owned) even though it
+    shipped as part of the Advisor Companion Plan's Phase 0, since Neural
+    Layer Phase 1 left `emotional_signals.memory_weight` write-once."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=4, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('emotion_reconsolidation_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('emotion_reconsolidation_enqueue')
+            await _emotion_reconsolidation_queue.add('reconsolidate', {})
+        except Exception as exc:
+            log.error('emotion_reconsolidation_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

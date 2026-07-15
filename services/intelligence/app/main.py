@@ -24,6 +24,7 @@ from .workers.daily_worker import (
     create_pricing_benchmark_worker, run_pricing_benchmark_scheduler,
     create_inventory_forecast_worker, run_inventory_forecast_scheduler,
     create_reflection_worker, run_reflection_scheduler,
+    create_emotion_reconsolidation_worker, run_emotion_reconsolidation_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -51,6 +52,8 @@ async def lifespan(app: FastAPI):
     document_followup_worker = create_document_followup_worker()
     pricing_benchmark_worker = create_pricing_benchmark_worker()
     inventory_forecast_worker = create_inventory_forecast_worker()
+    reflection_worker = create_reflection_worker()
+    emotion_reconsolidation_worker = create_emotion_reconsolidation_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -60,12 +63,15 @@ async def lifespan(app: FastAPI):
     document_followup_task = asyncio.create_task(run_document_followup_scheduler())
     pricing_benchmark_task = asyncio.create_task(run_pricing_benchmark_scheduler())
     inventory_forecast_task = asyncio.create_task(run_inventory_forecast_scheduler())
+    reflection_task = asyncio.create_task(run_reflection_scheduler())
+    emotion_reconsolidation_task = asyncio.create_task(run_emotion_reconsolidation_scheduler())
 
     yield
 
     for task in (
         scheduler_task, temporal_task, world_knowledge_task, consolidation_task,
         document_followup_task, pricing_benchmark_task, inventory_forecast_task,
+        reflection_task, emotion_reconsolidation_task,
     ):
         task.cancel()
         try:
@@ -85,6 +91,8 @@ async def lifespan(app: FastAPI):
     await document_followup_worker.close()
     await pricing_benchmark_worker.close()
     await inventory_forecast_worker.close()
+    await reflection_worker.close()
+    await emotion_reconsolidation_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

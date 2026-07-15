@@ -6,7 +6,7 @@ from ..database import get_pool
 from ..ai.client import get_ai_client
 from ..queue import redis_conn_opts
 from ..memory import retrieval_service as memory
-from ..neural.emotion import get_emotion_engine
+from ..neural.emotion import get_emotion_engine, emotional_congruence
 
 studio_router = APIRouter(prefix='/internal/studio', tags=['studio'])
 
@@ -265,6 +265,45 @@ class AdvisorAskRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+async def _rerank_contacts_by_congruence(user_id: str, rows: list) -> list:
+    """Advisor Companion Plan Phase 0 (§6.7) — state-dependent retrieval
+    weighting: blend each contact's recency rank with how emotionally
+    congruent that contact's recent signal is with the user's *current*
+    state, so the global advisor's contact context isn't purely recency-
+    ordered. One ranked list in, one ranked list out — not a separate
+    retrieval path."""
+    if not rows:
+        return rows
+
+    contact_ids = [row['contact_id'] for row in rows]
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        signal_rows = await conn.fetch(
+            '''SELECT contact_id, AVG(valence) AS avg_valence, AVG(arousal) AS avg_arousal
+               FROM emotional_signals
+               WHERE user_id = $1 AND contact_id = ANY($2::uuid[])
+                 AND created_at > NOW() - INTERVAL '14 days'
+               GROUP BY contact_id''',
+            user_id, contact_ids,
+        )
+    congruence_by_contact = {str(r['contact_id']): (float(r['avg_valence']), float(r['avg_arousal'])) for r in signal_rows}
+
+    current_state = await get_emotion_engine().get_current_emotional_state(user_id)
+    current_valence = current_state.get('valence', 0.0)
+    current_arousal = current_state.get('arousal', 0.3)
+
+    n = len(rows)
+    scored = []
+    for i, row in enumerate(rows):
+        recency_rank = 1.0 - (i / n)  # 1.0 for most recent, near 0 for least
+        pair = congruence_by_contact.get(str(row['contact_id']))
+        congruence = emotional_congruence(current_valence, current_arousal, *pair) if pair else 0.5
+        scored.append((0.7 * recency_rank + 0.3 * congruence, row))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [row for _, row in scored]
+
+
 @advisor_router.post('/ask')
 async def advisor_ask(body: AdvisorAskRequest):
     """Global advisor — answers questions about the user's full contact network."""
@@ -285,6 +324,8 @@ async def advisor_ask(body: AdvisorAskRequest):
                LIMIT 20''',
             body.user_id,
         )
+
+    rows = await _rerank_contacts_by_congruence(body.user_id, rows)
 
     context_lines = []
     for row in rows:
