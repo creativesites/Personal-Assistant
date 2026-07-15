@@ -79,6 +79,21 @@ class ProductMention(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
+class OrderIntentMention(BaseModel):
+    """A live purchase request — 'I'd like 10 uniforms', not just 'how much
+    are uniforms' or a past-tense mention (that's ProductMention's job). See
+    docs/BUSINESS_OS_PLAN.md §15 — this is what triggers the
+    conversation-to-automation action-bundle proposal. product_name is
+    resolved against the catalog the same way as ProductMention (exact
+    single-match only); ambiguous or unmatched items are dropped. Kept
+    deliberately narrow/high-confidence — this is the one detector that
+    results in a multi-action proposal shown to the user, not just a
+    passive relationship-memory write."""
+    product_name: str
+    quantity: int = 1
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
 class LifeEventMention(BaseModel):
     """A major personal life event — see docs/RELATIONSHIP_OS_PLAN.md §6.6.
     Distinct from EventItem (birthdays/meetings/routine calendar events):
@@ -104,6 +119,7 @@ class MessageAnalysis(BaseModel):
     opportunities_mentioned: list[OpportunityMention] = Field(default_factory=list)
     connections_mentioned: list[ConnectionMention] = Field(default_factory=list)
     products_mentioned: list[ProductMention] = Field(default_factory=list)
+    order_intent_mentioned: list[OrderIntentMention] = Field(default_factory=list)
     life_events_mentioned: list[LifeEventMention] = Field(default_factory=list)
 
 

@@ -23,6 +23,9 @@ export function startRedisSubscriber(io: Server): void {
     // agent detail page all edit the same Default Assistant row; this keeps
     // them in sync without a manual refresh.
     'agent:default-updated:*',
+    // Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15) — a detected
+    // multi-action bundle proposal, pushed live to the Inbox.
+    'bundle:ready:*',
     (err) => {
       if (err) console.error('Redis psubscribe error:', err);
     },

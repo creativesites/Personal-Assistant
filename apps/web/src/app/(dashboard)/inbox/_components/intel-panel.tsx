@@ -21,6 +21,7 @@ import { ProactiveCard } from './proactive-card'
 import { DocumentSuggestionCard } from './document-suggestion-card'
 import { InlineAICard, type AIInsight } from './inline-ai-card'
 import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
+import { ActionBundlesSection } from './action-bundle-card'
 
 export type AITab = 'overview' | 'memory' | 'activity' | 'chat' | 'files'
 
@@ -121,6 +122,7 @@ export interface IntelPanelProps {
   noteRef: RefObject<HTMLTextAreaElement | null>
   token?: string | null
   analysing?: boolean
+  bundleRefreshTick?: number
   onTabChange: (t: AITab) => void
   onApprove: (id: string, custom?: string) => void
   onDismiss: (id: string) => void
@@ -143,6 +145,7 @@ export function IntelPanel({
   contact, contactDetail, selectedConv, contextData, contextLoading,
   suggestions, regenerating, actionLoading, mode, notes, newNote,
   editingSuggId, editedText, aiTab, messages, noteRef, token, analysing,
+  bundleRefreshTick,
   onTabChange, onApprove, onDismiss, onRegenerate, onSetDraft,
   onAddNote, onNoteChange, onEditSugg, onEditedTextChange, onClose, draftFocus,
   promises, onApproveProactive, onSnoozeProactive, onAnalyseFull, onSendDirect,
@@ -435,6 +438,9 @@ export function IntelPanel({
         {/* ── Overview ────────────────────────────────────────────────────── */}
         {aiTab === 'overview' && (
           <div className="divide-y divide-gray-50">
+            {contact && token && (
+              <ActionBundlesSection contactId={contact.id} token={token} refreshKey={bundleRefreshTick ?? 0} />
+            )}
             {contact && (() => {
               const proactives = contactDetail?.proactiveSuggestions ?? []
               const documentSuggestion = contactDetail?.documentSuggestion ?? null

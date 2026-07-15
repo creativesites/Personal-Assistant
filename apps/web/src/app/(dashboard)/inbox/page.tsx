@@ -192,6 +192,11 @@ export default function InboxPage() {
     } catch { /* ignore */ }
   }
 
+  // Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15) — bumped whenever a
+  // 'bundle:ready' socket event arrives, so ActionBundlesSection (inside
+  // IntelPanel) knows to refetch even if the contact is already open.
+  const [bundleRefreshTick, setBundleRefreshTick] = useState(0)
+
   // Sync progress
   const [syncing, setSyncing] = useState(false)
   const [syncDone, setSyncDone] = useState(false)
@@ -462,6 +467,19 @@ export default function InboxPage() {
       } catch {}
     })
 
+    // Business OS Phase E — a detected multi-action bundle (docs/BUSINESS_OS_PLAN.md
+    // §15). Always bump the refresh tick (ActionBundlesSection refetches
+    // scoped to whatever contact is open — a mismatch is a harmless no-op
+    // fetch) and toast the summary so the user notices even if they're
+    // looking at a different conversation.
+    socket.on('bundle:ready', (payload: string) => {
+      try {
+        const data = parseSocketPayload<{ bundleId: string; contactId: string; summary: string }>(payload)
+        setBundleRefreshTick(t => t + 1)
+        addToast({ variant: 'info', title: data.summary })
+      } catch {}
+    })
+
     const reconcile = () => {
       loadConversations()
       loadSyncStatus()
@@ -493,6 +511,7 @@ export default function InboxPage() {
       socket.off('conversation:read', handleConversationRead)
       socket.off('history:progress', handleSyncProgress)
       socket.off('suggestion:ready')
+      socket.off('bundle:ready')
       socket.off('authenticated', reconcile)
       socket.off('reconnect', reconcile)
       socket.io.off('reconnect', reconcile)
@@ -778,6 +797,7 @@ export default function InboxPage() {
     suggestions, regenerating, actionLoading, mode, notes, newNote,
     editingSuggId, editedText, aiTab, messages, noteRef,
     token, analysing,
+    bundleRefreshTick,
     onTabChange: setAiTab,
     onApprove: approveSuggestion,
     onDismiss: dismissSuggestion,

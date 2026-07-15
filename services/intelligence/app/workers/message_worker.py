@@ -11,6 +11,7 @@ from ..services.business_facts import BusinessFactService
 from ..services.opportunities import OpportunityService
 from ..services.connections import ConnectionService
 from ..services.contact_products import ContactProductService
+from ..services.action_bundles import ActionBundleService
 from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
 from ..services.lead_score import LeadScoreService
@@ -26,6 +27,7 @@ _business_facts = BusinessFactService()
 _opportunities = OpportunityService()
 _connections = ConnectionService()
 _contact_products = ContactProductService()
+_action_bundles = ActionBundleService()
 _life_events = LifeEventService()
 _network_value = NetworkValueService()
 _lead_score = LeadScoreService()
@@ -115,6 +117,17 @@ async def _process(job, token: str):
             )
 
         if sender_type == 'contact' and body:
+            # Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15) — a live
+            # order request proposes a multi-action bundle for the Inbox,
+            # independent of the reply-routing decision below. Skipped for
+            # historical/backfill messages (the `not is_historical` guard
+            # above) so an initial sync doesn't flood the user with stale
+            # "detected an order" cards from old conversations.
+            if analysis.order_intent_mentioned:
+                await _action_bundles.detect_and_create(
+                    user_id, contact_id, conversation_id, message_id, analysis.order_intent_mentioned,
+                )
+
             # Orchestrator decides: route to an agent OR generate a suggestion for the user
             decision, agent_id = await route_message(
                 message_id=message_id,

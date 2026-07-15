@@ -854,6 +854,50 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ── POST /api/products/:id/reserve — commit stock against a pending
+  // order/quotation without physically changing on-hand stock (Business OS
+  // Phase E, docs/BUSINESS_OS_PLAN.md §15, closing the gap Phase C
+  // deliberately left open: `committed` exists in the stock_movements enum
+  // but nothing wired it to `products.reserved` until now). Increments
+  // `reserved` (so `available` drops) and logs a `committed` movement whose
+  // previous_stock/new_stock are equal — signalling "this changed what's
+  // spoken for, not what's physically on hand." ──
+  const reserveBody = z.object({
+    quantity: z.number().int().positive(),
+    reason: z.string().max(500).optional().nullable(),
+  })
+
+  fastify.post(
+    '/api/products/:id/reserve',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = reserveBody.parse(request.body)
+
+      const { rows: [existing] } = await db.query(
+        'SELECT stock, reserved FROM products WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Product not found' })
+
+      const newReserved = existing.reserved + body.quantity
+      const newAvailable = Math.max(0, existing.stock - newReserved)
+
+      await db.query(
+        `INSERT INTO stock_movements (user_id, product_id, movement_type, quantity_delta, previous_stock, new_stock, reason)
+         VALUES ($1, $2, 'committed', $3, $4, $4, $5)`,
+        [userId, id, body.quantity, existing.stock, body.reason ?? null],
+      )
+      await db.query(
+        'UPDATE products SET reserved = $1, available = $2, updated_at = NOW() WHERE id = $3 AND user_id = $4',
+        [newReserved, newAvailable, id, userId],
+      )
+
+      return reply.code(201).send({ reserved: newReserved, available: newAvailable })
+    },
+  )
+
   fastify.post(
     '/api/products/:id/contacts',
     { preHandler: [authenticate, requireMarketingAccess] },

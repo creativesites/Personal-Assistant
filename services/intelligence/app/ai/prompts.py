@@ -27,6 +27,7 @@ Return ONLY valid JSON in exactly this format:
   "opportunities_mentioned": [{{"opportunity_type": "buying_signal|expansion|referral_moment|renewal_due|life_event|reconnect_window|churn_risk|support_needed", "title": "brief title", "description": "1 sentence of context", "estimated_value_cents": null, "confidence": 0.0}}],
   "connections_mentioned": [{{"other_person_name": "the other person's name as stated", "connection_type": "works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to", "confidence": 0.0, "supporting_text": "exact quote"}}],
   "products_mentioned": [{{"product_name": "the product/service name as stated", "relation_type": "purchased|interested|quoted|recommended|mentioned", "quantity": 1, "replacement_interval_days": null, "confidence": 0.0}}],
+  "order_intent_mentioned": [{{"product_name": "the product/service name as stated", "quantity": 1, "confidence": 0.0}}],
   "life_events_mentioned": [{{"event_type": "new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business", "title": "brief title", "date": null}}]
 }}
 
@@ -56,6 +57,11 @@ Important for connections_mentioned:
 Important for products_mentioned:
 - Only include this when a specific product or service (not a generic category) is explicitly named — "the HP printer", "your logo design service". product_name should be stated plainly enough to match against a product catalog by name.
 - replacement_interval_days should only be set when relation_type is "purchased" AND the product is a consumable or wearable with a predictable replacement cycle (e.g. printer toner ~60 days, tyres ~365 days). Leave null for one-time or durable purchases.
+
+Important for order_intent_mentioned:
+- Only include this when the sender is the CUSTOMER (not the business owner) and is actively placing or requesting an order right now, with a stated or clearly implied quantity — "I'd like 10 uniforms", "can I get 3 of the blue ones", "send me 2 units". This is much narrower than products_mentioned's "interested"/"quoted": a question about price or availability ("how much is it", "do you have stock") is NOT an order intent — leave this empty for those.
+- product_name should be stated plainly enough to match against the product catalog by name.
+- Only set confidence above 0.6 when the request is unambiguous. When in doubt, leave this empty rather than guessing — a false positive here creates an unwanted action proposal for the business owner to dismiss.
 
 Important for life_events_mentioned:
 - Only include this for a major, one-off life event explicitly stated — a new job, moving house, having a child, getting married, a health issue, a bereavement, a personal achievement, starting a business. Do not include routine chat or minor updates.
