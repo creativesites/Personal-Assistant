@@ -454,4 +454,72 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(502).send({ action: actionRequestApiShape(updated), error: 'Failed to send message' });
     }
   });
+
+  // ── Conversation Watch Mode (Advisor Companion Plan Phase 4, §5.4/§9) ────
+  // Reuses advisor_action_requests' already-unused 'watch_conversation'
+  // action type instead of a dedicated table — a watch is auto-approved
+  // at creation (there's nothing risky to approve, unlike a send), and
+  // services/intelligence/app/workers/message_worker.py polls for an
+  // active one on every incoming message via find_active_watch().
+
+  const createWatchBody = z.object({
+    sessionId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    expiresInMinutes: z.number().int().min(5).max(24 * 60).optional(),
+  });
+
+  fastify.post('/api/advisor/watch', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { sessionId, conversationId, expiresInMinutes } = createWatchBody.parse(request.body);
+
+    const { rows: [conversation] } = await db.query(
+      'SELECT id, contact_id FROM conversations WHERE id = $1 AND user_id = $2',
+      [conversationId, userId],
+    );
+    if (!conversation) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const { rows: [session] } = await db.query(
+      'SELECT id FROM advisor_sessions WHERE id = $1 AND user_id = $2 AND is_archived = false',
+      [sessionId, userId],
+    );
+    if (!session) return reply.code(404).send({ error: 'Session not found' });
+
+    const minutes = expiresInMinutes ?? 60;
+    const { rows: [watch] } = await db.query(
+      `INSERT INTO advisor_action_requests
+         (user_id, session_id, action_type, status, payload, risk_level, approved_at, expires_at)
+       VALUES ($1, $2, 'watch_conversation', 'approved', $3::jsonb, 'low', NOW(), NOW() + make_interval(mins => $4))
+       RETURNING *`,
+      [userId, sessionId, JSON.stringify({ conversationId, contactId: conversation.contact_id }), minutes],
+    );
+    return reply.code(201).send({ watch: actionRequestApiShape(watch) });
+  });
+
+  fastify.get('/api/advisor/watch', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { sessionId } = request.query as { sessionId?: string };
+
+    const filters = ["user_id = $1", "action_type = 'watch_conversation'", "status = 'approved'", "(expires_at IS NULL OR expires_at > NOW())"];
+    const params: unknown[] = [userId];
+    if (sessionId) { params.push(sessionId); filters.push(`session_id = $${params.length}`); }
+
+    const { rows } = await db.query(
+      `SELECT * FROM advisor_action_requests WHERE ${filters.join(' AND ')} ORDER BY created_at DESC LIMIT 20`,
+      params,
+    );
+    return reply.send({ watches: rows.map(actionRequestApiShape) });
+  });
+
+  fastify.delete('/api/advisor/watch/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rowCount } = await db.query(
+      `UPDATE advisor_action_requests SET status = 'cancelled'
+       WHERE id = $1 AND user_id = $2 AND action_type = 'watch_conversation' AND status = 'approved'`,
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Watch not found or already ended' });
+    return reply.send({ ok: true });
+  });
 }

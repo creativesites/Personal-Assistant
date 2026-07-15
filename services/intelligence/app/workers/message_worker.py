@@ -1,7 +1,8 @@
+import json
 import structlog
 from bullmq import Worker, Queue
 from ..database import get_pool
-from ..queue import redis_conn_opts
+from ..queue import redis_conn_opts, publish_event
 from ..services.analyser import MessageAnalyser
 from ..services.reply_gen import ReplyGenerator
 from ..services.event_extractor import EventExtractor
@@ -15,6 +16,7 @@ from ..services.action_bundles import ActionBundleService
 from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
 from ..services.lead_score import LeadScoreService
+from ..services.advisor_companion import get_advisor_companion_service
 from ..memory.conversation_memory import update_conversation_memory
 from ..neural.emotion import get_emotion_engine
 
@@ -33,6 +35,7 @@ _action_bundles = ActionBundleService()
 _life_events = LifeEventService()
 _network_value = NetworkValueService()
 _lead_score = LeadScoreService()
+_advisor_companion = get_advisor_companion_service()
 _msg_counter: dict[str, int] = {}
 
 _profile_queue  = Queue('analysis.contact_profile', {'connection': redis_conn_opts()})
@@ -136,6 +139,45 @@ async def _process(job, token: str):
                 await _action_bundles.detect_and_create(
                     user_id, contact_id, conversation_id, message_id, analysis.order_intent_mentioned,
                 )
+
+            # Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md
+            # §3.5/§5.4/§9) — if the user is actively watching this
+            # conversation from an Advisor session, narrate the reply and
+            # suggest next responses instead of leaving them to notice it
+            # in the Inbox on their own.
+            watch = await _advisor_companion.find_active_watch(conversation_id)
+            if watch:
+                await publish_event(f'advisor.reply_received:{user_id}', json.dumps({
+                    'conversationId': conversation_id, 'contactId': contact_id,
+                    'messagePreview': body[:200],
+                }))
+                narration = await _advisor_companion.generate_reply_narration(
+                    user_id, conversation_id, contact_id, body,
+                )
+                narration_pool = await get_pool()
+                async with narration_pool.acquire() as conn:
+                    narration_row = await conn.fetchrow(
+                        """INSERT INTO advisor_messages (session_id, role, content, metadata)
+                           VALUES ($1, 'assistant', $2, $3::jsonb)
+                           RETURNING id, created_at""",
+                        watch['session_id'], narration['narration'],
+                        json.dumps({
+                            'type': 'narration', 'conversationId': conversation_id,
+                            'contactId': contact_id, 'contactName': narration['contactName'],
+                            'suggestedReplies': narration['suggestedReplies'],
+                        }),
+                    )
+                    await conn.execute(
+                        """UPDATE advisor_sessions SET message_count = message_count + 1, updated_at = NOW()
+                           WHERE id = $1""",
+                        watch['session_id'],
+                    )
+                await publish_event(f'advisor.narration_ready:{user_id}', json.dumps({
+                    'sessionId': str(watch['session_id']), 'conversationId': conversation_id,
+                    'contactId': contact_id, 'messageId': str(narration_row['id']),
+                    'narration': narration['narration'], 'suggestedReplies': narration['suggestedReplies'],
+                    'contactName': narration['contactName'], 'createdAt': narration_row['created_at'].isoformat(),
+                }))
 
             # Orchestrator decides: route to an agent OR generate a suggestion for the user
             decision, agent_id = await route_message(

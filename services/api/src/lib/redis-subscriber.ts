@@ -26,6 +26,12 @@ export function startRedisSubscriber(io: Server): void {
     // Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15) — a detected
     // multi-action bundle proposal, pushed live to the Inbox.
     'bundle:ready:*',
+    // Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md
+    // §5.4/§9) — a watched conversation got a reply; reply_received fires
+    // immediately, narration_ready follows once the narration + suggested
+    // replies are generated.
+    'advisor.reply_received:*',
+    'advisor.narration_ready:*',
     (err) => {
       if (err) console.error('Redis psubscribe error:', err);
     },

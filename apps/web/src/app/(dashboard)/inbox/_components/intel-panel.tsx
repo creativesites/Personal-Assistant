@@ -8,8 +8,9 @@ import {
   TrendingUp, TrendingDown, Activity, MessageCircle, MapPin,
   StickyNote, Lightbulb, Heart, Target, BarChart2, UserCheck,
   FileText, Download, Send, Sparkles, Zap, Search,
-  Tag, Mail, Building2, Briefcase, History,
+  Tag, Mail, Building2, Briefcase, History, Eye, EyeOff,
 } from 'lucide-react'
+import { getSocket } from '@/lib/socket'
 import type {
   Contact, ContactDetail, Conversation, ConvContext, Message,
   Suggestion, InternalNote, ContactPromise,
@@ -47,6 +48,13 @@ interface ActionRequest {
   riskLevel: 'low' | 'medium' | 'high'
 }
 
+// Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md §5.4/§9) —
+// a watch request on advisor_action_requests (action_type='watch_conversation').
+interface Watch {
+  id: string
+  status: string
+}
+
 interface ChatMsg {
   id: string
   role: 'user' | 'assistant'
@@ -58,6 +66,8 @@ interface ChatMsg {
   analysis?: ChatAnalysis | null
   mood?: string | null
   actionRequest?: ActionRequest | null
+  isNarration?: boolean
+  suggestedReplies?: string[]
 }
 
 interface UpdateAction {
@@ -211,6 +221,8 @@ export function IntelPanel({
   const [actioning, setActioning] = useState(false)
   const [activeUpdateForm, setActiveUpdateForm] = useState<UpdateAction | null>(null)
   const [updateInputValue, setUpdateInputValue] = useState('')
+  const [watch, setWatch] = useState<Watch | null>(null)
+  const [watchLoading, setWatchLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   // Load persisted history when a conversation is selected
@@ -225,7 +237,10 @@ export function IntelPanel({
         const data = await res.json() as {
           messages: Array<{
             id: string; role: string; content: string; created_at: string
-            metadata?: { analysis?: ChatAnalysis | null; assistantState?: { mood?: string }; actionRequestId?: string } | null
+            metadata?: {
+              analysis?: ChatAnalysis | null; assistantState?: { mood?: string }; actionRequestId?: string
+              type?: string; suggestedReplies?: string[]
+            } | null
           }>
           sessionId: string | null
         }
@@ -245,6 +260,19 @@ export function IntelPanel({
               actionsById = new Map(actionsData.actions.map(a => [a.id, a]))
             }
           } catch { /* silent — approval cards just won't reappear on reload */ }
+
+          // Advisor Companion Plan Phase 4 (§5.4/§9) — restore the watch
+          // toggle state on reload, whether the watch was created via the
+          // toggle button or the "watch this chat" chat intent.
+          try {
+            const watchRes = await fetch(`${API_URL}/api/advisor/watch?sessionId=${data.sessionId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (watchRes.ok) {
+              const watchData = await watchRes.json() as { watches: Watch[] }
+              setWatch(watchData.watches[0] ?? null)
+            }
+          } catch { /* silent — the toggle just starts unwatched */ }
         }
 
         if (data.messages.length > 0) {
@@ -256,6 +284,8 @@ export function IntelPanel({
             analysis: m.metadata?.analysis ?? null,
             mood: m.metadata?.assistantState?.mood ?? null,
             actionRequest: m.metadata?.actionRequestId ? actionsById.get(m.metadata.actionRequestId) ?? null : null,
+            isNarration: m.metadata?.type === 'narration',
+            suggestedReplies: m.metadata?.suggestedReplies,
           })))
         }
       }
@@ -269,8 +299,63 @@ export function IntelPanel({
     setChatSessionId(null)
     setLastDraftText(null)
     setActiveUpdateForm(null)
+    setWatch(null)
     if (selectedConv?.id) loadChatHistory(selectedConv.id)
   }, [selectedConv?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Advisor Companion Plan Phase 4 (§5.4/§9) — advisor.reply_received fires
+  // immediately when a watched conversation gets a reply; advisor.narration_ready
+  // follows once the narration + suggested replies are generated. Both are
+  // scoped to whichever conversation is currently open here.
+  useEffect(() => {
+    if (!token) return
+    const socket = getSocket(token)
+
+    const handleNarrationReady = (payload: string) => {
+      try {
+        const data = JSON.parse(payload) as {
+          conversationId: string; narration: string; suggestedReplies: string[]
+          contactName: string; messageId: string
+        }
+        if (data.conversationId !== selectedConv?.id) return
+        setChatMessages(prev => [...prev, {
+          id: data.messageId,
+          role: 'assistant',
+          content: data.narration,
+          timestamp: new Date(),
+          isNarration: true,
+          suggestedReplies: data.suggestedReplies,
+        }])
+      } catch { /* ignore malformed payload */ }
+    }
+
+    socket.on('advisor.narration_ready', handleNarrationReady)
+    return () => { socket.off('advisor.narration_ready', handleNarrationReady) }
+  }, [token, selectedConv?.id])
+
+  const handleToggleWatch = async () => {
+    if (!token || !selectedConv?.id || !chatSessionId) return
+    setWatchLoading(true)
+    try {
+      if (watch) {
+        await fetch(`${API_URL}/api/advisor/watch/${watch.id}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        })
+        setWatch(null)
+      } else {
+        const res = await fetch(`${API_URL}/api/advisor/watch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ sessionId: chatSessionId, conversationId: selectedConv.id }),
+        })
+        if (res.ok) {
+          const data = await res.json() as { watch: Watch }
+          setWatch(data.watch)
+        }
+      }
+    } catch { /* toggle just stays in its previous state */ }
+    finally { setWatchLoading(false) }
+  }
 
   useEffect(() => {
     if (aiTab === 'chat') {
@@ -1060,7 +1145,7 @@ export function IntelPanel({
             {/* Chips header */}
             <div className="p-2.5 border-b border-gray-100 flex-shrink-0 space-y-2">
               {/* Q&A chips */}
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5 items-center">
                 {CHAT_CHIPS.map(chip => (
                   <button key={chip.label} onClick={() => sendChat(chip.question, chip.isDraft)}
                     disabled={chatLoading || !selectedConv}
@@ -1069,6 +1154,18 @@ export function IntelPanel({
                     {chip.label}
                   </button>
                 ))}
+                {/* Advisor Companion Plan Phase 4 (§5.4/§9) — watch this
+                    conversation for replies while Advisor is open. Needs a
+                    session, which only exists once the first chat message
+                    has been sent (see chatSessionId's lifecycle above). */}
+                <button onClick={handleToggleWatch} disabled={watchLoading || !selectedConv || !chatSessionId}
+                  title={!chatSessionId ? 'Ask something first to start watching' : undefined}
+                  className={`flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-full border transition-colors disabled:opacity-40 ml-auto ${
+                    watch ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-gray-50 hover:bg-gray-100 text-gray-500 border-gray-200'
+                  }`}>
+                  {watch ? <Eye size={9} /> : <EyeOff size={9} />}
+                  {watch ? 'Watching' : 'Watch'}
+                </button>
               </div>
 
               {/* Contact update chips — only when a contact is loaded */}
@@ -1122,6 +1219,14 @@ export function IntelPanel({
                       <div className="rounded-2xl rounded-bl-sm px-3 py-2 text-xs leading-relaxed bg-emerald-50 text-emerald-800 border border-emerald-100">
                         {msg.content}
                       </div>
+                    ) : msg.isNarration ? (
+                      <div className="rounded-2xl rounded-bl-sm px-3 py-2.5 bg-violet-50 border border-violet-100 w-full">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Eye size={10} className="text-violet-500" />
+                          <span className="text-[9px] font-bold uppercase tracking-wide text-violet-500">Watching this chat</span>
+                        </div>
+                        <p className="text-xs leading-relaxed text-violet-900">{msg.content}</p>
+                      </div>
                     ) : (
                       <div className="rounded-2xl rounded-bl-sm px-3 py-2.5 bg-gray-50 border border-gray-100 w-full">
                         <ChatFormatter
@@ -1168,6 +1273,18 @@ export function IntelPanel({
                             <p className="text-[11px] text-gray-700 leading-snug">{msg.analysis.whatIWouldDo}</p>
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Suggested next responses — Advisor Companion Plan Phase 4 (§3.5/§9) */}
+                    {msg.role === 'assistant' && msg.isNarration && msg.suggestedReplies && msg.suggestedReplies.length > 0 && (
+                      <div className="w-full flex flex-col gap-1.5">
+                        {msg.suggestedReplies.map((r, i) => (
+                          <button key={i} onClick={() => { onSetDraft(r); draftFocus() }}
+                            className="text-left text-[11px] leading-snug text-violet-800 bg-white hover:bg-violet-50 border border-violet-200 rounded-xl px-2.5 py-2 transition-colors">
+                            {r}
+                          </button>
+                        ))}
                       </div>
                     )}
 

@@ -1,6 +1,6 @@
-"""Advisor Companion Plan Phase 1/2/3 — Companion Brain Foundation +
-Relationship Analysis Experience + Action Protocol And Approval
-(docs/ADVISOR_COMPANION_PLAN.md §6.1).
+"""Advisor Companion Plan Phase 1/2/3/4 — Companion Brain Foundation +
+Relationship Analysis Experience + Action Protocol And Approval + Watch
+Replies And Narration (docs/ADVISOR_COMPANION_PLAN.md §6.1).
 
 Phase 1 (`handle_turn`) orchestrates a global-advisor turn: classify
 intent, retrieve profile/memories/emotional state/contact context,
@@ -12,15 +12,21 @@ signal), the relationship-advice policy, and the evidence/my-read/
 alternative-read/what-I'd-do structured response for analysis-flavored
 intents. Phase 3 completes the Boundary Keeper risk check (§3.11/§6.13)
 on any proposed send and returns a fully-formed action proposal for Node
-(routes/advisor.ts) to persist as `advisor_action_requests`. The Studio
-advisor keeps its own separate flow in routes/conversation.py — its
-context shape (catalog/rules/suppliers) is unrelated to either of these.
+(routes/advisor.ts) to persist as `advisor_action_requests`. Phase 4
+(`find_active_watch`/`generate_reply_narration`) narrates an incoming
+reply plus suggested next responses when the user is watching a
+conversation — called from `workers/message_worker.py` right after the
+existing per-message analysis, reusing the same `advisor_action_requests`
+table's already-unused `watch_conversation` action type rather than a new
+table. The Studio advisor keeps its own separate flow in
+routes/conversation.py — its context shape (catalog/rules/suppliers) is
+unrelated to either of these.
 """
 import json
 import structlog
 
 from ..ai.client import get_ai_client
-from ..ai.prompts import CLASSIFY_ADVISOR_TURN, RELATIONSHIP_ADVICE_POLICY, ANALYZE_CHAT_TURN, CONVERSATION_TURN
+from ..ai.prompts import CLASSIFY_ADVISOR_TURN, RELATIONSHIP_ADVICE_POLICY, ANALYZE_CHAT_TURN, CONVERSATION_TURN, NARRATE_REPLY
 from ..database import get_pool
 from ..memory import retrieval_service as memory
 from ..neural.emotion import get_emotion_engine, emotional_congruence
@@ -151,6 +157,25 @@ class AdvisorCompanionService:
         if intent == 'deactivate_personal_mode':
             await self._set_personal_mode(user_id, False)
             return self._response(_PERSONAL_MODE_OFF_REPLY, intent, mood='neutral', confidence=0.95)
+
+        # Advisor Companion Plan Phase 4 (§3.5/§5.4/§9) — "watch this chat
+        # and tell me when they reply" as a natural-language path onto the
+        # same advisor_action_requests-backed watch, alongside the
+        # dedicated POST/DELETE /api/advisor/watch endpoints the frontend
+        # toggle uses.
+        if intent == 'watch_replies':
+            if not (contact_id and session_id):
+                return self._response(
+                    "I need an open conversation to watch — open a specific chat first.",
+                    intent, mood='neutral', confidence=0.6,
+                )
+            existing_watch = await self.find_active_watch(conversation_id)
+            if existing_watch:
+                reply = f"I'm already watching this conversation with {contact_name} — I'll let you know as soon as they reply."
+            else:
+                await self._create_watch(user_id, session_id, conversation_id, contact_id)
+                reply = f"Got it — I'm watching this conversation now. I'll let you know as soon as {contact_name} replies, plus a few suggested responses."
+            return self._response(reply, intent, mood='neutral', confidence=0.9)
 
         emotional_state = await get_emotion_engine().get_current_emotional_state(user_id)
         companion_mode = await self._get_session_companion_mode(session_id) if session_id else 'balanced'
@@ -462,6 +487,103 @@ class AdvisorCompanionService:
         if factors == 1:
             return 'medium'
         return 'low'
+
+    async def find_active_watch(self, conversation_id: str) -> dict | None:
+        """Advisor Companion Plan Phase 4 (§5.4/§9) — is anyone watching
+        this conversation right now? Reuses advisor_action_requests'
+        already-unused 'watch_conversation' action type (auto-approved at
+        creation — a passive watch request needs no separate approval
+        step) instead of a dedicated table."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT id, user_id, session_id, payload
+                   FROM advisor_action_requests
+                   WHERE action_type = 'watch_conversation' AND status = 'approved'
+                     AND payload->>'conversationId' = $1
+                     AND (expires_at IS NULL OR expires_at > NOW())
+                   ORDER BY created_at DESC LIMIT 1""",
+                conversation_id,
+            )
+        return dict(row) if row else None
+
+    async def _create_watch(self, user_id: str, session_id: str, conversation_id: str,
+                             contact_id: str, minutes: int = 60) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO advisor_action_requests
+                     (user_id, session_id, action_type, status, payload, risk_level, approved_at, expires_at)
+                   VALUES ($1, $2, 'watch_conversation', 'approved', $3::jsonb, 'low', NOW(), NOW() + make_interval(mins => $4))""",
+                user_id, session_id, json.dumps({'conversationId': conversation_id, 'contactId': contact_id}), minutes,
+            )
+
+    async def generate_reply_narration(self, user_id: str, conversation_id: str, contact_id: str,
+                                        new_message: str) -> dict:
+        """Phase 4 (§3.5/§3.6/§9) — narrate an incoming reply plus 2-3
+        suggested next responses in one structured call. Deliberately its
+        own lightweight prompt rather than reply_gen.py's heavier pipeline,
+        which has its own DB-write and auto-response side effects that
+        don't belong to a watched-conversation narration."""
+        messages = await memory.get_recent_messages(conversation_id, limit=15)
+        contact_name = 'Contact'
+        transcript = ''
+        if messages:
+            contact_name = messages[0].get('custom_name') or messages[0].get('display_name') or 'Contact'
+            transcript = memory.format_transcript(messages, contact_name)
+
+        trend_context = await self._get_reply_trend_context(user_id, contact_id)
+
+        contact_context = ''
+        contact_summary = await memory.get_contact_summary(user_id, contact_id)
+        if contact_summary.get('personality_summary'):
+            contact_context = f"\n\nWhat you know about {contact_name}: {contact_summary['personality_summary']}"
+
+        prompt = NARRATE_REPLY.format(
+            contact_name=contact_name, new_message=new_message, transcript=transcript,
+            trend_context=trend_context, contact_context=contact_context,
+        )
+        ai = get_ai_client()
+        try:
+            result = await ai.complete_json([{'role': 'user', 'content': prompt}])
+            narration = result.get('narration') or f'{contact_name} replied.'
+            suggested_replies = result.get('suggested_replies') or []
+        except Exception as exc:
+            log.warning('advisor_narration_failed', error=str(exc))
+            narration = f'{contact_name} replied: "{new_message[:120]}"'
+            suggested_replies = []
+
+        return {'narration': narration, 'suggestedReplies': suggested_replies, 'contactName': contact_name}
+
+    async def _get_reply_trend_context(self, user_id: str, contact_id: str) -> str:
+        """Cheap signal behind the narration's "warmer than last week"
+        read — trailing-7-day vs prior-7-day average valence from
+        emotional_signals, plus the relationship's own health_trend. Both
+        already-computed signals, not a new detection pass."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            valence_row = await conn.fetchrow(
+                """SELECT
+                     AVG(valence) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS recent_valence,
+                     AVG(valence) FILTER (WHERE created_at <= NOW() - INTERVAL '7 days'
+                                            AND created_at > NOW() - INTERVAL '14 days') AS prior_valence
+                   FROM emotional_signals WHERE user_id = $1 AND contact_id = $2""",
+                user_id, contact_id,
+            )
+            health_row = await conn.fetchrow(
+                'SELECT health_trend FROM relationships WHERE user_id = $1 AND contact_id = $2',
+                user_id, contact_id,
+            )
+        lines = []
+        if valence_row and valence_row['recent_valence'] is not None and valence_row['prior_valence'] is not None:
+            delta = float(valence_row['recent_valence']) - float(valence_row['prior_valence'])
+            if delta > 0.15:
+                lines.append('Their tone has been noticeably warmer this past week than the week before.')
+            elif delta < -0.15:
+                lines.append('Their tone has been noticeably cooler this past week than the week before.')
+        if health_row and health_row['health_trend'] in ('improving', 'declining'):
+            lines.append(f"Overall relationship health trend: {health_row['health_trend']}.")
+        return f"\nTrend signals: {' '.join(lines)}" if lines else ''
 
     async def _save_memory_suggestion(self, user_id: str, session_id: str | None, suggestion: dict) -> None:
         memory_type = suggestion.get('type')
