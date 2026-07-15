@@ -1250,6 +1250,45 @@ function GoalsPanel({ contactId, token, mode }: { contactId: string; token: stri
   )
 }
 
+// Zuri Neural Layer Phase 5 — Prediction Engine (docs/NEURAL_LAYER_PLAN.md
+// §4.8). purchase_likelihood is the first prediction built directly
+// against the shared Prediction contract (see neural/prediction.py) —
+// a deterministic heuristic over recent contact_products signals and
+// relationship health trend, not an LLM call.
+interface PredictionData {
+  predictedValue: { likelihood: number }
+  confidence: number
+  evidence: string[]
+}
+
+function PurchaseLikelihoodPanel({ contactId, token }: { contactId: string; token: string }) {
+  const { data } = useApi<{ prediction: PredictionData | null }>(
+    `/api/predictions/purchase_likelihood/${contactId}`, token,
+  )
+  const prediction = data?.prediction
+  if (!prediction) return null
+
+  const pct = Math.round(prediction.confidence * 100)
+  const color = pct >= 60 ? 'text-green-600' : pct >= 35 ? 'text-amber-600' : 'text-gray-400'
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+        <TrendingUp size={14} className="text-indigo-400" />
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Purchase Likelihood</p>
+        <span className={`ml-auto text-sm font-bold tabular-nums ${color}`}>{pct}%</span>
+      </div>
+      {prediction.evidence.length > 0 && (
+        <div className="px-4 py-3 space-y-1">
+          {prediction.evidence.map((e, i) => (
+            <p key={i} className="text-xs text-gray-500 leading-snug">{e}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface RelationshipClock {
   id: string
   clockType: string
@@ -2241,6 +2280,8 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
                 )}
 
                 <GoalsPanel contactId={contact.id} token={token!} mode={mode} />
+
+                {mode !== 'personal' && <PurchaseLikelihoodPanel contactId={contact.id} token={token!} />}
 
                 {buyingSignals.length > 0 && (
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

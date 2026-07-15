@@ -14,6 +14,7 @@ from .routes.relationship_health import router as relationship_health_router
 from .routes.proactive import router as proactive_router
 from .routes.documents import router as documents_router
 from .routes.auto_reply import router as auto_reply_router
+from .routes.predictions import router as predictions_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
 from .workers.daily_worker import (
@@ -108,3 +109,4 @@ app.include_router(relationship_health_router)
 app.include_router(proactive_router)
 app.include_router(documents_router)
 app.include_router(auto_reply_router)
+app.include_router(predictions_router)
