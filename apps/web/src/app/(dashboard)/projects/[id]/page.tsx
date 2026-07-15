@@ -4,11 +4,16 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, FolderKanban, Plus, Trash2, Loader2, FileText, Check, Circle, Ban,
+  ArrowLeft, FolderKanban, Plus, Trash2, Loader2, FileText, Check, Circle, Ban, Target, X,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, SkeletonCard, useToast } from '@/components/ui'
+
+// Zuri Neural Layer Phase 2 (docs/NEURAL_LAYER_PLAN.md §4.4) — a project
+// can link to a cross-module goal (e.g. "grow monthly revenue to $20k"),
+// distinct from the project's own deal_id/contact_id relationships.
+interface GoalOption { id: string; title: string }
 
 interface ProjectDetail {
   id: string
@@ -83,6 +88,10 @@ export default function ProjectDetailPage() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showGoalPicker, setShowGoalPicker] = useState(false)
+  const [goalOptions, setGoalOptions] = useState<GoalOption[]>([])
+  const [linkingGoalId, setLinkingGoalId] = useState('')
+  const [linkingGoal, setLinkingGoal] = useState(false)
 
   const load = () => {
     if (!token || !params.id) return
@@ -171,6 +180,34 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const openGoalPicker = async () => {
+    if (!token) return
+    setShowGoalPicker(true)
+    try {
+      const data = await apiClient<{ goals: GoalOption[] }>('/api/goal-profiles?status=active', { token })
+      setGoalOptions(data.goals)
+    } catch {
+      setGoalOptions([])
+    }
+  }
+
+  const linkToGoal = async () => {
+    if (!token || !project || !linkingGoalId) return
+    setLinkingGoal(true)
+    try {
+      await apiClient(`/api/goal-profiles/${linkingGoalId}/link`, {
+        method: 'POST', token, body: JSON.stringify({ entityType: 'project', entityId: project.id }),
+      })
+      addToast({ variant: 'success', title: 'Linked to goal' })
+      setShowGoalPicker(false)
+      setLinkingGoalId('')
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to link goal', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setLinkingGoal(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)] p-4 md:p-6">
@@ -228,9 +265,16 @@ export default function ProjectDetailPage() {
                 </button>
               ))}
               <button
+                onClick={openGoalPicker}
+                className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
+              >
+                <Target className="w-3.5 h-3.5" />
+                Link to goal
+              </button>
+              <button
                 onClick={deleteProject}
                 disabled={deleting}
-                className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
               >
                 {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 Delete
@@ -325,6 +369,43 @@ export default function ProjectDetailPage() {
           )}
         </div>
       </div>
+
+      {showGoalPicker && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowGoalPicker(false)} />
+          <div className="relative z-10 w-full max-w-md bg-white rounded-t-2xl md:rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-semibold text-gray-900">Link to a goal</h2>
+              <button onClick={() => setShowGoalPicker(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            {goalOptions.length === 0 ? (
+              <p className="text-xs text-gray-400">No active goals yet — create one on the Goals page first.</p>
+            ) : (
+              <select
+                value={linkingGoalId}
+                onChange={e => setLinkingGoalId(e.target.value)}
+                className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select a goal...</option>
+                {goalOptions.map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
+              </select>
+            )}
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button onClick={() => setShowGoalPicker(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={linkToGoal}
+                disabled={linkingGoal || !linkingGoalId}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {linkingGoal && <Loader2 className="w-4 h-4 animate-spin" />}
+                Link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -45,6 +45,7 @@ import { purchaseOrdersRoutes } from './routes/purchase-orders';
 import { inventoryLocationsRoutes } from './routes/inventory-locations';
 import { actionBundlesRoutes } from './routes/action-bundles';
 import { projectsRoutes } from './routes/projects';
+import { goalProfilesRoutes } from './routes/goal-profiles';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -116,6 +117,7 @@ export async function buildApp() {
   await fastify.register(inventoryLocationsRoutes);
   await fastify.register(actionBundlesRoutes);
   await fastify.register(projectsRoutes);
+  await fastify.register(goalProfilesRoutes);
 
   return fastify;
 }

@@ -1,6 +1,6 @@
 # Zuri Neural Layer — Master Architecture Plan
 
-**Status:** Phase 1 (Platform-Wide Emotion Engine, §4.2/§10) shipped — migration `0062`, see `CLAUDE.md`'s "Zuri Neural Layer" section. Phases 2–6 remain unstarted. This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
+**Status:** Phase 1 (Platform-Wide Emotion Engine, §4.2/§10) and Phase 2 (Cross-Module Goal Engine, §4.4/§10) shipped — migrations `0062`/`0063`, see `CLAUDE.md`'s "Zuri Neural Layer" section. Phases 3–6 remain unstarted. This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
 
 ---
 
@@ -56,7 +56,7 @@ Models (LiteLLM — Gemini / DashScope-Qwen pool, per model_router.py)
 | Memory Engine | `retrieval_service.py`, `relationship_memory`, `business_facts`, `agent_memories`, `context_snapshots` — all shipped (`docs/MEMORY_ENGINE_PLAN.md`, 6/6 phases) | ✅ Shipped | Formalizing the three-category taxonomy (§4.1: Personal / Relationship / Business Memory) as a documented contract every module retrieves through — not new storage |
 | Emotion Engine | Advisor-only design in `docs/ADVISOR_COMPANION_PLAN.md` §3.6 (unstarted) | ✅ Shipped platform-wide (migration `0062`) | **Promoted to platform-wide here** (§4.2) — same model, generalized entity reference so CRM/Projects/Suppliers can tag emotional state too. Writers so far: WhatsApp message analysis, Advisor turns. `projects`/`suppliers` write paths not yet wired (see §10 Phase 1 scope note) |
 | Relationship Engine | `health.py`, `relationships.health_score`/`.network_value`, `docs/RELATIONSHIP_OS_PLAN.md` (6 phases shipped) | ✅ Shipped | Nothing new structurally — §4.3 documents how the Emotion Engine plugs into it |
-| Goal Engine | `relationship_goals` table, PRODUCT_VISION.md §4 (per-relationship only) | ✅ Shipped, narrower scope | **Elevated to cross-module** (§4.4) — a goal like "grow revenue to $20k/mo" spans Studio, CRM, Inventory, Marketing, not one relationship |
+| Goal Engine | `relationship_goals` table, PRODUCT_VISION.md §4 (per-relationship only) | ✅ Shipped both tiers (migration `0063` for the cross-module tier) | **Elevated to cross-module** (§4.4) — a goal like "grow revenue to $20k/mo" spans Studio, CRM, Inventory, Marketing, not one relationship. `goal_memories` has no writer yet; the goal-conflict check is a deterministic heuristic, not the full Reasoning Engine |
 | Knowledge Graph | `relationship_connections` (people-to-people only) | ✅ Shipped, narrower scope | **Extended to non-person entities** (§4.5) — products, suppliers, projects, deals as graph nodes too |
 | Reasoning Engine | Conversation Strategy Engine (PRODUCT_VISION.md Engine 5, planned, conversation-planning specifically) | 🔲 Planned, narrower scope | **Generalized** (§4.6) to a retrieve→reason→verify→act contract usable by any module's decision, not just "what to say next" |
 | Reflection Engine | Nothing | 🔲 **Fully net-new** (§4.7) | Daily/weekly/monthly reflection + Life Timeline |
@@ -368,11 +368,16 @@ Success criteria: a WhatsApp message analysis pass and an Advisor turn both writ
 **Scope note:** `projects`/`suppliers.emotional_signals_summary` columns exist but nothing writes to them yet — no code path today links a WhatsApp message/conversation to a `projects` row, and no supplier-conversation detector exists (that's `docs/BUSINESS_OS_PLAN.md` §8.1, itself still unbuilt). Wiring those two is follow-up work, not part of this phase's success criteria. `buyingIntent` in the relationship summary is deliberately `null` (needs business-signal correlation this engine doesn't read) rather than fabricated — see §8's confidence-everywhere principle.
 
 ### Phase 2 — Cross-Module Goal Engine
+
+**✅ Shipped** (migration `0063`). See `CLAUDE.md`'s "Zuri Neural Layer" section for the summary of what's live.
+
 - Migration: `goal_profiles`, `goal_memories`, `goal_progress`, `goal_events`, `goal_linked_entities` (§4.4)
 - CRUD API + a lightweight "link this deal/project/product to a goal" affordance on the relevant module pages
 - Reasoning Engine's first real consumer: "does this action conflict with an active goal?" check, wired into one pilot surface (Studio's discount-approval flow is the plan's own worked example)
 
 Success criteria: a user can create a cross-module goal, link entities to it, and get one goal-aware warning from Advisor or Studio.
+
+**Scope note:** the "link to goal" affordance shipped on `/projects/[id]` and inside the `/goals/[id]` detail page's own linker (which supports deal/project/product/contact/document); deals, products, and documents don't yet have their own inline "link to goal" button on their existing pages — reachable today only via the goal detail page's linker, not a bespoke button on every module. The goal-conflict check is a deterministic heuristic (price-drop % / margin threshold), not a call into a formal Reasoning Engine service — §4.6's full retrieve→reason→verify→act contract remains a future phase; this is deliberately the smallest real pilot of that pattern. `goal_memories` has no writer yet.
 
 ### Phase 3 — Reflection Engine + Life Timeline
 - Migration: `reflection_summaries` (§4.7)

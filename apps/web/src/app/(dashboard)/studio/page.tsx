@@ -2346,6 +2346,13 @@ function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI:
   const [selectedId,  setSelectedId]  = useState<string | null>(null)
   const [savingId,    setSavingId]    = useState<string | null>(null)
   const [editFields,  setEditFields]  = useState<Record<string, string>>({})
+  // Zuri Neural Layer Phase 2 (docs/NEURAL_LAYER_PLAN.md §4.4/§10) — the
+  // Reasoning Engine's first pilot consumer: before saving a price
+  // decrease, check whether it works against an active business goal.
+  // Never blocks — just flags, same "never block, always disclose"
+  // posture as the rest of this codebase's approval flows.
+  const [goalConflict, setGoalConflict] = useState<{ goalTitle: string; message: string; evidence: string[] } | null>(null)
+  const [pendingPatch, setPendingPatch] = useState<Record<string, number | null> | null>(null)
 
   const selectedProduct = products.find(p => p.id === selectedId) ?? null
 
@@ -2361,19 +2368,10 @@ function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI:
     })
   }
 
-  async function saveDetail() {
-    if (!selectedId) return
-    setSavingId(selectedId)
+  async function commitPricePatch(id: string, patch: Record<string, number | null>) {
+    setSavingId(id)
     try {
-      const patch: Record<string, number | null> = {}
-      if (editFields.sellingPrice !== '') patch.sellingPrice = parseFloat(editFields.sellingPrice)
-      if (editFields.purchaseCost !== '') patch.purchaseCost = parseFloat(editFields.purchaseCost)
-      patch.minPrice       = editFields.minPrice       ? parseFloat(editFields.minPrice)       : null
-      patch.maxPrice       = editFields.maxPrice       ? parseFloat(editFields.maxPrice)       : null
-      patch.discountMinPct = editFields.discountMinPct ? parseFloat(editFields.discountMinPct) : 0
-      patch.discountMaxPct = editFields.discountMaxPct ? parseFloat(editFields.discountMaxPct) : 0
-
-      await apiClient(`/api/products/${selectedId}`, {
+      await apiClient(`/api/products/${id}`, {
         method: 'PATCH', token,
         body: JSON.stringify(patch),
       })
@@ -2385,6 +2383,37 @@ function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI:
     } finally {
       setSavingId(null)
     }
+  }
+
+  async function saveDetail() {
+    if (!selectedId) return
+
+    const patch: Record<string, number | null> = {}
+    if (editFields.sellingPrice !== '') patch.sellingPrice = parseFloat(editFields.sellingPrice)
+    if (editFields.purchaseCost !== '') patch.purchaseCost = parseFloat(editFields.purchaseCost)
+    patch.minPrice       = editFields.minPrice       ? parseFloat(editFields.minPrice)       : null
+    patch.maxPrice       = editFields.maxPrice       ? parseFloat(editFields.maxPrice)       : null
+    patch.discountMinPct = editFields.discountMinPct ? parseFloat(editFields.discountMinPct) : 0
+    patch.discountMaxPct = editFields.discountMaxPct ? parseFloat(editFields.discountMaxPct) : 0
+
+    const currentPrice = selectedProduct?.sellingPrice ?? null
+    if (token && currentPrice != null && patch.sellingPrice != null && patch.sellingPrice < currentPrice) {
+      try {
+        const check = await apiClient<{ conflict: boolean; goal?: { title: string }; message?: string; evidence?: string[] }>(
+          '/api/goal-profiles/check-price-conflict',
+          { method: 'POST', token, body: JSON.stringify({ productId: selectedId, newSellingPrice: patch.sellingPrice }) },
+        )
+        if (check.conflict && check.goal) {
+          setPendingPatch(patch)
+          setGoalConflict({ goalTitle: check.goal.title, message: check.message ?? '', evidence: check.evidence ?? [] })
+          return
+        }
+      } catch {
+        // Fail open — a broken check should never block saving pricing.
+      }
+    }
+
+    await commitPricePatch(selectedId, patch)
   }
 
   return (
@@ -2627,6 +2656,42 @@ function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI:
             </div>
           </div>
         </div>
+      )}
+
+      {goalConflict && (
+        <Modal
+          open
+          onClose={() => { setGoalConflict(null); setPendingPatch(null) }}
+          title="This may work against a goal"
+          size="sm"
+          footer={
+            <>
+              <button
+                onClick={() => { setGoalConflict(null); setPendingPatch(null) }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (selectedId && pendingPatch) commitPricePatch(selectedId, pendingPatch)
+                  setGoalConflict(null)
+                  setPendingPatch(null)
+                }}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+              >
+                Save Anyway
+              </button>
+            </>
+          }
+        >
+          <p className="text-sm text-gray-700">{goalConflict.message}</p>
+          {goalConflict.evidence.length > 0 && (
+            <ul className="text-xs text-gray-500 list-disc list-inside mt-2 space-y-0.5">
+              {goalConflict.evidence.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          )}
+        </Modal>
       )}
     </div>
   )
