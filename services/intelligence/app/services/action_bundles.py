@@ -92,22 +92,35 @@ class ActionBundleService:
                 names = ', '.join(i['product_name'] for i in low_stock_items)
                 summary += f'. This order will bring {names} to or below the reorder point.'
 
+            # Neural Layer Phase 6 (docs/NEURAL_LAYER_PLAN.md §4.9/§10) —
+            # dependsOn indices turn this from a flat checklist into a real
+            # sequence: reserve stock only after the deal exists, draft the
+            # quotation only once every item is reserved, and only remind
+            # once the quotation has actually been drafted. Additive to the
+            # {type, params} shape Business OS Phase E shipped — a consumer
+            # that ignores dependsOn still sees the exact same flat list.
             first = resolved_items[0]
             actions = [{
                 'type': 'create_deal',
                 'params': [contact_id, first['product_id'], first['product_name'], str(first['quantity'])],
             }]
+            deal_index = 0
+            reserve_indices = []
             for item in resolved_items:
                 actions.append({
                     'type': 'reserve_stock',
                     'params': [item['product_id'], item['product_name'], str(item['quantity'])],
+                    'dependsOn': [deal_index],
                 })
+                reserve_indices.append(len(actions) - 1)
             brief = f'Quotation for {item_summary}, requested by {contact_name}'
-            actions.append({'type': 'generate_document', 'params': ['quotation', contact_id, brief]})
+            actions.append({'type': 'generate_document', 'params': ['quotation', contact_id, brief], 'dependsOn': reserve_indices})
+            document_index = len(actions) - 1
             follow_up_date = (date.today() + timedelta(days=30)).isoformat()
             actions.append({
                 'type': 'reminder',
                 'params': [f'Follow up on {item_summary} order with {contact_name}', follow_up_date],
+                'dependsOn': [document_index],
             })
 
             row = await conn.fetchrow(
