@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { Badge, PageHeader } from '@/components/ui'
+import { Badge, PageHeader, StatCard, DataTable, Skeleton, EmptyState } from '@/components/ui'
+import type { Column } from '@/components/ui'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 
@@ -107,6 +108,32 @@ interface SyncStatus {
   completedAt?: string | null
 }
 
+type TokenUsagePeriod = 'daily' | 'weekly' | 'monthly' | 'all'
+
+interface TokenUsageBucket {
+  feature?: string
+  model?: string
+  date?: string
+  tokens: number
+  cost: number
+}
+
+interface TokenUsageResponse {
+  totalTokens: number
+  totalCostEstimate: number
+  byFeature: TokenUsageBucket[]
+  byModel: TokenUsageBucket[]
+  dailyBreakdown: TokenUsageBucket[]
+  userSpecific?: { userId: string; totalTokens: number; totalCostEstimate: number }
+}
+
+const PERIOD_LABELS: Record<TokenUsagePeriod, string> = {
+  daily: 'Today',
+  weekly: 'Last 7 days',
+  monthly: 'Last 30 days',
+  all: 'All time',
+}
+
 export default function DiagnosticsPage() {
   const { isSignedIn, isLoaded: authLoaded } = useAuth()
   const { user } = useUser()
@@ -119,6 +146,67 @@ export default function DiagnosticsPage() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [syncLoading, setSyncLoading] = useState(false)
   const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const isAdmin = session.data?.isAdmin ?? false
+  const [tokenPeriod, setTokenPeriod] = useState<TokenUsagePeriod>('monthly')
+  const [tokenScope, setTokenScope] = useState<'overall' | 'user'>('overall')
+  const [tokenScopeUserId, setTokenScopeUserId] = useState('')
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageResponse | null>(null)
+  const [tokenLoading, setTokenLoading] = useState(false)
+  const [tokenError, setTokenError] = useState<string | null>(null)
+  const [tokenTodayTotal, setTokenTodayTotal] = useState<number | null>(null)
+  const [tokenMonthCost, setTokenMonthCost] = useState<number | null>(null)
+
+  const fetchTokenUsage = useCallback(async () => {
+    if (!token) return
+    setTokenLoading(true)
+    setTokenError(null)
+    try {
+      const params = new URLSearchParams({ period: tokenPeriod })
+      if (isAdmin && tokenScope === 'user' && tokenScopeUserId.trim()) {
+        params.set('userId', tokenScopeUserId.trim())
+      }
+      const r = await fetch(`${API_URL}/api/diagnostics/token-usage?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = await r.json().catch(() => null)
+      if (!r.ok) {
+        setTokenError(body?.error || `HTTP ${r.status}`)
+        setTokenUsage(null)
+        return
+      }
+      setTokenUsage(body)
+    } catch (err: any) {
+      setTokenError(err.message)
+      setTokenUsage(null)
+    } finally {
+      setTokenLoading(false)
+    }
+  }, [token, tokenPeriod, tokenScope, tokenScopeUserId, isAdmin])
+
+  const fetchTokenTodayAndMonth = useCallback(async () => {
+    if (!token) return
+    try {
+      const [todayRes, monthRes] = await Promise.all([
+        fetch(`${API_URL}/api/diagnostics/token-usage?period=daily`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/diagnostics/token-usage?period=monthly`, { headers: { Authorization: `Bearer ${token}` } }),
+      ])
+      const [todayBody, monthBody] = await Promise.all([
+        todayRes.ok ? todayRes.json() : null,
+        monthRes.ok ? monthRes.json() : null,
+      ])
+      if (todayBody) setTokenTodayTotal(todayBody.totalTokens)
+      if (monthBody) setTokenMonthCost(monthBody.totalCostEstimate)
+    } catch { /* ignore */ }
+  }, [token])
+
+  useEffect(() => {
+    fetchTokenUsage()
+  }, [fetchTokenUsage])
+
+  useEffect(() => {
+    fetchTokenTodayAndMonth()
+  }, [fetchTokenTodayAndMonth])
 
   const fetchSyncStatus = useCallback(async (currentToken?: string) => {
     const t = currentToken || token
@@ -521,6 +609,148 @@ export default function DiagnosticsPage() {
               {checks.filter(c => ['contacts'].includes(c.id)).map(check => (
                 <CheckRow key={check.id} check={check} />
               ))}
+            </div>
+          </div>
+
+          {/* Token Usage & AI Costs */}
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Token Usage &amp; AI Costs</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {isAdmin && (
+                  <>
+                    <select
+                      value={tokenScope}
+                      onChange={(e) => setTokenScope(e.target.value as 'overall' | 'user')}
+                      className="text-xs rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-gray-700 font-medium"
+                    >
+                      <option value="overall">All users</option>
+                      <option value="user">Specific user</option>
+                    </select>
+                    {tokenScope === 'user' && (
+                      <input
+                        value={tokenScopeUserId}
+                        onChange={(e) => setTokenScopeUserId(e.target.value)}
+                        placeholder="User ID"
+                        className="text-xs rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-gray-700 w-40"
+                      />
+                    )}
+                  </>
+                )}
+                <select
+                  value={tokenPeriod}
+                  onChange={(e) => setTokenPeriod(e.target.value as TokenUsagePeriod)}
+                  className="text-xs rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-gray-700 font-medium"
+                >
+                  {Object.entries(PERIOD_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-lg shadow-indigo-200/40 ring-1 ring-white p-4 md:p-5 space-y-5">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.18),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.14),transparent_30%)] pointer-events-none" />
+
+              <div className="relative grid grid-cols-2 gap-3">
+                {tokenTodayTotal === null ? (
+                  <Skeleton className="h-[86px] w-full rounded-xl" />
+                ) : (
+                  <StatCard label="Tokens Today" value={tokenTodayTotal.toLocaleString()} />
+                )}
+                {tokenMonthCost === null ? (
+                  <Skeleton className="h-[86px] w-full rounded-xl" />
+                ) : (
+                  <StatCard label="Cost (Month-to-Date)" value={`$${tokenMonthCost.toFixed(4)}`} />
+                )}
+              </div>
+
+              {tokenError ? (
+                <div className="relative">
+                  <EmptyState
+                    icon="⚠️"
+                    title="Couldn't load token usage"
+                    description={tokenError}
+                  />
+                </div>
+              ) : tokenLoading && !tokenUsage ? (
+                <div className="relative space-y-3">
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                </div>
+              ) : tokenUsage && tokenUsage.totalTokens === 0 ? (
+                <div className="relative">
+                  <EmptyState
+                    icon="🪫"
+                    title="No AI usage yet"
+                    description={`No token usage logged for ${PERIOD_LABELS[tokenPeriod].toLowerCase()}.`}
+                  />
+                </div>
+              ) : tokenUsage ? (
+                <div className="relative grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-3xl border border-white bg-white/95 p-4 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                      {PERIOD_LABELS[tokenPeriod]} Total
+                    </p>
+                    <p className="text-xl font-black tracking-tight text-gray-950 tabular-nums">
+                      {tokenUsage.totalTokens.toLocaleString()} tokens
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">≈ ${tokenUsage.totalCostEstimate.toFixed(4)} estimated</p>
+                    {tokenUsage.userSpecific && (
+                      <p className="text-xs text-indigo-600 mt-2 font-medium">
+                        User {tokenUsage.userSpecific.userId.slice(0, 8)}… — {tokenUsage.userSpecific.totalTokens.toLocaleString()} tokens
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-3xl border border-white bg-white/95 p-4 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Top Features</p>
+                    {tokenUsage.byFeature.length === 0 ? (
+                      <p className="text-xs text-gray-400">No feature breakdown yet.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {tokenUsage.byFeature.slice(0, 6).map((f) => {
+                          const maxTokens = tokenUsage.byFeature[0]?.tokens || 1
+                          const pct = Math.max(4, Math.round((f.tokens / maxTokens) * 100))
+                          return (
+                            <div key={f.feature} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-600 w-32 truncate shrink-0">{f.feature}</span>
+                              <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-500 tabular-nums w-16 text-right shrink-0">
+                                {f.tokens.toLocaleString()}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <DataTable
+                      columns={[
+                        { key: 'model', header: 'Model' },
+                        { key: 'tokens', header: 'Tokens', cell: (r) => r.tokens.toLocaleString(), sortable: true },
+                        { key: 'cost', header: 'Est. Cost', cell: (r) => `$${r.cost.toFixed(4)}`, sortable: true },
+                      ] as Column<TokenUsageBucket & { id: string }>[]}
+                      data={tokenUsage.byModel.map((m) => ({ ...m, id: m.model || 'unknown' }))}
+                      loading={tokenLoading}
+                      emptyMessage="No model breakdown yet."
+                      pageSize={10}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="relative space-y-3">
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                </div>
+              )}
             </div>
           </div>
 

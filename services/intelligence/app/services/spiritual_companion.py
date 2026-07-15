@@ -63,7 +63,7 @@ class SpiritualCompanionService:
             devotional = await ai.complete_json([{
                 'role': 'user',
                 'content': GENERATE_DEVOTIONAL.format(tradition=tradition, translation=translation),
-            }])
+            }], service='advisor', feature='spiritual_devotional', user_id=user_id)
         except Exception as exc:
             log.warning('devotional_generation_failed', user_id=user_id, error=str(exc))
             return False

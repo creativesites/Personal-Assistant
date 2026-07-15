@@ -112,7 +112,7 @@ class InterestCompanionService:
                 nudge = await ai.complete_json([{
                     'role': 'user',
                     'content': GENERATE_INTEREST_NUDGE.format(topic=topic, results=results_text),
-                }])
+                }], service='advisor', feature='interest_search', user_id=user_id)
             except Exception as exc:
                 log.warning('interest_nudge_generation_failed', topic=topic, error=str(exc))
                 continue

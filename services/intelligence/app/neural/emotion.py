@@ -108,7 +108,7 @@ class EmotionEngine:
         try:
             raw = await client.complete_json([
                 {'role': 'user', 'content': CLASSIFY_EMOTION.format(text=text)},
-            ])
+            ], service='intelligence', feature='emotional_analysis', user_id=user_id)
             emotions = raw.get('emotions', {})
         except Exception as exc:
             log.warning('advisor_turn_emotion_classification_failed', error=str(exc))

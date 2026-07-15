@@ -49,7 +49,7 @@ async def summarize_conversation(conversation_id: str, user_id: str):
             ),
         },
         {'role': 'user', 'content': f'Summarize this conversation:\n\n{transcript}'},
-    ])
+    ], service='intelligence', feature='conversation_summary', user_id=user_id)
 
     return {'summary': result}
 
@@ -82,7 +82,7 @@ async def generate_followup(conversation_id: str, user_id: str):
             'role': 'user',
             'content': f'Generate a follow-up message based on this conversation:\n\n{transcript}',
         },
-    ])
+    ], service='intelligence', feature='conversation_followup', user_id=user_id)
 
     return {'followup': result.strip().strip('"').strip("'")}
 
@@ -289,5 +289,7 @@ async def studio_ask(body: StudioAskRequest):
     prompt_messages.append({'role': 'user', 'content': body.question})
 
     ai = get_ai_client()
-    result = await ai.complete_text(prompt_messages)
+    result = await ai.complete_text(
+        prompt_messages, service='studio_advisor', feature='studio_chat', user_id=body.user_id,
+    )
     return {'answer': result}

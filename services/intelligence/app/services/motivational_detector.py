@@ -106,7 +106,7 @@ class MotivationalDetectorService:
                     signals='\n'.join(f'- {s}' for s in signals),
                     style=json.dumps(style or {}),
                 ),
-            }])
+            }], service='advisor', feature='proactive_nudge', user_id=user_id)
         except Exception as exc:
             log.warning('motivational_nudge_generation_failed', user_id=user_id, error=str(exc))
             return False

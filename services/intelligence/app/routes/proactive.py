@@ -95,7 +95,10 @@ async def regenerate_suggestion(suggestion_id: str, body: RegenerateRequest):
         prompt += f"\n\nThe user gave this specific instruction for this draft — follow it closely: \"{body.instruction.strip()}\""
 
     client = get_ai_client()
-    raw = await client.complete_json([{'role': 'user', 'content': prompt}])
+    raw = await client.complete_json(
+        [{'role': 'user', 'content': prompt}],
+        service='proactive', feature='proactive_nudge', user_id=body.user_id,
+    )
 
     stype = raw.get('suggestion_type', 'check_in')
     if stype not in _VALID_TYPES:

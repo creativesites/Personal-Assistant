@@ -138,7 +138,9 @@ def _extract_csv_text(file_path: Path) -> str:
     return '\n'.join(' | '.join(cell.strip() for cell in row if cell.strip()) for row in rows)
 
 
-async def _extract_file_text(source_type: str, storage_path: str, mime_type: str | None) -> str:
+async def _extract_file_text(
+    source_type: str, storage_path: str, mime_type: str | None, user_id: str | None = None,
+) -> str:
     file_path = _safe_storage_path(storage_path)
     if not file_path.exists():
         raise ValueError('Uploaded file is missing from KB storage')
@@ -154,6 +156,7 @@ async def _extract_file_text(source_type: str, storage_path: str, mime_type: str
         return await client.extract_image_text(
             image_bytes=file_path.read_bytes(),
             mime_type=mime_type or 'image/jpeg',
+            service='intelligence', feature='ocr_extraction', user_id=user_id,
         )
     return file_path.read_text(encoding='utf-8', errors='ignore')
 
@@ -218,6 +221,7 @@ async def process_document(document_id: str, user_id: str) -> None:
                 doc['source_type'],
                 doc['storage_path'],
                 doc['mime_type'],
+                user_id=user_id,
             )
             word_count = len(raw_content.split())
             async with pool.acquire() as conn:
@@ -251,7 +255,7 @@ async def process_document(document_id: str, user_id: str) -> None:
             for idx, chunk_text in enumerate(chunks):
                 embedding_vec: list[float] | None = None
                 try:
-                    raw_embedding = await client.embed(chunk_text)
+                    raw_embedding = await client.embed(chunk_text, user_id=user_id)
                     if raw_embedding is not None:
                         embedding_vec = raw_embedding if isinstance(raw_embedding, list) else list(raw_embedding)
                 except Exception as emb_exc:
@@ -330,7 +334,7 @@ async def retrieve_relevant_chunks(
     client = get_ai_client()
 
     try:
-        query_embedding = await client.embed(query[:2000])
+        query_embedding = await client.embed(query[:2000], user_id=user_id)
     except Exception as exc:
         log.warning('kb_query_embed_failed', error=str(exc))
         query_embedding = None
@@ -473,7 +477,7 @@ async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[di
     client = get_ai_client()
 
     try:
-        query_embedding = await client.embed(query[:2000])
+        query_embedding = await client.embed(query[:2000], user_id=user_id)
     except Exception as exc:
         log.warning('kb_search_embed_failed', error=str(exc))
         return []
@@ -556,7 +560,10 @@ Do not make up information."""
     from ..ai.client import get_ai_client
     client = get_ai_client()
     try:
-        answer = await client.complete_text([{'role': 'user', 'content': prompt}])
+        answer = await client.complete_text(
+            [{'role': 'user', 'content': prompt}],
+            service='intelligence', feature='knowledge_qa', user_id=user_id,
+        )
     except Exception as exc:
         log.error('kb_chat_failed', error=str(exc))
         answer = 'Sorry, I was unable to generate an answer. Please try again.'

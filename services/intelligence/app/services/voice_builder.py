@@ -48,7 +48,8 @@ class UserVoiceBuilder:
                 messages_text=messages_text,
                 message_count=len(messages),
                 date_range=date_range,
-            )}]
+            )}],
+            service='intelligence', feature='voice_profile_building', user_id=user_id,
         )
 
         formality_map = {

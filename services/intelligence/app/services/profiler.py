@@ -69,7 +69,7 @@ class ContactProfiler:
                 user_name=user_name,
                 messages_text=messages_text,
             ),
-        }])
+        }], service='intelligence', feature='contact_profiling', user_id=user_id)
         insights_model = ContactInsights(**insights_raw)
 
         # Build synthesised profile
@@ -91,7 +91,7 @@ class ContactProfiler:
                 existing_insights=existing_summary,
                 sample_messages=sample,
             ),
-        }])
+        }], service='intelligence', feature='contact_profiling', user_id=user_id)
         profile_model = ContactProfileUpdate(**profile_raw)
 
         # Only merge structured_attributes fields the model actually had evidence

@@ -74,7 +74,10 @@ class MessageAnalyser:
         )
 
         client = get_ai_client()
-        raw = await client.complete_json([{'role': 'user', 'content': prompt}])
+        raw = await client.complete_json(
+            [{'role': 'user', 'content': prompt}],
+            service='intelligence', feature='message_analysis', user_id=user_id,
+        )
         analysis = MessageAnalysis(**raw)
 
         sentiment = analysis.sentiment if analysis.sentiment in _VALID_SENTIMENTS else 'neutral'

@@ -5,6 +5,11 @@ import litellm
 import structlog
 from ..config import settings
 from .model_router import get_active_model, report_usage, force_advance
+from .token_usage import (
+    log_usage as log_token_usage,
+    estimate_tokens_from_text,
+    estimate_tokens_from_messages,
+)
 
 log = structlog.get_logger()
 
@@ -112,6 +117,32 @@ class AIClient:
         except Exception as exc:
             log.warning('ai_usage_report_failed', model=model, error=str(exc))
 
+    async def _log_token_usage(
+        self, model: str, messages: list[dict], response, *,
+        service: str, feature: str, user_id: str | None,
+    ) -> None:
+        """Comprehensive, provider-agnostic token/cost logging for the
+        Diagnostics "Token Usage & AI Costs" dashboard — unlike
+        _report_usage() above (dashscope-only, pool-rotation bookkeeping),
+        this runs for every model on every call. Falls back to a
+        conservative char-count estimate when a response has no usage
+        block (some providers/fallback paths omit it)."""
+        usage = getattr(response, 'usage', None)
+        prompt_tokens = getattr(usage, 'prompt_tokens', 0) if usage else 0
+        completion_tokens = getattr(usage, 'completion_tokens', 0) if usage else 0
+        if not prompt_tokens and not completion_tokens:
+            prompt_tokens = estimate_tokens_from_messages(messages)
+            content = ''
+            try:
+                content = response.choices[0].message.content or ''
+            except Exception:
+                pass
+            completion_tokens = estimate_tokens_from_text(content)
+        await log_token_usage(
+            user_id=user_id, service=service, feature=feature, model=model,
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        )
+
     async def _call_with_failover(
         self,
         messages: list[dict],
@@ -121,6 +152,9 @@ class AIClient:
         json_mode: bool = False,
         temperature: float = 0.7,
         max_tokens: int = 1024,
+        service: str = 'intelligence',
+        feature: str = 'unknown',
+        user_id: str | None = None,
     ):
         """Call litellm with automatic pool advance on hard errors (403, quota, etc).
         After 3 consecutive hard failures on dashscope, falls back to Gemini."""
@@ -147,6 +181,9 @@ class AIClient:
                         if json_mode:
                             kwargs['response_format'] = {'type': 'json_object'}
                         response = await litellm.acompletion(**kwargs)
+                        await self._log_token_usage(
+                            gemini, messages, response, service=service, feature=feature, user_id=user_id,
+                        )
                         return gemini, response
                     except Exception as exc:
                         log.error('ai_gemini_fallback_failed', error=str(exc))
@@ -169,6 +206,9 @@ class AIClient:
             try:
                 response = await litellm.acompletion(**kwargs)
                 await self._report_usage(m, pool, response)
+                await self._log_token_usage(
+                    m, messages, response, service=service, feature=feature, user_id=user_id,
+                )
                 return m, response
             except Exception as exc:
                 log.error('ai_completion_failed', model=m, error=str(exc))
@@ -185,18 +225,22 @@ class AIClient:
 
     async def complete_json(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
+        *, service: str = 'intelligence', feature: str = 'unknown', user_id: str | None = None,
     ) -> dict:
         _, response = await self._call_with_failover(
             messages, pool, model, json_mode=True, temperature=0.3, max_tokens=2048,
+            service=service, feature=feature, user_id=user_id,
         )
         content = response.choices[0].message.content or '{}'
         return json.loads(content)
 
     async def complete_text(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
+        *, service: str = 'intelligence', feature: str = 'unknown', user_id: str | None = None,
     ) -> str:
         _, response = await self._call_with_failover(
             messages, pool, model, temperature=0.7, max_tokens=1024,
+            service=service, feature=feature, user_id=user_id,
         )
         return response.choices[0].message.content or ''
 
@@ -206,41 +250,56 @@ class AIClient:
         image_bytes: bytes,
         mime_type: str,
         prompt: str | None = None,
+        service: str = 'intelligence',
+        feature: str = 'ocr_extraction',
+        user_id: str | None = None,
     ) -> str:
         m = await self._resolve_model(None, 'ocr')
         extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
         effective_model = extra.pop('_override_model', m)
         data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        vision_messages = [{
+            'role': 'user',
+            'content': [
+                {
+                    'type': 'text',
+                    'text': prompt or (
+                        'Extract all readable text from this business document/image. '
+                        'Preserve prices, product names, contact details, policies, dates, '
+                        'tables, labels, addresses, and phone numbers. Return plain text only.'
+                    ),
+                },
+                {'type': 'image_url', 'image_url': {'url': data_url}},
+            ],
+        }]
         response = await litellm.acompletion(
             model=effective_model,
-            messages=[{
-                'role': 'user',
-                'content': [
-                    {
-                        'type': 'text',
-                        'text': prompt or (
-                            'Extract all readable text from this business document/image. '
-                            'Preserve prices, product names, contact details, policies, dates, '
-                            'tables, labels, addresses, and phone numbers. Return plain text only.'
-                        ),
-                    },
-                    {'type': 'image_url', 'image_url': {'url': data_url}},
-                ],
-            }],
+            messages=vision_messages,
             temperature=0.1,
             max_tokens=4096,
             **extra,
         )
         await self._report_usage(m, 'ocr', response)
+        await self._log_token_usage(
+            m, vision_messages, response, service=service, feature=feature, user_id=user_id,
+        )
         return response.choices[0].message.content or ''
 
-    async def embed(self, text: str) -> list[float] | None:
+    async def embed(
+        self, text: str, *, service: str = 'intelligence', feature: str = 'embedding', user_id: str | None = None,
+    ) -> list[float] | None:
         if not settings.openai_api_key:
             return None
         try:
             response = await litellm.aembedding(
                 model=settings.embedding_model,
                 input=[text[:8192]],  # truncate to model limit
+            )
+            usage = getattr(response, 'usage', None)
+            prompt_tokens = getattr(usage, 'prompt_tokens', 0) if usage else estimate_tokens_from_text(text)
+            await log_token_usage(
+                user_id=user_id, service=service, feature=feature, model=settings.embedding_model,
+                prompt_tokens=prompt_tokens, completion_tokens=0,
             )
             return response.data[0]['embedding']
         except Exception as exc:

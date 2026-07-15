@@ -66,7 +66,10 @@ async def generate_next_step(body: NextStepRequest):
 
     model = await get_active_model('text') or settings.default_ai_model
     ai = get_ai_client()
-    result = await ai.complete_json([{'role': 'user', 'content': prompt}], model=model)
+    result = await ai.complete_json(
+        [{'role': 'user', 'content': prompt}], model=model,
+        service='intelligence', feature='goal_generation', user_id=body.userId,
+    )
     next_step = result.get('next_step')
     if not next_step:
         raise HTTPException(status_code=502, detail='Model did not return a next step')

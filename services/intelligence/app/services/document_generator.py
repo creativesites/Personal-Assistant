@@ -137,7 +137,10 @@ async def generate_document_data(user_id: str, contact_id: str, document_type: s
     )
 
     ai = get_ai_client()
-    raw = await ai.complete_json([{'role': 'user', 'content': prompt}])
+    raw = await ai.complete_json(
+        [{'role': 'user', 'content': prompt}],
+        service='documents', feature='document_generation', user_id=user_id,
+    )
 
     catalog_ids = {str(p['id']) for p in products}
     items = []
@@ -266,7 +269,10 @@ async def render_and_save(document_id: str, user_id: str) -> dict:
             notes=structured.get('notes') or 'none',
             reasoning_line=(f"Why generated: {document['ai_reasoning']}" if document['ai_reasoning'] else ''),
         )
-        ai_summary = (await ai.complete_text([{'role': 'user', 'content': prompt}])).strip()
+        ai_summary = (await ai.complete_text(
+            [{'role': 'user', 'content': prompt}],
+            service='documents', feature='document_summary', user_id=user_id,
+        )).strip()
     except Exception:
         ai_summary = None
 
@@ -282,7 +288,7 @@ async def render_and_save(document_id: str, user_id: str) -> dict:
             structured.get('notes'), structured.get('terms'),
         ]))
         ai = get_ai_client()
-        embedding_vec = await ai.embed(embedding_text[:2000])
+        embedding_vec = await ai.embed(embedding_text[:2000], user_id=user_id)
     except Exception:
         embedding_vec = None
 
@@ -317,7 +323,7 @@ async def search_documents(user_id: str, query: str, limit: int = 10) -> list[di
 
     ai = get_ai_client()
     try:
-        query_embedding = await ai.embed(query[:2000])
+        query_embedding = await ai.embed(query[:2000], user_id=user_id)
     except Exception:
         query_embedding = None
 
@@ -387,7 +393,10 @@ async def compute_document_insights(user_id: str) -> list[str]:
 
     prompt = DOCUMENT_INSIGHTS.format(user_name=user['user_name'] if user else 'User', stats=stats)
     ai = get_ai_client()
-    raw = await ai.complete_json([{'role': 'user', 'content': prompt}])
+    raw = await ai.complete_json(
+        [{'role': 'user', 'content': prompt}],
+        service='documents', feature='document_insights', user_id=user_id,
+    )
     insights = raw.get('insights')
     if not isinstance(insights, list) or not insights:
         return ["Not enough variation in the data yet to draw a confident conclusion."]
@@ -480,7 +489,10 @@ async def chat_about_document(document_id: str, user_id: str, instruction: str, 
     )
 
     ai = get_ai_client()
-    raw = await ai.complete_json([{'role': 'user', 'content': prompt}])
+    raw = await ai.complete_json(
+        [{'role': 'user', 'content': prompt}],
+        service='documents', feature='document_chat', user_id=user_id,
+    )
 
     updated_items = raw.get('items')
     if updated_items is None:

@@ -76,7 +76,7 @@ class InterestMatcher:
                         interests=interests,
                         headlines=headlines_text,
                     ),
-                }])
+                }], service='intelligence', feature='interest_search', user_id=user_id)
 
                 if not match.get('matched'):
                     continue
@@ -92,7 +92,7 @@ class InterestMatcher:
                         relevance_reason=match.get('relevance_reason', ''),
                         url=match.get('url', ''),
                     ),
-                }])
+                }], service='intelligence', feature='interest_search', user_id=user_id)
 
                 priority = max(1, min(5, int(nudge.get('priority', 3))))
                 pool3 = await get_pool()

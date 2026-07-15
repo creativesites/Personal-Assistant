@@ -77,7 +77,10 @@ async def quality_check(document_id: str, body: QualityCheckRequest):
     )
 
     ai = get_ai_client()
-    raw = await ai.complete_json([{'role': 'user', 'content': prompt}])
+    raw = await ai.complete_json(
+        [{'role': 'user', 'content': prompt}],
+        service='documents', feature='document_quality_check', user_id=body.user_id,
+    )
     score = max(0, min(10, int(raw.get('score', 7) or 7)))
 
     return {'score': score, 'issues': raw.get('issues') or [], 'recommendation': raw.get('recommendation') or ''}

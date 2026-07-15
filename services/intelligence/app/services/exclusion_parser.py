@@ -32,7 +32,10 @@ async def parse_exclusion_instruction(user_id: str, instruction: str) -> dict:
     prompt = PARSE_EXCLUSION_INSTRUCTION.format(instruction=instruction, contact_list=contact_list)
     ai = get_ai_client()
     try:
-        raw = await ai.complete_json([{'role': 'user', 'content': prompt}])
+        raw = await ai.complete_json(
+            [{'role': 'user', 'content': prompt}],
+            service='intelligence', feature='exclusion_parsing', user_id=user_id,
+        )
     except Exception as exc:
         log.warning('exclusion_instruction_parse_failed', error=str(exc))
         return {'type': 'unknown'}

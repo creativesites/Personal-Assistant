@@ -52,7 +52,7 @@ class ScopedAutomationService:
                 'content': CLASSIFY_SCOPED_AUTOMATION.format(
                     scope=grant['scope_description'], incoming_message=incoming_message, draft_reply=draft_reply,
                 ),
-            }])
+            }], service='advisor', feature='scoped_automation_check', user_id=str(grant.get('user_id')) if grant.get('user_id') else None)
         except Exception as exc:
             log.warning('scoped_automation_classification_failed', error=str(exc))
             return False, 'classification_failed'

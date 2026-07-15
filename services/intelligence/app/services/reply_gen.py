@@ -111,7 +111,7 @@ class ReplyGenerator:
                             question=body[:300],
                             search_results=results_text,
                         ),
-                    }])
+                    }], service='intelligence', feature='conversation_summary', user_id=user_id)
                     if summary:
                         search_context = f'\n\nLive search answer for contact\'s question:\n{summary}'
                 except Exception as exc:
@@ -174,7 +174,10 @@ class ReplyGenerator:
             intent=analysis.intent.primary,
         ) + memory_context + relationship_context + search_context + kb_context + facts_context + catalog_context
 
-        raw = await client.complete_json([{'role': 'user', 'content': prompt}])
+        raw = await client.complete_json(
+            [{'role': 'user', 'content': prompt}],
+            service='intelligence', feature='reply_generation', user_id=user_id,
+        )
         suggestions_model = ReplySuggestions(**raw)
 
         pool = await get_pool()

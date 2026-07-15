@@ -86,7 +86,7 @@ _PERSONAL_MODE_OFF_REPLY = (
 
 class AdvisorCompanionService:
     async def handle_turn(self, user_id: str, question: str, session_id: str | None) -> dict:
-        turn = await self._classify_turn(question)
+        turn = await self._classify_turn(question, user_id=user_id)
         intent = turn.get('intent', 'unknown')
 
         if intent == 'activate_personal_mode':
@@ -117,7 +117,9 @@ class AdvisorCompanionService:
         prompt_messages.append({'role': 'user', 'content': question})
 
         ai = get_ai_client()
-        answer = await ai.complete_text(prompt_messages)
+        answer = await ai.complete_text(
+            prompt_messages, service='advisor', feature='advisor_chat', user_id=user_id,
+        )
 
         await get_emotion_engine().record_advisor_turn(user_id, session_id, question)
 
@@ -161,7 +163,7 @@ class AdvisorCompanionService:
             )
         contact_id = str(contact_row['contact_id']) if contact_row else None
 
-        turn = await self._classify_turn(question)
+        turn = await self._classify_turn(question, user_id=user_id)
         intent = turn.get('intent', 'unknown')
 
         if intent == 'activate_personal_mode':
@@ -262,7 +264,10 @@ class AdvisorCompanionService:
                 contact_context=contact_context, question=question,
             )
             try:
-                result = await ai.complete_json([{'role': 'user', 'content': prompt}])
+                result = await ai.complete_json(
+                    [{'role': 'user', 'content': prompt}],
+                    service='advisor', feature='advisor_analysis', user_id=user_id,
+                )
                 answer = result.get('reply_markdown', '')
                 evidence = result.get('evidence') or []
                 my_read = result.get('my_read')
@@ -283,7 +288,9 @@ class AdvisorCompanionService:
             prompt_messages = [{'role': 'system', 'content': prompt}]
             prompt_messages.extend(chat_history)
             prompt_messages.append({'role': 'user', 'content': question})
-            answer = await ai.complete_text(prompt_messages)
+            answer = await ai.complete_text(
+                prompt_messages, service='advisor', feature='advisor_chat', user_id=user_id,
+            )
 
         await get_emotion_engine().record_advisor_turn(user_id, session_id, question, contact_id=contact_id)
 
@@ -344,12 +351,12 @@ class AdvisorCompanionService:
             'proposedAction': proposed_action,
         }
 
-    async def _classify_turn(self, question: str) -> dict:
+    async def _classify_turn(self, question: str, user_id: str | None = None) -> dict:
         ai = get_ai_client()
         try:
             return await ai.complete_json([
                 {'role': 'user', 'content': CLASSIFY_ADVISOR_TURN.format(text=question)},
-            ])
+            ], service='advisor', feature='advisor_intent_classification', user_id=user_id)
         except Exception as exc:
             log.warning('advisor_turn_classification_failed', error=str(exc))
             return {'intent': 'unknown', 'needs_clarification': False, 'memory_suggestion': None}
@@ -633,7 +640,10 @@ class AdvisorCompanionService:
         )
         ai = get_ai_client()
         try:
-            result = await ai.complete_json([{'role': 'user', 'content': prompt}])
+            result = await ai.complete_json(
+                [{'role': 'user', 'content': prompt}],
+                service='advisor', feature='advisor_narration', user_id=user_id,
+            )
             narration = result.get('narration') or f'{contact_name} replied.'
             suggested_replies = result.get('suggested_replies') or []
         except Exception as exc:

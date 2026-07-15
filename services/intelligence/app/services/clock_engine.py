@@ -141,7 +141,10 @@ class ClockEngine:
                 )
 
                 try:
-                    raw = await client.complete_json([{'role': 'user', 'content': prompt}])
+                    raw = await client.complete_json(
+                        [{'role': 'user', 'content': prompt}],
+                        service='intelligence', feature='proactive_nudge', user_id=user_id,
+                    )
                     stype = raw.get('suggestion_type', 'check_in')
                     if stype not in _VALID_SUGGESTION_TYPES:
                         stype = 'check_in'

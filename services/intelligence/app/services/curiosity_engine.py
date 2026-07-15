@@ -161,7 +161,7 @@ class CuriosityEngine:
             result = await ai.complete_json([{
                 'role': 'user',
                 'content': GENERATE_CURIOSITY_QUESTION.format(gap_description=gap_description),
-            }])
+            }], service='advisor', feature='curiosity_question', user_id=user_id)
         except Exception as exc:
             log.warning('curiosity_question_generation_failed', gap_type=gap['gap_type'], error=str(exc))
             return None
@@ -222,7 +222,7 @@ class CuriosityEngine:
                 'content': CLASSIFY_CURIOSITY_ANSWER.format(
                     question=pending['question_text'], gap_description=gap_description, message=message,
                 ),
-            }])
+            }], service='advisor', feature='curiosity_answer_check', user_id=user_id)
         except Exception as exc:
             log.warning('curiosity_answer_classification_failed', error=str(exc))
             return None

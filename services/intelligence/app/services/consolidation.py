@@ -138,13 +138,13 @@ class ConsolidationService:
         without this pass a recurring pattern just stays as N separate rows."""
         pool = await get_pool()
         async with pool.acquire() as conn:
-            agents = await conn.fetch("SELECT id, name FROM agents WHERE is_active = TRUE")
+            agents = await conn.fetch("SELECT id, name, user_id FROM agents WHERE is_active = TRUE")
 
         client = get_ai_client()
         synthesized = 0
 
         for agent in agents:
-            agent_id, agent_name = agent['id'], agent['name']
+            agent_id, agent_name, agent_user_id = agent['id'], agent['name'], agent['user_id']
 
             pool2 = await get_pool()
             async with pool2.acquire() as conn:
@@ -180,7 +180,7 @@ class ConsolidationService:
                     'content': SYNTHESIZE_AGENT_PATTERNS.format(
                         agent_name=agent_name, count=len(experiences), experiences_text=experiences_text,
                     ),
-                }])
+                }], service='agents', feature='agent_pattern_synthesis', user_id=str(agent_user_id) if agent_user_id else None)
                 patterns = AgentPatternSynthesis(**raw).patterns
             except Exception as exc:
                 log.warning('agent_pattern_synthesis_failed', agent_id=str(agent_id), error=str(exc))
@@ -191,7 +191,6 @@ class ConsolidationService:
 
             pool3 = await get_pool()
             async with pool3.acquire() as conn:
-                agent_user_id = await conn.fetchval('SELECT user_id FROM agents WHERE id = $1', agent_id)
                 for p in patterns:
                     # contact_id IS NULL here (general scope) — a unique constraint
                     # wouldn't dedupe these anyway, since NULL != NULL — so check

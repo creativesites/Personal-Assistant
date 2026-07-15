@@ -327,7 +327,10 @@ async def handle_agent_message(
 
     client = get_ai_client()
     try:
-        reply_data = await client.complete_json([{'role': 'user', 'content': prompt}])
+        reply_data = await client.complete_json(
+            [{'role': 'user', 'content': prompt}],
+            service='agents', feature='agent_reply', user_id=user_id,
+        )
         reply_text = str(reply_data.get('reply', '')).strip()
         confidence = float(reply_data.get('confidence', 0.8))
         tools_to_run = reply_data.get('tools', []) or []
@@ -336,7 +339,10 @@ async def handle_agent_message(
     except Exception as exc:
         log.warning('agent_json_parse_failed', error=str(exc), agent_id=agent_id)
         # Fallback to plain text generation
-        reply_text = await client.complete_text([{'role': 'user', 'content': prompt}])
+        reply_text = await client.complete_text(
+            [{'role': 'user', 'content': prompt}],
+            service='agents', feature='agent_reply', user_id=user_id,
+        )
         reply_text = reply_text.strip()
         confidence = 0.7
         tools_to_run = []
@@ -701,7 +707,10 @@ async def check_escalation_triggers(
 
     client = get_ai_client()
     try:
-        raw = await client.complete_json([{'role': 'user', 'content': prompt}])
+        raw = await client.complete_json(
+            [{'role': 'user', 'content': prompt}],
+            service='agents', feature='agent_escalation_check',
+        )
         should_escalate = bool(raw.get('should_escalate', False))
         reason = str(raw.get('reason', ''))
 

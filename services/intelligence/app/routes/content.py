@@ -46,7 +46,7 @@ async def generate_content(body: GenerateRequest):
             },
             {'role': 'user', 'content': product_summary},
         ],
-        model=model,
+        model=model, service='studio', feature='content_generation',
     )
 
     for key in ('description', 'caption', 'video_script'):
@@ -86,7 +86,7 @@ async def generate_recommendations(stats: dict):
             },
             {'role': 'user', 'content': json.dumps(stats)},
         ],
-        model=model,
+        model=model, service='studio', feature='content_recommendations',
     )
 
     recommendations = result.get('recommendations')
