@@ -188,28 +188,11 @@ def format_business_facts(facts: list[dict]) -> str:
 # history rather than the manually-curated (and currently unused anywhere)
 # products.cross_sell/upsell JSONB columns.
 async def get_co_purchases(user_id: str, product_id: str, limit: int = 3) -> list[dict]:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            WITH base_purchasers AS (
-              SELECT DISTINCT contact_id FROM contact_products
-              WHERE user_id = $1 AND product_id = $2 AND relation_type = 'purchased'
-            )
-            SELECT p.id AS product_id, p.name AS product_name,
-                   COUNT(DISTINCT cp.contact_id) AS co_count,
-                   (SELECT COUNT(*) FROM base_purchasers) AS base_count
-            FROM contact_products cp
-            JOIN base_purchasers bp ON bp.contact_id = cp.contact_id
-            JOIN products p ON p.id = cp.product_id AND p.user_id = $1
-            WHERE cp.user_id = $1 AND cp.relation_type = 'purchased' AND cp.product_id != $2
-            GROUP BY p.id, p.name
-            ORDER BY co_count DESC
-            LIMIT $3
-            """,
-            user_id, product_id, limit,
-        )
-    return [dict(r) for r in rows]
+    """Thin wrapper over the Knowledge Graph query layer (Neural Layer
+    Phase 4, docs/NEURAL_LAYER_PLAN.md §4.5) — kept here so reply_gen.py's
+    catalog-context call site doesn't need to know about ..neural."""
+    from ..neural.knowledge_graph import co_purchasers
+    return await co_purchasers(user_id, product_id, limit)
 
 
 def find_mentioned_catalog_item(catalog_items: list[dict], message_body: str) -> dict | None:

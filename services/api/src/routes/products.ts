@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { coPurchasers } from '../lib/knowledge-graph'
 
 const createBody = z.object({
   name: z.string().min(1).max(255),
@@ -816,7 +817,10 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
   // bought..." derived from real contact_products purchase history (Business
   // OS Phase D, docs/BUSINESS_OS_PLAN.md §9). Distinct from the
   // manually-curated products.cross_sell/upsell JSONB — this is computed
-  // from what customers have actually bought together. ──
+  // from what customers have actually bought together. Reimplemented on the
+  // Knowledge Graph query layer (Neural Layer Phase 4, ../lib/knowledge-graph)
+  // instead of a bespoke join, so this endpoint no longer needs to know
+  // contact_products is the underlying join table. ──
   fastify.get(
     '/api/products/:id/co-purchases',
     { preHandler: [authenticate, requireMarketingAccess] },
@@ -824,31 +828,20 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
 
-      const { rows } = await db.query(
-        `WITH base_purchasers AS (
-           SELECT DISTINCT contact_id FROM contact_products
-           WHERE user_id = $1 AND product_id = $2 AND relation_type = 'purchased'
-         )
-         SELECT p.id AS product_id, p.name AS product_name,
-                COUNT(DISTINCT cp.contact_id) AS co_count,
-                (SELECT COUNT(*) FROM base_purchasers) AS base_count
-         FROM contact_products cp
-         JOIN base_purchasers bp ON bp.contact_id = cp.contact_id
-         JOIN products p ON p.id = cp.product_id AND p.user_id = $1
-         WHERE cp.user_id = $1 AND cp.relation_type = 'purchased' AND cp.product_id != $2
-         GROUP BY p.id, p.name
-         ORDER BY co_count DESC
-         LIMIT 5`,
-        [userId, id],
+      const neighbors = await coPurchasers(userId, id, 5)
+      if (neighbors.length === 0) return reply.send({ coPurchases: [] })
+
+      const { rows: names } = await db.query(
+        `SELECT id, name FROM products WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+        [userId, neighbors.map(n => n.entityId)],
       )
+      const nameById = new Map(names.map((r: any) => [r.id, r.name]))
 
       return reply.send({
-        coPurchases: rows.map((r: any) => ({
-          productId: r.product_id,
-          productName: r.product_name,
-          coCount: Number(r.co_count),
-          baseCount: Number(r.base_count),
-          confidencePct: Number(r.base_count) > 0 ? Math.round((Number(r.co_count) / Number(r.base_count)) * 100) : 0,
+        coPurchases: neighbors.map(n => ({
+          productId: n.entityId,
+          productName: nameById.get(n.entityId) ?? null,
+          confidencePct: Math.round(n.weight * 100),
         })),
       })
     },

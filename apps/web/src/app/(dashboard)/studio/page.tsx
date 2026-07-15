@@ -230,9 +230,7 @@ interface FinancialOverview {
 
 interface CoPurchase {
   productId: string
-  productName: string
-  coCount: number
-  baseCount: number
+  productName: string | null
   confidencePct: number
 }
 
