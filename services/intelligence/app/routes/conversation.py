@@ -6,7 +6,6 @@ from ..database import get_pool
 from ..ai.client import get_ai_client
 from ..queue import redis_conn_opts
 from ..memory import retrieval_service as memory
-from ..neural.emotion import get_emotion_engine
 
 studio_router = APIRouter(prefix='/internal/studio', tags=['studio'])
 
@@ -21,33 +20,8 @@ class AskRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-async def _get_recent_messages(conversation_id: str, limit: int = 50) -> list[dict]:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            '''SELECT m.sender_type, m.body, m.whatsapp_timestamp,
-                      co.custom_name, co.display_name
-               FROM messages m
-               JOIN conversations c ON c.id = m.conversation_id
-               JOIN contacts co ON co.id = c.contact_id
-               WHERE m.conversation_id = $1
-                 AND m.is_deleted = false
-                 AND m.body IS NOT NULL
-                 AND m.message_type = 'text'
-               ORDER BY m.whatsapp_timestamp DESC
-               LIMIT $2''',
-            conversation_id,
-            limit,
-        )
-    return [dict(r) for r in reversed(rows)]
-
-
-def _format_transcript(messages: list[dict], contact_name: str = 'Contact') -> str:
-    lines = []
-    for m in messages:
-        speaker = 'You' if m['sender_type'] == 'user' else contact_name
-        lines.append(f'{speaker}: {m["body"]}')
-    return '\n'.join(lines)
+_get_recent_messages = memory.get_recent_messages
+_format_transcript = memory.format_transcript
 
 
 @router.post('/{conversation_id}/summarize')
@@ -152,71 +126,15 @@ async def _get_session_history(session_id: str) -> list[dict]:
 
 @router.post('/{conversation_id}/ask')
 async def ask_ai(conversation_id: str, body: AskRequest):
-    pool = await get_pool()
-
-    # Fetch recent WhatsApp messages for context
-    messages = await _get_recent_messages(conversation_id, limit=30)
-    if not messages:
-        raise HTTPException(status_code=404, detail='No messages found')
-
-    contact_name = (
-        messages[0].get('custom_name')
-        or messages[0].get('display_name')
-        or 'Contact'
+    """Advisor Companion Plan Phase 2 (docs/ADVISOR_COMPANION_PLAN.md §9)
+    — delegates to AdvisorCompanionService.handle_conversation_turn for
+    the deep, scoped retrieval (relationship memory, contact profile,
+    emotional context) and the evidence/my-read/alternative-read/what-
+    I'd-do structured response for analysis-flavored intents."""
+    from ..services.advisor_companion import get_advisor_companion_service
+    return await get_advisor_companion_service().handle_conversation_turn(
+        body.user_id, conversation_id, body.question, body.session_id,
     )
-    transcript = _format_transcript(messages, contact_name)
-
-    # Fetch contact ID and CRM details for action tag support
-    async with pool.acquire() as conn:
-        contact_row = await conn.fetchrow(
-            '''SELECT co.id AS contact_id, co.lead_score,
-                      co.pipeline_stage, co.customer_status
-               FROM conversations c
-               JOIN contacts co ON co.id = c.contact_id
-               WHERE c.id = $1''',
-            conversation_id,
-        )
-
-    contact_id = str(contact_row['contact_id']) if contact_row else None
-    crm_context = ''
-    if contact_id:
-        crm_context = (
-            f'\n\nContact CRM: contact_id={contact_id}, '
-            f'lead_score={contact_row.get("lead_score", 0)}, '
-            f'pipeline_stage={contact_row.get("pipeline_stage") or "unknown"}, '
-            f'status={contact_row.get("customer_status") or "contact"}'
-        )
-
-    # Load prior chat history for conversational memory
-    chat_history = []
-    if body.session_id:
-        chat_history = await _get_session_history(body.session_id)
-
-    system_prompt = (
-        'You are Zuri, an AI relationship intelligence assistant helping analyse a WhatsApp conversation. '
-        'Answer the user\'s question concisely and directly based on the conversation context. '
-        'Be specific and actionable. Reference the contact by name.\n'
-        + ZURI_ACTION_INSTRUCTIONS
-    )
-
-    prompt_messages = [{'role': 'system', 'content': system_prompt}]
-    prompt_messages.extend(chat_history)
-    prompt_messages.append({
-        'role': 'user',
-        'content': f'Conversation transcript:\n{transcript}{crm_context}\n\nQuestion: {body.question}',
-    })
-
-    ai = get_ai_client()
-    result = await ai.complete_text(prompt_messages)
-
-    # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — Advisor
-    # has no existing sentiment pass to reuse, so this records the user's
-    # emotional state for this turn via a small dedicated classification.
-    await get_emotion_engine().record_advisor_turn(
-        body.user_id, body.session_id, body.question, contact_id=contact_id,
-    )
-
-    return {'answer': result}
 
 
 class AnalyseHistoryRequest(BaseModel):

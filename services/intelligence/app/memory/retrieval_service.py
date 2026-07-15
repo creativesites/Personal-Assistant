@@ -69,6 +69,38 @@ async def get_contact_summary(user_id: str, contact_id: str) -> dict:
     return result
 
 
+async def get_recent_messages(conversation_id: str, limit: int = 50) -> list[dict]:
+    """Shared by routes/conversation.py's summarize/followup endpoints and
+    services/advisor_companion.py's conversation-scoped turn (Advisor
+    Companion Plan Phase 2) — one fetch, not three near-identical copies."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''SELECT m.sender_type, m.body, m.whatsapp_timestamp,
+                      co.custom_name, co.display_name
+               FROM messages m
+               JOIN conversations c ON c.id = m.conversation_id
+               JOIN contacts co ON co.id = c.contact_id
+               WHERE m.conversation_id = $1
+                 AND m.is_deleted = false
+                 AND m.body IS NOT NULL
+                 AND m.message_type = 'text'
+               ORDER BY m.whatsapp_timestamp DESC
+               LIMIT $2''',
+            conversation_id,
+            limit,
+        )
+    return [dict(r) for r in reversed(rows)]
+
+
+def format_transcript(messages: list[dict], contact_name: str = 'Contact') -> str:
+    lines = []
+    for m in messages:
+        speaker = 'You' if m['sender_type'] == 'user' else contact_name
+        lines.append(f'{speaker}: {m["body"]}')
+    return '\n'.join(lines)
+
+
 async def get_user_voice(user_id: str) -> dict:
     """User's display name plus voice/writing-style profile, if one exists yet."""
     pool = await get_pool()

@@ -25,6 +25,17 @@ import { ActionBundlesSection } from './action-bundle-card'
 
 export type AITab = 'overview' | 'memory' | 'activity' | 'chat' | 'files'
 
+// Advisor Companion Plan Phase 2 (docs/ADVISOR_COMPANION_PLAN.md §3.1/§3.3/
+// §7.1) — the evidence/my-read/alternative-read/what-I'd-do structure,
+// only populated for analysis-flavored questions ("what did they mean?",
+// "analyze this chat").
+interface ChatAnalysis {
+  evidence: { label: string; text: string }[]
+  myRead: string | null
+  alternativeRead: string | null
+  whatIWouldDo: string | null
+}
+
 interface ChatMsg {
   id: string
   role: 'user' | 'assistant'
@@ -33,6 +44,8 @@ interface ChatMsg {
   draftText?: string
   isSuccess?: boolean
   timestamp: Date
+  analysis?: ChatAnalysis | null
+  mood?: string | null
 }
 
 interface UpdateAction {
@@ -197,7 +210,10 @@ export function IntelPanel({
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
-        const data = await res.json() as { messages: Array<{ id: string; role: string; content: string; created_at: string }>; sessionId: string | null }
+        const data = await res.json() as {
+          messages: Array<{ id: string; role: string; content: string; created_at: string; metadata?: { analysis?: ChatAnalysis | null; assistantState?: { mood?: string } } | null }>
+          sessionId: string | null
+        }
         if (data.sessionId) setChatSessionId(data.sessionId)
         if (data.messages.length > 0) {
           setChatMessages(data.messages.map(m => ({
@@ -205,6 +221,8 @@ export function IntelPanel({
             role: m.role as 'user' | 'assistant',
             content: m.content,
             timestamp: new Date(m.created_at),
+            analysis: m.metadata?.analysis ?? null,
+            mood: m.metadata?.assistantState?.mood ?? null,
           })))
         }
       }
@@ -370,9 +388,17 @@ export function IntelPanel({
       })
 
       let answer = ''
+      let analysis: ChatAnalysis | null = null
+      let mood: string | null = null
       if (res.ok) {
-        const data = await res.json() as { answer?: string; sessionId?: string }
+        const data = await res.json() as {
+          answer?: string; sessionId?: string
+          analysis?: ChatAnalysis | null
+          assistantState?: { mood?: string }
+        }
         answer = data.answer ?? 'No response.'
+        analysis = data.analysis ?? null
+        mood = data.assistantState?.mood ?? null
         // Capture session ID returned by the API
         if (data.sessionId && !chatSessionId) setChatSessionId(data.sessionId)
       } else {
@@ -392,6 +418,8 @@ export function IntelPanel({
         isDraft: isDraftHint,
         draftText,
         timestamp: new Date(),
+        analysis,
+        mood,
       }])
     } catch {
       addSystemMsg('Unable to reach AI service.')
@@ -1024,6 +1052,42 @@ export function IntelPanel({
                           onSetDraft={onSetDraft}
                           draftFocus={draftFocus}
                         />
+                      </div>
+                    )}
+
+                    {/* Evidence / my read / alternative read / what I'd do — Advisor Companion Plan Phase 2 (§3.1/§3.3/§7.1) */}
+                    {msg.role === 'assistant' && msg.analysis && (msg.analysis.evidence?.length > 0 || msg.analysis.myRead) && (
+                      <div className="w-full bg-indigo-50/60 border border-indigo-100 rounded-xl p-2.5 space-y-2">
+                        {msg.analysis.evidence?.length > 0 && (
+                          <div>
+                            <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-500 mb-1">What I can see</p>
+                            <ul className="space-y-1">
+                              {msg.analysis.evidence.map((e, i) => (
+                                <li key={i} className="text-[11px] text-gray-700 leading-snug">
+                                  <span className="font-semibold text-gray-800">{e.label}:</span> {e.text}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {msg.analysis.myRead && (
+                          <div>
+                            <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-500 mb-0.5">My read</p>
+                            <p className="text-[11px] text-gray-700 leading-snug">{msg.analysis.myRead}</p>
+                          </div>
+                        )}
+                        {msg.analysis.alternativeRead && (
+                          <div>
+                            <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-500 mb-0.5">Or, alternatively</p>
+                            <p className="text-[11px] text-gray-700 leading-snug">{msg.analysis.alternativeRead}</p>
+                          </div>
+                        )}
+                        {msg.analysis.whatIWouldDo && (
+                          <div>
+                            <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-500 mb-0.5">What I'd do</p>
+                            <p className="text-[11px] text-gray-700 leading-snug">{msg.analysis.whatIWouldDo}</p>
+                          </div>
+                        )}
                       </div>
                     )}
 

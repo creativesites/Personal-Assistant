@@ -1,22 +1,37 @@
-"""Advisor Companion Plan Phase 1 — Companion Brain Foundation
-(docs/ADVISOR_COMPANION_PLAN.md §6.1). Orchestrates a global-advisor turn:
-classify intent, retrieve profile/memories/emotional state/contact
-context, assemble a dynamic system prompt, call the model, and propose a
-memory update. Scoped to the global advisor (`/internal/advisor/ask`) for
-this phase — the conversation-scoped and Studio advisors keep their
-existing, simpler flow in routes/conversation.py; folding them into this
-same orchestrator is Phase 2+ scope (deep chat analysis on a specific
-conversation needs its own retrieval shape, not this one).
+"""Advisor Companion Plan Phase 1/2 — Companion Brain Foundation +
+Relationship Analysis Experience (docs/ADVISOR_COMPANION_PLAN.md §6.1).
+
+Phase 1 (`handle_turn`) orchestrates a global-advisor turn: classify
+intent, retrieve profile/memories/emotional state/contact context,
+assemble a dynamic system prompt, call the model, propose a memory
+update. Phase 2 (`handle_conversation_turn`) does the same for a turn
+scoped to one specific WhatsApp conversation/contact — deeper retrieval
+(relationship memory, contact profile, the contact's own emotional
+signal), the relationship-advice policy, and the evidence/my-read/
+alternative-read/what-I'd-do structured response for analysis-flavored
+intents. The Studio advisor keeps its own separate flow in
+routes/conversation.py — its context shape (catalog/rules/suppliers) is
+unrelated to either of these.
 """
 import json
 import structlog
 
 from ..ai.client import get_ai_client
-from ..ai.prompts import CLASSIFY_ADVISOR_TURN
+from ..ai.prompts import CLASSIFY_ADVISOR_TURN, RELATIONSHIP_ADVICE_POLICY, ANALYZE_CHAT_TURN, CONVERSATION_TURN
 from ..database import get_pool
+from ..memory import retrieval_service as memory
 from ..neural.emotion import get_emotion_engine, emotional_congruence
 
 log = structlog.get_logger()
+
+_ANALYSIS_INTENTS = {'chat_analysis', 'relationship_advice', 'emotional_support'}
+
+# Advisor Companion Plan Phase 2 (§3.6) — a low-valence/high-arousal user
+# state gets a brief acknowledgment folded into the prompt, mirroring the
+# plan's own worked example ("you asked about this when you were feeling
+# anxious; here's my read with that in mind").
+_LOW_VALENCE_THRESHOLD = -0.2
+_HIGH_AROUSAL_THRESHOLD = 0.6
 
 _DEFAULT_PROFILE = {
     'display_persona': {}, 'tone_preferences': {}, 'boundaries': {},
@@ -66,6 +81,8 @@ class AdvisorCompanionService:
         memories = await self._get_recent_memories(user_id, limit=5)
         emotional_state = await get_emotion_engine().get_current_emotional_state(user_id)
         companion_mode = await self._get_session_companion_mode(session_id) if session_id else 'balanced'
+        if intent == 'gossip':
+            companion_mode = 'gossip'  # §3.7 Phase 2 — orchestrator's own judgment, not just the chip
         contacts_context = await self._get_contact_context(user_id, emotional_state)
 
         system_prompt = self._build_system_prompt(profile, memories, emotional_state, companion_mode, contacts_context)
@@ -96,9 +113,154 @@ class AdvisorCompanionService:
             memory_suggestion=memory_suggestion,
         )
 
+    async def handle_conversation_turn(self, user_id: str, conversation_id: str, question: str,
+                                        session_id: str | None) -> dict:
+        """Advisor Companion Plan Phase 2 (§9) — deep, scoped analysis of
+        one WhatsApp conversation. Folds in relationship memory, the
+        contact's profile, and both parties' emotional signal, and — for
+        analysis-flavored intents only — returns the evidence/my-read/
+        alternative-read/what-I'd-do structure instead of a plain answer."""
+        pool = await get_pool()
+        messages = await memory.get_recent_messages(conversation_id, limit=30)
+        if not messages:
+            return self._response("I don't have any messages in this conversation yet.", 'unknown', mood='neutral', confidence=0.3)
+
+        contact_name = messages[0].get('custom_name') or messages[0].get('display_name') or 'Contact'
+        transcript = memory.format_transcript(messages, contact_name)
+
+        async with pool.acquire() as conn:
+            contact_row = await conn.fetchrow(
+                '''SELECT co.id AS contact_id, co.lead_score, co.pipeline_stage, co.customer_status
+                   FROM conversations c JOIN contacts co ON co.id = c.contact_id
+                   WHERE c.id = $1''',
+                conversation_id,
+            )
+        contact_id = str(contact_row['contact_id']) if contact_row else None
+
+        turn = await self._classify_turn(question)
+        intent = turn.get('intent', 'unknown')
+
+        if intent == 'activate_personal_mode':
+            await self._set_personal_mode(user_id, True)
+            return self._response(_PERSONAL_MODE_ON_REPLY, intent, mood='neutral', confidence=0.95)
+        if intent == 'deactivate_personal_mode':
+            await self._set_personal_mode(user_id, False)
+            return self._response(_PERSONAL_MODE_OFF_REPLY, intent, mood='neutral', confidence=0.95)
+
+        emotional_state = await get_emotion_engine().get_current_emotional_state(user_id)
+        companion_mode = await self._get_session_companion_mode(session_id) if session_id else 'balanced'
+        if intent == 'gossip':
+            # §3.7/§6.9 Phase 2 scope: reachability via the orchestrator's
+            # own judgment, not just the explicit chip/phrase — the full
+            # Gossip Worthiness Detector cron is Phase 4.5.
+            companion_mode = 'gossip'
+
+        contact_context = ''
+        if contact_id:
+            contact_summary = await memory.get_contact_summary(user_id, contact_id)
+            rel_mem = await memory.get_relationship_memory(user_id, contact_id)
+            rel_mem_text = memory.format_relationship_memory(rel_mem)
+            parts = [
+                f"Relationship type: {contact_summary.get('relationship_type', 'acquaintance')}",
+            ]
+            if contact_summary.get('personality_summary'):
+                parts.append(f"Personality: {contact_summary['personality_summary']}")
+            if rel_mem_text:
+                parts.append(rel_mem_text)
+            contact_context = '\n\nWhat you know about this contact:\n' + '\n'.join(parts)
+            contact_context += (
+                f"\n\nContact CRM: contact_id={contact_id}, "
+                f"lead_score={contact_row.get('lead_score', 0)}, "
+                f"pipeline_stage={contact_row.get('pipeline_stage') or 'unknown'}, "
+                f"status={contact_row.get('customer_status') or 'contact'}"
+            )
+
+        emotional_context_line = ''
+        if emotional_state.get('valence', 0.0) < _LOW_VALENCE_THRESHOLD and emotional_state.get('arousal', 0.0) > _HIGH_AROUSAL_THRESHOLD:
+            emotional_context_line = "\nThe user seems to be in a tense or anxious mood right now — acknowledge that briefly if it's relevant, without making a big deal of it."
+
+        is_analysis = intent in _ANALYSIS_INTENTS
+        ai = get_ai_client()
+        evidence = None
+        my_read = None
+        alternative_read = None
+        what_i_would_do = None
+        is_high_risk_draft = False
+
+        if is_analysis:
+            prompt = ANALYZE_CHAT_TURN.format(
+                contact_name=contact_name, policy=RELATIONSHIP_ADVICE_POLICY,
+                emotional_context_line=emotional_context_line, transcript=transcript,
+                contact_context=contact_context, question=question,
+            )
+            try:
+                result = await ai.complete_json([{'role': 'user', 'content': prompt}])
+                answer = result.get('reply_markdown', '')
+                evidence = result.get('evidence') or []
+                my_read = result.get('my_read')
+                alternative_read = result.get('alternative_read')
+                what_i_would_do = result.get('what_i_would_do')
+                is_high_risk_draft = bool(result.get('is_high_risk_draft'))
+            except Exception as exc:
+                log.warning('advisor_analysis_failed', error=str(exc))
+                answer = "I had trouble putting together a full analysis just now — could you ask again?"
+        else:
+            prompt = CONVERSATION_TURN.format(
+                contact_name=contact_name, policy=RELATIONSHIP_ADVICE_POLICY,
+                emotional_context_line=emotional_context_line, transcript=transcript,
+                contact_context=contact_context,
+            ) + ZURI_ACTION_INSTRUCTIONS
+
+            chat_history = await self._get_session_history(session_id) if session_id else []
+            prompt_messages = [{'role': 'system', 'content': prompt}]
+            prompt_messages.extend(chat_history)
+            prompt_messages.append({'role': 'user', 'content': question})
+            answer = await ai.complete_text(prompt_messages)
+
+        await get_emotion_engine().record_advisor_turn(user_id, session_id, question, contact_id=contact_id)
+
+        memory_suggestion = turn.get('memory_suggestion')
+        if memory_suggestion:
+            await self._save_memory_suggestion(user_id, session_id, memory_suggestion)
+
+        if session_id:
+            await self._update_session_state(session_id, companion_mode, emotional_state.get('dominantEmotion'), intent)
+
+        analysis = None
+        if is_analysis:
+            analysis = {
+                'evidence': evidence, 'myRead': my_read,
+                'alternativeRead': alternative_read, 'whatIWouldDo': what_i_would_do,
+            }
+
+        # Advisor Companion Plan Phase 3 (§3.5/§6.1) — a drafted WhatsApp
+        # message this turn becomes a proposed action Node persists as
+        # advisor_action_requests once it has the assistant message_id;
+        # the Boundary Keeper risk flag (§3.11/§6.13) rides along on the
+        # same proposal rather than a second pass.
+        proposed_action = None
+        if intent in ('draft_reply', 'send_message') and contact_id and answer.strip():
+            proposed_action = {
+                'actionType': 'send_whatsapp_message',
+                'payload': {'conversationId': conversation_id, 'contactId': contact_id, 'text': answer.strip()},
+                'riskLevel': 'high' if is_high_risk_draft else 'medium',
+            }
+
+        return self._response(
+            answer, intent,
+            mood=emotional_state.get('dominantEmotion', 'neutral'),
+            confidence=0.7,
+            needs_clarification=bool(turn.get('needs_clarification')),
+            companion_mode=companion_mode,
+            memory_suggestion=memory_suggestion,
+            analysis=analysis,
+            proposed_action=proposed_action,
+        )
+
     def _response(self, answer: str, intent: str, *, mood: str, confidence: float,
                   needs_clarification: bool = False, companion_mode: str = 'balanced',
-                  memory_suggestion: dict | None = None) -> dict:
+                  memory_suggestion: dict | None = None, analysis: dict | None = None,
+                  proposed_action: dict | None = None) -> dict:
         return {
             'answer': answer,
             'assistantState': {
@@ -109,6 +271,8 @@ class AdvisorCompanionService:
                 'intent': intent,
             },
             'memorySuggestion': memory_suggestion,
+            'analysis': analysis,
+            'proposedAction': proposed_action,
         }
 
     async def _classify_turn(self, question: str) -> dict:

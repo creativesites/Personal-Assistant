@@ -825,7 +825,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     if (!session) return reply.send({ messages: [], sessionId: null });
 
     const { rows: messages } = await db.query(
-      `SELECT id, role, content, created_at
+      `SELECT id, role, content, metadata, created_at
        FROM advisor_messages
        WHERE session_id = $1
        ORDER BY created_at ASC`,
@@ -887,6 +887,16 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
     let answer = '';
+    // Advisor Companion Plan Phase 2 (docs/ADVISOR_COMPANION_PLAN.md §5.2/
+    // §9) — conversation-scoped turns now carry the same assistantState/
+    // memorySuggestion shape the global advisor gained in Phase 1, plus an
+    // `analysis` object (evidence/myRead/alternativeRead/whatIWouldDo) for
+    // analysis-flavored intents. `proposedAction` is computed by the
+    // intelligence service already but not yet acted on here — Phase 3
+    // wires up actually persisting/approving it.
+    let assistantState: Record<string, unknown> | null = null;
+    let memorySuggestion: Record<string, unknown> | null = null;
+    let analysis: Record<string, unknown> | null = null;
     try {
       const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/ask`, {
         method: 'POST',
@@ -894,8 +904,16 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         body: JSON.stringify({ user_id: userId, question, session_id: sessionId }),
       });
       if (res.ok) {
-        const data = await res.json() as { answer?: string };
+        const data = await res.json() as {
+          answer?: string
+          assistantState?: Record<string, unknown>
+          memorySuggestion?: Record<string, unknown> | null
+          analysis?: Record<string, unknown> | null
+        };
         answer = data.answer ?? 'I was unable to generate a response.';
+        assistantState = data.assistantState ?? null;
+        memorySuggestion = data.memorySuggestion ?? null;
+        analysis = data.analysis ?? null;
       } else {
         answer = 'The AI service returned an error. Please try again.';
       }
@@ -905,10 +923,10 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
     // Persist assistant response
     const { rows: [assistantMsg] } = await db.query(
-      `INSERT INTO advisor_messages (session_id, role, content)
-       VALUES ($1, 'assistant', $2)
-       RETURNING id, role, content, created_at`,
-      [sessionId, answer],
+      `INSERT INTO advisor_messages (session_id, role, content, metadata)
+       VALUES ($1, 'assistant', $2, $3::jsonb)
+       RETURNING id, role, content, metadata, created_at`,
+      [sessionId, answer, JSON.stringify(assistantState ? { assistantState, memorySuggestion, analysis } : {})],
     );
 
     // Bump session counters
@@ -919,7 +937,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       [sessionId],
     );
 
-    return reply.send({ answer, sessionId, message: assistantMsg });
+    return reply.send({ answer, sessionId, message: assistantMsg, assistantState, memorySuggestion, analysis });
   });
 
   // ── Archive / unarchive ───────────────────────────────────────────────────
