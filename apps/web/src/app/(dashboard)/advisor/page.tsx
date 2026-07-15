@@ -57,6 +57,22 @@ interface AdvisorMemory {
   createdAt: string
 }
 
+// Advisor Companion Plan Phase 4.5 (docs/ADVISOR_COMPANION_PLAN.md §3.7/
+// §6.9/§7.7/§9) — the "Zuri Noticed Something" card. Only gossip items
+// need this dedicated delivery UI; interest/devotional/motivational
+// nudges already arrive as normal advisor_messages rows in chat.
+interface CompanionFeedItem {
+  kind: 'gossip' | 'interest'
+  id: string
+  contactId?: string
+  contactName?: string
+  signalType?: string
+  summary?: string
+  confidence?: number
+  inCloseCircle?: boolean
+  timestamp: string
+}
+
 interface AdvisorProfile {
   displayPersona: Record<string, unknown>
   tonePreferences: Record<string, unknown>
@@ -205,6 +221,40 @@ export default function AdvisorPage() {
   }, [token])
 
   useEffect(() => { loadMemories(); loadProfile() }, [loadMemories, loadProfile])
+
+  // ── "Zuri Noticed Something" (Advisor Companion Plan Phase 4.5, §7.7) ────
+
+  const [companionFeed, setCompanionFeed] = useState<CompanionFeedItem[]>([])
+
+  const loadCompanionFeed = useCallback(async () => {
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/companion-feed?status=pending`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json() as { items: CompanionFeedItem[] }
+      setCompanionFeed(data.items.filter(i => i.kind === 'gossip'))
+    } catch {}
+  }, [token])
+
+  useEffect(() => { loadCompanionFeed() }, [loadCompanionFeed])
+
+  const dismissCompanionFeedItem = async (id: string) => {
+    setCompanionFeed(prev => prev.filter(i => i.id !== id))
+    if (!token) return
+    try {
+      await fetch(`${API_URL}/api/advisor/companion-feed/${id}/dismiss`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch {}
+  }
+
+  const tellMeMoreAboutGossip = (item: CompanionFeedItem) => {
+    setCompanionFeed(prev => prev.filter(i => i.id !== item.id))
+    setCompanionMode('gossip')
+    sendMessage(`What's going on with ${item.contactName ?? 'them'}? I noticed: ${item.summary}`)
+  }
 
   const patchProfile = async (patch: Partial<AdvisorProfile>) => {
     if (!token) return
@@ -628,6 +678,36 @@ export default function AdvisorPage() {
             )}
           </div>
         </div>
+
+        {/* "Zuri Noticed Something" — Advisor Companion Plan Phase 4.5 (§3.7/§6.9/§7.7) */}
+        {companionFeed.length > 0 && (
+          <div className="px-3 pt-3 md:px-6 md:pt-4">
+            <div className="mx-auto max-w-3xl space-y-2">
+              {companionFeed.map(item => (
+                <div key={item.id}
+                  className="flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50/80 px-3.5 py-3 shadow-sm shadow-violet-100/60">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-violet-500">Zuri noticed something</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-violet-900">{item.summary}</p>
+                    <div className="mt-2 flex gap-2">
+                      <button onClick={() => tellMeMoreAboutGossip(item)}
+                        className="rounded-lg bg-violet-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-violet-700 transition-colors">
+                        Tell me more
+                      </button>
+                      <button onClick={() => dismissCompanionFeedItem(item.id)}
+                        className="rounded-lg px-2.5 py-1 text-[11px] font-semibold text-violet-500 hover:text-violet-700 transition-colors">
+                        Not now
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* MESSAGES AREA */}
         <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-6 space-y-5">

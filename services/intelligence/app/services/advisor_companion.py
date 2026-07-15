@@ -46,7 +46,7 @@ _RECENT_CONTACT_SIGNAL_DAYS = 14
 
 _DEFAULT_PROFILE = {
     'display_persona': {}, 'tone_preferences': {}, 'boundaries': {},
-    'companion_features_paused': False, 'personal_mode_enabled': False,
+    'companion_features_paused': False, 'personal_mode_enabled': False, 'spiritual_preferences': {},
 }
 
 ZURI_ACTION_INSTRUCTIONS = """
@@ -94,6 +94,10 @@ class AdvisorCompanionService:
         companion_mode = await self._get_session_companion_mode(session_id) if session_id else 'balanced'
         if intent == 'gossip':
             companion_mode = 'gossip'  # §3.7 Phase 2 — orchestrator's own judgment, not just the chip
+        if intent == 'spiritual' and (profile.get('spiritual_preferences') or {}).get('tradition'):
+            # §3.9/§6.11 Phase 4.5 — "pray with me" is a normal turn, not a
+            # separate action type; only reachable once a tradition is set.
+            companion_mode = 'spiritual_companion'
         contacts_context = await self._get_contact_context(user_id, emotional_state)
 
         system_prompt = self._build_system_prompt(profile, memories, emotional_state, companion_mode, contacts_context)
@@ -178,12 +182,15 @@ class AdvisorCompanionService:
             return self._response(reply, intent, mood='neutral', confidence=0.9)
 
         emotional_state = await get_emotion_engine().get_current_emotional_state(user_id)
+        profile = await self._get_profile(user_id)
         companion_mode = await self._get_session_companion_mode(session_id) if session_id else 'balanced'
         if intent == 'gossip':
             # §3.7/§6.9 Phase 2 scope: reachability via the orchestrator's
             # own judgment, not just the explicit chip/phrase — the full
             # Gossip Worthiness Detector cron is Phase 4.5.
             companion_mode = 'gossip'
+        if intent == 'spiritual' and (profile.get('spiritual_preferences') or {}).get('tradition'):
+            companion_mode = 'spiritual_companion'  # §3.9/§6.11 Phase 4.5 — "pray with me"
 
         contact_context = ''
         if contact_id:
@@ -208,6 +215,7 @@ class AdvisorCompanionService:
         emotional_context_line = ''
         if emotional_state.get('valence', 0.0) < _LOW_VALENCE_THRESHOLD and emotional_state.get('arousal', 0.0) > _HIGH_AROUSAL_THRESHOLD:
             emotional_context_line = "\nThe user seems to be in a tense or anxious mood right now — acknowledge that briefly if it's relevant, without making a big deal of it."
+        emotional_context_line += self._spiritual_verse_line(profile, emotional_state)
 
         is_analysis = intent in _ANALYSIS_INTENTS
         ai = get_ai_client()
@@ -321,7 +329,7 @@ class AdvisorCompanionService:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT display_persona, tone_preferences, boundaries,
-                          companion_features_paused, personal_mode_enabled
+                          companion_features_paused, personal_mode_enabled, spiritual_preferences
                    FROM advisor_user_profiles WHERE user_id = $1""",
                 user_id,
             )
@@ -445,6 +453,7 @@ class AdvisorCompanionService:
 
         mood = emotional_state.get('dominantEmotion', 'neutral')
         mood_line = f"\nThe user's current apparent mood, from recent interactions: {mood}. Calibrate your tone accordingly — don't name this explicitly unless it's relevant."
+        spiritual_line = self._spiritual_verse_line(profile, emotional_state)
 
         mode_instruction = _COMPANION_MODE_INSTRUCTIONS.get(companion_mode, _COMPANION_MODE_INSTRUCTIONS['balanced'])
 
@@ -452,12 +461,31 @@ class AdvisorCompanionService:
             'You are Zuri, an AI relationship intelligence assistant and companion. '
             'You have deep knowledge of the user\'s WhatsApp contacts and conversations. '
             f'{mode_instruction}'
-            f'{persona_line}{boundaries_line}{memories_line}{mood_line}\n\n'
+            f'{persona_line}{boundaries_line}{memories_line}{mood_line}{spiritual_line}\n\n'
             'Answer questions concisely and be specific. Reference contacts by name. '
             'When drafting a message, write it naturally as a WhatsApp message — '
             'no formal salutations, no quotation marks. Return only the draft text when asked to draft.\n'
             + ZURI_ACTION_INSTRUCTIONS
             + f'\n\nRecent contacts context:\n{contacts_context}'
+        )
+
+    def _spiritual_verse_line(self, profile: dict, emotional_state: dict) -> str:
+        """Advisor Companion Plan Phase 4.5 (§3.9/§6.11/§9) — context-
+        sensitive verse offering. A real-time companion behavior folded
+        inline here (not a cron): only ever active if the user has
+        explicitly set a spiritual tradition (never inferred, never a
+        default), and only suggested — not forced — when the same low-
+        valence/high-arousal state Phase 2's emotional_context_line
+        already checks for is present."""
+        tradition = (profile.get('spiritual_preferences') or {}).get('tradition')
+        if not tradition:
+            return ''
+        if emotional_state.get('valence', 0.0) >= _LOW_VALENCE_THRESHOLD or emotional_state.get('arousal', 0.0) <= _HIGH_AROUSAL_THRESHOLD:
+            return ''
+        return (
+            f"\nThe user has opted into {tradition} spiritual companionship and seems to be carrying a lot "
+            "right now — you may briefly offer a relevant, properly-attributed verse and a short word of "
+            "comfort if it feels natural, but never force it or bring up faith unprompted otherwise."
         )
 
     async def _assess_boundary_risk(self, user_id: str, contact_id: str, emotional_state: dict,

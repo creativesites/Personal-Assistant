@@ -522,4 +522,85 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     if (!rowCount) return reply.code(404).send({ error: 'Watch not found or already ended' });
     return reply.send({ ok: true });
   });
+
+  // ── Companion Feed (Advisor Companion Plan Phase 4.5, §5.5/§7.7) ─────────
+  // Merged, timeline-ordered read of gossip_worthy_events + recent
+  // proactive_interest_chats for the "Zuri Noticed Something" card. Note
+  // §5.5 also lists a separate Companion Preferences API — that's already
+  // covered by the existing GET/PATCH /api/advisor/profile (Phase 1),
+  // which returns/updates these exact fields, so it isn't duplicated here.
+
+  fastify.get('/api/advisor/companion-feed', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { status } = request.query as { status?: string };
+
+    // §6.9's delivery-timing check, done here rather than in the
+    // intelligence service since Node already owns this read path and can
+    // check advisor_user_profiles.current_emotional_state directly —
+    // surfaces at most one new gossip item per call, only when the user's
+    // current state is calm enough not to pile on a bad day.
+    const { rows: [profile] } = await db.query(
+      `SELECT current_emotional_state->>'valence' AS valence,
+              current_emotional_state->>'arousal' AS arousal
+       FROM advisor_user_profiles WHERE user_id = $1`,
+      [userId],
+    );
+    const valence = profile?.valence != null ? parseFloat(profile.valence) : 0;
+    const arousal = profile?.arousal != null ? parseFloat(profile.arousal) : 0.3;
+    if (valence >= -0.2 && arousal <= 0.6) {
+      await db.query(
+        `UPDATE gossip_worthy_events SET status = 'delivered', delivered_at = NOW()
+         WHERE id = (
+           SELECT id FROM gossip_worthy_events
+           WHERE user_id = $1 AND status = 'pending'
+           ORDER BY confidence DESC, created_at ASC LIMIT 1
+         )`,
+        [userId],
+      );
+    }
+
+    const gossipStatuses = status === 'pending' ? ['pending'] : ['pending', 'delivered'];
+    const { rows: gossip } = await db.query(
+      `SELECT g.id, g.contact_id, g.signal_type, g.summary, g.confidence, g.in_close_circle,
+              g.status, g.delivered_at, g.created_at,
+              COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
+       FROM gossip_worthy_events g
+       JOIN contacts c ON c.id = g.contact_id
+       WHERE g.user_id = $1 AND g.status = ANY($2::text[]) AND g.created_at > NOW() - INTERVAL '7 days'
+       ORDER BY g.created_at DESC LIMIT 20`,
+      [userId, gossipStatuses],
+    );
+    const { rows: interestChats } = await db.query(
+      `SELECT id, interest_topic, trigger_event, content_type, delivered_at, user_engaged
+       FROM proactive_interest_chats
+       WHERE user_id = $1 AND delivered_at > NOW() - INTERVAL '24 hours'
+       ORDER BY delivered_at DESC LIMIT 20`,
+      [userId],
+    );
+
+    const items = [
+      ...gossip.map(g => ({
+        kind: 'gossip' as const, id: g.id, contactId: g.contact_id, contactName: g.contact_name,
+        signalType: g.signal_type, summary: g.summary, confidence: Number(g.confidence),
+        inCloseCircle: g.in_close_circle, status: g.status, timestamp: g.delivered_at ?? g.created_at,
+      })),
+      ...interestChats.map(i => ({
+        kind: 'interest' as const, id: i.id, topic: i.interest_topic, triggerEvent: i.trigger_event,
+        contentType: i.content_type, userEngaged: i.user_engaged, timestamp: i.delivered_at,
+      })),
+    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return reply.send({ items });
+  });
+
+  fastify.post('/api/advisor/companion-feed/:id/dismiss', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { rowCount } = await db.query(
+      `UPDATE gossip_worthy_events SET status = 'dismissed' WHERE id = $1 AND user_id = $2`,
+      [id, userId],
+    );
+    if (!rowCount) return reply.code(404).send({ error: 'Not found' });
+    return reply.send({ ok: true });
+  });
 }

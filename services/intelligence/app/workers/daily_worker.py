@@ -10,6 +10,10 @@ from ..services.pricing_benchmarks import PricingBenchmarkService
 from ..services.inventory_forecast import InventoryForecastService
 from ..neural.reflection import ReflectionService
 from ..neural.emotion import get_emotion_engine
+from ..services.gossip_detector import get_gossip_detector
+from ..services.interest_companion import get_interest_companion
+from ..services.spiritual_companion import get_spiritual_companion
+from ..services.motivational_detector import get_motivational_detector
 
 log = structlog.get_logger()
 
@@ -29,6 +33,10 @@ _pricing_benchmark_queue = Queue('documents.refresh_pricing_benchmarks', {'conne
 _inventory_forecast_queue = Queue('inventory.refresh_forecasts', {'connection': redis_conn_opts()})
 _reflection_queue = Queue('reflection.generate_weekly', {'connection': redis_conn_opts()})
 _emotion_reconsolidation_queue = Queue('emotion.reconsolidate', {'connection': redis_conn_opts()})
+_gossip_detection_queue = Queue('companion.detect_gossip', {'connection': redis_conn_opts()})
+_interest_cron_queue = Queue('companion.run_interest_cron', {'connection': redis_conn_opts()})
+_spiritual_devotional_queue = Queue('companion.send_devotionals', {'connection': redis_conn_opts()})
+_motivational_nudge_queue = Queue('companion.check_motivational', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -206,6 +214,114 @@ async def run_emotion_reconsolidation_scheduler() -> None:
             await _emotion_reconsolidation_queue.add('reconsolidate', {})
         except Exception as exc:
             log.error('emotion_reconsolidation_enqueue_failed', error=str(exc))
+
+
+async def _process_gossip_detection(job, token: str):
+    count = await get_gossip_detector().detect_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_gossip_detection_worker() -> Worker:
+    return Worker('companion.detect_gossip', _process_gossip_detection, {'connection': redis_conn_opts()})
+
+
+async def run_gossip_detection_scheduler() -> None:
+    """Advisor Companion Plan Phase 4.5 (§6.9): daily gossip-signal
+    aggregation at 12:00 UTC — after reflection's Monday-only 11:00 slot,
+    same load-spreading convention as every other daily job."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=12, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('gossip_detection_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('gossip_detection_enqueue')
+            await _gossip_detection_queue.add('detect', {})
+        except Exception as exc:
+            log.error('gossip_detection_enqueue_failed', error=str(exc))
+
+
+async def _process_interest_cron(job, token: str):
+    count = await get_interest_companion().run_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_interest_cron_worker() -> Worker:
+    return Worker('companion.run_interest_cron', _process_interest_cron, {'connection': redis_conn_opts()})
+
+
+async def run_interest_cron_scheduler() -> None:
+    """Advisor Companion Plan Phase 4.5 (§3.8/§6.10): every 6 hours, per
+    §11's recommended default. Simplification vs. the plan's "user's own
+    timezone" wording — no per-user timezone-offset scheduling exists
+    anywhere else in this file either, so this runs on a single fixed UTC
+    cadence like every other cron here."""
+    while True:
+        await asyncio.sleep(6 * 3600)
+        try:
+            log.info('interest_cron_enqueue')
+            await _interest_cron_queue.add('run', {})
+        except Exception as exc:
+            log.error('interest_cron_enqueue_failed', error=str(exc))
+
+
+async def _process_spiritual_devotionals(job, token: str):
+    count = await get_spiritual_companion().run_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_spiritual_devotional_worker() -> Worker:
+    return Worker('companion.send_devotionals', _process_spiritual_devotionals, {'connection': redis_conn_opts()})
+
+
+async def run_spiritual_devotional_scheduler() -> None:
+    """Advisor Companion Plan Phase 4.5 (§3.9/§6.11): daily devotional at
+    13:00 UTC — after the gossip detector (12:00). Simplification vs. the
+    plan's "user-configured time" — no per-user scheduling infra exists
+    yet; every opted-in user gets it at the same fixed UTC hour for now."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=13, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('spiritual_devotional_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('spiritual_devotional_enqueue')
+            await _spiritual_devotional_queue.add('send', {})
+        except Exception as exc:
+            log.error('spiritual_devotional_enqueue_failed', error=str(exc))
+
+
+async def _process_motivational_check(job, token: str):
+    count = await get_motivational_detector().run_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_motivational_nudge_worker() -> Worker:
+    return Worker('companion.check_motivational', _process_motivational_check, {'connection': redis_conn_opts()})
+
+
+async def run_motivational_nudge_scheduler() -> None:
+    """Advisor Companion Plan Phase 4.5 (§3.10/§6.12): daily at 14:00 UTC —
+    after the devotional (13:00), same load-spreading convention."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=14, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('motivational_nudge_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('motivational_nudge_enqueue')
+            await _motivational_nudge_queue.add('check', {})
+        except Exception as exc:
+            log.error('motivational_nudge_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

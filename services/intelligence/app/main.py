@@ -25,6 +25,10 @@ from .workers.daily_worker import (
     create_inventory_forecast_worker, run_inventory_forecast_scheduler,
     create_reflection_worker, run_reflection_scheduler,
     create_emotion_reconsolidation_worker, run_emotion_reconsolidation_scheduler,
+    create_gossip_detection_worker, run_gossip_detection_scheduler,
+    create_interest_cron_worker, run_interest_cron_scheduler,
+    create_spiritual_devotional_worker, run_spiritual_devotional_scheduler,
+    create_motivational_nudge_worker, run_motivational_nudge_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -54,6 +58,10 @@ async def lifespan(app: FastAPI):
     inventory_forecast_worker = create_inventory_forecast_worker()
     reflection_worker = create_reflection_worker()
     emotion_reconsolidation_worker = create_emotion_reconsolidation_worker()
+    gossip_detection_worker = create_gossip_detection_worker()
+    interest_cron_worker = create_interest_cron_worker()
+    spiritual_devotional_worker = create_spiritual_devotional_worker()
+    motivational_nudge_worker = create_motivational_nudge_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -65,6 +73,10 @@ async def lifespan(app: FastAPI):
     inventory_forecast_task = asyncio.create_task(run_inventory_forecast_scheduler())
     reflection_task = asyncio.create_task(run_reflection_scheduler())
     emotion_reconsolidation_task = asyncio.create_task(run_emotion_reconsolidation_scheduler())
+    gossip_detection_task = asyncio.create_task(run_gossip_detection_scheduler())
+    interest_cron_task = asyncio.create_task(run_interest_cron_scheduler())
+    spiritual_devotional_task = asyncio.create_task(run_spiritual_devotional_scheduler())
+    motivational_nudge_task = asyncio.create_task(run_motivational_nudge_scheduler())
 
     yield
 
@@ -72,6 +84,7 @@ async def lifespan(app: FastAPI):
         scheduler_task, temporal_task, world_knowledge_task, consolidation_task,
         document_followup_task, pricing_benchmark_task, inventory_forecast_task,
         reflection_task, emotion_reconsolidation_task,
+        gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
     ):
         task.cancel()
         try:
@@ -93,6 +106,10 @@ async def lifespan(app: FastAPI):
     await inventory_forecast_worker.close()
     await reflection_worker.close()
     await emotion_reconsolidation_worker.close()
+    await gossip_detection_worker.close()
+    await interest_cron_worker.close()
+    await spiritual_devotional_worker.close()
+    await motivational_nudge_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()
