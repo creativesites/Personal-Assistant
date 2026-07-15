@@ -36,6 +36,17 @@ interface ChatAnalysis {
   whatIWouldDo: string | null
 }
 
+// Advisor Companion Plan Phase 3 (docs/ADVISOR_COMPANION_PLAN.md §4.3/§5.3/
+// §7.4) — a drafted send that's been turned into a durable, approvable
+// action_request instead of just text in the chat response.
+interface ActionRequest {
+  id: string
+  actionType: string
+  status: 'proposed' | 'approved' | 'executing' | 'completed' | 'failed' | 'cancelled'
+  payload: { conversationId: string; contactId: string; text: string }
+  riskLevel: 'low' | 'medium' | 'high'
+}
+
 interface ChatMsg {
   id: string
   role: 'user' | 'assistant'
@@ -46,6 +57,7 @@ interface ChatMsg {
   timestamp: Date
   analysis?: ChatAnalysis | null
   mood?: string | null
+  actionRequest?: ActionRequest | null
 }
 
 interface UpdateAction {
@@ -211,10 +223,30 @@ export function IntelPanel({
       })
       if (res.ok) {
         const data = await res.json() as {
-          messages: Array<{ id: string; role: string; content: string; created_at: string; metadata?: { analysis?: ChatAnalysis | null; assistantState?: { mood?: string } } | null }>
+          messages: Array<{
+            id: string; role: string; content: string; created_at: string
+            metadata?: { analysis?: ChatAnalysis | null; assistantState?: { mood?: string }; actionRequestId?: string } | null
+          }>
           sessionId: string | null
         }
         if (data.sessionId) setChatSessionId(data.sessionId)
+
+        // Reconstruct pending action approval cards on reload — only
+        // proposed/approved actions matter here (completed/cancelled ones
+        // don't need a card anymore).
+        let actionsById = new Map<string, ActionRequest>()
+        if (data.sessionId) {
+          try {
+            const actionsRes = await fetch(`${API_URL}/api/advisor/actions?sessionId=${data.sessionId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (actionsRes.ok) {
+              const actionsData = await actionsRes.json() as { actions: ActionRequest[] }
+              actionsById = new Map(actionsData.actions.map(a => [a.id, a]))
+            }
+          } catch { /* silent — approval cards just won't reappear on reload */ }
+        }
+
         if (data.messages.length > 0) {
           setChatMessages(data.messages.map(m => ({
             id: m.id,
@@ -223,6 +255,7 @@ export function IntelPanel({
             timestamp: new Date(m.created_at),
             analysis: m.metadata?.analysis ?? null,
             mood: m.metadata?.assistantState?.mood ?? null,
+            actionRequest: m.metadata?.actionRequestId ? actionsById.get(m.metadata.actionRequestId) ?? null : null,
           })))
         }
       }
@@ -267,6 +300,49 @@ export function IntelPanel({
     } finally {
       setActioning(false)
     }
+  }
+
+  // Advisor Companion Plan Phase 3 (§5.3/§7.4/§8.1) — approval is always
+  // required for a proposed send; risk_level only decides whether the
+  // "want to sleep on it?" prompt shows, it never blocks the Send button.
+  const handleActionApprove = async (msgId: string, action: ActionRequest) => {
+    if (!token) return
+    setActioning(true)
+    try {
+      const approveRes = await fetch(`${API_URL}/api/advisor/actions/${action.id}/approve`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!approveRes.ok) throw new Error('approve failed')
+      const executeRes = await fetch(`${API_URL}/api/advisor/actions/${action.id}/execute`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await executeRes.json() as { action?: ActionRequest }
+      const status = executeRes.ok ? 'completed' : 'failed'
+      setChatMessages(prev => prev.map(m => m.id === msgId
+        ? { ...m, actionRequest: m.actionRequest ? { ...m.actionRequest, status: data.action?.status ?? status } : m.actionRequest }
+        : m))
+      if (executeRes.ok) {
+        addSystemMsg(`✅ Sent to ${contact?.name?.split(' ')[0] ?? 'contact'}`, { isSuccess: true })
+      } else {
+        addSystemMsg('Failed to send — please try again from the reply box below.')
+      }
+    } catch {
+      addSystemMsg('Failed to send — please try again from the reply box below.')
+    } finally {
+      setActioning(false)
+    }
+  }
+
+  const handleActionCancel = async (msgId: string, action: ActionRequest) => {
+    if (!token) return
+    setChatMessages(prev => prev.map(m => m.id === msgId
+      ? { ...m, actionRequest: m.actionRequest ? { ...m.actionRequest, status: 'cancelled' } : m.actionRequest }
+      : m))
+    try {
+      await fetch(`${API_URL}/api/advisor/actions/${action.id}/cancel`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      })
+    } catch { /* already reflected optimistically */ }
   }
 
   const handleUpdateChip = (action: UpdateAction) => {
@@ -390,15 +466,18 @@ export function IntelPanel({
       let answer = ''
       let analysis: ChatAnalysis | null = null
       let mood: string | null = null
+      let actionRequest: ActionRequest | null = null
       if (res.ok) {
         const data = await res.json() as {
           answer?: string; sessionId?: string
           analysis?: ChatAnalysis | null
           assistantState?: { mood?: string }
+          actionRequest?: ActionRequest | null
         }
         answer = data.answer ?? 'No response.'
         analysis = data.analysis ?? null
         mood = data.assistantState?.mood ?? null
+        actionRequest = data.actionRequest ?? null
         // Capture session ID returned by the API
         if (data.sessionId && !chatSessionId) setChatSessionId(data.sessionId)
       } else {
@@ -420,6 +499,7 @@ export function IntelPanel({
         timestamp: new Date(),
         analysis,
         mood,
+        actionRequest,
       }])
     } catch {
       addSystemMsg('Unable to reach AI service.')
@@ -1087,6 +1167,58 @@ export function IntelPanel({
                             <p className="text-[9px] font-bold uppercase tracking-wide text-indigo-500 mb-0.5">What I'd do</p>
                             <p className="text-[11px] text-gray-700 leading-snug">{msg.analysis.whatIWouldDo}</p>
                           </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action approval card — Advisor Companion Plan Phase 3 (§4.3/§5.3/§7.4/§8.1) */}
+                    {msg.role === 'assistant' && msg.actionRequest && (
+                      <div className="w-full bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 space-y-2">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center flex-shrink-0">
+                            <Send size={8} className="text-white" />
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-700">
+                            Send to {contact?.name?.split(' ')[0] ?? 'contact'}
+                          </span>
+                          {msg.actionRequest.status !== 'proposed' && msg.actionRequest.status !== 'approved' && (
+                            <span className="ml-auto text-[9px] font-bold uppercase tracking-wide text-gray-500">
+                              {msg.actionRequest.status}
+                            </span>
+                          )}
+                        </div>
+                        <div className="bg-white rounded-lg px-2.5 py-2 border border-emerald-100">
+                          <p className="text-[11px] text-gray-800 leading-relaxed">{msg.actionRequest.payload.text}</p>
+                        </div>
+                        {(msg.actionRequest.status === 'proposed' || msg.actionRequest.status === 'approved') && msg.actionRequest.riskLevel === 'high' && (
+                          <div className="flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                            <AlertTriangle size={11} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                            <p className="text-[10px] text-amber-800 leading-snug">
+                              This one's higher-stakes — want to sleep on it? You can still send now if you're sure.
+                            </p>
+                          </div>
+                        )}
+                        {(msg.actionRequest.status === 'proposed' || msg.actionRequest.status === 'approved') && (
+                          <div className="flex gap-1.5">
+                            <button onClick={() => handleActionApprove(msg.id, msg.actionRequest!)} disabled={actioning}
+                              className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                              <Send size={9} />Send Now
+                            </button>
+                            <button onClick={() => { onSetDraft(msg.actionRequest!.payload.text); draftFocus() }}
+                              className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1.5 bg-white text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">
+                              <Edit3 size={9} />Edit
+                            </button>
+                            <button onClick={() => handleActionCancel(msg.id, msg.actionRequest!)} disabled={actioning}
+                              className="text-[10px] font-semibold px-2.5 py-1.5 text-gray-500 hover:text-gray-700 rounded-lg disabled:opacity-50 transition-colors">
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                        {msg.actionRequest.status === 'completed' && (
+                          <p className="text-[10px] text-emerald-700 font-semibold">✅ Sent</p>
+                        )}
+                        {(msg.actionRequest.status === 'failed' || msg.actionRequest.status === 'cancelled') && (
+                          <p className="text-[10px] text-gray-500 font-semibold capitalize">{msg.actionRequest.status}</p>
                         )}
                       </div>
                     )}

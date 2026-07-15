@@ -5,6 +5,8 @@ import { authenticate } from '../plugins/authenticate';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
 import { formatConversationRow, getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
+import { sendWhatsAppMessage } from '../lib/whatsapp-send';
+import { actionRequestApiShape } from '../lib/advisor-actions';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -219,75 +221,15 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const { id } = request.params as { id: string };
     const { text } = sendMessageBody.parse(request.body);
 
-    // Verify the conversation belongs to this user and get the contact JID
-    const { rows: [conv] } = await db.query(
-      `SELECT c.id, c.whatsapp_chat_id, c.contact_id, co.whatsapp_jid
-       FROM conversations c
-       JOIN contacts co ON co.id = c.contact_id
-       WHERE c.id = $1 AND c.user_id = $2`,
-      [id, userId],
-    );
-    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
-
-    const now = new Date();
-    const tempWaId = `direct-${crypto.randomUUID()}`;
-
-    // Persist message to DB
-    const { rows: [msg] } = await db.query(
-      `INSERT INTO messages
-         (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp)
-       VALUES ($1, $2, 'user', 'text', $3, $4)
-       RETURNING id`,
-      [id, tempWaId, text, now],
-    );
-
-    // Update conversation metadata
-    await db.query(
-      `UPDATE conversations
-       SET last_message_at = $1, last_message_preview = $2, updated_at = NOW()
-       WHERE id = $3`,
-      [now, text.slice(0, 200), id],
-    );
-
-    // Queue for WhatsApp delivery
-    await addToQueue(QUEUE_NAMES.SEND_REPLY, {
-      userId,
-      messageId: msg.id,
-      suggestedReplyId: null,
-      recipientJid: conv.whatsapp_jid,
-      text,
-    });
-
-    const message = {
-      id: msg.id,
-      senderType: 'user',
-      messageType: 'text',
-      body: text,
-      timestamp: now.toISOString(),
-      pendingSuggestions: 0,
-      mediaUrl: null,
-      mediaMimeType: null,
-      transcription: null,
-    };
-
-    const conversation = await getInboxConversation(userId, id);
-    if (conversation) {
-      await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+    try {
+      const { message, conversation } = await sendWhatsAppMessage(userId, id, text);
+      return reply.code(201).send({ message, conversation });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Conversation not found') {
+        return reply.code(404).send({ error: 'Conversation not found' });
+      }
+      throw err;
     }
-    await publishInboxEvent(userId, 'message:new', {
-      messageId: msg.id,
-      conversationId: id,
-      contactId: conv.contact_id,
-      senderType: 'user',
-      messageType: 'text',
-      body: text,
-      mediaUrl: null,
-      mediaMimeType: null,
-      transcription: null,
-      timestamp: now.toISOString(),
-    });
-
-    return reply.code(201).send({ message, conversation });
   });
 
   // ── GET /api/inbox/briefing ────────────────────────────────────────────────
@@ -887,16 +829,15 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
     let answer = '';
-    // Advisor Companion Plan Phase 2 (docs/ADVISOR_COMPANION_PLAN.md §5.2/
-    // §9) — conversation-scoped turns now carry the same assistantState/
-    // memorySuggestion shape the global advisor gained in Phase 1, plus an
-    // `analysis` object (evidence/myRead/alternativeRead/whatIWouldDo) for
-    // analysis-flavored intents. `proposedAction` is computed by the
-    // intelligence service already but not yet acted on here — Phase 3
-    // wires up actually persisting/approving it.
+    // Advisor Companion Plan Phase 2/3 (docs/ADVISOR_COMPANION_PLAN.md
+    // §5.2/§5.3/§9) — conversation-scoped turns carry assistantState/
+    // memorySuggestion/analysis (Phase 2), and a drafted send now becomes
+    // a persisted advisor_action_requests row (Phase 3) instead of just
+    // riding along in the chat response.
     let assistantState: Record<string, unknown> | null = null;
     let memorySuggestion: Record<string, unknown> | null = null;
     let analysis: Record<string, unknown> | null = null;
+    let proposedAction: { actionType: string; payload: Record<string, unknown>; riskLevel: string } | null = null;
     try {
       const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/ask`, {
         method: 'POST',
@@ -909,11 +850,13 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           assistantState?: Record<string, unknown>
           memorySuggestion?: Record<string, unknown> | null
           analysis?: Record<string, unknown> | null
+          proposedAction?: { actionType: string; payload: Record<string, unknown>; riskLevel: string } | null
         };
         answer = data.answer ?? 'I was unable to generate a response.';
         assistantState = data.assistantState ?? null;
         memorySuggestion = data.memorySuggestion ?? null;
         analysis = data.analysis ?? null;
+        proposedAction = data.proposedAction ?? null;
       } else {
         answer = 'The AI service returned an error. Please try again.';
       }
@@ -937,7 +880,25 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       [sessionId],
     );
 
-    return reply.send({ answer, sessionId, message: assistantMsg, assistantState, memorySuggestion, analysis });
+    // §4.3/§5.3 — store the action before execution; never execute
+    // directly from a chat response.
+    let actionRequest: Record<string, unknown> | null = null;
+    if (proposedAction) {
+      const { rows: [created] } = await db.query(
+        `INSERT INTO advisor_action_requests (user_id, session_id, message_id, action_type, payload, risk_level)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+         RETURNING id, action_type, status, payload, risk_level, created_at`,
+        [userId, sessionId, assistantMsg.id, proposedAction.actionType, JSON.stringify(proposedAction.payload), proposedAction.riskLevel],
+      );
+      actionRequest = actionRequestApiShape(created);
+      // So reloaded chat history can still find/render the approval card.
+      await db.query(
+        `UPDATE advisor_messages SET metadata = metadata || $1::jsonb WHERE id = $2`,
+        [JSON.stringify({ actionRequestId: created.id }), assistantMsg.id],
+      );
+    }
+
+    return reply.send({ answer, sessionId, message: assistantMsg, assistantState, memorySuggestion, analysis, actionRequest });
   });
 
   // ── Archive / unarchive ───────────────────────────────────────────────────

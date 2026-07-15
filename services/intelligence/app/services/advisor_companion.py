@@ -1,5 +1,6 @@
-"""Advisor Companion Plan Phase 1/2 — Companion Brain Foundation +
-Relationship Analysis Experience (docs/ADVISOR_COMPANION_PLAN.md §6.1).
+"""Advisor Companion Plan Phase 1/2/3 — Companion Brain Foundation +
+Relationship Analysis Experience + Action Protocol And Approval
+(docs/ADVISOR_COMPANION_PLAN.md §6.1).
 
 Phase 1 (`handle_turn`) orchestrates a global-advisor turn: classify
 intent, retrieve profile/memories/emotional state/contact context,
@@ -9,9 +10,11 @@ scoped to one specific WhatsApp conversation/contact — deeper retrieval
 (relationship memory, contact profile, the contact's own emotional
 signal), the relationship-advice policy, and the evidence/my-read/
 alternative-read/what-I'd-do structured response for analysis-flavored
-intents. The Studio advisor keeps its own separate flow in
-routes/conversation.py — its context shape (catalog/rules/suppliers) is
-unrelated to either of these.
+intents. Phase 3 completes the Boundary Keeper risk check (§3.11/§6.13)
+on any proposed send and returns a fully-formed action proposal for Node
+(routes/advisor.ts) to persist as `advisor_action_requests`. The Studio
+advisor keeps its own separate flow in routes/conversation.py — its
+context shape (catalog/rules/suppliers) is unrelated to either of these.
 """
 import json
 import structlog
@@ -29,9 +32,11 @@ _ANALYSIS_INTENTS = {'chat_analysis', 'relationship_advice', 'emotional_support'
 # Advisor Companion Plan Phase 2 (§3.6) — a low-valence/high-arousal user
 # state gets a brief acknowledgment folded into the prompt, mirroring the
 # plan's own worked example ("you asked about this when you were feeling
-# anxious; here's my read with that in mind").
+# anxious; here's my read with that in mind"). Phase 3's Boundary Keeper
+# (§3.11/§6.13) reuses the same arousal threshold as one of its 3 factors.
 _LOW_VALENCE_THRESHOLD = -0.2
 _HIGH_AROUSAL_THRESHOLD = 0.6
+_RECENT_CONTACT_SIGNAL_DAYS = 14
 
 _DEFAULT_PROFILE = {
     'display_persona': {}, 'tone_preferences': {}, 'boundaries': {},
@@ -236,14 +241,15 @@ class AdvisorCompanionService:
         # Advisor Companion Plan Phase 3 (§3.5/§6.1) — a drafted WhatsApp
         # message this turn becomes a proposed action Node persists as
         # advisor_action_requests once it has the assistant message_id;
-        # the Boundary Keeper risk flag (§3.11/§6.13) rides along on the
+        # the Boundary Keeper risk check (§3.11/§6.13) rides along on the
         # same proposal rather than a second pass.
         proposed_action = None
         if intent in ('draft_reply', 'send_message') and contact_id and answer.strip():
+            risk_level = await self._assess_boundary_risk(user_id, contact_id, emotional_state, is_high_risk_draft)
             proposed_action = {
                 'actionType': 'send_whatsapp_message',
                 'payload': {'conversationId': conversation_id, 'contactId': contact_id, 'text': answer.strip()},
-                'riskLevel': 'high' if is_high_risk_draft else 'medium',
+                'riskLevel': risk_level,
             }
 
         return self._response(
@@ -428,6 +434,34 @@ class AdvisorCompanionService:
             + ZURI_ACTION_INSTRUCTIONS
             + f'\n\nRecent contacts context:\n{contacts_context}'
         )
+
+    async def _assess_boundary_risk(self, user_id: str, contact_id: str, emotional_state: dict,
+                                     is_high_risk_draft: bool) -> str:
+        """Advisor Companion Plan §3.11/§6.13 — the Boundary Keeper. Not a
+        standalone service, an inline check on the approval path: is the
+        drafted text itself high-valence-negative (already self-assessed
+        by the model above), is the user's current arousal elevated, has
+        this specific contact had a recent negative interaction? Two or
+        more true -> 'high' (the "want to sleep on it?" prompt); one ->
+        'medium'; zero -> 'low'. Never blocks — risk_level only changes
+        what the approval card shows, approval is always required either way."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT AVG(valence) AS avg_valence FROM emotional_signals
+                   WHERE user_id = $1 AND contact_id = $2
+                     AND created_at > NOW() - make_interval(days => $3)""",
+                user_id, contact_id, _RECENT_CONTACT_SIGNAL_DAYS,
+            )
+        recent_negative_interaction = bool(row and row['avg_valence'] is not None and float(row['avg_valence']) < _LOW_VALENCE_THRESHOLD)
+        elevated_arousal = emotional_state.get('arousal', 0.0) > _HIGH_AROUSAL_THRESHOLD
+
+        factors = sum([is_high_risk_draft, elevated_arousal, recent_negative_interaction])
+        if factors >= 2:
+            return 'high'
+        if factors == 1:
+            return 'medium'
+        return 'low'
 
     async def _save_memory_suggestion(self, user_id: str, session_id: str | None, suggestion: dict) -> None:
         memory_type = suggestion.get('type')

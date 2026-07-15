@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { sendWhatsAppMessage } from '../lib/whatsapp-send';
+import { actionRequestApiShape } from '../lib/advisor-actions';
 
 const INTELLIGENCE_URL = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
 
@@ -364,5 +366,92 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
       [id, userId],
     );
     return reply.send({ ok: true });
+  });
+
+  // ── Advisor Action Requests (Advisor Companion Plan Phase 3, §4.3/§5.3) ──
+  // The proposal itself is created in routes/conversations.ts's /ask
+  // handler (it needs the just-persisted assistant message_id); this is
+  // the read/approve/cancel/execute surface on top of it.
+
+  fastify.get('/api/advisor/actions', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { sessionId, status } = request.query as { sessionId?: string; status?: string };
+
+    const filters = ['user_id = $1'];
+    const params: unknown[] = [userId];
+    if (sessionId) { params.push(sessionId); filters.push(`session_id = $${params.length}`); }
+    if (status) { params.push(status); filters.push(`status = $${params.length}`); }
+
+    const { rows } = await db.query(
+      `SELECT * FROM advisor_action_requests WHERE ${filters.join(' AND ')} ORDER BY created_at DESC LIMIT 50`,
+      params,
+    );
+    return reply.send({ actions: rows.map(actionRequestApiShape) });
+  });
+
+  fastify.post('/api/advisor/actions/:id/approve', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [action] } = await db.query(
+      `UPDATE advisor_action_requests SET status = 'approved', approved_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND status = 'proposed' RETURNING *`,
+      [id, userId],
+    );
+    if (!action) return reply.code(404).send({ error: 'Action not found or not in a proposed state' });
+    return reply.send({ action: actionRequestApiShape(action) });
+  });
+
+  fastify.post('/api/advisor/actions/:id/cancel', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [action] } = await db.query(
+      `UPDATE advisor_action_requests SET status = 'cancelled'
+       WHERE id = $1 AND user_id = $2 AND status IN ('proposed', 'approved') RETURNING *`,
+      [id, userId],
+    );
+    if (!action) return reply.code(404).send({ error: 'Action not found or already resolved' });
+    return reply.send({ action: actionRequestApiShape(action) });
+  });
+
+  // §8.1 default sending policy — drafting is always allowed, sending
+  // always requires the approve step above to have already happened;
+  // this route is the one place an advisor-proposed action actually runs.
+  fastify.post('/api/advisor/actions/:id/execute', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [action] } = await db.query(
+      `SELECT * FROM advisor_action_requests WHERE id = $1 AND user_id = $2 AND status = 'approved'`,
+      [id, userId],
+    );
+    if (!action) return reply.code(404).send({ error: 'Action not found or not approved yet' });
+
+    if (action.action_type !== 'send_whatsapp_message') {
+      return reply.code(400).send({ error: `Execution for action type "${action.action_type}" is not supported yet` });
+    }
+
+    await db.query(`UPDATE advisor_action_requests SET status = 'executing' WHERE id = $1`, [id]);
+
+    try {
+      const payload = action.payload as { conversationId: string; text: string };
+      const { message } = await sendWhatsAppMessage(userId, payload.conversationId, payload.text);
+      const { rows: [updated] } = await db.query(
+        `UPDATE advisor_action_requests
+         SET status = 'completed', executed_at = NOW(), result = $1::jsonb
+         WHERE id = $2 RETURNING *`,
+        [JSON.stringify({ sent: true, messageId: message.id }), id],
+      );
+      return reply.send({ action: actionRequestApiShape(updated) });
+    } catch (err) {
+      const { rows: [updated] } = await db.query(
+        `UPDATE advisor_action_requests
+         SET status = 'failed', result = $1::jsonb
+         WHERE id = $2 RETURNING *`,
+        [JSON.stringify({ error: err instanceof Error ? err.message : 'Unknown error' }), id],
+      );
+      return reply.code(502).send({ action: actionRequestApiShape(updated), error: 'Failed to send message' });
+    }
   });
 }
