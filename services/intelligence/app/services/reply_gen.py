@@ -144,6 +144,20 @@ class ReplyGenerator:
             catalog_text = memory.format_catalog_items(catalog_items)
             if catalog_text:
                 catalog_context = f'\n\nCatalog (Products & Services):\n{catalog_text}'
+
+            # Business OS Phase D (docs/BUSINESS_OS_PLAN.md §9) — if the
+            # message is about a specific catalog item, tell the model what
+            # other customers who bought it usually buy too, e.g. "Peter
+            # requests brake pads" -> mention Engine Oil/Oil Filter.
+            mentioned = memory.find_mentioned_catalog_item(catalog_items, body)
+            if mentioned:
+                co_purchases = await memory.get_co_purchases(user_id, str(mentioned['id']))
+                if co_purchases:
+                    names = ', '.join(c['product_name'] for c in co_purchases)
+                    catalog_context += (
+                        f"\n\nCustomers who buy {mentioned['name']} usually also buy: {names}. "
+                        "Mention this as a suggestion only if it fits naturally — don't force it."
+                    )
         except Exception as exc:
             log.warning('catalog_retrieval_failed_in_reply_gen', error=str(exc))
 

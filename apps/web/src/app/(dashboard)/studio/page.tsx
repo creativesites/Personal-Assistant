@@ -208,6 +208,17 @@ interface StudioInsights {
     supplierId: string; supplierName: string; unitCost: number | null; leadTimeDays: number | null
     quantity: number; estimatedCost: number | null
   }[]
+  topProfitable: { id: string; name: string; unitsSold: number; totalProfit: number }[]
+  topVelocity: { id: string; name: string; unitsSold30d: number }[]
+  avgOrderSize: number
+}
+
+interface CoPurchase {
+  productId: string
+  productName: string
+  coCount: number
+  baseCount: number
+  confidencePct: number
 }
 
 interface SupplierProduct {
@@ -1143,6 +1154,67 @@ function ProductVariantsPanel({
   )
 }
 
+// "Customers who bought this also bought..." — data-driven from real
+// contact_products purchase history (Business OS Phase D, see
+// docs/BUSINESS_OS_PLAN.md §9), distinct from the manually-curated
+// products.crossSell/upsell arrays. Offers a one-click way to promote a
+// data-driven pairing into an official cross-sell recommendation.
+function CoPurchasesPanel({ token, product, onChanged }: { token: string | undefined; product: Product; onChanged: () => void }) {
+  const { data } = useApi<{ coPurchases: CoPurchase[] }>(
+    token ? `/api/products/${product.id}/co-purchases` : null, token,
+  )
+  const { addToast } = useToast()
+  const coPurchases = data?.coPurchases ?? []
+  const [savingId, setSavingId] = useState<string | null>(null)
+
+  if (coPurchases.length === 0) return null
+
+  async function addAsCrossSell(coProductId: string) {
+    setSavingId(coProductId)
+    try {
+      const nextCrossSell = Array.from(new Set([...(product.crossSell ?? []), coProductId]))
+      await apiClient(`/api/products/${product.id}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({ crossSell: nextCrossSell }),
+      })
+      addToast({ variant: 'success', title: 'Added as cross-sell' })
+      onChanged()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to save' })
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-500 mb-1.5">Frequently bought together</p>
+      <div className="space-y-1.5">
+        {coPurchases.map(cp => {
+          const alreadyCrossSell = (product.crossSell ?? []).includes(cp.productId)
+          return (
+            <div key={cp.productId} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs">
+              <span className="flex-1 truncate text-gray-700">{cp.productName}</span>
+              <span className="text-gray-400">{cp.confidencePct}% of buyers</span>
+              {alreadyCrossSell ? (
+                <Badge variant="success">Cross-sell</Badge>
+              ) : (
+                <button
+                  onClick={() => addAsCrossSell(cp.productId)}
+                  disabled={savingId === cp.productId}
+                  className="text-indigo-600 font-semibold hover:text-indigo-700 shrink-0"
+                >
+                  {savingId === cp.productId ? '...' : '+ Cross-sell'}
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function CatalogModule({ token }: { token: string | undefined }) {
   const { data: productsData, loading, refetch } = useApi<{ products: Product[] }>(
     token ? '/api/products' : null, token,
@@ -1638,6 +1710,7 @@ function CatalogModule({ token }: { token: string | undefined }) {
                     )}
 
                     <ProductVariantsPanel token={token} product={p} onChanged={refetch} />
+                    <CoPurchasesPanel token={token} product={p} onChanged={refetch} />
 
                     {p.aiNotes && (
                       <div className="bg-indigo-50 rounded-lg p-3">
@@ -2251,6 +2324,50 @@ function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI:
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Business OS Phase D — Sales Intelligence (docs/BUSINESS_OS_PLAN.md §9),
+          derived from real stock_movements/contact_products history. */}
+      {insights && (insights.topProfitable.length > 0 || insights.topVelocity.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {insights.topProfitable.length > 0 && (
+            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
+              <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+                <TrendingUp className="w-4 h-4 text-emerald-500" />
+                Most Profitable
+              </p>
+              <div className="space-y-2">
+                {insights.topProfitable.map((p, i) => (
+                  <div key={p.id} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 truncate flex-1">{i + 1}. {p.name}</span>
+                    <span className="font-semibold text-emerald-600 shrink-0 ml-2">{formatCurrency(p.totalProfit, 'USD')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {insights.topVelocity.length > 0 && (
+            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
+              <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-indigo-500" />
+                Highest Velocity (30d)
+              </p>
+              <div className="space-y-2">
+                {insights.topVelocity.map((p, i) => (
+                  <div key={p.id} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-700 truncate flex-1">{i + 1}. {p.name}</span>
+                    <span className="font-semibold text-indigo-600 shrink-0 ml-2">{p.unitsSold30d} sold</span>
+                  </div>
+                ))}
+              </div>
+              {insights.avgOrderSize > 0 && (
+                <p className="text-xs text-gray-400 mt-3 pt-3 border-t border-gray-50">
+                  Average order size: {insights.avgOrderSize.toFixed(1)} units
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

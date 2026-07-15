@@ -14,7 +14,8 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
-      const [statsResult, lowStockResult, thinMarginResult, supplierFlagsResult, suggestedPORows] = await Promise.all([
+      const [statsResult, lowStockResult, thinMarginResult, supplierFlagsResult, suggestedPORows,
+        topProfitableResult, topVelocityResult, avgOrderSizeResult] = await Promise.all([
         db.query(
           `SELECT
              (SELECT COUNT(*) FROM products WHERE user_id = $1) AS total_products,
@@ -65,6 +66,37 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
            LIMIT 10`,
           [userId],
         ),
+        // Business OS Phase D (§9) — sales intelligence, all derived from
+        // real stock_movements/contact_products history rather than
+        // narrative/LLM output, same "deterministic insights" convention.
+        db.query(
+          `SELECT p.id, p.name, p.selling_price, p.purchase_cost,
+                  COALESCE(SUM(-sm.quantity_delta), 0) AS units_sold,
+                  COALESCE(SUM(-sm.quantity_delta), 0) * (p.selling_price - p.purchase_cost) AS total_profit
+           FROM products p
+           JOIN stock_movements sm ON sm.product_id = p.id AND sm.movement_type = 'sale' AND sm.user_id = p.user_id
+           WHERE p.user_id = $1 AND p.selling_price IS NOT NULL AND p.purchase_cost IS NOT NULL
+           GROUP BY p.id, p.name, p.selling_price, p.purchase_cost
+           HAVING COALESCE(SUM(-sm.quantity_delta), 0) > 0
+           ORDER BY total_profit DESC LIMIT 5`,
+          [userId],
+        ),
+        db.query(
+          `SELECT p.id, p.name, COALESCE(SUM(-sm.quantity_delta), 0) AS units_sold_30d
+           FROM products p
+           JOIN stock_movements sm ON sm.product_id = p.id AND sm.movement_type = 'sale' AND sm.user_id = p.user_id
+             AND sm.created_at >= NOW() - INTERVAL '30 days'
+           WHERE p.user_id = $1
+           GROUP BY p.id, p.name
+           ORDER BY units_sold_30d DESC LIMIT 5`,
+          [userId],
+        ),
+        db.query(
+          `SELECT COALESCE(AVG(quantity), 0) AS avg_order_size
+           FROM contact_products
+           WHERE user_id = $1 AND relation_type = 'purchased' AND quantity IS NOT NULL`,
+          [userId],
+        ),
       ])
 
       const s = statsResult.rows[0]
@@ -112,6 +144,13 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
             estimatedCost: r.cost != null ? parseFloat(r.cost) * quantity : null,
           }
         }),
+        topProfitable: topProfitableResult.rows.map((r: any) => ({
+          id: r.id, name: r.name, unitsSold: Number(r.units_sold), totalProfit: parseFloat(r.total_profit),
+        })),
+        topVelocity: topVelocityResult.rows.map((r: any) => ({
+          id: r.id, name: r.name, unitsSold30d: Number(r.units_sold_30d),
+        })),
+        avgOrderSize: parseFloat(avgOrderSizeResult.rows[0].avg_order_size),
       })
     },
   )

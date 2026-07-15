@@ -812,6 +812,48 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ── GET /api/products/:id/co-purchases — "customers who bought this also
+  // bought..." derived from real contact_products purchase history (Business
+  // OS Phase D, docs/BUSINESS_OS_PLAN.md §9). Distinct from the
+  // manually-curated products.cross_sell/upsell JSONB — this is computed
+  // from what customers have actually bought together. ──
+  fastify.get(
+    '/api/products/:id/co-purchases',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows } = await db.query(
+        `WITH base_purchasers AS (
+           SELECT DISTINCT contact_id FROM contact_products
+           WHERE user_id = $1 AND product_id = $2 AND relation_type = 'purchased'
+         )
+         SELECT p.id AS product_id, p.name AS product_name,
+                COUNT(DISTINCT cp.contact_id) AS co_count,
+                (SELECT COUNT(*) FROM base_purchasers) AS base_count
+         FROM contact_products cp
+         JOIN base_purchasers bp ON bp.contact_id = cp.contact_id
+         JOIN products p ON p.id = cp.product_id AND p.user_id = $1
+         WHERE cp.user_id = $1 AND cp.relation_type = 'purchased' AND cp.product_id != $2
+         GROUP BY p.id, p.name
+         ORDER BY co_count DESC
+         LIMIT 5`,
+        [userId, id],
+      )
+
+      return reply.send({
+        coPurchases: rows.map((r: any) => ({
+          productId: r.product_id,
+          productName: r.product_name,
+          coCount: Number(r.co_count),
+          baseCount: Number(r.base_count),
+          confidencePct: Number(r.base_count) > 0 ? Math.round((Number(r.co_count) / Number(r.base_count)) * 100) : 0,
+        })),
+      })
+    },
+  )
+
   fastify.post(
     '/api/products/:id/contacts',
     { preHandler: [authenticate, requireMarketingAccess] },
