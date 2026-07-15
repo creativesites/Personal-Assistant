@@ -14,6 +14,7 @@ from ..services.gossip_detector import get_gossip_detector
 from ..services.interest_companion import get_interest_companion
 from ..services.spiritual_companion import get_spiritual_companion
 from ..services.motivational_detector import get_motivational_detector
+from ..services.advisor_memory_learner import get_advisor_memory_learner
 
 log = structlog.get_logger()
 
@@ -37,6 +38,7 @@ _gossip_detection_queue = Queue('companion.detect_gossip', {'connection': redis_
 _interest_cron_queue = Queue('companion.run_interest_cron', {'connection': redis_conn_opts()})
 _spiritual_devotional_queue = Queue('companion.send_devotionals', {'connection': redis_conn_opts()})
 _motivational_nudge_queue = Queue('companion.check_motivational', {'connection': redis_conn_opts()})
+_advisor_memory_learning_queue = Queue('advisor.learn_memories', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -322,6 +324,34 @@ async def run_motivational_nudge_scheduler() -> None:
             await _motivational_nudge_queue.add('check', {})
         except Exception as exc:
             log.error('motivational_nudge_enqueue_failed', error=str(exc))
+
+
+async def _process_advisor_memory_learning(job, token: str):
+    count = await get_advisor_memory_learner().run_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_advisor_memory_learning_worker() -> Worker:
+    return Worker('advisor.learn_memories', _process_advisor_memory_learning, {'connection': redis_conn_opts()})
+
+
+async def run_advisor_memory_learning_scheduler() -> None:
+    """Advisor Companion Plan Phase 5 (§6.5/§9): nightly at 15:00 UTC —
+    after the motivational nudge check (14:00), same load-spreading
+    convention as every other daily job in this file."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=15, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('advisor_memory_learning_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('advisor_memory_learning_enqueue')
+            await _advisor_memory_learning_queue.add('learn', {})
+        except Exception as exc:
+            log.error('advisor_memory_learning_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

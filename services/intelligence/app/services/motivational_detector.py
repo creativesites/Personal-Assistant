@@ -11,12 +11,14 @@ import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_MOTIVATIONAL_NUDGE
 from ..database import get_pool
-from .companion_delivery import deliver_initiated_message
+from .companion_delivery import deliver_initiated_message, engagement_rate
 
 log = structlog.get_logger()
 
 _MIN_SIGNALS = 2
 _DEDUP_WINDOW_HOURS = 20
+_MIN_ENGAGEMENT_SAMPLES = 5
+_MIN_ENGAGEMENT_RATE = 0.15
 
 
 class MotivationalDetectorService:
@@ -34,6 +36,14 @@ class MotivationalDetectorService:
         return count
 
     async def check_and_nudge(self, user_id: str, style: dict | None = None) -> bool:
+        # Advisor Companion Plan Phase 5 (§6.5/§9) — §3.10's own promise:
+        # "if the user dismisses these, frequency drops rather than the
+        # message getting louder."
+        rate, samples = await engagement_rate(user_id, 'motivational')
+        if samples >= _MIN_ENGAGEMENT_SAMPLES and rate < _MIN_ENGAGEMENT_RATE:
+            log.info('motivational_nudge_throttled', user_id=user_id, rate=round(rate, 2), samples=samples)
+            return False
+
         pool = await get_pool()
         async with pool.acquire() as conn:
             already_recent = await conn.fetchval(

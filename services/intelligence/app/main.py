@@ -29,6 +29,7 @@ from .workers.daily_worker import (
     create_interest_cron_worker, run_interest_cron_scheduler,
     create_spiritual_devotional_worker, run_spiritual_devotional_scheduler,
     create_motivational_nudge_worker, run_motivational_nudge_scheduler,
+    create_advisor_memory_learning_worker, run_advisor_memory_learning_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
     interest_cron_worker = create_interest_cron_worker()
     spiritual_devotional_worker = create_spiritual_devotional_worker()
     motivational_nudge_worker = create_motivational_nudge_worker()
+    advisor_memory_learning_worker = create_advisor_memory_learning_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -77,6 +79,7 @@ async def lifespan(app: FastAPI):
     interest_cron_task = asyncio.create_task(run_interest_cron_scheduler())
     spiritual_devotional_task = asyncio.create_task(run_spiritual_devotional_scheduler())
     motivational_nudge_task = asyncio.create_task(run_motivational_nudge_scheduler())
+    advisor_memory_learning_task = asyncio.create_task(run_advisor_memory_learning_scheduler())
 
     yield
 
@@ -85,6 +88,7 @@ async def lifespan(app: FastAPI):
         document_followup_task, pricing_benchmark_task, inventory_forecast_task,
         reflection_task, emotion_reconsolidation_task,
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
+        advisor_memory_learning_task,
     ):
         task.cancel()
         try:
@@ -110,6 +114,7 @@ async def lifespan(app: FastAPI):
     await interest_cron_worker.close()
     await spiritual_devotional_worker.close()
     await motivational_nudge_worker.close()
+    await advisor_memory_learning_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

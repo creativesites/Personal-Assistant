@@ -22,6 +22,8 @@ log = structlog.get_logger()
 _TONE_SHIFT_DELTA = 0.25
 _RECIPROCITY_DROP_DELTA = 10  # relationships.health_score points
 _STALE_EVENT_DAYS = 3  # don't re-flag the same contact+signal within this window
+_MIN_ENGAGEMENT_SAMPLES = 5
+_MAX_DISMISS_RATE = 0.7
 
 
 class GossipDetectorService:
@@ -38,6 +40,15 @@ class GossipDetectorService:
         return total
 
     async def detect_for_user(self, user_id: str) -> int:
+        # Advisor Companion Plan Phase 5 (§6.5/§9) — §3.7's own promise that
+        # dismissed/ignored gossip visibly reduces future frequency: if
+        # the user has been dismissing most of what's been surfaced
+        # recently, skip detection entirely this cycle rather than
+        # queuing up more of the same.
+        if await self._is_dismiss_heavy(user_id):
+            log.info('gossip_detection_throttled', user_id=user_id)
+            return 0
+
         created = 0
         created += await self._detect_tone_shift(user_id)
         created += await self._detect_ghosting(user_id)
@@ -45,6 +56,21 @@ class GossipDetectorService:
         created += await self._detect_life_event(user_id)
         created += await self._detect_reciprocity_drop(user_id)
         return created
+
+    async def _is_dismiss_heavy(self, user_id: str) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT COUNT(*) FILTER (WHERE status = 'dismissed') AS dismissed,
+                          COUNT(*) FILTER (WHERE status IN ('delivered', 'dismissed')) AS resolved
+                   FROM gossip_worthy_events
+                   WHERE user_id = $1 AND created_at > NOW() - INTERVAL '14 days'""",
+                user_id,
+            )
+        resolved = int(row['resolved']) if row else 0
+        if resolved < _MIN_ENGAGEMENT_SAMPLES:
+            return False
+        return (int(row['dismissed']) / resolved) > _MAX_DISMISS_RATE
 
     async def _already_flagged_recently(self, conn, user_id: str, contact_id: str, signal_type: str) -> bool:
         row = await conn.fetchval(

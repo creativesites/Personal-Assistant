@@ -25,12 +25,15 @@ from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_INTEREST_NUDGE
 from ..database import get_pool
 from .web_search import get_web_search
-from .companion_delivery import deliver_initiated_message
+from .companion_delivery import deliver_initiated_message, engagement_rate
 
 log = structlog.get_logger()
 
 _MAX_TOPICS_PER_RUN = 5
 _DEDUP_WINDOW_HOURS = 20
+_MIN_ENGAGEMENT_SAMPLES = 5
+_MIN_ENGAGEMENT_RATE = 0.15
+_INTEREST_CONTENT_TYPES = ('sports_score', 'meme', 'news_article', 'stock_alert')
 
 
 class InterestCompanionService:
@@ -69,6 +72,21 @@ class InterestCompanionService:
         interests = list(profile['interests']) if profile and profile['interests'] else []
         topics = list(dict.fromkeys([*interests, *[r['insight_value'] for r in circle_rows]]))[:_MAX_TOPICS_PER_RUN]
         if not topics:
+            return 0
+
+        # Advisor Companion Plan Phase 5 (§6.5/§9) — §3.8's own frequency-
+        # tuning promise: engagement across the interest cron's content
+        # types (weighted-averaged since which type applies isn't known
+        # until after the model judges each result) throttles this cycle
+        # entirely rather than the cron getting louder when ignored.
+        total_samples = 0
+        total_engaged = 0.0
+        for ct in _INTEREST_CONTENT_TYPES:
+            ct_rate, ct_samples = await engagement_rate(user_id, ct)
+            total_samples += ct_samples
+            total_engaged += ct_rate * ct_samples
+        if total_samples >= _MIN_ENGAGEMENT_SAMPLES and (total_engaged / total_samples) < _MIN_ENGAGEMENT_RATE:
+            log.info('interest_cron_throttled', user_id=user_id, rate=round(total_engaged / total_samples, 2), samples=total_samples)
             return 0
 
         search = get_web_search()

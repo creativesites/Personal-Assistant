@@ -97,6 +97,22 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     );
     if (!session) return reply.code(404).send({ error: 'Session not found' });
 
+    // Advisor Companion Plan Phase 5 (§6.5/§9) — engagement signal for the
+    // Phase 4.5 crons' frequency tuning: if the user's last-seen message in
+    // this session was a proactively-initiated one, replying to it counts
+    // as engagement rather than being ignored.
+    const { rows: [lastMsg] } = await db.query(
+      `SELECT initiated FROM advisor_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [id],
+    );
+    if (lastMsg?.initiated) {
+      await db.query(
+        `UPDATE proactive_interest_chats SET user_engaged = true
+         WHERE id = (SELECT id FROM proactive_interest_chats WHERE session_id = $1 ORDER BY delivered_at DESC LIMIT 1)`,
+        [id],
+      );
+    }
+
     // Persist user message
     await db.query(
       `INSERT INTO advisor_messages (session_id, role, content) VALUES ($1, 'user', $2)`,
