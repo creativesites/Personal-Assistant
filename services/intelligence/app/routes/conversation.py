@@ -6,6 +6,7 @@ from ..database import get_pool
 from ..ai.client import get_ai_client
 from ..queue import redis_conn_opts
 from ..memory import retrieval_service as memory
+from ..neural.emotion import get_emotion_engine
 
 studio_router = APIRouter(prefix='/internal/studio', tags=['studio'])
 
@@ -208,6 +209,13 @@ async def ask_ai(conversation_id: str, body: AskRequest):
     ai = get_ai_client()
     result = await ai.complete_text(prompt_messages)
 
+    # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — Advisor
+    # has no existing sentiment pass to reuse, so this records the user's
+    # emotional state for this turn via a small dedicated classification.
+    await get_emotion_engine().record_advisor_turn(
+        body.user_id, body.session_id, body.question, contact_id=contact_id,
+    )
+
     return {'answer': result}
 
 
@@ -312,6 +320,11 @@ async def advisor_ask(body: AdvisorAskRequest):
 
     ai = get_ai_client()
     result = await ai.complete_text(prompt_messages)
+
+    # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — see the
+    # matching note in ask_ai() above. No single contact here since this is
+    # the global advisor.
+    await get_emotion_engine().record_advisor_turn(body.user_id, body.session_id, body.question)
 
     return {'answer': result}
 

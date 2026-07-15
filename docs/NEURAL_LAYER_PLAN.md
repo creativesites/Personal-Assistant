@@ -1,6 +1,6 @@
 # Zuri Neural Layer — Master Architecture Plan
 
-**Status:** Planning — unstarted. This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
+**Status:** Phase 1 (Platform-Wide Emotion Engine, §4.2/§10) shipped — migration `0062`, see `CLAUDE.md`'s "Zuri Neural Layer" section. Phases 2–6 remain unstarted. This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
 
 ---
 
@@ -54,7 +54,7 @@ Models (LiteLLM — Gemini / DashScope-Qwen pool, per model_router.py)
 | This document calls it | What already exists | Status | What's actually new |
 |---|---|---|---|
 | Memory Engine | `retrieval_service.py`, `relationship_memory`, `business_facts`, `agent_memories`, `context_snapshots` — all shipped (`docs/MEMORY_ENGINE_PLAN.md`, 6/6 phases) | ✅ Shipped | Formalizing the three-category taxonomy (§4.1: Personal / Relationship / Business Memory) as a documented contract every module retrieves through — not new storage |
-| Emotion Engine | Advisor-only design in `docs/ADVISOR_COMPANION_PLAN.md` §3.6 (unstarted) | 🔲 Planned, Advisor-scoped | **Promoted to platform-wide here** (§4.2) — same model, generalized entity reference so CRM/Projects/Suppliers can tag emotional state too |
+| Emotion Engine | Advisor-only design in `docs/ADVISOR_COMPANION_PLAN.md` §3.6 (unstarted) | ✅ Shipped platform-wide (migration `0062`) | **Promoted to platform-wide here** (§4.2) — same model, generalized entity reference so CRM/Projects/Suppliers can tag emotional state too. Writers so far: WhatsApp message analysis, Advisor turns. `projects`/`suppliers` write paths not yet wired (see §10 Phase 1 scope note) |
 | Relationship Engine | `health.py`, `relationships.health_score`/`.network_value`, `docs/RELATIONSHIP_OS_PLAN.md` (6 phases shipped) | ✅ Shipped | Nothing new structurally — §4.3 documents how the Emotion Engine plugs into it |
 | Goal Engine | `relationship_goals` table, PRODUCT_VISION.md §4 (per-relationship only) | ✅ Shipped, narrower scope | **Elevated to cross-module** (§4.4) — a goal like "grow revenue to $20k/mo" spans Studio, CRM, Inventory, Marketing, not one relationship |
 | Knowledge Graph | `relationship_connections` (people-to-people only) | ✅ Shipped, narrower scope | **Extended to non-person entities** (§4.5) — products, suppliers, projects, deals as graph nodes too |
@@ -104,7 +104,7 @@ A module retrieving context should be explicit about which category(ies) it need
 
 ### 4.2 Emotion Engine — Made Platform-Wide (New)
 
-**Status: promotes the Advisor-only design in `docs/ADVISOR_COMPANION_PLAN.md` §3.6 to a shared engine.** The affect-vector model (valence/arousal/dominant emotion, weighted encoding, state-dependent retrieval, reconsolidation, associative graph) is unchanged in mechanism — what changes is the schema: instead of an Advisor-scoped `interaction_affect` table keyed to `advisor_sessions`/`advisor_messages`, the Neural Layer needs a generic table any module can write to.
+**✅ Shipped, partially — signal capture + relationship summary only.** Promotes the Advisor-only design in `docs/ADVISOR_COMPANION_PLAN.md` §3.6 to a shared engine. What actually shipped in Phase 1 (migration `0062`, `services/intelligence/app/neural/emotion.py`): the `emotional_signals` table below, two writers (WhatsApp message analysis reusing its existing `emotions` output, and a small dedicated classification call for Advisor turns), and `relationships.emotional_signals_summary` recomputed inside `health.py`'s existing pass. **Not yet built**: weighted encoding/decay, state-dependent retrieval biasing (§4.6/§6.7 reference), reconsolidation (§6.8 reference), and the associative emotional graph — those remain future phases layered on top of the `emotional_signals` table this phase established. The affect-vector *model* described below (valence/arousal/dominant emotion) is unchanged in mechanism from the original Advisor-only design — what changed is the schema: instead of an Advisor-scoped `interaction_affect` table keyed to `advisor_sessions`/`advisor_messages`, the Neural Layer needs a generic table any module can write to.
 
 ```sql
 CREATE TABLE emotional_signals (
@@ -356,11 +356,16 @@ No other section of `docs/ADVISOR_COMPANION_PLAN.md` (Gossip Mode, Proactive Int
 ## 10. Phased Build
 
 ### Phase 1 — Platform-Wide Emotion Engine
+
+**✅ Shipped** (migration `0062`). See `CLAUDE.md`'s "Zuri Neural Layer" section for the summary of what's live.
+
 - Migration: `emotional_signals` (§4.2), `emotional_signals_summary` columns on `relationships`/`projects`/`suppliers`
 - `neural/emotion.py`: signal computation (generalized from the Advisor-only design), summary recomputation hooked into `health.py`'s existing recalculation pass
 - No frontend yet — this phase is substrate only, same "backend-first" discipline as every prior emotional-engine phase in this codebase
 
 Success criteria: a WhatsApp message analysis pass and an Advisor turn both write `emotional_signals` rows; `relationships.emotional_signals_summary` visibly updates.
+
+**Scope note:** `projects`/`suppliers.emotional_signals_summary` columns exist but nothing writes to them yet — no code path today links a WhatsApp message/conversation to a `projects` row, and no supplier-conversation detector exists (that's `docs/BUSINESS_OS_PLAN.md` §8.1, itself still unbuilt). Wiring those two is follow-up work, not part of this phase's success criteria. `buyingIntent` in the relationship summary is deliberately `null` (needs business-signal correlation this engine doesn't read) rather than fabricated — see §8's confidence-everywhere principle.
 
 ### Phase 2 — Cross-Module Goal Engine
 - Migration: `goal_profiles`, `goal_memories`, `goal_progress`, `goal_events`, `goal_linked_entities` (§4.4)

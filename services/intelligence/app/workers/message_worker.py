@@ -16,10 +16,12 @@ from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
 from ..services.lead_score import LeadScoreService
 from ..memory.conversation_memory import update_conversation_memory
+from ..neural.emotion import get_emotion_engine
 
 log = structlog.get_logger()
 
 _analyser = MessageAnalyser()
+_emotion_engine = get_emotion_engine()
 _reply_gen = ReplyGenerator()
 _extractor = EventExtractor()
 _health_svc = RelationshipHealthService()
@@ -102,6 +104,13 @@ async def _process(job, token: str):
         await _life_events.record_mentions(
             user_id, contact_id, message_id, analysis.life_events_mentioned,
         )
+
+    # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — platform-wide
+    # emotional signal, reusing this same analysis's already-computed
+    # emotions/sentiment. No new LLM call. Historical messages get this too —
+    # emotional history matters for state-dependent retrieval regardless of
+    # when the message was first sent.
+    await _emotion_engine.record_from_message_analysis(user_id, contact_id, message_id, analysis)
 
     # Historical messages: skip reply generation, agent routing, and conversation
     # memory entirely — that memory represents "current" state, not backfill.

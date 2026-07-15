@@ -476,3 +476,19 @@ If the instruction names one specific person, use "contact" and match them again
 If the instruction describes a category (e.g. "my relatives", "anyone tagged personal", "all leads"), use "rule" with the best-fitting ruleType and a short, lowercase ruleValue.
 If you cannot confidently determine either, return {{"type": "unknown"}}.
 """
+
+# Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — the one
+# genuinely new LLM call the Emotion Engine needs. WhatsApp messages reuse
+# ANALYSE_MESSAGE's already-computed emotions above; Advisor turns have no
+# existing sentiment pass to reuse, so this small dedicated classification
+# fills that gap.
+CLASSIFY_EMOTION = """\
+Classify the emotional content of this message. Return ONLY valid JSON.
+
+Message: "{text}"
+
+Return JSON in exactly this format:
+{{"emotions": {{"joy": 0.0, "sadness": 0.0, "anger": 0.0, "fear": 0.0, "surprise": 0.0, "love": 0.0}}}}
+
+Each score is 0.0-1.0. Most messages are near-zero on most emotions — only score an emotion above 0.3 if it is clearly present. A neutral, purely informational message should score close to zero on all six.
+"""

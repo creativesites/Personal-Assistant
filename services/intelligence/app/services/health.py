@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from ..database import get_pool
 from .opportunities import OpportunityService
 from ..models import OpportunityMention
+from ..neural.emotion import get_emotion_engine
 
 log = structlog.get_logger()
 
@@ -322,6 +323,11 @@ class RelationshipHealthService:
                     confidence=0.6,
                 )],
             )
+
+        # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2/§4.3) —
+        # refresh the relationship's emotional_signals_summary alongside
+        # health, same cadence, no new scheduler.
+        await get_emotion_engine().refresh_relationship_summary(contact_id, user_id)
 
         log.info('health_recalculated', contact_id=contact_id, score=new_score, trend=trend, reason=change_reason, churn_flag=churn_flag)
         return new_score
