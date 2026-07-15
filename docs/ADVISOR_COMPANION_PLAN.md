@@ -1,6 +1,6 @@
 # Advisor Companion Plan
 
-**Status:** Planning — v2, unstarted (no table or route in this document has shipped; verified against migrations and `services/api/src/routes/advisor.ts` as of this revision). This revision extends the original plan (Phases 1–6, unchanged in intent) with an **Emotional Engine** (new Phase 0) and four **silent companion capabilities** woven into the existing phases: **Gossip Mode**, the **Proactive Interest Companion**, the **Spiritual Companion**, and the **Motivational Partner / Boundary Keeper**. Every capability in this document — old and new — stays discoverable only by using the Advisor page; nothing here is onboarded, announced, or advertised. The public product is a business tool. The hidden product is a friend.
+**Status:** Planning — v2, unstarted (no table or route in this document has shipped; verified against migrations and `services/api/src/routes/advisor.ts` as of this revision). This revision extends the original plan (Phases 1–6, unchanged in intent) with an **Emotional Engine** (new Phase 0) and four **silent companion capabilities** woven into the existing phases: **Gossip Mode**, the **Proactive Interest Companion**, the **Spiritual Companion**, and the **Motivational Partner / Boundary Keeper**. Not everything here is gated the same way — §1.2 defines a two-tier model: a small **Always-On Intelligence** layer (the Emotional Engine and Boundary Keeper) is wired into Advisor unconditionally for every user because it makes Advisor's existing job better, not because it's a "friend" feature; the four companion capabilities form the **Personal Mode Suite**, which stays discovery-gated by default (nothing onboarded, announced, or advertised) but can be switched on in full at once by an explicit **"activate personal mode"** command — for testing, and for users who want the whole experience immediately rather than stumbling into it. The public product is a business tool. The hidden product is a friend, and the user can now ask for the friend directly if they want it.
 
 **Goal:** Turn Advisor from a useful Q&A panel into Zuri's most addictive daily surface: a highly conversational, emotionally intelligent companion that learns the user, adapts in the moment, analyzes WhatsApp relationships deeply, gossips safely and in the user's own tone, initiates conversation when it notices something worth sharing, gives opinions with evidence, drafts/sends messages with approval, narrates replies as they arrive, and — for users who want it — shows up as a source of daily motivation and (for those who want it) quiet spiritual companionship.
 
@@ -26,6 +26,19 @@ The target feeling:
 ### 1.1 The Emotional Model Behind This (New)
 
 Advisor's memory should not be a flat transcript log. Human episodic memory is shaped by the amygdala tagging events with emotional salience before the hippocampus consolidates them — an emotionally charged moment is remembered more vividly and for longer than a routine one, and is recalled more easily when we're back in a similar emotional state (state-dependent retrieval). This document models that computationally: every Advisor interaction (and, passively, the emotional signal already latent in WhatsApp message analysis) is tagged with an affect vector at encoding time, that tag governs how strongly the memory is weighted and how it decays, and retrieval is biased toward memories that are emotionally congruent with the user's current state, not just semantically relevant. §3.6 defines the model in full; §4.5–§4.7 add the schema; §6.6–§6.8 add the services. This is the foundation everything else in this document (gossip, spiritual companionship, motivation, boundary-keeping) sits on top of — it is what makes the difference between "an assistant with a database" and "a friend who remembers how you felt."
+
+### 1.2 Always-On Intelligence vs. the Personal Mode Suite (New)
+
+Not everything new in this document should require discovery or an explicit switch. Two capabilities are core intelligence upgrades to Advisor's existing job, not a "friend persona" — they must always be hooked up, for every user, in every companion mode:
+
+- **The Emotional Engine (§3.6, Phase 0)** — affect capture, state-dependent retrieval weighting, reconsolidation, the associative emotional graph. This makes memory recall and in-the-moment tone matching better for *every* Advisor interaction — a business owner asking Advisor to draft a follow-up benefits from this exactly as much as someone gossiping about a friend. There is nothing to "unlock" here.
+- **The Boundary Keeper (§3.11)** — the pre-send risk check. This is a safety upgrade to the approval flow §8.1 already requires (high-risk messages need approval), not a companion feature; it applies to a business owner about to fire off a heated message to a customer exactly as much as to a personal relationship text.
+
+Everything else new in this document — **Gossip Mode, the Proactive Interest Companion, the Spiritual Companion, and the Motivational Partner** — forms the **Personal Mode Suite**. By default it stays **discovery-only**: each capability unlocks independently and gradually as the user's own behavior reveals it's wanted (stating an interest activates that interest's cron; stating a faith tradition activates the spiritual companion; asking Advisor to gossip once makes gossip available going forward for that user). Nothing in the suite is proactively initiated for a user who hasn't shown, in some concrete way, that they want it.
+
+**Activation, in full, on request.** A user can say something to the effect of *"activate personal mode"* (recognized loosely by the intent classifier — §6.2's new `activate_personal_mode` intent, not an exact-phrase match) and Advisor immediately turns the entire Personal Mode Suite on at once — `advisor_user_profiles.personal_mode_enabled = true` (§4.5) — skipping the gradual per-capability discovery entirely. This exists for two reasons: it makes the whole suite trivially testable without having to manufacture each capability's individual discovery trigger, and it gives users who already know they want the full companion experience a direct way to ask for it instead of stumbling into it over weeks. It is reversible ("turn off personal mode" sets the flag back to `false` — already-discovered individual capabilities stay reachable on request, but proactive initiation of anything not yet naturally discovered stops).
+
+`personal_mode_enabled` is a convenience *unlock*, not the same thing as `companion_features_paused` (§4.5/§7.8), which is a stronger *stop everything* honesty switch — pause always wins if both are somehow set. Personal mode also never bypasses a capability's own consent requirement: turning it on does not set a spiritual tradition for a user who hasn't stated one (§3.9/§8.5 still apply in full) — it only removes the discovery-timing gate, not the consent gate.
 
 ---
 
@@ -173,6 +186,8 @@ Execution must use explicit approval and trust tiers. Advisor should never silen
 
 ### 3.6 The Emotional Engine (New)
 
+**Tier: Always-On Intelligence (§1.2)** — active for every user, unconditionally, regardless of `personal_mode_enabled`.
+
 Every Advisor interaction — and, passively, every analysed WhatsApp message the user sends — produces a multi-dimensional affect vector: a valence/arousal position, a dominant emotion, and a handful of behavioural proxies. This is not a new sentiment pass bolted on top; it reframes signal the codebase already half-computes (`message_analyses.sentiment`, response timing, message length) into something that actively shapes storage and retrieval rather than sitting in a column nobody reads twice.
 
 **What gets measured**, per interaction:
@@ -199,6 +214,8 @@ This is scoped to Advisor only for now (see §11 open decisions on whether it sh
 
 ### 3.7 Gossip Mode (New)
 
+**Tier: Personal Mode Suite (§1.2)** — the *explicit, on-demand* form ("gossip with me") is reachable by any user the moment they ask, same as any other personality chip; the *proactive, unprompted* form (the Gossip Worthiness Detector actually initiating) requires either organic discovery (the user has asked for gossip at least once before) or `personal_mode_enabled = true`.
+
 Advisor can talk through what it's noticed across the user's WhatsApp contacts — playful, grounded, opinionated — the way a close friend does, not a report.
 
 - **Two ways in.** (a) *Explicit*: the user says "gossip with me" / "what's the tea?" or taps the Gossip chip. (b) *Automatic*: a background **Gossip Worthiness Detector** (§6.9) notices a pattern shift worth mentioning — someone's gone quiet, someone's texting warmer than usual, a life event landed — and, weighing the user's *current* emotional state and whether this is actually a good moment (not mid-focus, not already stressed about something else), decides on its own whether and when to bring it up. This is the "determine automatically" system: it is not a keyword trigger, it is a scored decision informed by the same emotional-congruence model as §3.6.
@@ -209,6 +226,8 @@ Advisor can talk through what it's noticed across the user's WhatsApp contacts �
 
 ### 3.8 Proactive Interest Companion (New)
 
+**Tier: Personal Mode Suite (§1.2)** — gated on the user having stated at least one interest (discovery) or on `personal_mode_enabled = true`; either way, still needs `advisor_user_profiles.interests` non-empty to have anything to search for.
+
 Advisor should actively look for things the user cares about and bring them up unprompted — a Warriors fan gets told Steph dropped 60, plus what people are joking about online; a stocks-interested user gets a daily useful nugget; whatever the user is into that week.
 
 - **Where the topic list comes from:** `advisor_user_profiles.interests` (explicit + learned) plus the user's **close circle's** aggregated `contact_insights` (`interests`/`hobbies`/`sports_teams`/`favorite_topics`) — a close friend's enthusiasm is itself a topic worth knowing about, and it doubles as a source of new interests to learn about the user over time.
@@ -217,6 +236,8 @@ Advisor should actively look for things the user cares about and bring them up u
 - Runs on a per-user cron (default every 6 hours, user's own timezone; see §11 on cadence). Writes to `proactive_interest_chats`; whether the user engages (reply/react vs. ignore/dismiss) tunes future frequency and which topics get weighted up or down.
 
 ### 3.9 Spiritual Companion (New)
+
+**Tier: Personal Mode Suite (§1.2) — with a hard consent gate `personal_mode_enabled` cannot bypass.** Even with personal mode fully activated, this stays inactive until `spiritual_preferences.tradition` is explicitly set — activation unlocks *reachability*, never *consent* (§8.5).
 
 For users who want it — and only for users who explicitly say they want it (§11: never inferred, never a general "inspirational content" default) — Advisor can be a quiet Christian companion.
 
@@ -227,6 +248,8 @@ For users who want it — and only for users who explicitly say they want it (§
 
 ### 3.10 Motivational & Accountability Partner (New)
 
+**Tier: Personal Mode Suite (§1.2)** — gated on discovery (the user has engaged with a motivational nudge before) or `personal_mode_enabled = true`.
+
 Advisor should notice when the user is stuck and nudge them — encouragingly, in the way that actually works *for that user*, not a generic pep talk.
 
 - **Procrastination signals**, all already computable from existing tables — no new detection pass, just an aggregation: contacts with no reply after 48h, a promise surfaced in `message_analyses` that's gone unfulfilled, a deal sitting in the same `deal_stage_history` stage for 7+ days. Two or more signals stacking up is the trigger: *"You've got three things stacking up. Want me to draft the easiest one to get you started?"*
@@ -234,6 +257,8 @@ Advisor should notice when the user is stuck and nudge them — encouragingly, i
 - Never shames, never parental in tone. Supportive, always.
 
 ### 3.11 Boundary Keeper (New)
+
+**Tier: Always-On Intelligence (§1.2)** — active for every user, unconditionally; see §1.2 for why this is a safety upgrade rather than a companion feature.
 
 Before Advisor sends a high-risk drafted message, it runs a quick check: is this high-valence-negative, is the user's current emotional state elevated (arousal), has there been recent friction with this specific contact? If two or more of those are true, Advisor pauses rather than sending: *"I can send this. But you've had a rough day — want to sleep on it? I'll help you word it tomorrow morning in a way that doesn't burn the bridge."*
 
@@ -374,7 +399,7 @@ Do not describe `therapist_like` as therapy in UI. Use "gentle support" or "soft
 
 ### 4.5 Extend `advisor_user_profiles` (New)
 
-Add columns for interests, spiritual preferences, motivational style, gossip style, and the user's current/rolling emotional state — the inputs the four new companion capabilities (§3.7–§3.11) read from.
+Add columns for interests, spiritual preferences, motivational style, gossip style, the user's current/rolling emotional state, and the two companion-wide switches (§1.2) — the inputs the four new companion capabilities (§3.7–§3.11) read from.
 
 ```sql
 ALTER TABLE advisor_user_profiles
@@ -384,10 +409,12 @@ ALTER TABLE advisor_user_profiles
   ADD COLUMN gossip_style jsonb NOT NULL DEFAULT '{}',            -- {"tone": "playful_teasing", "frequency_preference": "often"}
   ADD COLUMN current_emotional_state jsonb NOT NULL DEFAULT '{}', -- {"valence": 0.6, "arousal": 0.3, "dominant_emotion": "calm", "confidence": 0.8, "as_of": "..."}
   ADD COLUMN emotional_baseline jsonb NOT NULL DEFAULT '{}',      -- rolling 30-day average of emotional states
-  ADD COLUMN companion_features_paused boolean NOT NULL DEFAULT false; -- global kill-switch for §3.7–§3.11 proactive delivery (§8.6)
+  ADD COLUMN personal_mode_enabled boolean NOT NULL DEFAULT false,    -- §1.2: bulk-unlock for the whole Personal Mode Suite, bypassing per-capability discovery
+  ADD COLUMN personal_mode_enabled_at timestamptz,                    -- when it was last turned on (null if never / currently off)
+  ADD COLUMN companion_features_paused boolean NOT NULL DEFAULT false; -- global kill-switch for §3.7–§3.11 proactive delivery (§8.6) — overrides personal_mode_enabled if both are set
 ```
 
-All five preference fields (`interests`, `spiritual_preferences`, `motivational_style`, `gossip_style`) are populated the same two ways every other Advisor preference already is: explicit user edit (§7.6 Personalisation tab) or inferred and proposed by the memory learner (§6.5) with a confidence score, never silently overwritten.
+All five preference fields (`interests`, `spiritual_preferences`, `motivational_style`, `gossip_style`) are populated the same two ways every other Advisor preference already is: explicit user edit (§7.6 Personalisation tab) or inferred and proposed by the memory learner (§6.5) with a confidence score, never silently overwritten. `personal_mode_enabled` is set only two ways: the `activate_personal_mode`/`deactivate_personal_mode` intents (§6.2) or the Personalisation tab toggle (§7.6) — never inferred.
 
 ### 4.6 New Table: `interaction_affect` (New)
 
@@ -584,6 +611,8 @@ Responsibilities:
 - call the model
 - parse structured response
 - propose actions and memory updates
+- **gate Personal Mode Suite eligibility** (new): before considering gossip/interest/spiritual/motivational behavior for this turn, check `advisor_user_profiles.personal_mode_enabled` OR the capability's own discovery state (§1.2) OR `companion_features_paused` (which always wins if set). The Emotional Engine (§3.6) and Boundary Keeper (§3.11) checks run unconditionally regardless of this gate — they are not part of it.
+- **handle `activate_personal_mode`/`deactivate_personal_mode`** (new) directly: flip `personal_mode_enabled`, reply with a short in-voice confirmation (what just changed, how to undo it), no approval step needed since this only changes what Advisor is allowed to initiate, not anything it sends on the user's behalf.
 
 Do not keep expanding `routes/conversation.py`; route should delegate to this service.
 
@@ -604,6 +633,8 @@ Classify each turn into:
 - `gossip` (new — either explicitly requested or the orchestrator's own read of a `casual_chat` turn that's really asking about a contact's behavior; see §3.7/§6.9)
 - `spiritual` (new — devotional/verse/prayer requests)
 - `motivational` (new — the user naming a stuck task, or Advisor's own procrastination signals firing mid-conversation; see §3.10)
+- `activate_personal_mode` (new — recognized loosely, e.g. "activate personal mode" / "turn on personal mode" / "give me the full experience", not an exact-phrase match; sets `personal_mode_enabled = true` immediately, §1.2/§4.5)
+- `deactivate_personal_mode` (new — "turn off personal mode" / "go back to normal"; sets `personal_mode_enabled = false`)
 - `unknown`
 
 Also classify:
@@ -735,7 +766,11 @@ Create `services/intelligence/app/services/gossip_detector.py` — the system th
 Create `services/intelligence/app/services/interest_companion.py` — the user-facing sibling of the existing contact-facing `interest_matcher.py`.
 
 - Per-user scheduled job (default every 6h, user's own timezone), reading `advisor_user_profiles.interests` plus the close circle's aggregated `contact_insights` (§2/§3.8) to build a topic list.
-- **Search:** calls the AI client with its native search/grounding tool enabled (the model looks things up itself, the same way a person would ask an assistant to check) and asks it, in one prompt, to (a) find anything notable for the topic today, (b) note what people are saying/joking about it if relevant, and (c) decide for itself whether this is actually worth surfacing today or better skipped. This mirrors `MATCH_NEWS_TO_CONTACT`'s existing "let the model judge relevance" pattern in `interest_matcher.py`, just topic-driven instead of headline-driven. See §10 for the fallback if the active pool model has no search tool.
+- **Search: hybrid, three-tier (resolves §11's former open decision — this is now the concrete answer, not a TODO).** For each topic lookup:
+  1. **Model-native search first.** Call the AI client with its search/grounding tool enabled and let the model look the topic up itself — this mirrors `MATCH_NEWS_TO_CONTACT`'s existing "let the model judge relevance" pattern in `interest_matcher.py`, just topic-driven instead of headline-driven, and needs no new infrastructure when it works.
+  2. **External search API if the model can't.** If the currently-selected pool model (per `model_router.py`'s rotation) doesn't expose a search tool through LiteLLM, or the native call errors, fall back to the already-built `web_search.py` path (Tavily/SERP, same as the contact-facing World Knowledge Engine already uses) and feed the results back to the model as context to summarize/judge relevance from.
+  3. **Search-capable Gemini as the final fallback.** If the external search API also fails (no key configured, HTTP error, empty results), force-route just this one call to a known search-capable Gemini model, bypassing the normal rotation — Gemini's native grounding is the one search path in this chain guaranteed to work regardless of pool state.
+  Each tier only engages if the one before it didn't produce a usable result; log which tier served each run so search-path reliability is visible before it becomes a support question. This chain applies to the interest cron specifically — the existing contact-facing `interest_matcher.py`/`web_search.py` path is untouched.
 - On a hit: drafts a short, in-voice message, writes `advisor_messages` (`sender = 'assistant'`, `initiated = true` — new column, see §6.1's orchestrator note) and a `proactive_interest_chats` row. Engagement (reply/react vs. ignore) feeds back into topic/frequency weighting the same way `proactive_interest_chats.user_engaged` is designed to be read.
 
 ### 6.11 Spiritual Content Service (New)
@@ -842,7 +877,7 @@ Use responsibly. No dark patterns:
 
 ### 7.6 Personalisation (New, Hidden)
 
-A tab inside the Memory Drawer, not a setup wizard, not surfaced anywhere in onboarding: interests editor (add/remove, freeform), spiritual preferences (tradition, denomination, devotional time, translation — all optional, blank by default), motivational style (a short "what actually gets you moving?" picker, not a form), gossip style (tone slider/preset). Discovered the same way every other companion feature is: by using Advisor enough to notice it's there.
+A tab inside the Memory Drawer, not a setup wizard, not surfaced anywhere in onboarding: interests editor (add/remove, freeform), spiritual preferences (tradition, denomination, devotional time, translation — all optional, blank by default), motivational style (a short "what actually gets you moving?" picker, not a form), gossip style (tone slider/preset), and a **"Personal Mode" toggle** — a UI-level equivalent of saying "activate personal mode" (§1.2/§6.2), so a user (or a tester) doesn't have to remember the phrase. Flipping it in either direction (chat or toggle) keeps both in sync. Discovered the same way every other companion feature is: by using Advisor enough to notice it's there.
 
 ### 7.7 "Zuri Noticed Something" Card (New)
 
@@ -946,10 +981,12 @@ Success criteria:
 - Frontend: mode chips and memory drawer skeleton
 - Add interests/spiritual/motivational/gossip fields to the Personalisation tab (§7.6), kept out of onboarding
 - Add the `gossip` and `spiritual_companion` companion mode chips (§4.4/§7.2)
+- Add `personal_mode_enabled`/`personal_mode_enabled_at` to `advisor_user_profiles` (§4.5), the `activate_personal_mode`/`deactivate_personal_mode` intents (§6.2), and the Personalisation-tab toggle (§7.6) — this ships now, in Phase 1, precisely so Phase 4.5's proactive crons have a way to be tested end-to-end the moment they land, without waiting on organic discovery
 
 Success criteria:
 
 - Advisor remembers explicit user preferences.
+- Saying "activate personal mode" (or flipping the toggle) sets `personal_mode_enabled` and Advisor confirms it in its own voice; saying "turn it off" reverts it.
 - Advisor changes tone in-session.
 - Advisor can explain what it knows about the user.
 
@@ -1052,7 +1089,7 @@ Success criteria:
 - Use retrieval service for contact/business memory.
 - Add Advisor-specific profile/memory retrieval.
 - Prefer structured JSON output and validate it with Pydantic.
-- **Search: prefer the model's native search/grounding tool over `web_search.py`'s Tavily/SERP calls for the Proactive Interest Cron (§6.10) — but verify first.** This codebase's model rotation (`model_router.py`, `docs/MEMORY_ENGINE_PLAN.md` §5) currently pools Gemini and DashScope/Qwen models via LiteLLM; not every model in that pool necessarily exposes a search tool through LiteLLM's tool-calling interface the same way. Before building §6.10 against "the model just searches," confirm which pool model(s) actually support it in the pinned LiteLLM version, and define a fallback: either route interest-cron calls preferentially to a search-capable model regardless of the rotation's usual pick, or fall back to the already-built `web_search.py` (Tavily/SERP) path for models that can't. Either way, no *new* external search integration is being proposed — only a choice between two search paths that already exist or are trivially reachable via prompting.
+- **Search: hybrid three-tier chain for the Proactive Interest Cron (§6.10) — resolved, see §6.10 for the full sequence.** Try the active pool model's native search/grounding tool first (`model_router.py` currently rotates Gemini and DashScope/Qwen via LiteLLM; not every model in that pool necessarily exposes a search tool the same way, so this tier can legitimately miss); if it can't or the call errors, fall back to the already-built `web_search.py` (Tavily/SERP) path; if that also fails, force-route to a known search-capable Gemini model as the guaranteed-to-work final fallback. No *new* external search integration is being proposed — only an ordered choice between three paths that already exist or are trivially reachable via prompting/routing. Log which tier served each cron run.
 - Gossip Worthiness Detector (§6.9) and Motivational/Procrastination Detector (§6.12) should both be plain SQL aggregations wherever possible, same discipline as `pricing_benchmarks.py`/`document_followups.py` — reach for an LLM call only where judgment (not arithmetic) is genuinely required, e.g. deciding whether a detected pattern is actually worth mentioning.
 
 ### Frontend
@@ -1077,7 +1114,9 @@ Success criteria:
 8. **Gossip guardrails for sensitive contacts.** Should Advisor refuse to gossip about certain relationships (family, colleagues, an ex) outright, or just flag the sensitivity and proceed? Recommendation: flag, don't block — consistent with this plan's existing "never block, always disclose" posture on the Boundary Keeper (§3.11/§8.4).
 9. **Interest cron cadence.** Fixed at 6 hours, or user-configurable? Recommendation: start fixed at 6h; expose a "how often" control only if power users ask.
 10. **Should the emotional engine ever feed business features?** Currently scoped to Advisor only (§3.6). Could eventually enrich lead scoring, churn prediction, or reply suggestions in the business-facing product — but only after the personal engine is stable and trusted; do not build both at once.
-11. **Search path for the interest cron.** Native model search-tool vs. the existing `web_search.py` Tavily/SERP path — see the Intelligence implementation note above. Needs a concrete answer (which model, what fallback) before Phase 4.5 starts, not left implicit.
+11. ✅ **Resolved — search path for the interest cron.** Hybrid three-tier chain: model-native search → `web_search.py` (Tavily/SERP) → forced search-capable Gemini model. See §6.10 and the Intelligence implementation note above.
+12. **Does `personal_mode_enabled` apply account-wide or per-session?** Recommendation: account-wide (stored on `advisor_user_profiles`, §4.5) — a user who activates it once should get the full experience in every Advisor session, not have to re-activate per conversation. A per-session override ("just for this chat") could be added later if requested, but isn't in scope now.
+13. **Should activating personal mode retroactively backfill anything** (e.g. run the Gossip Worthiness Detector once immediately instead of waiting for its next scheduled pass)? Recommendation: no special-cased backfill for v1 — activation just changes the gate going forward; the next scheduled detector/cron run picks it up within its normal cadence (§6.9/§6.10/§6.12). Revisit if testers find the wait between "I activated it" and "it did something" too long.
 
 Recommended defaults:
 
@@ -1089,4 +1128,6 @@ Recommended defaults:
 - Spiritual companionship: opt-in via explicit tradition only, never a generic default.
 - Gossip: flag sensitive context, never refuse outright.
 - Companion features (gossip, interest, spiritual, motivational) must all respect the single `companion_features_paused` switch (§4.5/§7.8/§8.6) — no feature-specific pause toggles fragmenting the control surface.
+- The Emotional Engine (§3.6) and Boundary Keeper (§3.11) are never gated by `personal_mode_enabled` or discovery — they are always-on for every user (§1.2).
+- `personal_mode_enabled` is account-wide, set only by explicit intent or the Personalisation-tab toggle, never inferred from behavior the way individual-capability discovery is.
 
