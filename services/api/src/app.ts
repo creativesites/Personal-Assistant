@@ -48,6 +48,8 @@ import { projectsRoutes } from './routes/projects';
 import { goalProfilesRoutes } from './routes/goal-profiles';
 import { reflectionRoutes } from './routes/reflection';
 import { predictionsRoutes } from './routes/predictions';
+import { subscriptionPlansRoutes } from './routes/subscription-plans';
+import { adminPaymentsRoutes } from './routes/admin-payments';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -122,6 +124,8 @@ export async function buildApp() {
   await fastify.register(goalProfilesRoutes);
   await fastify.register(reflectionRoutes);
   await fastify.register(predictionsRoutes);
+  await fastify.register(subscriptionPlansRoutes);
+  await fastify.register(adminPaymentsRoutes);
 
   return fastify;
 }

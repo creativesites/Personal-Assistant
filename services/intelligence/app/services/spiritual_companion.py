@@ -73,6 +73,8 @@ class SpiritualCompanionService:
             return False
 
         session_id = await deliver_initiated_message(user_id, message_text, {'type': 'devotional'})
+        if session_id is None:
+            return False
         async with pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO proactive_interest_chats

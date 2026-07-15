@@ -7,6 +7,7 @@ import { setupSocket } from './lib/socket';
 import { config } from './config';
 import { startSocialPublishWorker } from './workers/social-publish-worker';
 import { startRecurringDocumentsWorker } from './workers/recurring-documents-worker';
+import { startSubscriptionLifecycleWorker } from './workers/subscription-lifecycle-worker';
 
 async function main() {
   const app = await buildApp();
@@ -34,10 +35,14 @@ async function main() {
   const recurringDocumentsWorker = startRecurringDocumentsWorker(app.log);
   app.log.info('Recurring documents worker running');
 
+  const subscriptionLifecycleWorker = startSubscriptionLifecycleWorker(app.log);
+  app.log.info('Subscription lifecycle worker running');
+
   const shutdown = async () => {
     app.log.info('Shutting down...');
     socialPublishWorker.stop();
     recurringDocumentsWorker.stop();
+    subscriptionLifecycleWorker.stop();
     await app.close();
     redisSub.disconnect();
     await redis.quit();

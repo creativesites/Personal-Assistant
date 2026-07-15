@@ -3,6 +3,7 @@ from ..ai.client import get_ai_client
 from ..ai.prompts import GENERATE_PROACTIVE_SUGGESTION
 from ..database import get_pool
 from ..memory import retrieval_service as memory
+from .credits import try_consume_credit
 
 log = structlog.get_logger()
 
@@ -126,6 +127,10 @@ class ProactiveService:
                 if stype not in _VALID_TYPES:
                     stype = 'check_in'
                 priority = max(1, min(5, int(raw.get('priority', 3))))
+
+                if not await try_consume_credit(user_id, 'nudge'):
+                    log.info('proactive_nudge_skipped_no_credits', user_id=user_id, contact_id=contact_id)
+                    continue
 
                 pool3 = await get_pool()
                 async with pool3.acquire() as conn:

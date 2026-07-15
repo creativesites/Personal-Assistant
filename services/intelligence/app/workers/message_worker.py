@@ -17,6 +17,7 @@ from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
 from ..services.lead_score import LeadScoreService
 from ..services.advisor_companion import get_advisor_companion_service
+from ..services.credits import try_consume_credit
 from ..memory.conversation_memory import update_conversation_memory
 from ..neural.emotion import get_emotion_engine
 
@@ -67,6 +68,13 @@ async def _process(job, token: str):
     if contact_row and contact_row['is_group']:
         log.info('group_message_skipped', message_id=message_id, contact_id=contact_id)
         return {'ok': True, 'skipped': 'group_chat'}
+
+    # Pricing & Payments Plan §7 — historical/backfill messages are exempt so
+    # re-analysing a user's own history on first connect doesn't burn their
+    # day's quota before they've sent a single live message.
+    if not is_historical and not await try_consume_credit(user_id, 'message'):
+        log.info('message_analysis_skipped_no_credits', message_id=message_id, user_id=user_id)
+        return {'ok': True, 'skipped': 'no_credits'}
 
     analysis = await _analyser.analyse(
         message_id=message_id,
@@ -201,14 +209,21 @@ async def _process(job, token: str):
                 log.info('message_routed_to_agent', agent_id=agent_id, message_id=message_id)
 
             elif decision == 'generate_suggestion':
-                await _reply_gen.generate(
-                    message_id=message_id,
-                    user_id=user_id,
-                    contact_id=contact_id,
-                    conversation_id=conversation_id,
-                    body=body,
-                    analysis=analysis,
-                )
+                # A message that fails this check still keeps its analysis
+                # (already paid for above) — it just doesn't get an
+                # AI-drafted reply; the raw message still surfaces in the
+                # Inbox for the user to answer manually.
+                if await try_consume_credit(user_id, 'ai_reply'):
+                    await _reply_gen.generate(
+                        message_id=message_id,
+                        user_id=user_id,
+                        contact_id=contact_id,
+                        conversation_id=conversation_id,
+                        body=body,
+                        analysis=analysis,
+                    )
+                else:
+                    log.info('reply_generation_skipped_no_credits', message_id=message_id, user_id=user_id)
 
     # ── Relationship maintenance (batched for historical) ───────────────────
 

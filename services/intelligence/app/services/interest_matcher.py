@@ -3,6 +3,7 @@ from ..ai.client import get_ai_client
 from ..ai.prompts import MATCH_NEWS_TO_CONTACT, GENERATE_WORLD_EVENT_NUDGE
 from ..database import get_pool
 from .news_indexer import get_news_indexer
+from .credits import try_consume_credit
 
 log = structlog.get_logger()
 
@@ -95,6 +96,11 @@ class InterestMatcher:
                 }], service='intelligence', feature='interest_search', user_id=user_id)
 
                 priority = max(1, min(5, int(nudge.get('priority', 3))))
+
+                if not await try_consume_credit(user_id, 'nudge'):
+                    log.info('world_event_nudge_skipped_no_credits', user_id=user_id, contact_id=contact_id)
+                    continue
+
                 pool3 = await get_pool()
                 async with pool3.acquire() as conn:
                     await conn.execute(

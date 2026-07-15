@@ -8,6 +8,7 @@ business-stage derivation (§5) staying rule-based.
 import structlog
 
 from ..database import get_pool
+from .credits import try_consume_credit
 
 log = structlog.get_logger()
 
@@ -55,6 +56,9 @@ class DocumentFollowupService:
             )
 
             for row in expired_quotations:
+                if not await try_consume_credit(row['user_id'], 'nudge'):
+                    log.info('document_followup_skipped_no_credits', document_id=row['id'])
+                    continue
                 days_expired = (await conn.fetchval('SELECT CURRENT_DATE - $1::date', row['valid_until']))
                 title = f"Quotation {row['document_number']} expired"
                 body = f"{row['contact_name']}'s quotation expired {days_expired} day(s) ago without a response."
@@ -80,6 +84,9 @@ class DocumentFollowupService:
                 created += 1
 
             for row in overdue_invoices:
+                if not await try_consume_credit(row['user_id'], 'nudge'):
+                    log.info('document_followup_skipped_no_credits', document_id=row['id'])
+                    continue
                 days_overdue = (await conn.fetchval('SELECT CURRENT_DATE - $1::date', row['due_date']))
                 title = f"Invoice {row['document_number']} overdue"
                 body = f"{row['contact_name']}'s invoice is {days_overdue} day(s) overdue."

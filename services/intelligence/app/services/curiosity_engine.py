@@ -305,11 +305,11 @@ class CuriosityEngine:
         asked = await self.ask_gap(user_id, gap, delivery='proactive')
         if not asked:
             return False
-        await deliver_initiated_message(
+        session_id = await deliver_initiated_message(
             user_id, asked['question'],
             {'type': 'curiosity_question', 'promptId': asked['promptId'], 'gapType': gap['gap_type']},
         )
-        return True
+        return session_id is not None
 
 
 _instance: CuriosityEngine | None = None

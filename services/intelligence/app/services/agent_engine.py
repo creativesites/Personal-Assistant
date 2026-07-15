@@ -15,6 +15,7 @@ from ..models import AgentMemoryCandidate
 from ..queue import publish_event
 from .auto_response import AutoResponseService
 from .agent_memory import AgentMemoryService
+from .credits import try_consume_credit
 from .document_generator import create_document_row, generate_document_data, send_document_whatsapp
 from .document_render_client import render_document
 
@@ -642,6 +643,9 @@ async def execute_tool(
                 days = 1
             if not title:
                 return 'error: missing title'
+            if not await try_consume_credit(user_id, 'nudge'):
+                log.info('agent_followup_skipped_no_credits', user_id=user_id, contact_id=contact_id)
+                return 'error: no AI credits remaining today'
             async with pool.acquire() as conn:
                 await conn.execute(
                     """

@@ -6,6 +6,7 @@ from ..database import get_pool
 from ..memory import retrieval_service as memory
 from ..models import OpportunityMention
 from .opportunities import OpportunityService
+from .credits import try_consume_credit
 
 log = structlog.get_logger()
 _opportunities = OpportunityService()
@@ -149,6 +150,10 @@ class ClockEngine:
                     if stype not in _VALID_SUGGESTION_TYPES:
                         stype = 'check_in'
                     priority = max(1, min(5, int(raw.get('priority', 3))))
+
+                    if not await try_consume_credit(user_id, 'nudge'):
+                        log.info('temporal_nudge_skipped_no_credits', user_id=user_id, contact_id=contact_id)
+                        continue
 
                     pool4 = await get_pool()
                     async with pool4.acquire() as conn:

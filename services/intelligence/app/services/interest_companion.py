@@ -128,6 +128,8 @@ class InterestCompanionService:
             session_id = await deliver_initiated_message(
                 user_id, message_text, {'type': 'proactive_interest', 'topic': topic},
             )
+            if session_id is None:
+                continue
             async with pool.acquire() as conn:
                 await conn.execute(
                     """INSERT INTO proactive_interest_chats

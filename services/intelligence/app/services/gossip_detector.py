@@ -16,6 +16,7 @@ crons are testable end-to-end without waiting on that.
 """
 import structlog
 from ..database import get_pool
+from .credits import try_consume_credit
 
 log = structlog.get_logger()
 
@@ -85,6 +86,9 @@ class GossipDetectorService:
     async def _create(self, conn, user_id: str, contact_id: str, signal_type: str,
                        summary: str, confidence: float) -> bool:
         if await self._already_flagged_recently(conn, user_id, contact_id, signal_type):
+            return False
+        if not await try_consume_credit(user_id, 'nudge'):
+            log.info('gossip_event_skipped_no_credits', user_id=user_id, contact_id=contact_id)
             return False
         in_close_circle = await conn.fetchval(
             "SELECT importance_tier IN (1, 2) FROM relationships WHERE user_id = $1 AND contact_id = $2",

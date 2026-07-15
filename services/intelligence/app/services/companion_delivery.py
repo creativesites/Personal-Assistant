@@ -7,7 +7,12 @@ counters a normal turn does — this is that shared piece, not new Advisor
 business logic.
 """
 import json
+import structlog
+
 from ..database import get_pool
+from .credits import try_consume_credit
+
+log = structlog.get_logger()
 
 
 async def _get_or_create_global_session(conn, user_id: str) -> str:
@@ -50,12 +55,20 @@ async def engagement_rate(user_id: str, content_type: str, days: int = 14) -> tu
     return int(row['engaged']) / total, total
 
 
-async def deliver_initiated_message(user_id: str, content: str, metadata: dict) -> str:
+async def deliver_initiated_message(user_id: str, content: str, metadata: dict) -> str | None:
     """Writes the proactive message as an `advisor_messages` row
     (`initiated = true`, §6.1) into the resolved global session, bumping
     session counters the same way a normal turn does. Returns the
     session_id so the caller can log its own delivery record
-    (`proactive_interest_chats`) against it."""
+    (`proactive_interest_chats`) against it, or None if the user's daily
+    nudge credits (docs/PRICING_PAYMENTS_PLAN.md §7) are exhausted — every
+    caller here is the single funnel point for
+    motivational_detector/interest_companion/spiritual_companion/
+    curiosity_engine's proactive deliveries, so gating here covers all of
+    them at once."""
+    if not await try_consume_credit(user_id, 'nudge'):
+        log.info('initiated_message_skipped_no_credits', user_id=user_id)
+        return None
     pool = await get_pool()
     async with pool.acquire() as conn:
         session_id = await _get_or_create_global_session(conn, user_id)

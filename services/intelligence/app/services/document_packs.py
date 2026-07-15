@@ -16,6 +16,7 @@ import json
 import structlog
 
 from ..database import get_pool
+from .credits import try_consume_credit
 from .document_generator import (
     assign_document_number, contact_display_name, create_document_row, generate_document_data,
 )
@@ -135,6 +136,9 @@ async def _record_pack_run(user_id: str, contact_id: str, pack_key: str, documen
 
 
 async def _insert_followup(user_id: str, contact_id: str, title: str, body: str, draft: str) -> None:
+    if not await try_consume_credit(user_id, 'nudge'):
+        log.info('pack_followup_skipped_no_credits', user_id=user_id, contact_id=contact_id)
+        return
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(

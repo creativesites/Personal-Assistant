@@ -1,126 +1,114 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
-import { ModeBadge, PageHeader, SkeletonCard } from '@/components/ui'
+import { apiClient, ApiError } from '@/lib/api'
+import { PageHeader, SkeletonCard } from '@/components/ui'
 
-interface BillingData {
+// See docs/PRICING_PAYMENTS_PLAN.md §5/§9 — this page is the first real
+// backing endpoint /billing has ever had (previously wired to a
+// never-implemented GET /api/billing).
+
+const PENDING_PLAN_STORAGE_KEY = 'zuri_pending_plan_id'
+
+interface SubscriptionMe {
   plan: string
+  planName: string | null
   status: string
   currentPeriodEnd: string | null
-  cancelAtPeriodEnd: boolean
-  usage: {
-    contacts: { used: number; limit: number | null }
-    messages: { used: number; limit: number | null }
-    aiSuggestions: { used: number; limit: number | null }
+  credits: {
+    messagesRemaining: number
+    messagesPerDay: number | null
+    aiRepliesRemaining: number
+    aiRepliesPerDay: number | null
+    nudgesRemaining: number
+    nudgesPerDay: number | null
   }
-  invoices?: Array<{
-    id: string
-    amount: number
-    currency: string
-    status: string
-    date: string
-    pdfUrl?: string
-  }>
+  pendingPayment: { referenceCode: string; amountFormatted: string; planName: string } | null
+  mobileMoneyNumbers: { airtel: string; mtn: string }
 }
 
-interface PlanFeature {
-  label: string
-  free: boolean | string
-  pro: boolean | string
-  business: boolean | string
+interface Plan {
+  id: string
+  key: string
+  name: string
+  priceNgwee: number
+  priceFormatted: string
+  durationDays: number
+  messagesPerDay: number
+  aiRepliesPerDay: number
+  proactiveNudgesPerDay: number
 }
 
-const PLAN_FEATURES: PlanFeature[] = [
-  { label: 'WhatsApp inbox',            free: true,     pro: true,        business: true },
-  { label: 'Contacts tracked',          free: '50',     pro: '500',       business: 'Unlimited' },
-  { label: 'AI reply drafts',           free: '10/day', pro: 'Unlimited', business: 'Unlimited' },
-  { label: 'Proactive suggestions',     free: '5/day',  pro: 'Unlimited', business: 'Unlimited' },
-  { label: 'Relationship health',       free: false,    pro: true,        business: true },
-  { label: 'Lead scoring',             free: false,    pro: false,       business: true },
-  { label: 'Automation rules',         free: false,    pro: '3 rules',   business: 'Unlimited' },
-  { label: 'Analytics',                free: 'Basic',  pro: 'Full',      business: 'Full + Export' },
-  { label: 'AI Advisor chat',          free: false,    pro: true,        business: true },
-  { label: 'Hybrid mode',              free: false,    pro: true,        business: true },
-  { label: 'Priority support',         free: false,    pro: false,       business: true },
-]
-
-function FeatureCell({ value }: { value: boolean | string }) {
-  if (value === false) return <span className="text-gray-300">—</span>
-  if (value === true) return (
-    <svg className="w-4 h-4 text-green-500 mx-auto" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  )
-  return <span className="text-xs text-gray-600">{value}</span>
-}
-
-function UsageBar({ used, limit, label }: { used: number; limit: number | null; label: string }) {
-  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0
-  const isNearLimit = limit && pct >= 80
+function CreditBar({ label, remaining, perDay }: { label: string; remaining: number; perDay: number | null }) {
+  const isUnlimited = (perDay ?? 0) >= 999999
+  const pct = isUnlimited || !perDay ? 100 : Math.max(0, Math.min(100, Math.round((remaining / perDay) * 100)))
+  const isLow = !isUnlimited && perDay && pct <= 20
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-sm text-gray-600">{label}</span>
         <span className="text-xs text-gray-500 tabular-nums">
-          {used.toLocaleString()}{limit ? ` / ${limit.toLocaleString()}` : ''}
+          {isUnlimited ? 'Unlimited' : `${remaining.toLocaleString()} / ${(perDay ?? 0).toLocaleString()}`}
         </span>
       </div>
       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        {limit ? (
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${isNearLimit ? 'bg-amber-400' : 'bg-indigo-500'}`}
-            style={{ width: `${pct}%` }}
-          />
-        ) : (
-          <div className="h-full rounded-full bg-indigo-200 w-full" />
-        )}
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${isLow ? 'bg-amber-400' : 'bg-indigo-500'}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
-      {!limit && <p className="text-[10px] text-gray-400 mt-0.5">Unlimited</p>}
     </div>
   )
+}
+
+function durationLabel(days: number): string {
+  if (days === 1) return '/day'
+  if (days === 7) return '/week'
+  return '/month'
 }
 
 export default function BillingPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
 
-  const { data, loading } = useApi<BillingData>('/api/billing', token)
+  const { data: sub, loading: subLoading, refetch: refetchSub } = useApi<SubscriptionMe>('/api/subscriptions/me', token)
+  const { data: catalog, loading: plansLoading } = useApi<{ plans: Plan[] }>('/api/subscription-plans', token)
 
-  const currentPlan = data?.plan ?? 'free'
-  const isFreePlan = currentPlan === 'free'
+  const [checkingOut, setCheckingOut] = useState<string | null>(null)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
-  const PLANS = [
-    {
-      key: 'free',
-      name: 'Free',
-      price: { monthly: 0, yearly: 0 },
-      color: 'border-gray-200',
-      headerBg: 'bg-gray-50',
-      description: 'Perfect for trying Zuri',
-    },
-    {
-      key: 'pro',
-      name: 'Pro',
-      price: { monthly: 29, yearly: 23 },
-      color: 'border-indigo-300',
-      headerBg: 'bg-indigo-600',
-      description: 'For individuals & freelancers',
-      popular: true,
-    },
-    {
-      key: 'business',
-      name: 'Business',
-      price: { monthly: 79, yearly: 63 },
-      color: 'border-violet-300',
-      headerBg: 'bg-gradient-to-br from-indigo-600 to-violet-600',
-      description: 'For teams & high-volume',
-    },
-  ]
+  const runCheckout = async (planId: string) => {
+    if (!token) return
+    setCheckingOut(planId)
+    setCheckoutError(null)
+    try {
+      await apiClient('/api/subscriptions/checkout', {
+        method: 'POST', token, body: JSON.stringify({ planId }),
+      })
+      refetchSub()
+    } catch (e) {
+      setCheckoutError(e instanceof ApiError ? e.message : 'Could not start checkout')
+    } finally {
+      setCheckingOut(null)
+    }
+  }
 
-  if (session.status === 'loading' || loading) {
+  // Resume a checkout started while signed out from /pricing — the chosen
+  // plan is stashed in localStorage before the redirect through /register.
+  useEffect(() => {
+    if (!token) return
+    const pendingPlanId = window.localStorage.getItem(PENDING_PLAN_STORAGE_KEY)
+    if (!pendingPlanId) return
+    window.localStorage.removeItem(PENDING_PLAN_STORAGE_KEY)
+    runCheckout(pendingPlanId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
+  const loading = session.status === 'loading' || subLoading
+
+  if (loading) {
     return (
       <div className="flex flex-col h-full">
         <PageHeader title="Billing" />
@@ -132,6 +120,9 @@ export default function BillingPage() {
     )
   }
 
+  const isPending = sub?.status === 'pending_payment'
+  const isRejected = sub?.status === 'payment_rejected'
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader title="Billing" />
@@ -139,31 +130,20 @@ export default function BillingPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="max-w-2xl mx-auto space-y-4">
 
-          {/* Zambia mobile money notice */}
-          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-start gap-3">
-            <span className="text-xl shrink-0" aria-hidden="true">🇿🇲</span>
-            <div>
-              <p className="text-sm font-semibold text-green-900">Mobile money available for Zambia</p>
-              <p className="text-xs text-green-700 mt-0.5">
-                Pay with Airtel Money or MTN Mobile Money. Contact{' '}
-                <a href="mailto:billing@zuri.app" className="underline hover:no-underline">billing@zuri.app</a>
-                {' '}to set up mobile money payments.
-              </p>
-            </div>
-          </div>
-
           {/* Current plan */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs text-indigo-200 font-medium uppercase tracking-wide">Current plan</p>
-                  <p className="text-xl font-bold text-white mt-0.5 capitalize">{currentPlan}</p>
+                  <p className="text-xl font-bold text-white mt-0.5">{sub?.planName ?? sub?.plan ?? 'Free'}</p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  data?.status === 'active' ? 'bg-green-400/20 text-green-100' : 'bg-white/20 text-white'
+                  sub?.status === 'active' || sub?.status === 'trialing'
+                    ? 'bg-green-400/20 text-green-100'
+                    : 'bg-white/20 text-white'
                 }`}>
-                  {data?.status ?? 'Free'}
+                  {sub?.status ?? 'free'}
                 </span>
               </div>
             </div>
@@ -174,129 +154,126 @@ export default function BillingPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">{session.data?.user.name || session.data?.user.email}</p>
-                  <ModeBadge mode={session.data?.mode ?? 'business'} />
                 </div>
               </div>
-              {data?.currentPeriodEnd && (
+              {sub?.currentPeriodEnd && (
                 <p className="text-xs text-gray-500">
-                  {data.cancelAtPeriodEnd ? 'Cancels' : 'Renews'} {new Date(data.currentPeriodEnd).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}
+                  Renews {new Date(sub.currentPeriodEnd).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}
                 </p>
               )}
             </div>
           </div>
 
-          {/* Usage */}
-          {data?.usage && (
+          {/* Pending payment */}
+          {isPending && sub?.pendingPayment && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+              <p className="text-sm font-semibold text-amber-900 mb-1">Payment pending</p>
+              <p className="text-xs text-amber-700 mb-4">
+                Usually approved within an hour. Send exactly <strong>{sub.pendingPayment.amountFormatted}</strong> to one
+                of the numbers below with the reference code, then wait — your {sub.pendingPayment.planName} credits
+                unlock the moment it's confirmed.
+              </p>
+              <div className="bg-white rounded-lg border border-amber-200 px-4 py-3 mb-3">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Reference code</p>
+                <p className="text-lg font-mono font-bold text-gray-900 tracking-wider">{sub.pendingPayment.referenceCode}</p>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs">
+                <div className="bg-white rounded-lg border border-amber-200 px-3 py-2">
+                  <span className="font-semibold text-gray-700">Airtel Money:</span>{' '}
+                  <span className="text-gray-600">{sub.mobileMoneyNumbers.airtel}</span>
+                </div>
+                <div className="bg-white rounded-lg border border-amber-200 px-3 py-2">
+                  <span className="font-semibold text-gray-700">MTN MoMo:</span>{' '}
+                  <span className="text-gray-600">{sub.mobileMoneyNumbers.mtn}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isRejected && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+              <p className="text-sm font-semibold text-red-900 mb-1">Payment not confirmed</p>
+              <p className="text-xs text-red-700">
+                We couldn't match your last payment (wrong amount or reference). Pick a plan below to try again.
+              </p>
+            </div>
+          )}
+
+          {checkoutError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{checkoutError}</div>
+          )}
+
+          {/* Credits */}
+          {sub?.credits && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Usage this period</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Today's AI credits</p>
               <div className="space-y-4">
-                <UsageBar used={data.usage.contacts.used} limit={data.usage.contacts.limit} label="Contacts" />
-                <UsageBar used={data.usage.messages.used} limit={data.usage.messages.limit} label="Messages analysed" />
-                <UsageBar used={data.usage.aiSuggestions.used} limit={data.usage.aiSuggestions.limit} label="AI suggestions" />
+                <CreditBar label="Messages analysed" remaining={sub.credits.messagesRemaining} perDay={sub.credits.messagesPerDay} />
+                <CreditBar label="AI reply drafts" remaining={sub.credits.aiRepliesRemaining} perDay={sub.credits.aiRepliesPerDay} />
+                <CreditBar label="Proactive nudges" remaining={sub.credits.nudgesRemaining} perDay={sub.credits.nudgesPerDay} />
               </div>
+              <p className="text-[11px] text-gray-400 mt-4">
+                Credits reset daily. Upgrade to a higher plan to raise your limits immediately.
+              </p>
             </div>
           )}
 
-          {/* Upgrade CTA (free plan) */}
-          {isFreePlan && (
-            <div className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200 rounded-xl p-5">
-              <p className="text-sm font-semibold text-indigo-900 mb-1">Unlock Zuri Pro</p>
-              <p className="text-xs text-indigo-700 mb-4">Get unlimited AI suggestions, full analytics, relationship health tracking, and more.</p>
-              <button
-                onClick={() => window.open('mailto:hello@zuri.ai?subject=Pro%20Plan%20Enquiry', '_blank')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
-              >
-                Upgrade to Pro
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </button>
-            </div>
-          )}
-
-          {/* Plan comparison */}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan comparison</p>
-              <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
-                {(['monthly', 'yearly'] as const).map(p => (
-                  <button
-                    key={p}
-                    onClick={() => setBillingPeriod(p)}
-                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                      billingPeriod === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-                    }`}
-                  >
-                    {p === 'yearly' ? 'Yearly (−20%)' : 'Monthly'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className="text-left px-5 py-3 text-xs text-gray-400 font-medium w-44">Feature</th>
-                    {PLANS.map(plan => (
-                      <th key={plan.key} className="px-3 py-3 text-center min-w-[80px]">
-                        <p className={`text-xs font-bold ${currentPlan === plan.key ? 'text-indigo-600' : 'text-gray-700'}`}>
-                          {plan.name}
-                          {currentPlan === plan.key && (
-                            <span className="ml-1 text-[9px] font-semibold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">Current</span>
-                          )}
-                        </p>
-                        <p className="text-sm font-bold text-gray-900 mt-0.5">
-                          {plan.price[billingPeriod] === 0 ? 'Free' : `$${plan.price[billingPeriod]}/mo`}
-                        </p>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {PLAN_FEATURES.map((feature, i) => (
-                    <tr key={feature.label} className={i % 2 === 0 ? 'bg-gray-50/50' : ''}>
-                      <td className="px-5 py-2.5 text-xs text-gray-600">{feature.label}</td>
-                      <td className="px-3 py-2.5 text-center text-xs"><FeatureCell value={feature.free} /></td>
-                      <td className="px-3 py-2.5 text-center text-xs"><FeatureCell value={feature.pro} /></td>
-                      <td className="px-3 py-2.5 text-center text-xs"><FeatureCell value={feature.business} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Zambia mobile money notice */}
+          <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-start gap-3">
+            <span className="text-xl shrink-0" aria-hidden="true">🇿🇲</span>
+            <div>
+              <p className="text-sm font-semibold text-green-900">Mobile money payments</p>
+              <p className="text-xs text-green-700 mt-0.5">
+                Pay with Airtel Money or MTN Mobile Money. Choose a plan below, then send the exact amount with your
+                reference code — an admin confirms it, usually within an hour.
+              </p>
             </div>
           </div>
 
-          {/* Invoices */}
-          {data?.invoices && data.invoices.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-5 py-3 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Invoices</p>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {data.invoices.map(inv => (
-                  <div key={inv.id} className="flex items-center justify-between px-5 py-3">
+          {/* Plan picker */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plans</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {plansLoading && <div className="p-5"><SkeletonCard /></div>}
+              {catalog?.plans.filter(p => p.key !== 'free').map((plan) => {
+                const isCurrent = sub?.plan === plan.key
+                return (
+                  <div key={plan.id} className="flex items-center justify-between gap-4 px-5 py-4">
                     <div>
-                      <p className="text-sm text-gray-900">{new Date(inv.date).toLocaleDateString([], { year: 'numeric', month: 'long' })}</p>
-                      <p className="text-xs text-gray-400 capitalize">{inv.status}</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {plan.name}
+                        {isCurrent && (
+                          <span className="ml-2 text-[9px] font-semibold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">Current</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {plan.messagesPerDay >= 999999 ? 'Unlimited' : plan.messagesPerDay} messages/day ·{' '}
+                        {plan.aiRepliesPerDay >= 999999 ? 'unlimited' : plan.aiRepliesPerDay} AI replies/day ·{' '}
+                        {plan.proactiveNudgesPerDay >= 999999 ? 'unlimited' : plan.proactiveNudgesPerDay} nudges/day
+                      </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium text-gray-900">
-                        {(inv.amount / 100).toLocaleString('en-US', { style: 'currency', currency: inv.currency.toUpperCase() })}
-                      </span>
-                      {inv.pdfUrl && (
-                        <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 hover:underline">
-                          PDF ↗
-                        </a>
-                      )}
+                    <div className="flex items-center gap-3 shrink-0">
+                      <p className="text-sm font-bold text-gray-900">
+                        {plan.priceFormatted}<span className="text-xs text-gray-400">{durationLabel(plan.durationDays)}</span>
+                      </p>
+                      <button
+                        onClick={() => runCheckout(plan.id)}
+                        disabled={isCurrent || checkingOut === plan.id}
+                        className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {checkingOut === plan.id ? 'Starting…' : isCurrent ? 'Current' : 'Subscribe'}
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
-          )}
+          </div>
 
           <p className="text-xs text-gray-400 text-center pb-2">
-            Billing managed securely via Stripe · <a href="mailto:hello@zuri.ai" className="hover:underline">Contact support</a>
+            Questions about billing? <a href="mailto:hello@zuri.ai" className="hover:underline">Contact support</a>
           </p>
         </div>
       </div>
