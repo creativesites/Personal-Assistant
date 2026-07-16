@@ -33,6 +33,8 @@ from .workers.daily_worker import (
     create_curiosity_proactive_worker, run_curiosity_proactive_scheduler,
     create_project_progress_worker, run_project_progress_scheduler,
     create_business_manager_worker, run_business_manager_scheduler,
+    create_reality_engine_hourly_worker, run_reality_engine_hourly_scheduler,
+    create_reality_engine_daily_worker, run_reality_engine_daily_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -70,6 +72,8 @@ async def lifespan(app: FastAPI):
     curiosity_proactive_worker = create_curiosity_proactive_worker()
     project_progress_worker = create_project_progress_worker()
     business_manager_worker = create_business_manager_worker()
+    reality_engine_hourly_worker = create_reality_engine_hourly_worker()
+    reality_engine_daily_worker = create_reality_engine_daily_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -89,6 +93,8 @@ async def lifespan(app: FastAPI):
     curiosity_proactive_task = asyncio.create_task(run_curiosity_proactive_scheduler())
     project_progress_task = asyncio.create_task(run_project_progress_scheduler())
     business_manager_task = asyncio.create_task(run_business_manager_scheduler())
+    reality_engine_hourly_task = asyncio.create_task(run_reality_engine_hourly_scheduler())
+    reality_engine_daily_task = asyncio.create_task(run_reality_engine_daily_scheduler())
 
     yield
 
@@ -98,7 +104,7 @@ async def lifespan(app: FastAPI):
         reflection_task, emotion_reconsolidation_task,
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
         advisor_memory_learning_task, curiosity_proactive_task, project_progress_task,
-        business_manager_task,
+        business_manager_task, reality_engine_hourly_task, reality_engine_daily_task,
     ):
         task.cancel()
         try:
@@ -128,6 +134,8 @@ async def lifespan(app: FastAPI):
     await curiosity_proactive_worker.close()
     await project_progress_worker.close()
     await business_manager_worker.close()
+    await reality_engine_hourly_worker.close()
+    await reality_engine_daily_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

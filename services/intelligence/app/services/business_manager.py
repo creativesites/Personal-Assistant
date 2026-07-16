@@ -109,15 +109,15 @@ class BusinessManagerService:
                     f"{row['contact_name']}'s project \"{row['title']}\" is {pct}% complete with no "
                     f"invoice or quotation on file — want Zuri to draft one for your records?"
                 )
-                await conn.execute(
-                    """INSERT INTO proactive_queue
-                         (user_id, contact_id, suggestion_type, title, body, priority, status, suggested_for_date)
-                       VALUES ($1, $2, 'follow_up', $3, $4, 3, 'pending', CURRENT_DATE)""",
-                    row['user_id'], row['contact_id'], title, body,
-                )
                 event_id = await _business_events.record(
                     user_id=str(row['user_id']), event_type='invoice_gap', contact_id=str(row['contact_id']),
                     confidence=0.8, evidence=[evidence], payload={'projectId': str(row['project_id'])},
+                )
+                await conn.execute(
+                    """INSERT INTO proactive_queue
+                         (user_id, contact_id, suggestion_type, title, body, priority, status, suggested_for_date, business_event_id)
+                       VALUES ($1, $2, 'follow_up', $3, $4, 3, 'pending', CURRENT_DATE, $5)""",
+                    row['user_id'], row['contact_id'], title, body, event_id,
                 )
                 log.info('business_manager_invoice_gap', kind='project', event_id=event_id)
                 created += 1
@@ -132,15 +132,15 @@ class BusinessManagerService:
                     f"{row['contact_name']}'s deal \"{row['title']}\" closed won with no invoice or "
                     f"quotation on file — want Zuri to draft one for your records?"
                 )
-                await conn.execute(
-                    """INSERT INTO proactive_queue
-                         (user_id, contact_id, suggestion_type, title, body, priority, status, suggested_for_date)
-                       VALUES ($1, $2, 'follow_up', $3, $4, 3, 'pending', CURRENT_DATE)""",
-                    row['user_id'], row['contact_id'], title, body,
-                )
                 event_id = await _business_events.record(
                     user_id=str(row['user_id']), event_type='invoice_gap', contact_id=str(row['contact_id']),
                     confidence=0.8, evidence=[evidence], payload={'dealId': str(row['deal_id'])},
+                )
+                await conn.execute(
+                    """INSERT INTO proactive_queue
+                         (user_id, contact_id, suggestion_type, title, body, priority, status, suggested_for_date, business_event_id)
+                       VALUES ($1, $2, 'follow_up', $3, $4, 3, 'pending', CURRENT_DATE, $5)""",
+                    row['user_id'], row['contact_id'], title, body, event_id,
                 )
                 log.info('business_manager_invoice_gap', kind='deal', event_id=event_id)
                 created += 1

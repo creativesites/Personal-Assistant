@@ -9,6 +9,7 @@ import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
 import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
 import { renderAndSaveDocument, NotFoundError } from '../services/document-render';
+import { resolveInvoiceGapNudges } from '../lib/reality-engine';
 
 // quotation -> invoice -> receipt. Each target renders fine with the Phase 0
 // templates (they're generic line-item layouts, not quotation/invoice-
@@ -616,6 +617,15 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, $2, '{}')`,
       [id, status],
     );
+
+    if (status === 'paid' && (updated.deal_id || updated.project_id)) {
+      // Reality Engine Layer 1 (docs/REALITY_ENGINE_PLAN.md §7, Hook B) —
+      // a paid invoice resolves the matching invoice-gap nudge immediately
+      // rather than leaving it until the daily sweep catches it.
+      await resolveInvoiceGapNudges(
+        userId, { dealId: updated.deal_id, projectId: updated.project_id }, 'Invoice marked paid',
+      ).catch(() => { /* best-effort — the status update itself already succeeded */ });
+    }
 
     return reply.send({ document: formatDocument(updated) });
   });

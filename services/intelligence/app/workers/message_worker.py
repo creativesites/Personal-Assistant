@@ -13,6 +13,7 @@ from ..services.opportunities import OpportunityService
 from ..services.connections import ConnectionService
 from ..services.contact_products import ContactProductService
 from ..services.action_bundles import ActionBundleService
+from ..services.reality_engine import RealityEngineService
 from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
 from ..services.lead_score import LeadScoreService
@@ -33,6 +34,7 @@ _opportunities = OpportunityService()
 _connections = ConnectionService()
 _contact_products = ContactProductService()
 _action_bundles = ActionBundleService()
+_reality_engine = RealityEngineService()
 _life_events = LifeEventService()
 _network_value = NetworkValueService()
 _lead_score = LeadScoreService()
@@ -153,6 +155,16 @@ async def _process(job, token: str):
                     user_id, contact_id, conversation_id, message_id, order_intent,
                     new_products=analysis.new_products_mentioned, suppliers=analysis.suppliers_mentioned,
                 )
+
+        if sender_type == 'user' and body:
+            # Reality Engine Layer 1 (docs/REALITY_ENGINE_PLAN.md §7, Hook A)
+            # — a live outbound reply makes any pending check-in/follow-up/
+            # reconnect nudge for this contact moot; resolve it immediately
+            # rather than leaving it to sit until a human dismisses it or a
+            # later sweep catches it.
+            await _reality_engine.resolve_relationship_nudges(
+                user_id, contact_id, reason='You messaged this contact',
+            )
 
         if sender_type == 'contact' and body:
             # Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md

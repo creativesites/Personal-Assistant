@@ -157,6 +157,16 @@ export default function DiagnosticsPage() {
   const [tokenTodayTotal, setTokenTodayTotal] = useState<number | null>(null)
   const [tokenMonthCost, setTokenMonthCost] = useState<number | null>(null)
 
+  // Zuri Reality Engine (docs/REALITY_ENGINE_PLAN.md §9) — Intelligence
+  // Health Score.
+  const [intelHealth, setIntelHealth] = useState<{
+    predictionFreshnessPct: number | null
+    relationshipFreshnessPct: number | null
+    nudgeAccuracyPct: number | null
+    contradictionsOpen: number
+    overall: number | null
+  } | null>(null)
+
   const fetchTokenUsage = useCallback(async () => {
     if (!token) return
     setTokenLoading(true)
@@ -207,6 +217,14 @@ export default function DiagnosticsPage() {
   useEffect(() => {
     fetchTokenTodayAndMonth()
   }, [fetchTokenTodayAndMonth])
+
+  useEffect(() => {
+    if (!token) return
+    fetch(`${API_URL}/api/diagnostics/intelligence-health`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(body => { if (body) setIntelHealth(body) })
+      .catch(() => { /* ignore */ })
+  }, [token])
 
   const fetchSyncStatus = useCallback(async (currentToken?: string) => {
     const t = currentToken || token
@@ -750,6 +768,53 @@ export default function DiagnosticsPage() {
                   <Skeleton className="h-24 w-full rounded-2xl" />
                   <Skeleton className="h-24 w-full rounded-2xl" />
                 </div>
+              )}
+            </div>
+          </div>
+
+          {/* Intelligence Health — Zuri Reality Engine (docs/REALITY_ENGINE_PLAN.md §9) */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Intelligence Health</p>
+            <div className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-lg shadow-indigo-200/40 ring-1 ring-white p-4 md:p-5 space-y-4">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.18),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.14),transparent_30%)] pointer-events-none" />
+              {!intelHealth ? (
+                <div className="relative grid grid-cols-2 gap-3">
+                  <Skeleton className="h-[86px] w-full rounded-xl" />
+                  <Skeleton className="h-[86px] w-full rounded-xl" />
+                  <Skeleton className="h-[86px] w-full rounded-xl" />
+                  <Skeleton className="h-[86px] w-full rounded-xl" />
+                </div>
+              ) : (
+                <>
+                  <div className="relative grid grid-cols-2 gap-3">
+                    <StatCard
+                      label="Overall"
+                      value={intelHealth.overall != null ? `${intelHealth.overall}%` : '—'}
+                    />
+                    <StatCard
+                      label="Contradictions Open"
+                      value={String(intelHealth.contradictionsOpen)}
+                    />
+                    <StatCard
+                      label="Prediction Freshness"
+                      value={intelHealth.predictionFreshnessPct != null ? `${intelHealth.predictionFreshnessPct}%` : '—'}
+                    />
+                    <StatCard
+                      label="Relationship Freshness"
+                      value={intelHealth.relationshipFreshnessPct != null ? `${intelHealth.relationshipFreshnessPct}%` : '—'}
+                    />
+                  </div>
+                  <div className="relative rounded-2xl bg-white/95 p-3 shadow-sm ring-1 ring-gray-100">
+                    <p className="text-xs font-semibold text-gray-500">Nudge Accuracy</p>
+                    <p className="text-lg font-black tracking-tight text-gray-950 tabular-nums">
+                      {intelHealth.nudgeAccuracyPct != null ? `${intelHealth.nudgeAccuracyPct}%` : '—'}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Share of AI-generated nudges (last 30 days) you acted on, vs. ones Reality Engine had to
+                      quietly clean up because reality moved past them.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
           </div>

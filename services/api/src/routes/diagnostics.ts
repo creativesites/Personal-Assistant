@@ -70,6 +70,84 @@ export async function diagnosticsRoutes(fastify: FastifyInstance): Promise<void>
     })
   })
 
+  // Intelligence Health Score (Zuri Reality Engine, see
+  // docs/REALITY_ENGINE_PLAN.md §9) — a measurable freshness/accuracy
+  // metric for the platform's AI-derived state, computed live (a handful
+  // of aggregate queries per page load, same "not a hot path" judgment as
+  // Studio's Customer tiers/Financial Overview) rather than cached.
+  fastify.get('/api/diagnostics/intelligence-health', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+
+    const [forecastFreshness, relationshipFreshness, nudgeAccuracy, contradictionsOpen] = await Promise.all([
+      db.query(
+        `SELECT
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE f.computed_at >= NOW() - INTERVAL '2 days') AS fresh
+         FROM inventory_forecasts f
+         JOIN products p ON p.id = f.product_id
+         WHERE p.user_id = $1`,
+        [userId],
+      ),
+      db.query(
+        `SELECT
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE updated_at >= NOW() - INTERVAL '7 days') AS fresh
+         FROM relationships WHERE user_id = $1`,
+        [userId],
+      ),
+      db.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status = 'auto_resolved') AS auto_resolved,
+           COUNT(*) FILTER (WHERE status IN ('sent', 'approved')) AS acted_on
+         FROM proactive_queue
+         WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+           AND status IN ('auto_resolved', 'sent', 'approved')`,
+        [userId],
+      ),
+      db.query(
+        `SELECT COUNT(*) AS count FROM business_events
+         WHERE user_id = $1 AND event_type LIKE 'contradiction_%' AND status = 'pending'
+           AND created_at >= NOW() - INTERVAL '30 days'`,
+        [userId],
+      ),
+    ])
+
+    const forecast = forecastFreshness.rows[0]
+    const relationship = relationshipFreshness.rows[0]
+    const nudge = nudgeAccuracy.rows[0]
+
+    const forecastTotal = parseInt(forecast.total, 10)
+    const predictionFreshnessPct = forecastTotal > 0
+      ? Math.round((parseInt(forecast.fresh, 10) / forecastTotal) * 100) : null
+
+    const relationshipTotal = parseInt(relationship.total, 10)
+    const relationshipFreshnessPct = relationshipTotal > 0
+      ? Math.round((parseInt(relationship.fresh, 10) / relationshipTotal) * 100) : null
+
+    const autoResolved = parseInt(nudge.auto_resolved, 10)
+    const actedOn = parseInt(nudge.acted_on, 10)
+    const nudgeTotal = autoResolved + actedOn
+    // "Accuracy" here means the fraction of nudges a user actually acted on
+    // rather than ones Reality Engine had to quietly clean up — the inverse
+    // of the "unnecessary nudge" rate described in docs/REALITY_ENGINE_PLAN.md §9.
+    const nudgeAccuracyPct = nudgeTotal > 0 ? Math.round((actedOn / nudgeTotal) * 100) : null
+
+    const contradictionsOpenCount = parseInt(contradictionsOpen.rows[0].count, 10)
+
+    const scores = [predictionFreshnessPct, relationshipFreshnessPct, nudgeAccuracyPct].filter(
+      (v): v is number => v !== null,
+    )
+    const overall = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
+
+    return reply.send({
+      predictionFreshnessPct,
+      relationshipFreshnessPct,
+      nudgeAccuracyPct,
+      contradictionsOpen: contradictionsOpenCount,
+      overall,
+    })
+  })
+
   // Token Usage & AI Costs (see CLAUDE.md "Token Usage Tracking"). Read-only
   // for normal users — they always get their own stats regardless of any
   // ?userId= they pass. Admins can pass ?userId= to inspect a specific

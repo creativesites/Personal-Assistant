@@ -530,6 +530,11 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
                 product_detected: 'New product detected',
                 supplier_detected: 'New supplier detected',
                 invoice_gap: 'No invoice on file',
+                // Zuri Reality Engine (docs/REALITY_ENGINE_PLAN.md §4/§8)
+                nudge_auto_resolved: 'A nudge resolved itself',
+                contradiction_invoice_paid_deal_open: 'Invoice paid, deal still open',
+                contradiction_negative_inventory: 'Negative inventory detected',
+                contradiction_project_complete_tasks_incomplete: 'Project complete, tasks pending',
               }
               const label = labels[ev.eventType] ?? ev.eventType.replace(/_/g, ' ')
               const detail = ev.payload?.name ?? ev.payload?.company ?? ev.contactName

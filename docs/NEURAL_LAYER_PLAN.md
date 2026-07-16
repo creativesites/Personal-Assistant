@@ -1,6 +1,6 @@
 # Zuri Neural Layer — Master Architecture Plan
 
-**Status:** all six phases shipped — Phase 1 (Platform-Wide Emotion Engine, §4.2/§10), Phase 2 (Cross-Module Goal Engine, §4.4/§10), Phase 3 (Reflection Engine + Life Timeline, §4.7/§10), Phase 4 (Knowledge Graph Query Layer, §4.5/§10), Phase 5 (Prediction Engine Consolidation, §4.8/§10), and Phase 6 (Action Engine Workflows, §4.9/§10). Migrations `0062`–`0065` (Phases 5 and 6 needed no new migration — Phase 5 is read-only adapters, Phase 6's `dependsOn` field is additive JSONB). See `CLAUDE.md`'s "Zuri Neural Layer" section for what's live in each. Only §4.10 Skills remains deliberately unphased (see below). This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, or `docs/MEMORY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, and a platform-wide Emotion Engine). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
+**Status:** all seven phases shipped — Phase 1 (Platform-Wide Emotion Engine, §4.2/§10), Phase 2 (Cross-Module Goal Engine, §4.4/§10), Phase 3 (Reflection Engine + Life Timeline, §4.7/§10), Phase 4 (Knowledge Graph Query Layer, §4.5/§10), Phase 5 (Prediction Engine Consolidation, §4.8/§10), Phase 6 (Action Engine Workflows, §4.9/§10), and Phase 7 (Reality Engine, §4.11/§10). Migrations `0062`–`0065`, `0077` (Phases 5 and 6 needed no new migration — Phase 5 is read-only adapters, Phase 6's `dependsOn` field is additive JSONB). See `CLAUDE.md`'s "Zuri Neural Layer"/"Zuri Reality Engine" sections for what's live in each. Only §4.10 Skills remains deliberately unphased (see below). This document does not replace `docs/PRODUCT_VISION.md`, `docs/RELATIONSHIP_OS_PLAN.md`, `docs/MEMORY_ENGINE_PLAN.md`, or `docs/REALITY_ENGINE_PLAN.md` — it **reconciles** them into one named architecture and adds the pieces none of them cover yet (a cross-module Goal Engine, a Reflection Engine + Life Timeline, a Knowledge Graph beyond people, a platform-wide Emotion Engine, and — as of Phase 7 — a Reality Engine that keeps every other engine's conclusions honest over time). Every section below states explicitly whether it's *already shipped elsewhere* (with a pointer to where), *already planned elsewhere* (ditto), or *genuinely net-new*. Nothing here should be read as "start from zero" — most of the substrate already exists under different names; this document is mostly about naming it correctly, closing real gaps, and stopping future modules from re-inventing it per-feature.
 
 ---
 
@@ -37,6 +37,7 @@ Zuri Neural Layer
   Prediction Engine     — consolidates existing ad-hoc forecasts into one service
   Action Engine         — action requests as multi-step workflows (reconciles with Automation Engine)
   Automation Engine     — visual workflow builder (already exists: PRODUCT_VISION.md Engine 9, unchanged)
+  Reality Engine        — keeps every other engine's conclusions synchronized with reality (net-new, docs/REALITY_ENGINE_PLAN.md)
 
         ↓
 
@@ -64,6 +65,7 @@ Models (LiteLLM — Gemini / DashScope-Qwen pool, per model_router.py)
 | Action Engine | `advisor_action_requests` (planned), `action_bundles` (Business OS Phase E, shipped) — both single-action-then-approve today | ✅ Shipped, single-step | **Upgraded to multi-step workflows** (§4.9) — reconciles with, does not duplicate, the Automation Engine below |
 | Automation Engine | PRODUCT_VISION.md Engine 9 — visual drag-and-drop workflow builder | 🔲 Planned | Unchanged by this document — Action Engine (above) is the *system-detected, single-approval-card* path; Automation Engine is the *user-designed, always-on* path. Different triggers, same underlying action-execution primitives (§4.9 notes the shared bits) |
 | Confidence everywhere | PRODUCT_VISION.md Engine 11's "Explainability" (`Confidence: 96%`, reasons, source) | 🔲 Planned, underused | Not a new concept — §8 is a reminder to actually apply it to every new surface this document proposes, since it's currently implemented on Advisor/suggestions but not on CRM/Projects/Suppliers cards |
+| Reality Engine | Nothing — no freshness/verification/contradiction concept existed anywhere before Phase 7 | ✅ Shipped Phase 1 (migration `0077`, `docs/REALITY_ENGINE_PLAN.md`) | **Fully net-new** (§4.11) — the missing "is this still true?" complement to the Prediction Engine's "what's likely to happen?" and the Memory Engine's "what do I know?" |
 
 ---
 
@@ -299,6 +301,20 @@ This is not a new execution mechanism — it's `action_bundles.actions` (already
 
 **Status: two ad-hoc mechanisms already exist and could converge here — not urgent, noted for later.** `agent_engine.py`'s prompt-described tool list (Autonomous Agent Engine) and the `[ACTION: ...]` chat-tag system (Studio/Advisor/Inbox) are both, functionally, "a bounded capability the model can invoke." A **Skill** would be the shared shape: something that retrieves via the Memory Engine, reasons via the Reasoning Engine, and executes via the Action Engine, packaged under one name (Sales Skill, Inventory Skill, Supplier Skill, Relationship Coach) instead of a growing per-feature prompt. **This is the lowest-priority item in this document** — worth doing once there are 4-5 near-duplicate "give the model this context and this action list" implementations to actually consolidate, not before. Do not build a Skills abstraction speculatively ahead of that need (per this codebase's own "don't design for hypothetical future requirements" convention).
 
+### 4.11 Reality Engine — Keeping Zuri's Own Conclusions True (Fully Net-New)
+
+**Status: nothing like this existed before Phase 7 (`docs/REALITY_ENGINE_PLAN.md`, migration `0077`).** Every other engine above answers a "what" question — what do I know (Memory), what's the relationship's state (Relationship/Emotion), what's likely to happen (Prediction). None of them ever asked the follow-up: *is what I already concluded still true?* A "check in with this contact" nudge doesn't know the user already messaged them; an "invoice gap" suggestion doesn't know the invoice got created five minutes later. The Reality Engine is that follow-up question, formalized.
+
+```python
+# services/intelligence/app/services/reality_engine.py
+class RealityEngineService:
+    async def resolve_relationship_nudges(self, user_id, contact_id, reason): ...  # Layer 1, event-driven
+    async def run_hourly_sweep(self): ...                                          # Layer 2, contradiction detection
+    async def run_daily_sweep(self): ...                                          # Layer 3, stale-row expiry
+```
+
+Three cadences, not one daily cron — event-driven (a live reply/paid invoice resolves a nudge immediately), hourly (deterministic SQL contradiction checks — an invoice paid while its deal is still open, negative inventory, a project marked complete with incomplete tasks), and daily (sweeping genuinely abandoned rows into the `expired`/`auto_resolved` terminal states several tables' schemas already declared but never used). Reuses `business_events` (Business Events architecture, migration `0076`) as its own log rather than a new generic table — confidence/evidence columns already there carry the "Truth Sources" framing. Deliberately narrow on safety: it only ever resolves Zuri's *own* artifacts (a nudge, a bundle, a logged event) — never a user's own business record; a detected contradiction between two AI-observed facts is surfaced as a "Zuri Noticed" card, never auto-fixed. See `docs/REALITY_ENGINE_PLAN.md` for the full design, including the state-lifecycle mapping and the Intelligence Health Score now on `/diagnostics`.
+
 ---
 
 ## 5. Backend Architecture — The Calling Convention
@@ -428,6 +444,18 @@ Success criteria: at least one detected bundle (the plan's own inventory-check �
 **Scope note:** `action_bundles.py`'s order-detection bundle now gets a real `dependsOn` chain (indices into the same `actions` array) rather than a flat list: `reserve_stock` actions depend on `create_deal`, `generate_document` depends on every `reserve_stock`, and `reminder` depends on `generate_document` — the plan's own success-criteria example, minus the "notify supplier" step (there's no existing supplier-notify action type to reuse; adding one is out of scope here, this phase only sequences what Business OS Phase E already generates). The field is camelCase (`dependsOn`) since `action_bundles.actions` is JSONB passed through the API verbatim, not mapped through a snake_case→camelCase translator like most other tables. `condition` (the plan's other proposed field) has no writer yet — only `dependsOn` had a concrete use case from the existing detector. `ActionBundleCard` (`apps/web/.../inbox/_components/action-bundle-card.tsx`) renders dependent actions indented with a connector icon, disables/greys a checkbox until its dependencies are checked, and cascades an uncheck downstream so the card can't end up in a state where a dependent action is enabled but its prerequisite isn't; `approve()` now walks the array in order and marks anything whose dependency didn't finish `'done'` as `'skipped'` rather than blindly executing it. `actionLabel`/`executeAction` were extracted into `apps/web/src/lib/action-executor.ts` — the shared executor layer the plan calls for — though the Automation Engine itself doesn't consume it yet (it has no code path that constructs this `{type, params}` shape today); the extraction just means it won't need its own copy when it eventually does.
 
 Skills (§4.10) are deliberately not phased — revisit only once there's a concrete duplication to consolidate.
+
+### Phase 7 — Reality Engine
+
+**✅ Shipped Phase 1** (migration `0077`). See `CLAUDE.md`'s "Zuri Reality Engine" section and `docs/REALITY_ENGINE_PLAN.md` for the full design.
+
+- Migration: `proactive_status` gains `'auto_resolved'`; `proactive_queue.resolved_reason`/`business_event_id`; `advisor_user_profiles.reality_engine_paused` (§4.11)
+- Three cadences: event-driven (message_worker.py hook + `documents.ts`/`deals.ts` hooks), hourly contradiction sweep, daily stale-row expiry — all new schedulers following the exact BullMQ patterns already established in `daily_worker.py`
+- `GET /api/diagnostics/intelligence-health` — a measurable freshness/accuracy score, the first concrete instance of this document's own §8 "confidence everywhere" principle applied platform-wide rather than per-feature
+
+Success criteria: a stale relationship-maintenance nudge disappears from `/proactive` within moments of the user organically messaging that contact, without a manual refresh; an invoice-gap nudge resolves the moment the matching invoice is marked paid.
+
+**Scope note:** Phase 1 deliberately targets only the clearest, safest cases — Zuri's own generated nudges/bundles/events, never a user's own business record. Per-field freshness columns across the rest of the schema (health scores, lead scores, replacement-date predictions), confidence auto-tuning from correction history, and contradiction auto-*fix* are documented as roadmap in `docs/REALITY_ENGINE_PLAN.md` §11, not built in this pass.
 
 ---
 

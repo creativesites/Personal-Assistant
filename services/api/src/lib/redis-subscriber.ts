@@ -32,6 +32,10 @@ export function startRedisSubscriber(io: Server): void {
     // replies are generated.
     'advisor.reply_received:*',
     'advisor.narration_ready:*',
+    // Zuri Reality Engine (docs/REALITY_ENGINE_PLAN.md §7) — a nudge got
+    // auto-resolved because reality caught up with it (a reply was sent,
+    // an invoice was created); lets the Proactive dock drop the row live.
+    'reality.resolved:*',
     (err) => {
       if (err) console.error('Redis psubscribe error:', err);
     },

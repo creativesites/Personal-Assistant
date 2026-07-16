@@ -209,6 +209,9 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     // Manager Assistant, same "paused=false means on" precedent as
     // companionFeaturesPaused. See docs/BUSINESS_EVENTS_PLAN.md Part E.
     businessManagerPaused: false,
+    // Reality Engine Phase 1 — same on-by-default kill switch precedent.
+    // See docs/REALITY_ENGINE_PLAN.md §10.
+    realityEnginePaused: false,
   };
 
   function profileApiShape(r: any) {
@@ -225,6 +228,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
       companionFeaturesPaused: r.companion_features_paused,
       personalModeEnabled: r.personal_mode_enabled,
       businessManagerPaused: r.business_manager_paused,
+      realityEnginePaused: r.reality_engine_paused,
     };
   }
 
@@ -233,7 +237,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: [profile] } = await db.query(
       `SELECT display_persona, tone_preferences, advice_preferences, boundaries, relationship_context,
               interests, spiritual_preferences, motivational_style, gossip_style,
-              companion_features_paused, personal_mode_enabled, business_manager_paused
+              companion_features_paused, personal_mode_enabled, business_manager_paused, reality_engine_paused
        FROM advisor_user_profiles WHERE user_id = $1`,
       [userId],
     );
@@ -255,6 +259,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     // handled inside AdvisorCompanionService) — never inferred.
     personalModeEnabled: z.boolean().optional(),
     businessManagerPaused: z.boolean().optional(),
+    realityEnginePaused: z.boolean().optional(),
   });
 
   fastify.patch('/api/advisor/profile', { preHandler: authenticate }, async (request, reply) => {
@@ -273,6 +278,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     const booleanColumns: Record<string, boolean | undefined> = {
       companion_features_paused: body.companionFeaturesPaused,
       business_manager_paused: body.businessManagerPaused,
+      reality_engine_paused: body.realityEnginePaused,
     };
 
     const sets: string[] = ['updated_at = NOW()'];

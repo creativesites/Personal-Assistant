@@ -146,6 +146,10 @@ export default function SettingsPage() {
   // default (businessManagerPaused=false); see docs/BUSINESS_EVENTS_PLAN.md.
   const [businessManagerPaused, setBusinessManagerPaused] = useState(false)
   const [businessManagerSaving, setBusinessManagerSaving] = useState(false)
+  // Reality Engine Phase 1 — same on-by-default kill switch precedent. See
+  // docs/REALITY_ENGINE_PLAN.md §10.
+  const [realityEnginePaused, setRealityEnginePaused] = useState(false)
+  const [realityEngineSaving, setRealityEngineSaving] = useState(false)
 
   useEffect(() => {
     if (session.data?.mode) setPendingMode(session.data.mode)
@@ -153,8 +157,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!token) return
-    apiClient<{ profile: { businessManagerPaused: boolean } }>('/api/advisor/profile', { token })
-      .then(data => setBusinessManagerPaused(data.profile.businessManagerPaused))
+    apiClient<{ profile: { businessManagerPaused: boolean; realityEnginePaused: boolean } }>('/api/advisor/profile', { token })
+      .then(data => {
+        setBusinessManagerPaused(data.profile.businessManagerPaused)
+        setRealityEnginePaused(data.profile.realityEnginePaused)
+      })
       .catch(() => { /* ignore — defaults to on */ })
   }, [token])
 
@@ -173,6 +180,24 @@ export default function SettingsPage() {
       addToast({ variant: 'error', title: 'Could not update Business Manager Assistant' })
     } finally {
       setBusinessManagerSaving(false)
+    }
+  }
+
+  const toggleRealityEngine = async () => {
+    if (!token || realityEngineSaving) return
+    const next = !realityEnginePaused
+    setRealityEngineSaving(true)
+    setRealityEnginePaused(next)
+    try {
+      await apiClient('/api/advisor/profile', {
+        method: 'PATCH', token,
+        body: JSON.stringify({ realityEnginePaused: next }),
+      })
+    } catch {
+      setRealityEnginePaused(!next)
+      addToast({ variant: 'error', title: 'Could not update Reality Engine' })
+    } finally {
+      setRealityEngineSaving(false)
     }
   }
 
@@ -1600,6 +1625,28 @@ export default function SettingsPage() {
                           className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${!businessManagerPaused ? 'bg-indigo-600' : 'bg-gray-200'}`}
                         >
                           <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${!businessManagerPaused ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+                    </Section>
+
+                    <Section title="Reality Engine">
+                      <div className="flex items-center justify-between px-5 py-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Keep Zuri&apos;s suggestions honest</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Automatically clears nudges and reminders once they&apos;re no longer relevant — a
+                            reply gets sent, an invoice gets created — and flags contradictions for review. On
+                            by default.
+                          </p>
+                        </div>
+                        <button
+                          onClick={toggleRealityEngine}
+                          disabled={realityEngineSaving}
+                          role="switch"
+                          aria-checked={!realityEnginePaused}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${!realityEnginePaused ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                        >
+                          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${!realityEnginePaused ? 'translate-x-6' : 'translate-x-1'}`} />
                         </button>
                       </div>
                     </Section>

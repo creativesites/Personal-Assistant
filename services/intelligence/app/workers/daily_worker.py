@@ -18,6 +18,7 @@ from ..services.advisor_memory_learner import get_advisor_memory_learner
 from ..services.curiosity_engine import get_curiosity_engine
 from ..services.project_progress import ProjectProgressService
 from ..services.business_manager import BusinessManagerService
+from ..services.reality_engine import RealityEngineService
 
 log = structlog.get_logger()
 
@@ -29,6 +30,7 @@ _inventory_forecast = InventoryForecastService()
 _reflection = ReflectionService()
 _project_progress = ProjectProgressService()
 _business_manager = BusinessManagerService()
+_reality_engine = RealityEngineService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
 _temporal_queue      = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
@@ -47,6 +49,8 @@ _advisor_memory_learning_queue = Queue('advisor.learn_memories', {'connection': 
 _curiosity_proactive_queue = Queue('curiosity.ask_proactively', {'connection': redis_conn_opts()})
 _project_progress_queue = Queue('project.check_progress', {'connection': redis_conn_opts()})
 _business_manager_queue = Queue('business.check_manager_nudges', {'connection': redis_conn_opts()})
+_reality_engine_hourly_queue = Queue('reality.hourly_sweep', {'connection': redis_conn_opts()})
+_reality_engine_daily_queue = Queue('reality.daily_sweep', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -446,6 +450,55 @@ async def run_business_manager_scheduler() -> None:
             await _business_manager_queue.add('check_manager_nudges', {})
         except Exception as exc:
             log.error('business_manager_enqueue_failed', error=str(exc))
+
+
+async def _process_reality_engine_hourly(job, token: str):
+    count = await _reality_engine.run_hourly_sweep()
+    return {'ok': True, 'count': count}
+
+
+def create_reality_engine_hourly_worker() -> Worker:
+    return Worker('reality.hourly_sweep', _process_reality_engine_hourly, {'connection': redis_conn_opts()})
+
+
+async def run_reality_engine_hourly_scheduler() -> None:
+    """Reality Engine Layer 2 (docs/REALITY_ENGINE_PLAN.md §8): hourly
+    deterministic contradiction sweep, same fixed-interval shape as
+    run_interest_cron_scheduler."""
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            log.info('reality_engine_hourly_enqueue')
+            await _reality_engine_hourly_queue.add('hourly_sweep', {})
+        except Exception as exc:
+            log.error('reality_engine_hourly_enqueue_failed', error=str(exc))
+
+
+async def _process_reality_engine_daily(job, token: str):
+    count = await _reality_engine.run_daily_sweep()
+    return {'ok': True, 'count': count}
+
+
+def create_reality_engine_daily_worker() -> Worker:
+    return Worker('reality.daily_sweep', _process_reality_engine_daily, {'connection': redis_conn_opts()})
+
+
+async def run_reality_engine_daily_scheduler() -> None:
+    """Reality Engine Layer 3 (docs/REALITY_ENGINE_PLAN.md §9): daily at
+    19:00 UTC — the next free slot after Business Manager's 18:00 check."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=19, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('reality_engine_daily_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('reality_engine_daily_enqueue')
+            await _reality_engine_daily_queue.add('daily_sweep', {})
+        except Exception as exc:
+            log.error('reality_engine_daily_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

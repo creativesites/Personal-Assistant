@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { CheckCircle2, ClipboardCopy, Flame, Loader2, RefreshCw, Search, Send, Sparkles, XCircle } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
+import { getSocket } from '@/lib/socket'
 import { Avatar, Badge, BadgeVariant, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
 
 interface ProactiveSuggestion {
@@ -89,6 +90,25 @@ export default function ProactivePage() {
     apiClient<{ recommendations: Recommendation[] }>('/api/proactive/recommendations', { token })
       .then(data => { setRecommendations(data.recommendations); setRecsLoading(false) })
       .catch(() => setRecsLoading(false))
+
+    // Zuri Reality Engine (docs/REALITY_ENGINE_PLAN.md §10) — a nudge just
+    // got auto-resolved because reality caught up with it (a reply was
+    // sent, an invoice was created). Refetch rather than guess which
+    // specific row(s) to remove client-side, since the payload only
+    // carries a contact + count, not which suggestion types were touched.
+    const socket = getSocket(token)
+    const handleResolved = (payload: string) => {
+      try {
+        const data = JSON.parse(payload) as { contactId: string; count: number; reason: string }
+        if (data.count > 0) {
+          apiClient<{ suggestions: ProactiveSuggestion[] }>('/api/proactive', { token })
+            .then(d => setSuggestions(d.suggestions))
+            .catch(() => {})
+        }
+      } catch { /* ignore */ }
+    }
+    socket.on('reality.resolved', handleResolved)
+    return () => { socket.off('reality.resolved', handleResolved) }
   }, [token])
 
   const dismissRecommendation = async (rec: Recommendation) => {

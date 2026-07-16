@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { resolveInvoiceGapNudges } from '../lib/reality-engine'
 
 const STAGES = ['discovery', 'qualified', 'proposal', 'negotiation', 'closed_won', 'closed_lost'] as const
 
@@ -218,6 +219,11 @@ export async function dealsRoutes(fastify: FastifyInstance): Promise<void> {
           const finalValueCents = body.valueCents ?? parseInt(existing.value_cents, 10)
           const finalCurrency = body.currency ?? existing.currency
           await recordWonRevenue(userId, existing.contact_id, finalValueCents, finalCurrency)
+          // Reality Engine Layer 1 (docs/REALITY_ENGINE_PLAN.md §7, Hook B)
+          // — a deal closing won resolves the matching invoice-gap nudge
+          // immediately rather than leaving it until the daily sweep.
+          await resolveInvoiceGapNudges(userId, { dealId: id }, 'Deal closed won')
+            .catch(() => { /* best-effort — the stage update itself already succeeded */ })
         }
       }
 
