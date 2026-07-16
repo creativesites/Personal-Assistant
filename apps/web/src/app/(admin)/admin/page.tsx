@@ -12,9 +12,9 @@ interface AdminStats {
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-3">{label}</p>
-      <p className={`text-3xl font-extrabold ${color ?? 'text-white'} tabular-nums`}>{value}</p>
+    <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+      <p className="text-gray-400 text-xs font-semibold uppercase tracking-wide mb-2">{label}</p>
+      <p className={`text-2xl md:text-3xl font-extrabold ${color ?? 'text-white'} tabular-nums`}>{value}</p>
       {sub && <p className="text-gray-500 text-xs mt-1">{sub}</p>}
     </div>
   )
@@ -35,10 +35,10 @@ export default function AdminOverviewPage() {
   const { data, loading } = useApi<AdminStats>('/api/admin/stats', token)
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl">
+    <div className="p-4 md:p-6 lg:p-8 max-w-6xl">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-extrabold text-white mb-1">System Overview</h1>
+      <div className="mb-6">
+        <h1 className="text-xl md:text-2xl font-extrabold text-white mb-1">System Overview</h1>
         <p className="text-gray-500 text-sm">Live operational status and system metrics</p>
       </div>
 

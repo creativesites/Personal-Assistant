@@ -871,6 +871,74 @@ export default function SettingsPage() {
     }
   }
 
+  // AI model preference — stored locally, applied via API call headers when backend supports per-user routing
+  const [aiProvider, setAiProvider] = useState<string>('gemini')
+  const [aiModel, setAiModel] = useState<string>('gemini/gemini-2.5-flash')
+  const [aiPrefSaved, setAiPrefSaved] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem('zuri_ai_model_pref')
+    if (saved) {
+      try {
+        const { provider, model } = JSON.parse(saved)
+        if (provider) setAiProvider(provider)
+        if (model) setAiModel(model)
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  const saveAiPref = () => {
+    localStorage.setItem('zuri_ai_model_pref', JSON.stringify({ provider: aiProvider, model: aiModel }))
+    setAiPrefSaved(true)
+    addToast({ variant: 'success', title: 'AI model preference saved' })
+    setTimeout(() => setAiPrefSaved(false), 2000)
+  }
+
+  const AI_PROVIDERS: { value: string; label: string; models: { value: string; label: string }[] }[] = [
+    {
+      value: 'gemini',
+      label: 'Google Gemini',
+      models: [
+        { value: 'gemini/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)' },
+        { value: 'gemini/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        { value: 'gemini/gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+        { value: 'gemini/gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+      ],
+    },
+    {
+      value: 'anthropic',
+      label: 'Anthropic Claude',
+      models: [
+        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recommended)' },
+        { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+        { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+      ],
+    },
+    {
+      value: 'qwen',
+      label: 'Alibaba Qwen (DashScope)',
+      models: [
+        { value: 'dashscope/qwen-max', label: 'Qwen Max (Recommended)' },
+        { value: 'dashscope/qwen-plus', label: 'Qwen Plus' },
+        { value: 'dashscope/qwen-turbo', label: 'Qwen Turbo' },
+        { value: 'dashscope/qwen-long', label: 'Qwen Long' },
+      ],
+    },
+    {
+      value: 'openai',
+      label: 'OpenAI',
+      models: [
+        { value: 'gpt-4o', label: 'GPT-4o (Recommended)' },
+        { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+        { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+        { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+      ],
+    },
+  ]
+
+  const currentProviderModels = AI_PROVIDERS.find(p => p.value === aiProvider)?.models ?? []
+
   const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'account')
 
@@ -1396,6 +1464,74 @@ export default function SettingsPage() {
                 {/* ── Intelligence tab ── */}
                 {currentTab === 'intelligence' && (
                   <div className="space-y-4 pt-2">
+                    {/* AI Model Preference */}
+                    <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl border border-indigo-100 p-5">
+                      <div className="flex items-center gap-2.5 mb-4">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center flex-shrink-0">
+                          <Brain className="w-4 h-4 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-black text-gray-950">AI Model</p>
+                          <p className="text-[11px] text-gray-500">Choose your preferred AI provider and model for all Zuri intelligence features</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">Provider</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            {AI_PROVIDERS.map(p => (
+                              <button
+                                key={p.value}
+                                onClick={() => {
+                                  setAiProvider(p.value)
+                                  setAiModel(p.models[0].value)
+                                }}
+                                className={`text-left px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${
+                                  aiProvider === p.value
+                                    ? 'border-indigo-600 bg-white text-indigo-700 shadow-sm'
+                                    : 'border-white bg-white/60 text-gray-600 hover:border-indigo-200'
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">Model</label>
+                          <select
+                            value={aiModel}
+                            onChange={e => setAiModel(e.target.value)}
+                            className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400"
+                          >
+                            {currentProviderModels.map(m => (
+                              <option key={m.value} value={m.value}>{m.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="bg-white/70 rounded-xl px-3 py-2.5 border border-indigo-100">
+                          <p className="text-[11px] text-gray-500">
+                            <span className="font-semibold text-indigo-700">Active: </span>
+                            {AI_PROVIDERS.find(p => p.value === aiProvider)?.label} — {currentProviderModels.find(m => m.value === aiModel)?.label?.replace(' (Recommended)', '')}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={saveAiPref}
+                          className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all ${
+                            aiPrefSaved
+                              ? 'bg-emerald-500 text-white'
+                              : 'bg-indigo-600 text-white hover:bg-indigo-500 active:bg-indigo-700 shadow-sm shadow-indigo-200'
+                          }`}
+                        >
+                          {aiPrefSaved ? '✓ Saved' : 'Save Model Preference'}
+                        </button>
+                      </div>
+                    </div>
+
                     <Section title="AI Engines">
                       {[
                         { label: 'Proactive suggestions',  desc: 'Daily AI-generated relationship nudges' },

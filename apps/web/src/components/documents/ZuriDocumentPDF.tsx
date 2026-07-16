@@ -1,13 +1,6 @@
 // @ts-nocheck — @react-pdf/renderer types incompatible with React 19; runtime is fine
 import React from 'react'
-import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer'
-
-Font.register({
-  family: 'Inter',
-  fonts: [
-    { src: 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff' },
-  ],
-})
+import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 
 const styles = StyleSheet.create({
   page: { fontFamily: 'Helvetica', fontSize: 9, color: '#374151', backgroundColor: '#ffffff', padding: 0 },

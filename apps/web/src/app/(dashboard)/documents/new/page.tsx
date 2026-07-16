@@ -1,15 +1,27 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import {
   ArrowLeft, ArrowRight, Check, FileText, FileCheck, BookOpen, File,
   Search, X, Plus, Trash2, ChevronDown, Download, Building2, User,
-  CreditCard, StickyNote, Eye, Loader2, AlertCircle,
+  CreditCard, StickyNote, Eye, Loader2, AlertCircle, Sparkles, Bot,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui'
+import type { ZuriDocData } from '@/components/documents/ZuriDocumentPDF'
+
+// Client-only PDF component — imported without SSR to avoid browser-API errors
+const ClientPDFDownload = dynamic(
+  () => import('@/components/documents/ClientPDFDownload'),
+  { ssr: false, loading: () => (
+    <div className="flex items-center justify-center h-32 rounded-2xl bg-gray-50 border border-gray-100">
+      <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+    </div>
+  ) }
+)
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,9 +41,7 @@ interface FormData {
   issueDate: string
   dueDate: string
   currency: string
-  // Company (display-only — always sourced live from Brand Kit on the
-  // actual generated PDF; editing here would silently do nothing, so this
-  // is read-only with a link out to /business to make an actual change).
+  // Company — read-only, sourced from Brand Kit
   companyName: string
   companyAddress: string
   companyPhone: string
@@ -39,6 +49,12 @@ interface FormData {
   companyWebsite: string
   companyLogoUrl: string
   taxId: string
+  // Banking — read-only, sourced from Brand Kit
+  bankName: string
+  accountName: string
+  accountNumber: string
+  branchCode: string
+  footerText: string
   // Client
   clientName: string
   clientCompany: string
@@ -87,14 +103,8 @@ function in30DaysStr() {
   return d.toISOString().slice(0, 10)
 }
 
-// Mirrors services/api's computeTotals() exactly (discount applied per line
-// before tax, then aggregated) so this preview matches what the server
-// actually stores/renders once the global discount rate below is converted
-// into a uniform per-line discountPct at submit time.
 function calcTotals(items: LineItem[], discountRate: number) {
-  let subtotal = 0
-  let discount = 0
-  let tax = 0
+  let subtotal = 0, discount = 0, tax = 0
   for (const li of items) {
     const q = parseFloat(li.quantity) || 0
     const p = parseFloat(li.unitPrice) || 0
@@ -114,10 +124,6 @@ function fmt(cur: string, n: number) {
   return `${cur} ${n.toFixed(2)}`
 }
 
-// The company logo comes back from /api/business-profile as a bare,
-// JWT-protected relative path — an <img> tag can't attach an Authorization
-// header, so it needs the same /api/proxy + ?token= wrapping every other
-// authenticated asset URL in this app uses (see business/page.tsx).
 function brandAssetUrl(path: string, token?: string | null): string {
   if (!path) return ''
   if (path.startsWith('http')) return path
@@ -229,9 +235,13 @@ export default function NewDocumentPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [documentId, setDocumentId] = useState<string | null>(null)
-  const [pdfReady, setPdfReady] = useState(false)
-  const [downloading, setDownloading] = useState(false)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
+
+  // AI Generate mode
+  const [aiMode, setAiMode] = useState(false)
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
 
   const [form, setForm] = useState<FormData>({
     docType: 'invoice',
@@ -241,6 +251,7 @@ export default function NewDocumentPage() {
     currency: 'USD',
     companyName: '', companyAddress: '', companyPhone: '', companyEmail: '',
     companyWebsite: '', companyLogoUrl: '', taxId: '',
+    bankName: '', accountName: '', accountNumber: '', branchCode: '', footerText: '',
     clientName: '', clientCompany: '', clientPhone: '', clientEmail: '',
     lineItems: [newLineItem()],
     discountRate: 0,
@@ -252,12 +263,12 @@ export default function NewDocumentPage() {
     setForm(f => ({ ...f, [key]: val }))
   }, [])
 
-  // Load brand profile — display-only now; the actual generated PDF always
-  // pulls the live business_profiles row server-side, never these values.
+  // Load brand profile
   useEffect(() => {
     if (!token) return
     apiClient<Record<string, unknown>>('/api/business-profile', { token })
       .then(p => {
+        const bank = (p.bankDetails as Record<string, string> | null) ?? {}
         setForm(f => ({
           ...f,
           companyName: (p.companyName as string) || f.companyName,
@@ -268,14 +279,20 @@ export default function NewDocumentPage() {
           companyLogoUrl: (p.logoUrl as string) || f.companyLogoUrl,
           taxId: (p.taxId as string) || f.taxId,
           currency: (p.defaultCurrency as string) || f.currency,
+          bankName: bank.bankName || f.bankName,
+          accountName: bank.accountName || f.accountName,
+          accountNumber: bank.accountNumber || f.accountNumber,
+          branchCode: bank.branchCode || f.branchCode,
+          footerText: (p.footerText as string) || f.footerText,
+          notes: f.notes || (p.defaultTerms ? '' : f.notes),
+          terms: f.terms || (p.defaultTerms as string) || f.terms,
         }))
         setBrandLoaded(true)
       })
       .catch(() => setBrandLoaded(true))
   }, [token])
 
-  // Derive doc number prefix from doc type — a client-side preview only;
-  // the server always assigns the real document number on save.
+  // Update doc number prefix when doc type changes
   useEffect(() => {
     if (documentId) return
     const prefixes: Record<DocType, string> = { invoice: 'INV', quotation: 'QT', proposal: 'PROP', contract: 'CON' }
@@ -291,14 +308,9 @@ export default function NewDocumentPage() {
     ...f, lineItems: f.lineItems.length > 1 ? f.lineItems.filter(li => li.id !== id) : f.lineItems
   }))
 
-  // Contact fill — a picked contact's info always renders from the real
-  // contacts row server-side, so once selected these fields go read-only
-  // (editing them here would silently have no effect on the actual PDF).
+  // Contact fill
   const fillContact = (c: Contact | null) => {
-    if (!c) {
-      setSelectedContactId(null)
-      return
-    }
+    if (!c) { setSelectedContactId(null); return }
     setSelectedContactId(c.id)
     setForm(f => ({
       ...f,
@@ -315,14 +327,44 @@ export default function NewDocumentPage() {
     [form.lineItems, form.discountRate]
   )
 
-  // Create the document (matching the real createBody schema) and render
-  // its PDF server-side — the single source of truth every other document
-  // surface in the app (/business, /advisor, contacts) already uses.
-  const createAndGenerate = useCallback(async () => {
-    if (!token) return
+  // PDF data — maps form state to ZuriDocData for client-side PDF rendering
+  const pdfData: ZuriDocData = useMemo(() => ({
+    docType: form.docType,
+    docNumber: form.docNumber,
+    issueDate: form.issueDate,
+    dueDate: form.dueDate,
+    reference: '',
+    currency: form.currency,
+    companyName: form.companyName,
+    companyAddress: form.companyAddress,
+    companyPhone: form.companyPhone,
+    companyEmail: form.companyEmail,
+    companyWebsite: form.companyWebsite,
+    companyLogoUrl: form.companyLogoUrl
+      ? (form.companyLogoUrl.startsWith('http') ? form.companyLogoUrl : brandAssetUrl(form.companyLogoUrl, token))
+      : '',
+    taxId: form.taxId,
+    clientName: form.clientName,
+    clientCompany: form.clientCompany,
+    clientAddress: '',
+    clientPhone: form.clientPhone,
+    clientEmail: form.clientEmail,
+    lineItems: form.lineItems,
+    discountRate: form.discountRate,
+    notes: form.notes,
+    terms: form.terms,
+    bankName: form.bankName,
+    accountName: form.accountName,
+    accountNumber: form.accountNumber,
+    branchCode: form.branchCode,
+    footerText: form.footerText,
+  }), [form, token])
+
+  // Save document to backend (persistence only — no PDF generation)
+  const saveDocument = useCallback(async () => {
+    if (!token || saving) return
     setSaving(true)
     setSaveError(null)
-    setPdfReady(false)
 
     const items = form.lineItems
       .filter(li => li.description.trim())
@@ -347,7 +389,6 @@ export default function NewDocumentPage() {
       notes: form.notes || undefined,
       terms: form.terms || undefined,
       dueDate: form.dueDate || undefined,
-      validUntil: form.dueDate || undefined,
     }
     if (selectedContactId) {
       body.contactId = selectedContactId
@@ -366,43 +407,84 @@ export default function NewDocumentPage() {
       )
       setDocumentId(created.id)
       setForm(f => ({ ...f, docNumber: created.documentNumber }))
-
-      await apiClient(`/api/documents/${created.id}/generate`, { token, method: 'POST' })
-      setPdfReady(true)
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : 'Failed to generate document')
+      setSaveError(err instanceof ApiError ? err.message : 'Failed to save document')
     } finally {
       setSaving(false)
     }
-  }, [token, form, selectedContactId])
+  }, [token, form, selectedContactId, saving])
 
-  const downloadPdf = async () => {
-    if (!token || !documentId) return
-    setDownloading(true)
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-      const res = await fetch(`${apiUrl}/api/documents/${documentId}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
-      if (!res.ok) throw new Error('Download failed')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${form.docNumber}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      addToast({ variant: 'error', title: 'Failed to download PDF' })
-    } finally {
-      setDownloading(false)
+  // Generate with AI — calls /api/documents/ai-generate and fills form
+  const generateWithAI = useCallback(async () => {
+    if (!token || !selectedContactId) {
+      setAiError('Please select a contact first — AI generation needs a contact to personalise the document.')
+      return
     }
-  }
+    if (!aiInstruction.trim()) {
+      setAiError('Please describe what you need (e.g. "Invoice for 3 months of web design at $2000/month").')
+      return
+    }
+    setAiGenerating(true)
+    setAiError(null)
+
+    try {
+      const { document: doc } = await apiClient<{ document: {
+        id: string; documentNumber: string; structuredData: {
+          items: { description: string; quantity: number; unitPriceCents: number; taxPct: number; discountPct?: number }[];
+          notes: string | null; terms: string | null; dueDate: string | null; validUntil: string | null;
+        };
+      }}>(
+        '/api/documents/ai-generate',
+        {
+          token, method: 'POST',
+          body: JSON.stringify({
+            contactId: selectedContactId,
+            documentType: form.docType,
+            instruction: aiInstruction,
+          }),
+        }
+      )
+
+      const sd = doc.structuredData
+      const lineItems: LineItem[] = (sd.items || []).map(item => ({
+        id: Math.random().toString(36).slice(2),
+        description: item.description,
+        quantity: String(item.quantity || 1),
+        unitPrice: String(((item.unitPriceCents || 0) / 100).toFixed(2)),
+        taxRate: String(item.taxPct || 0),
+      }))
+
+      setDocumentId(doc.id)
+      setForm(f => ({
+        ...f,
+        docNumber: doc.documentNumber,
+        lineItems: lineItems.length > 0 ? lineItems : [newLineItem()],
+        notes: sd.notes || f.notes,
+        terms: sd.terms || f.terms,
+        dueDate: sd.dueDate || sd.validUntil || f.dueDate,
+      }))
+
+      addToast({ variant: 'success', title: 'Document generated with AI' })
+      setStep(4)
+      window.scrollTo({ top: 0 })
+    } catch (err) {
+      setAiError(err instanceof ApiError ? err.message : 'AI generation failed. Try again or switch to manual.')
+    } finally {
+      setAiGenerating(false)
+    }
+  }, [token, selectedContactId, form.docType, aiInstruction, addToast])
 
   const goNext = () => {
-    if (step === 3) createAndGenerate()
+    if (step === 3) {
+      saveDocument()
+    }
     setStep(s => Math.min(s + 1, 4))
     window.scrollTo({ top: 0 })
   }
   const goPrev = () => { setStep(s => Math.max(s - 1, 1)); window.scrollTo({ top: 0 }) }
+
+  const pdfFileName = `${form.docNumber || form.docType}.pdf`
+  const docLabel = form.docType.charAt(0).toUpperCase() + form.docType.slice(1)
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -424,7 +506,6 @@ export default function NewDocumentPage() {
       {/* ── Stepper ───────────────────────────────────────────────────────── */}
       <div className="max-w-3xl mx-auto px-4 md:px-6 mb-6">
         <div className="relative flex items-center">
-          {/* Track line */}
           <div className="absolute left-0 right-0 top-4 h-0.5 bg-gray-200 -z-10" />
           <div
             className="absolute left-0 top-4 h-0.5 bg-indigo-600 -z-10 transition-all duration-500"
@@ -459,6 +540,26 @@ export default function NewDocumentPage() {
         {/* ── STEP 1: Type + Client ───────────────────────────────────────── */}
         {step === 1 && (
           <div className="space-y-5">
+            {/* Mode toggle: Manual vs AI */}
+            <div className="flex gap-2 p-1 bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <button
+                onClick={() => { setAiMode(false); setAiError(null) }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                  !aiMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <FileText className="w-4 h-4" />Manual
+              </button>
+              <button
+                onClick={() => { setAiMode(true); setAiError(null) }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                  aiMode ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Sparkles className="w-4 h-4" />Generate with AI
+              </button>
+            </div>
+
             {/* Doc type */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
@@ -479,7 +580,7 @@ export default function NewDocumentPage() {
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
                       form.docType === id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'
                     }`}>
-                      <Icon className="w-4.5 h-4.5" />
+                      <Icon className="w-4 h-4" />
                     </div>
                     <div>
                       <p className={`text-sm font-bold ${form.docType === id ? 'text-indigo-700' : 'text-gray-900'}`}>{label}</p>
@@ -495,6 +596,7 @@ export default function NewDocumentPage() {
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
                 <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">2</span>
                 Client Details
+                {aiMode && <span className="ml-1 text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">Required for AI</span>}
               </h2>
               <div className="space-y-3">
                 {selectedContactId ? (
@@ -515,32 +617,77 @@ export default function NewDocumentPage() {
                   </div>
                 ) : (
                   <>
-                    <p className="text-xs text-gray-500">Search your contacts to auto-fill, or type manually.</p>
+                    <p className="text-xs text-gray-500">
+                      {aiMode ? 'Select a contact — AI uses their conversation history to generate accurate line items.' : 'Search your contacts to auto-fill, or type manually.'}
+                    </p>
                     <ContactPicker token={token ?? undefined} onSelect={fillContact} />
-                    <div className="flex gap-3">
-                      <Field label="Client / Individual Name *" half>
-                        <input value={form.clientName} onChange={e => set('clientName', e.target.value)}
-                          placeholder="John Doe" className={inputCls} />
-                      </Field>
-                      <Field label="Company (optional)" half>
-                        <input value={form.clientCompany} onChange={e => set('clientCompany', e.target.value)}
-                          placeholder="Acme Ltd." className={inputCls} />
-                      </Field>
-                    </div>
-                    <div className="flex gap-3">
-                      <Field label="Email" half>
-                        <input type="email" value={form.clientEmail} onChange={e => set('clientEmail', e.target.value)}
-                          placeholder="client@company.com" className={inputCls} />
-                      </Field>
-                      <Field label="Phone" half>
-                        <input value={form.clientPhone} onChange={e => set('clientPhone', e.target.value)}
-                          placeholder="+1 555 000 0000" className={inputCls} />
-                      </Field>
-                    </div>
+                    {!aiMode && (
+                      <div className="space-y-3 mt-2">
+                        <div className="flex gap-3">
+                          <Field label="Client / Individual Name *" half>
+                            <input value={form.clientName} onChange={e => set('clientName', e.target.value)}
+                              placeholder="John Doe" className={inputCls} />
+                          </Field>
+                          <Field label="Company (optional)" half>
+                            <input value={form.clientCompany} onChange={e => set('clientCompany', e.target.value)}
+                              placeholder="Acme Ltd." className={inputCls} />
+                          </Field>
+                        </div>
+                        <div className="flex gap-3">
+                          <Field label="Email" half>
+                            <input type="email" value={form.clientEmail} onChange={e => set('clientEmail', e.target.value)}
+                              placeholder="client@company.com" className={inputCls} />
+                          </Field>
+                          <Field label="Phone" half>
+                            <input value={form.clientPhone} onChange={e => set('clientPhone', e.target.value)}
+                              placeholder="+1 555 000 0000" className={inputCls} />
+                          </Field>
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
             </div>
+
+            {/* AI instruction panel */}
+            {aiMode && (
+              <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-[1.75rem] border border-indigo-100 shadow-sm p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-gray-950">AI Document Generation</p>
+                    <p className="text-[11px] text-gray-500">Describe what you need in plain language</p>
+                  </div>
+                </div>
+                <textarea
+                  value={aiInstruction}
+                  onChange={e => setAiInstruction(e.target.value)}
+                  rows={4}
+                  placeholder={'Examples:\n• "Invoice for 3 months of web design at $1,500/month with 16% VAT"\n• "Quotation for office renovation: painting, flooring, and furniture"\n• "Software development proposal for e-commerce platform"'}
+                  className={textareaCls}
+                />
+                {aiError && (
+                  <div className="flex items-start gap-2 mt-3 p-3 bg-red-50 rounded-xl border border-red-100">
+                    <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-700">{aiError}</p>
+                  </div>
+                )}
+                <button
+                  onClick={generateWithAI}
+                  disabled={aiGenerating || !aiInstruction.trim()}
+                  className="mt-4 w-full flex items-center justify-center gap-2.5 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black text-sm hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                >
+                  {aiGenerating ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" />Generating your document…</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4" />Generate {docLabel}</>
+                  )}
+                </button>
+              </div>
+            )}
 
             {/* Your company (read-only, from Brand Kit) */}
             <CompanySection form={form} token={token} />
@@ -567,7 +714,6 @@ export default function NewDocumentPage() {
                 </div>
               </div>
 
-              {/* Table header */}
               <div className="hidden md:grid grid-cols-[1fr_80px_110px_80px_36px] gap-2 px-1 mb-1.5">
                 {['Description', 'Qty', 'Unit Price', 'Tax %', ''].map(h => (
                   <p key={h} className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{h}</p>
@@ -663,7 +809,6 @@ export default function NewDocumentPage() {
         {/* ── STEP 3: Details ─────────────────────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-5">
-            {/* Doc metadata */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
                 <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
@@ -675,7 +820,7 @@ export default function NewDocumentPage() {
                 <Field label="Document Number">
                   <input value={form.docNumber} disabled
                     className={inputCls + ' opacity-60 cursor-not-allowed'} />
-                  <p className="text-[10px] text-gray-400 mt-1">Assigned automatically when you generate the document.</p>
+                  <p className="text-[10px] text-gray-400 mt-1">Assigned automatically when you save the document.</p>
                 </Field>
                 <div className="flex gap-3">
                   <Field label="Issue Date" half>
@@ -690,7 +835,6 @@ export default function NewDocumentPage() {
               </div>
             </div>
 
-            {/* Notes + Terms */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4">Notes &amp; Terms</h2>
               <div className="space-y-3">
@@ -705,17 +849,23 @@ export default function NewDocumentPage() {
               </div>
             </div>
 
-            {/* Payment details — from Brand Kit, not editable per-document */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-1">
                 <CreditCard className="w-4 h-4 text-indigo-600" />
                 <h2 className="text-sm font-black text-gray-950">Payment Details</h2>
               </div>
               <p className="text-xs text-gray-500">
-                Banking details and payment instructions shown on the PDF come from your{' '}
+                Banking details shown on the PDF come from your{' '}
                 <Link href="/business" className="text-indigo-600 hover:text-indigo-700 font-semibold">Brand Kit</Link>{' '}
                 — update them there and every document will reflect it.
               </p>
+              {form.bankName && (
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {form.bankName && <span className="text-xs bg-gray-50 text-gray-600 px-2.5 py-1 rounded-lg border border-gray-100">{form.bankName}</span>}
+                  {form.accountNumber && <span className="text-xs bg-gray-50 text-gray-600 px-2.5 py-1 rounded-lg border border-gray-100">Acc: {form.accountNumber}</span>}
+                  {form.branchCode && <span className="text-xs bg-gray-50 text-gray-600 px-2.5 py-1 rounded-lg border border-gray-100">Branch: {form.branchCode}</span>}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -723,11 +873,16 @@ export default function NewDocumentPage() {
         {/* ── STEP 4: Preview ─────────────────────────────────────────────── */}
         {step === 4 && (
           <div className="space-y-5">
-            {/* Summary card */}
+            {/* Summary */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
                 <Eye className="w-4 h-4 text-indigo-600" />
                 Document Summary
+                {documentId && (
+                  <span className="ml-auto text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />Saved
+                  </span>
+                )}
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
                 <div>
@@ -771,7 +926,6 @@ export default function NewDocumentPage() {
                 })}
               </div>
 
-              {/* Totals */}
               <div className="mt-4 flex justify-end">
                 <div className="w-52 space-y-1.5">
                   <div className="flex justify-between text-sm">
@@ -788,52 +942,38 @@ export default function NewDocumentPage() {
               </div>
             </div>
 
-            {/* Generate / Download */}
-            <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-[1.75rem] p-5 text-white shadow-lg shadow-indigo-300/40">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
-                  {saveError ? <AlertCircle className="w-6 h-6 text-white" /> : <Download className="w-6 h-6 text-white" />}
-                </div>
+            {/* Save status (if currently saving to backend) */}
+            {saving && (
+              <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-2xl px-4 py-3">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-500 flex-shrink-0" />
+                <p className="text-sm text-indigo-700 font-semibold">Saving to your documents library…</p>
+              </div>
+            )}
+            {saveError && (
+              <div className="flex items-center gap-3 bg-red-50 border border-red-100 rounded-2xl px-4 py-3">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
                 <div className="flex-1">
-                  {saving ? (
-                    <>
-                      <h3 className="font-black text-lg">Generating your document…</h3>
-                      <p className="text-indigo-200 text-sm mt-0.5">This only takes a moment.</p>
-                    </>
-                  ) : saveError ? (
-                    <>
-                      <h3 className="font-black text-lg">Couldn&apos;t generate the document</h3>
-                      <p className="text-indigo-200 text-sm mt-0.5">{saveError}</p>
-                      <button onClick={createAndGenerate}
-                        className="mt-4 inline-flex items-center gap-2.5 px-5 py-3 bg-white text-indigo-700 font-black rounded-2xl hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-900/20 text-sm">
-                        Try again
-                      </button>
-                    </>
-                  ) : pdfReady ? (
-                    <>
-                      <h3 className="font-black text-lg">Your document is ready</h3>
-                      <p className="text-indigo-200 text-sm mt-0.5">
-                        Your branded {form.docType} includes your company logo, payment details, and all line items.
-                      </p>
-                      <div className="mt-4">
-                        <button onClick={downloadPdf} disabled={downloading}
-                          className="inline-flex items-center gap-2.5 px-5 py-3 bg-white text-indigo-700 font-black rounded-2xl hover:bg-indigo-50 transition-all shadow-lg shadow-indigo-900/20 text-sm disabled:opacity-60">
-                          {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                          {downloading ? 'Downloading…' : `Download ${form.docType.charAt(0).toUpperCase() + form.docType.slice(1)} PDF`}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <h3 className="font-black text-lg">Preparing your document…</h3>
-                      <p className="text-indigo-200 text-sm mt-0.5">This only takes a moment.</p>
-                    </>
-                  )}
+                  <p className="text-sm text-red-700 font-semibold">{saveError}</p>
+                </div>
+                <button onClick={saveDocument} className="text-xs text-red-600 font-bold hover:text-red-700">Retry</button>
+              </div>
+            )}
+
+            {/* PDF Preview + Download — rendered client-side */}
+            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center flex-shrink-0">
+                  <Download className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-gray-950">Download Your {docLabel}</p>
+                  <p className="text-xs text-gray-500">Preview and download your branded PDF document</p>
                 </div>
               </div>
+              <ClientPDFDownload data={pdfData} fileName={pdfFileName} docLabel={docLabel} />
             </div>
 
-            {/* Edit buttons */}
+            {/* Edit shortcuts */}
             <div className="flex flex-wrap gap-2">
               <button onClick={() => setStep(1)} className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-colors bg-white">
                 <User className="w-3.5 h-3.5" />Edit Client
@@ -858,10 +998,15 @@ export default function NewDocumentPage() {
           </button>
           <div className="text-xs text-gray-400 font-semibold">Step {step} of {STEPS.length}</div>
           {step < 4 ? (
-            <button onClick={goNext}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-500 active:bg-indigo-700 transition-all shadow-sm shadow-indigo-200">
-              {step === 3 ? <>Generate<Eye className="w-4 h-4" /></> : <>Next<ArrowRight className="w-4 h-4" /></>}
-            </button>
+            /* Hide "Next" in step 1 when AI mode is active — user clicks "Generate" instead */
+            step === 1 && aiMode ? (
+              <div className="w-24" />
+            ) : (
+              <button onClick={goNext}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-500 active:bg-indigo-700 transition-all shadow-sm shadow-indigo-200">
+                {step === 3 ? <>Save &amp; Preview<Eye className="w-4 h-4" /></> : <>Next<ArrowRight className="w-4 h-4" /></>}
+              </button>
+            )
           ) : (
             <Link href="/business"
               className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gray-950 text-white text-sm font-bold hover:bg-gray-800 transition-all">
@@ -887,7 +1032,7 @@ function CompanySection({ form, token }: { form: FormData; token?: string | null
       >
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-4.5 h-4.5 text-gray-600" />
+            <Building2 className="w-4 h-4 text-gray-600" />
           </div>
           <div>
             <p className="text-sm font-black text-gray-950">Your Company Details</p>
