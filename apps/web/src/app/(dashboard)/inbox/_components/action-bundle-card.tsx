@@ -41,6 +41,7 @@ function bundleTitle(actions: BundleAction[]): string {
   if (types.has('create_product') && types.has('create_supplier')) return 'New product & supplier detected'
   if (types.has('create_product')) return 'New product detected'
   if (types.has('create_supplier')) return 'New supplier detected'
+  if (types.has('create_career_opportunity')) return 'Career opportunity detected'
   return 'Business update detected'
 }
 

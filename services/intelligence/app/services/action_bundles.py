@@ -29,13 +29,23 @@ import json
 import structlog
 from datetime import date, timedelta
 from ..database import get_pool
-from ..models import OrderIntentMention, NewProductMention, SupplierMention
+from ..models import OrderIntentMention, NewProductMention, SupplierMention, CareerOpportunityMention
 from ..queue import publish_event
 from .business_events import BusinessEventService
 
 log = structlog.get_logger()
 
 _MIN_CONFIDENCE = 0.6
+
+# Mirrors career_opportunities.category's DB CHECK (db/migrations/0078) —
+# the LLM's own vocabulary (models.py's CareerOpportunityMention) includes
+# "other" as an escape hatch that the DB constraint doesn't, so anything
+# outside this set falls back to 'job' rather than failing the insert.
+_CAREER_CATEGORIES = {
+    'job', 'contract', 'consulting', 'investment', 'speaking', 'partnership',
+    'collaboration', 'freelance', 'board_position', 'research', 'mentorship',
+    'grant', 'scholarship', 'tender', 'supplier_opportunity', 'acquisition',
+}
 
 _business_events = BusinessEventService()
 
@@ -46,10 +56,12 @@ class ActionBundleService:
         message_id: str, mentions: list[OrderIntentMention],
         new_products: list[NewProductMention] | None = None,
         suppliers: list[SupplierMention] | None = None,
+        career_opportunities: list[CareerOpportunityMention] | None = None,
     ) -> None:
         new_products = new_products or []
         suppliers = suppliers or []
-        if not mentions and not new_products and not suppliers:
+        career_opportunities = career_opportunities or []
+        if not mentions and not new_products and not suppliers and not career_opportunities:
             return
 
         pool = await get_pool()
@@ -119,6 +131,41 @@ class ActionBundleService:
                 event_ids.append(event_id)
                 resolved_suppliers.append({'company': company, 'confidence': mention.confidence, 'event_id': event_id})
 
+            resolved_career_opportunities = []
+            for mention in career_opportunities:
+                if mention.confidence < _MIN_CONFIDENCE:
+                    continue
+                title = mention.title.strip()
+                if not title:
+                    continue
+                # Same "don't re-propose something already recorded" discipline
+                # as new_products/suppliers above — a pending/detected opportunity
+                # with a very similar title for this user is treated as a dup.
+                dup = await conn.fetchrow(
+                    """SELECT id FROM career_opportunities
+                       WHERE user_id = $1 AND status NOT IN ('rejected', 'withdrawn', 'archived')
+                         AND title ILIKE $2 LIMIT 1""",
+                    user_id, f'%{title}%',
+                )
+                if dup:
+                    continue
+                category = mention.category if mention.category in _CAREER_CATEGORIES else 'job'
+                event_id = await _business_events.record(
+                    user_id, 'career_opportunity_detected', contact_id=contact_id, conversation_id=conversation_id,
+                    message_id=message_id, confidence=mention.confidence,
+                    evidence=[mention.evidence] if mention.evidence else [],
+                    payload={
+                        'title': title, 'companyOrOrg': mention.company_or_org,
+                        'category': category, 'isRemote': mention.is_remote,
+                    },
+                )
+                event_ids.append(event_id)
+                resolved_career_opportunities.append({
+                    'title': title, 'company_or_org': mention.company_or_org,
+                    'category': category, 'is_remote': mention.is_remote,
+                    'confidence': mention.confidence, 'event_id': event_id,
+                })
+
             resolved_items = []
             for mention in mentions:
                 if mention.confidence < _MIN_CONFIDENCE:
@@ -144,7 +191,7 @@ class ActionBundleService:
                     'confidence': mention.confidence,
                 })
 
-            if not resolved_items and not resolved_new_products and not resolved_suppliers:
+            if not resolved_items and not resolved_new_products and not resolved_suppliers and not resolved_career_opportunities:
                 return
             if existing:
                 log.info('action_bundle_deduped', user_id=user_id, contact_id=contact_id)
@@ -182,6 +229,24 @@ class ActionBundleService:
             if resolved_suppliers:
                 names = ', '.join(s['company'] for s in resolved_suppliers)
                 summary_parts.append(f'Detected a new supplier: {names}')
+
+            for co in resolved_career_opportunities:
+                actions.append({
+                    'type': 'create_career_opportunity',
+                    'params': [
+                        contact_id, co['title'], co['company_or_org'] or '', co['category'],
+                        '' if co['is_remote'] is None else str(co['is_remote']).lower(),
+                    ],
+                })
+                confidences.append(co['confidence'])
+                if co.get('evidence'):
+                    evidence.append(co['evidence'])
+            if resolved_career_opportunities:
+                names = ', '.join(
+                    f"{o['title']}" + (f" at {o['company_or_org']}" if o['company_or_org'] else '')
+                    for o in resolved_career_opportunities
+                )
+                summary_parts.append(f'Detected a career opportunity: {names}')
 
             if resolved_items:
                 item_summary = ', '.join(f"{i['quantity']}x {i['product_name']}" for i in resolved_items)

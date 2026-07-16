@@ -93,6 +93,38 @@ const SELECT_OPPORTUNITY = `
 `
 
 export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promise<void> {
+  // "Zuri Noticed" activity feed, career-scoped — same business_events read
+  // Studio's GET /api/studio/insights already does for the whole business,
+  // filtered down to career_opportunity_detected so /career gets its own
+  // feed without duplicating the audit trail into a second table.
+  fastify.get('/api/career/activity', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { rows } = await db.query(
+      `SELECT be.id, be.event_type, be.confidence, be.evidence, be.payload, be.status,
+              be.bundle_id, be.created_at,
+              COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
+       FROM business_events be
+       LEFT JOIN contacts c ON c.id = be.contact_id
+       WHERE be.user_id = $1 AND be.event_type = 'career_opportunity_detected'
+       ORDER BY be.created_at DESC
+       LIMIT 10`,
+      [userId],
+    )
+    return reply.send({
+      events: rows.map((r: any) => ({
+        id: r.id,
+        eventType: r.event_type,
+        confidence: r.confidence != null ? parseFloat(r.confidence) : null,
+        evidence: r.evidence ?? [],
+        payload: r.payload ?? {},
+        status: r.status,
+        bundleId: r.bundle_id,
+        contactName: r.contact_name,
+        createdAt: r.created_at,
+      })),
+    })
+  })
+
   fastify.get('/api/career/opportunities', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { status, category } = request.query as { status?: string; category?: string }

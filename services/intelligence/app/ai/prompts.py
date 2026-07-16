@@ -30,7 +30,8 @@ Return ONLY valid JSON in exactly this format:
   "order_intent_mentioned": [{{"product_name": "the product/service name as stated", "quantity": 1, "confidence": 0.0}}],
   "life_events_mentioned": [{{"event_type": "new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business", "title": "brief title", "date": null}}],
   "new_products_mentioned": [{{"name": "the product/service name as stated", "category": null, "estimated_price": null, "currency": null, "is_one_off": false, "confidence": 0.0, "evidence": "exact quote"}}],
-  "suppliers_mentioned": [{{"company": "the supplier/company name as stated", "confidence": 0.0, "evidence": "exact quote"}}]
+  "suppliers_mentioned": [{{"company": "the supplier/company name as stated", "confidence": 0.0, "evidence": "exact quote"}}],
+  "career_opportunities_mentioned": [{{"title": "role/opportunity title as stated", "company_or_org": null, "category": "job|contract|consulting|freelance|speaking|grant|scholarship|partnership|other", "is_remote": null, "confidence": 0.0, "evidence": "exact quote"}}]
 }}
 
 Important for events_detected:
@@ -78,6 +79,13 @@ Important for new_products_mentioned:
 
 Important for suppliers_mentioned:
 - Only include this when the sender explicitly names a specific company/business they bought from or sourced something through — "I got this from ABC Auto Parts", "ordered via Chindo Wholesalers". Do not include vague references ("a supplier", "the usual guy").
+- evidence should be the exact quote.
+
+Important for career_opportunities_mentioned:
+- Only include this for a specific, named opportunity — a role, a contract, a specific gig or grant — not vague chat about work ("things are busy at the office", "I'm thinking about my career"). There must be something concrete enough to act on: a title, a company/org, or a clear ask.
+- Not gated on who said it — a friend mentioning "we're hiring React devs" or "know anyone who does bookkeeping?" is just as valid a signal as the sender's own job search or freelance pitch.
+- category should be inferred from context (job/contract/consulting/freelance/speaking/grant/scholarship/partnership/other) — default to "job" only when genuinely ambiguous.
+- is_remote should be set only when explicitly stated or strongly implied ("fully remote", "must relocate"); otherwise null.
 - evidence should be the exact quote.
 """
 

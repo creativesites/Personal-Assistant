@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Briefcase, Plus, Loader2, X, Sparkles, Target, MapPin, Building2 } from 'lucide-react'
+import { Briefcase, Plus, Loader2, X, Sparkles, Target, MapPin, Building2, Radar } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, BadgeVariant, EmptyState, Input, Modal, SkeletonCard, Textarea, useToast } from '@/components/ui'
@@ -39,6 +39,21 @@ interface CareerOpportunity {
   contactName?: string
   matchScore: number | null
   createdAt: string
+}
+
+interface ActivityEvent {
+  id: string
+  eventType: string
+  confidence: number | null
+  evidence: string[]
+  status: string
+  bundleId: string | null
+  contactName: string | null
+  createdAt: string
+}
+
+const ACTIVITY_LABELS: Record<string, string> = {
+  career_opportunity_detected: 'Career opportunity noticed',
 }
 
 const CATEGORIES = [
@@ -89,6 +104,17 @@ export default function CareerPage() {
   const [newCompany, setNewCompany] = useState('')
   const [newLocation, setNewLocation] = useState('')
 
+  const [activity, setActivity] = useState<ActivityEvent[]>([])
+  const [activityLoading, setActivityLoading] = useState(true)
+
+  const loadActivity = () => {
+    if (!token) return
+    setActivityLoading(true)
+    apiClient<{ events: ActivityEvent[] }>('/api/career/activity', { token })
+      .then(data => { setActivity(data.events); setActivityLoading(false) })
+      .catch(() => setActivityLoading(false))
+  }
+
   const loadProfile = () => {
     if (!token) return
     setProfileLoading(true)
@@ -115,6 +141,7 @@ export default function CareerPage() {
 
   useEffect(loadProfile, [token])
   useEffect(loadOpportunities, [token, statusFilter])
+  useEffect(loadActivity, [token])
 
   const saveProfile = async () => {
     if (!token) return
@@ -210,6 +237,38 @@ export default function CareerPage() {
             {profile.remotePreference && (
               <Badge variant="info">{profile.remotePreference.replace('_', ' ')}</Badge>
             )}
+          </div>
+        )}
+
+        {!activityLoading && activity.length > 0 && (
+          <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
+            <div className="flex items-center gap-2 px-4 pt-4 pb-1">
+              <div className="w-8 h-8 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
+                <Radar className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-semibold text-gray-900">Zuri Noticed</h2>
+            </div>
+            <div>
+              {activity.map(event => (
+                <div key={event.id} className="flex items-start gap-3 border-b border-gray-50 px-4 py-3.5 last:border-b-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-gray-800">
+                      {ACTIVITY_LABELS[event.eventType] ?? event.eventType}
+                      {event.contactName && <span className="text-gray-400"> · via {event.contactName}</span>}
+                    </p>
+                    {event.evidence[0] && (
+                      <p className="text-xs text-gray-500 mt-0.5 italic truncate">&ldquo;{event.evidence[0]}&rdquo;</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      {event.confidence != null && (
+                        <span className="text-[10px] font-semibold text-violet-600">{Math.round(event.confidence * 100)}% confident</span>
+                      )}
+                      {event.status === 'bundled' && <Badge variant="info">In pending bundle</Badge>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

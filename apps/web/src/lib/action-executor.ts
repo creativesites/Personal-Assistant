@@ -13,6 +13,7 @@ import { apiClient } from './api'
 
 export interface BundleAction {
   type: 'create_deal' | 'reserve_stock' | 'generate_document' | 'reminder' | 'create_product' | 'create_supplier'
+    | 'create_career_opportunity'
   params: string[]
   // Indices (into the same actions array) that must be 'done' before this
   // action can run — additive to Business OS Phase E's shipped shape, so a
@@ -53,6 +54,10 @@ export function actionLabel(action: BundleAction): string {
     case 'create_supplier': {
       const [company] = action.params
       return `Add supplier: ${company}`
+    }
+    case 'create_career_opportunity': {
+      const [, title, companyOrOrg] = action.params
+      return companyOrOrg ? `Track opportunity: ${title} at ${companyOrOrg}` : `Track opportunity: ${title}`
     }
     default:
       return 'Unknown action'
@@ -120,6 +125,21 @@ export async function executeAction(action: BundleAction, token: string): Promis
     case 'create_supplier': {
       const [company] = action.params
       await apiClient('/api/suppliers', { method: 'POST', token, body: JSON.stringify({ company }) })
+      return
+    }
+    case 'create_career_opportunity': {
+      const [contactId, title, companyOrOrg, category, isRemote] = action.params
+      await apiClient('/api/career/opportunities', {
+        method: 'POST', token,
+        body: JSON.stringify({
+          contactId: contactId || undefined,
+          title,
+          companyOrOrg: companyOrOrg || undefined,
+          category: category || 'job',
+          isRemote: isRemote === 'true' ? true : isRemote === 'false' ? false : undefined,
+          source: 'whatsapp_detected',
+        }),
+      })
       return
     }
   }

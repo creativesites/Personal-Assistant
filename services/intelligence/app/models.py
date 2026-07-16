@@ -128,6 +128,20 @@ class SupplierMention(BaseModel):
     evidence: str = ''
 
 
+class CareerOpportunityMention(BaseModel):
+    """A job/contract/consulting/speaking/grant/etc. opportunity mentioned
+    in conversation — see docs/CAREER_GROWTH_ENGINE_PLAN.md §6. Not gated on
+    sender_type: a friend saying 'we're hiring React devs' and the user
+    saying 'I'm thinking about consulting work' are equally valid signals,
+    same reasoning as new_products_mentioned/suppliers_mentioned."""
+    title: str
+    company_or_org: str | None = None
+    category: str = 'job'  # job|contract|consulting|freelance|speaking|grant|scholarship|partnership|other
+    is_remote: bool | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    evidence: str = ''
+
+
 class MessageAnalysis(BaseModel):
     sentiment: str  # positive|negative|neutral|mixed
     sentiment_score: float = Field(ge=0.0, le=1.0)
@@ -148,6 +162,7 @@ class MessageAnalysis(BaseModel):
     life_events_mentioned: list[LifeEventMention] = Field(default_factory=list)
     new_products_mentioned: list[NewProductMention] = Field(default_factory=list)
     suppliers_mentioned: list[SupplierMention] = Field(default_factory=list)
+    career_opportunities_mentioned: list[CareerOpportunityMention] = Field(default_factory=list)
 
 
 class ReplySuggestion(BaseModel):

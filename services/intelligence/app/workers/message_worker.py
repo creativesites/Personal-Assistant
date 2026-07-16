@@ -152,10 +152,12 @@ async def _process(job, token: str):
             # `not is_historical` guard above) so an initial sync doesn't
             # flood the user with stale "detected" cards from old conversations.
             order_intent = analysis.order_intent_mentioned if sender_type == 'contact' else []
-            if order_intent or analysis.new_products_mentioned or analysis.suppliers_mentioned:
+            if (order_intent or analysis.new_products_mentioned or analysis.suppliers_mentioned
+                    or analysis.career_opportunities_mentioned):
                 await _action_bundles.detect_and_create(
                     user_id, contact_id, conversation_id, message_id, order_intent,
                     new_products=analysis.new_products_mentioned, suppliers=analysis.suppliers_mentioned,
+                    career_opportunities=analysis.career_opportunities_mentioned,
                 )
 
         if sender_type == 'user' and body:
