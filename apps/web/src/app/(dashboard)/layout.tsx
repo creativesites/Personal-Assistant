@@ -13,7 +13,7 @@ import {
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, UserCheck,
-  WifiOff, Loader2, ChevronLeft, ChevronRight, Send, FileText, Minimize2, FolderKanban, Target, History
+  WifiOff, Loader2, ChevronLeft, ChevronRight, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -89,6 +89,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/proactive', label: 'Proactive',  icon: Sparkles },
       { href: '/advisor',   label: 'AI Advisor', icon: Brain },
+      { href: '/career',    label: 'Career',     icon: Briefcase },
       { href: '/goals',     label: 'Goals',      icon: Target },
       { href: '/timeline',  label: 'Life Timeline', icon: History },
       { href: '/calendar',  label: 'Calendar',   icon: Calendar },

@@ -17,6 +17,7 @@ from ..services.reality_engine import RealityEngineService
 from ..services.life_events import LifeEventService
 from ..services.network_value import NetworkValueService
 from ..services.lead_score import LeadScoreService
+from ..services.career_signals import CareerSignalsService
 from ..services.advisor_companion import get_advisor_companion_service
 from ..services.credits import try_consume_credit
 from ..memory.conversation_memory import update_conversation_memory
@@ -38,6 +39,7 @@ _reality_engine = RealityEngineService()
 _life_events = LifeEventService()
 _network_value = NetworkValueService()
 _lead_score = LeadScoreService()
+_career_signals = CareerSignalsService()
 _advisor_companion = get_advisor_companion_service()
 _msg_counter: dict[str, int] = {}
 
@@ -263,6 +265,10 @@ async def _process(job, token: str):
         # immediate recompute in opportunities.py) so it decays back down
         # once a buying-signal opportunity expires, not just when a new one appears.
         await _lead_score.recompute(contact_id, user_id)
+        # Career Growth Engine (docs/CAREER_GROWTH_ENGINE_PLAN.md §3/§4) —
+        # same cadence, same relationship-level signals (job_title/company,
+        # professional relationship_connections).
+        await _career_signals.recompute(contact_id, user_id)
 
     # Update cadence model — offloaded to the temporal worker instead of running
     # inline, so a burst of messages doesn't serialize behind extra DB round-trips.

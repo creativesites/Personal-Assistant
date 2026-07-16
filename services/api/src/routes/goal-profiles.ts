@@ -11,7 +11,7 @@ import { authenticate } from '../plugins/authenticate'
 
 const GOAL_TYPES = ['business', 'personal'] as const
 const STATUSES = ['active', 'achieved', 'abandoned', 'paused'] as const
-const ENTITY_TYPES = ['deal', 'project', 'product', 'contact', 'document'] as const
+const ENTITY_TYPES = ['deal', 'project', 'product', 'contact', 'document', 'career_opportunity'] as const
 
 const createGoalBody = z.object({
   title: z.string().min(1).max(255),
@@ -69,6 +69,7 @@ const ENTITY_NAME_CASE = `
     WHEN 'product' THEN (SELECT name FROM products WHERE id = gle.entity_id)
     WHEN 'contact' THEN (SELECT COALESCE(custom_name, display_name, phone_number) FROM contacts WHERE id = gle.entity_id)
     WHEN 'document' THEN (SELECT title FROM documents WHERE id = gle.entity_id)
+    WHEN 'career_opportunity' THEN (SELECT title FROM career_opportunities WHERE id = gle.entity_id)
   END
 `
 

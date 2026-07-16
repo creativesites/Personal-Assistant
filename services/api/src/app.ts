@@ -46,6 +46,8 @@ import { inventoryLocationsRoutes } from './routes/inventory-locations';
 import { actionBundlesRoutes } from './routes/action-bundles';
 import { projectsRoutes } from './routes/projects';
 import { goalProfilesRoutes } from './routes/goal-profiles';
+import { careerProfileRoutes } from './routes/career-profile';
+import { careerOpportunitiesRoutes } from './routes/career-opportunities';
 import { reflectionRoutes } from './routes/reflection';
 import { predictionsRoutes } from './routes/predictions';
 import { subscriptionPlansRoutes } from './routes/subscription-plans';
@@ -123,6 +125,8 @@ export async function buildApp() {
   await fastify.register(actionBundlesRoutes);
   await fastify.register(projectsRoutes);
   await fastify.register(goalProfilesRoutes);
+  await fastify.register(careerProfileRoutes);
+  await fastify.register(careerOpportunitiesRoutes);
   await fastify.register(reflectionRoutes);
   await fastify.register(predictionsRoutes);
   await fastify.register(subscriptionPlansRoutes);
