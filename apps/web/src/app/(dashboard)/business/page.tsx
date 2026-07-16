@@ -369,18 +369,18 @@ export default function BusinessPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2.5 mt-5">
-              <button
-                onClick={() => setShowNewDoc(true)}
+              <Link
+                href="/documents/new"
                 className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white text-sm font-bold rounded-2xl hover:bg-indigo-500 active:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/25 min-h-[44px]"
               >
                 <Pencil className="w-4 h-4" />Create Document Manually
-              </button>
-              <button
-                onClick={() => setShowNewDoc(true)}
+              </Link>
+              <Link
+                href="/documents/new"
                 className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-slate-950 text-white text-sm font-bold rounded-2xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/15 min-h-[44px]"
               >
                 <Wand2 className="w-4 h-4" />Generate with AI
-              </button>
+              </Link>
               <Dropdown
                 align="left"
                 trigger={
@@ -459,9 +459,9 @@ export default function BusinessPage() {
             title="No documents yet"
             description="Create your first quotation or invoice — pulls in your contact, products, and Brand Kit automatically."
             action={
-              <button onClick={() => setShowNewDoc(true)} className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
+              <Link href="/documents/new" className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
                 <Plus className="w-4 h-4" />New Document
-              </button>
+              </Link>
             }
           />
         ) : (
