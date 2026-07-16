@@ -76,6 +76,7 @@ export default function InboxPage() {
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [threadError, setThreadError] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState(false)
@@ -557,7 +558,12 @@ export default function InboxPage() {
     selectedIdRef.current = convId
     selectedMsgIdRef.current = null
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
-    setContactDetail(null); setLoadingMsgs(true); setMobileView('thread')
+    // Reset contact (not just contactDetail) on every switch — the sticky
+    // header renders a skeleton while contact is null, so a stale contact
+    // lingering from the previous conversation would otherwise flash the
+    // wrong name/avatar before the new one loads.
+    setContact(null); setContactDetail(null); setMessages([])
+    setLoadingMsgs(true); setThreadError(false); setMobileView('thread')
     setDraft(''); setAiTab('overview'); setContextData(null); setPromises([])
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: 0 } : c))
     if (!token) return
@@ -583,8 +589,9 @@ export default function InboxPage() {
           .then(d => setSuggestions(d.suggestions)).catch(() => {})
       }
     } catch {
+      if (selectedIdRef.current !== convId) return
       setLoadingMsgs(false)
-      setMessages([])
+      setThreadError(true)
     }
   }
 
@@ -1023,9 +1030,11 @@ export default function InboxPage() {
 
       {/* ── Center: Chat ─────────────────────────────────────────────────── */}
       <div className={`${mobileView === 'list' ? 'hidden md:flex' : mobileView === 'intel' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0 relative`}>
-        {selectedId && contact ? (
+        {selectedId ? (
           <>
-            {/* Sticky header */}
+            {/* Sticky header — contact is null for a beat after selecting a
+                conversation (and stays null on a load failure), so it
+                renders a skeleton instead of the header simply vanishing. */}
             <div className="sticky top-0 z-50 flex items-center gap-3 px-4 h-16 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md flex-shrink-0 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.03)] transition-all">
               <button
                 onClick={() => setMobileView('list')}
@@ -1033,112 +1042,124 @@ export default function InboxPage() {
               >
                 <ChevronLeft size={20} />
               </button>
-              <div className="relative group cursor-pointer">
-                <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
-                {!contact.isGroup && (
-                  <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {contact.isGroup && <Users size={13} className="text-neutral-400 flex-shrink-0" />}
-                  <p className="text-sm font-bold text-neutral-900 tracking-tight truncate">{contact.name}</p>
-                  {currentPriority && CurrentPIcon && (
-                    <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
-                      <CurrentPIcon size={9} />
-                      {currentPriority.label}
-                    </span>
-                  )}
+              {contact ? (
+                <>
+                  <div className="relative group cursor-pointer">
+                    <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
+                    {!contact.isGroup && (
+                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {contact.isGroup && <Users size={13} className="text-neutral-400 flex-shrink-0" />}
+                      <p className="text-sm font-bold text-neutral-900 tracking-tight truncate">{contact.name}</p>
+                      {currentPriority && CurrentPIcon && (
+                        <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
+                          <CurrentPIcon size={9} />
+                          {currentPriority.label}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
+                        {contact.isGroup ? 'Group chat' : contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
+                      </p>
+                      {syncState.active && (syncState.conversationId === selectedId || syncState.currentChatName === contact.name) && (
+                        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                          {syncState.phase === 'analysing' ? 'Analysing chat' : 'Syncing chat'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {/* Run Analysis button */}
+                    <button
+                      onClick={runHeaderAnalysis}
+                      disabled={analysing || aiActionLoading === 'analyze-recent'}
+                      title="Run analysis on recent messages"
+                      className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all bg-gray-50 border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {(analysing || aiActionLoading === 'analyze-recent') ? (
+                        <svg className="animate-spin w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                      ) : (
+                        <Zap size={11} />
+                      )}
+                      Analyse
+                    </button>
+                    {/* Per-contact exclusion (plan §4/§7) — the natural place to
+                        act on "don't auto-reply to this specific person" is
+                        right here, looking at their conversation. The global
+                        switch lives in the list header (always visible). */}
+                    <button
+                      onClick={toggleContactExclusion}
+                      title={excludedContacts.has(contact.id) ? 'Excluded from auto-reply — click to re-include' : 'Exclude this contact from auto-reply'}
+                      className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
+                        excludedContacts.has(contact.id)
+                          ? 'bg-amber-50 border-amber-200 text-amber-700'
+                          : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      <UserX size={11} />
+                      {excludedContacts.has(contact.id) ? 'Excluded' : 'Exclude'}
+                    </button>
+                    <button
+                      className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
+                      title="Add note"
+                      onClick={() => { setShowAIPanel(true); setAiTab('memory'); setTimeout(() => noteRef.current?.focus(), 150) }}
+                    >
+                      <StickyNote size={17} strokeWidth={2} />
+                    </button>
+                    <a
+                      href={`/contacts/${contact.id}`}
+                      className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
+                      title="View full profile"
+                    >
+                      <ExternalLink size={17} strokeWidth={2} />
+                    </a>
+                    <button
+                      className="p-2 text-neutral-400 hover:text-amber-600 rounded-xl hover:bg-amber-50 transition-all active:scale-95"
+                      title="Archive conversation"
+                      onClick={async () => {
+                        if (!selectedId || !token) return
+                        try {
+                          await apiClient(`/api/conversations/${selectedId}`, { method: 'PATCH', token, body: JSON.stringify({ is_archived: true }) })
+                          setConversations(prev => prev.filter(c => c.id !== selectedId))
+                          setSelectedId(null)
+                        } catch {}
+                      }}
+                    >
+                      <Archive size={17} strokeWidth={2} />
+                    </button>
+                    <button
+                      onClick={() => setMobileView('intel')}
+                      className="md:hidden flex items-center gap-1.5 ml-1 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-all"
+                    >
+                      <Brain size={12} className="fill-indigo-600/10" />
+                      Intel
+                    </button>
+                    <button
+                      onClick={() => setShowAIPanel(v => !v)}
+                      className={`hidden md:flex p-2 rounded-xl transition-all active:scale-95 ${showAIPanel ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
+                      title="AI Intelligence Panel"
+                    >
+                      <Brain size={17} strokeWidth={2} className={showAIPanel ? 'fill-indigo-600/10' : ''} />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-1 items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer flex-shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="h-3 w-32 rounded-full bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer" />
+                    <div className="h-2.5 w-20 rounded-full bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer" />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 min-w-0">
-                  <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
-                    {contact.isGroup ? 'Group chat' : contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
-                  </p>
-                  {syncState.active && (syncState.conversationId === selectedId || syncState.currentChatName === contact.name) && (
-                    <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                      {syncState.phase === 'analysing' ? 'Analysing chat' : 'Syncing chat'}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {/* Run Analysis button */}
-                <button
-                  onClick={runHeaderAnalysis}
-                  disabled={analysing || aiActionLoading === 'analyze-recent'}
-                  title="Run analysis on recent messages"
-                  className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all bg-gray-50 border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {(analysing || aiActionLoading === 'analyze-recent') ? (
-                    <svg className="animate-spin w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                  ) : (
-                    <Zap size={11} />
-                  )}
-                  Analyse
-                </button>
-                {/* Per-contact exclusion (plan §4/§7) — the natural place to
-                    act on "don't auto-reply to this specific person" is
-                    right here, looking at their conversation. The global
-                    switch lives in the list header (always visible). */}
-                <button
-                  onClick={toggleContactExclusion}
-                  title={excludedContacts.has(contact.id) ? 'Excluded from auto-reply — click to re-include' : 'Exclude this contact from auto-reply'}
-                  className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                    excludedContacts.has(contact.id)
-                      ? 'bg-amber-50 border-amber-200 text-amber-700'
-                      : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
-                  }`}
-                >
-                  <UserX size={11} />
-                  {excludedContacts.has(contact.id) ? 'Excluded' : 'Exclude'}
-                </button>
-                <button
-                  className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
-                  title="Add note"
-                  onClick={() => { setShowAIPanel(true); setAiTab('memory'); setTimeout(() => noteRef.current?.focus(), 150) }}
-                >
-                  <StickyNote size={17} strokeWidth={2} />
-                </button>
-                <a
-                  href={`/contacts/${contact.id}`}
-                  className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
-                  title="View full profile"
-                >
-                  <ExternalLink size={17} strokeWidth={2} />
-                </a>
-                <button
-                  className="p-2 text-neutral-400 hover:text-amber-600 rounded-xl hover:bg-amber-50 transition-all active:scale-95"
-                  title="Archive conversation"
-                  onClick={async () => {
-                    if (!selectedId || !token) return
-                    try {
-                      await apiClient(`/api/conversations/${selectedId}`, { method: 'PATCH', token, body: JSON.stringify({ is_archived: true }) })
-                      setConversations(prev => prev.filter(c => c.id !== selectedId))
-                      setSelectedId(null)
-                    } catch {}
-                  }}
-                >
-                  <Archive size={17} strokeWidth={2} />
-                </button>
-                <button
-                  onClick={() => setMobileView('intel')}
-                  className="md:hidden flex items-center gap-1.5 ml-1 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-all"
-                >
-                  <Brain size={12} className="fill-indigo-600/10" />
-                  Intel
-                </button>
-                <button
-                  onClick={() => setShowAIPanel(v => !v)}
-                  className={`hidden md:flex p-2 rounded-xl transition-all active:scale-95 ${showAIPanel ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
-                  title="AI Intelligence Panel"
-                >
-                  <Brain size={17} strokeWidth={2} className={showAIPanel ? 'fill-indigo-600/10' : ''} />
-                </button>
-              </div>
+              )}
             </div>
 
             {/* Messages + intel row */}
@@ -1154,23 +1175,41 @@ export default function InboxPage() {
               >
                 <div className="absolute inset-0 bg-[#f7f4ee]/90 pointer-events-none mix-blend-normal" />
 
-                <MessageThread
-                  messages={messages}
-                  loading={loadingMsgs}
-                  token={token}
-                  selectedMsgId={selectedMsgId}
-                  searchOpen={false}
-                  searchQuery=""
-                  searchMatches={[]}
-                  activeSearchIndex={0}
-                  messagesEndRef={messagesEndRef}
-                  timelineInsights={timelineInsights}
-                  onSearchChange={() => {}}
-                  onCloseSearch={() => {}}
-                  onPrevSearch={() => {}}
-                  onNextSearch={() => {}}
-                  onSelectMessage={selectMessage}
-                />
+                {threadError ? (
+                  <div className="relative z-10 flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-gray-200 flex items-center justify-center">
+                      <AlertCircle size={24} className="text-rose-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Couldn't load this conversation</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Something went wrong reaching the server.</p>
+                    </div>
+                    <button
+                      onClick={() => selectConversation(selectedId)}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-500 transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : (
+                  <MessageThread
+                    messages={messages}
+                    loading={loadingMsgs}
+                    token={token}
+                    selectedMsgId={selectedMsgId}
+                    searchOpen={false}
+                    searchQuery=""
+                    searchMatches={[]}
+                    activeSearchIndex={0}
+                    messagesEndRef={messagesEndRef}
+                    timelineInsights={timelineInsights}
+                    onSearchChange={() => {}}
+                    onCloseSearch={() => {}}
+                    onPrevSearch={() => {}}
+                    onNextSearch={() => {}}
+                    onSelectMessage={selectMessage}
+                  />
+                )}
 
                 <ReplyDock
                   suggestions={suggestions}
@@ -1198,7 +1237,7 @@ export default function InboxPage() {
               </div>
 
               {/* Right: Intelligence panel (desktop) */}
-              {showAIPanel && (
+              {showAIPanel && contact && (
                 <div className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
                   <IntelPanel {...intelPanelProps} onClose={() => setShowAIPanel(false)} />
                 </div>

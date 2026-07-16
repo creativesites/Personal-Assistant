@@ -20,6 +20,48 @@ function formatDateSeparator(ts: string) {
   return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
 }
 
+// Rough shapes of a real conversation — alternating sides, varied widths,
+// the occasional two-line bubble — so the loading state reads as "your
+// messages are on their way" rather than a generic grey rectangle grid.
+const SKELETON_ROWS: { side: 'user' | 'contact'; width: number; lines: 1 | 2 }[] = [
+  { side: 'contact', width: 190, lines: 1 },
+  { side: 'user', width: 130, lines: 1 },
+  { side: 'contact', width: 240, lines: 2 },
+  { side: 'contact', width: 150, lines: 1 },
+  { side: 'user', width: 200, lines: 1 },
+  { side: 'contact', width: 170, lines: 1 },
+]
+
+const SHIMMER_BAR = 'h-2.5 rounded-full bg-gradient-to-r from-gray-300/70 via-gray-200/70 to-gray-300/70 bg-[length:200%_100%] animate-shimmer'
+
+function ThreadLoadingSkeleton() {
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-center pb-1">
+        <span className="inline-flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-[11px] font-semibold text-gray-500 shadow-sm ring-1 ring-gray-200/70 backdrop-blur">
+          <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+          Loading conversation…
+        </span>
+      </div>
+      {SKELETON_ROWS.map((row, i) => (
+        <div key={i} className={`flex ${row.side === 'user' ? 'justify-end' : 'justify-start'} px-2`}>
+          <div
+            className={`space-y-1.5 px-3 py-2.5 rounded-lg shadow-[0_1px_1px_rgba(15,23,42,0.06)] border ${
+              row.side === 'user' ? 'rounded-tr-none bg-[#dcf8c6]/40 border-[#cbeeb5]/50' : 'rounded-tl-none bg-white/70 border-gray-100'
+            }`}
+            style={{ width: row.width }}
+          >
+            <div className={SHIMMER_BAR} style={{ animationDelay: `${i * 90}ms` }} />
+            {row.lines > 1 && (
+              <div className={SHIMMER_BAR} style={{ width: '60%', animationDelay: `${i * 90 + 60}ms` }} />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function MessageThread({
   messages,
   loading,
@@ -98,13 +140,7 @@ export function MessageThread({
 
       <div className={`h-full overflow-y-auto px-4 py-4 space-y-2 z-10 relative ${searchOpen ? 'pt-20' : ''}`}>
         {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
-                <div className={`h-10 rounded-2xl animate-pulse bg-gray-200 ${i % 2 === 0 ? 'w-48' : 'w-36'}`} />
-              </div>
-            ))}
-          </div>
+          <ThreadLoadingSkeleton />
         ) : (
           <>
             {messages.map((msg, idx) => {

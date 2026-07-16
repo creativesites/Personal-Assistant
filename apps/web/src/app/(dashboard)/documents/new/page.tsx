@@ -850,7 +850,14 @@ export default function NewDocumentPage() {
       </div>
 
       {/* ── Bottom nav ──────────────────────────────────────────────────────── */}
-      <div className="fixed bottom-0 inset-x-0 z-40 md:z-30 bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-lg shadow-gray-200/60">
+      {/* z-50 beats the global MobileBottomNav's z-40 (layout.tsx) — both are
+          fixed to bottom-0, and without a higher z-index here the app's own
+          tab bar (rendered after <main> in the DOM) paints on top of these
+          buttons on mobile, hiding them entirely. */}
+      <div
+        className="fixed bottom-0 inset-x-0 z-50 md:z-30 bg-white/95 backdrop-blur-xl border-t border-gray-100 shadow-lg shadow-gray-200/60"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
           <button onClick={goPrev} disabled={step === 1}
             className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
