@@ -1,55 +1,123 @@
 """
 Business OS Phase E — the conversation-to-automation loop. See
-docs/BUSINESS_OS_PLAN.md §15/§16.
+docs/BUSINESS_OS_PLAN.md §15/§16 and, for the generalization below,
+docs/BUSINESS_EVENTS_PLAN.md §5.
 
-Converts a detected live order request (MessageAnalysis.order_intent_mentioned)
-into a single multi-action proposal an Inbox card can render and the user
-approves in one tap, instead of several separate chat-tag actions. Product
-name resolution against the catalog follows the exact same discipline as
+Converts detected business signals from a single message analysis pass —
+a live order request (order_intent_mentioned), a product not in the
+catalog (new_products_mentioned), a supplier not in the catalog
+(suppliers_mentioned) — into ONE multi-action proposal an Inbox card can
+render and the user approves in one tap, instead of several separate
+chat-tag actions or several separate approval cards. Product name
+resolution against the catalog follows the exact same discipline as
 contact_products.py: an ambiguous or zero-match mention is dropped.
 
 The `actions` list reuses the {type, params} shape the [ACTION: ...] chat-tag
 system already uses (see chat-formatter.tsx) so the same per-type API calls
 get reused client-side rather than inventing a second execution mechanism —
-`create_deal` and `reserve_stock` are the two genuinely new types; the other
-two (`generate_document`, `reminder`) are the exact ones the tag system
-already knows how to execute.
+`create_deal`/`reserve_stock`/`create_product`/`create_supplier` are the
+genuinely new types; `generate_document`/`reminder` are the ones the tag
+system already knows how to execute.
+
+Every new_products_mentioned/suppliers_mentioned detection also writes a
+durable `business_events` row (see business_events.py) regardless of
+whether it makes it into a bundle — that's the audit trail Studio's
+"Zuri Noticed" feed reads from.
 """
 
 import json
 import structlog
 from datetime import date, timedelta
 from ..database import get_pool
-from ..models import OrderIntentMention
+from ..models import OrderIntentMention, NewProductMention, SupplierMention
 from ..queue import publish_event
+from .business_events import BusinessEventService
 
 log = structlog.get_logger()
 
 _MIN_CONFIDENCE = 0.6
+
+_business_events = BusinessEventService()
 
 
 class ActionBundleService:
     async def detect_and_create(
         self, user_id: str, contact_id: str, conversation_id: str,
         message_id: str, mentions: list[OrderIntentMention],
+        new_products: list[NewProductMention] | None = None,
+        suppliers: list[SupplierMention] | None = None,
     ) -> None:
-        if not mentions:
+        new_products = new_products or []
+        suppliers = suppliers or []
+        if not mentions and not new_products and not suppliers:
             return
 
         pool = await get_pool()
         async with pool.acquire() as conn:
             # A back-and-forth negotiation ("10 units" -> "actually make it
-            # 8") shouldn't spam a fresh proposal per message — skip if this
-            # contact already has a pending bundle from the last hour.
+            # 8") shouldn't spam a fresh proposal per message — a pending
+            # bundle from the last hour blocks a NEW bundle, but detections
+            # below are still logged to business_events either way (the
+            # audit trail is independent of whether a card gets created).
             existing = await conn.fetchrow(
                 """SELECT id FROM action_bundles
                    WHERE user_id = $1 AND contact_id = $2 AND status = 'pending'
                      AND detected_at > NOW() - INTERVAL '60 minutes'""",
                 user_id, contact_id,
             )
-            if existing:
-                log.info('action_bundle_deduped', user_id=user_id, contact_id=contact_id)
-                return
+
+            event_ids: list[str] = []
+
+            resolved_new_products = []
+            for mention in new_products:
+                if mention.confidence < _MIN_CONFIDENCE:
+                    continue
+                name = mention.name.strip()
+                if not name:
+                    continue
+                # Skip if something with a very similar name already exists
+                # in the catalog — this is meant to catch genuinely new
+                # items, not re-propose something already recorded.
+                dup = await conn.fetchrow(
+                    "SELECT id FROM products WHERE user_id = $1 AND status != 'archived' AND name ILIKE $2 LIMIT 1",
+                    user_id, f'%{name}%',
+                )
+                if dup:
+                    continue
+                event_id = await _business_events.record(
+                    user_id, 'product_detected', contact_id=contact_id, conversation_id=conversation_id,
+                    message_id=message_id, confidence=mention.confidence,
+                    evidence=[mention.evidence] if mention.evidence else [],
+                    payload={
+                        'name': name, 'category': mention.category,
+                        'estimatedPrice': mention.estimated_price, 'currency': mention.currency,
+                        'isOneOff': mention.is_one_off,
+                    },
+                )
+                event_ids.append(event_id)
+                resolved_new_products.append({**mention.model_dump(), 'name': name, 'event_id': event_id})
+
+            resolved_suppliers = []
+            for mention in suppliers:
+                if mention.confidence < _MIN_CONFIDENCE:
+                    continue
+                company = mention.company.strip()
+                if not company:
+                    continue
+                dup = await conn.fetchrow(
+                    "SELECT id FROM suppliers WHERE user_id = $1 AND company ILIKE $2 LIMIT 1",
+                    user_id, f'%{company}%',
+                )
+                if dup:
+                    continue
+                event_id = await _business_events.record(
+                    user_id, 'supplier_detected', contact_id=contact_id, conversation_id=conversation_id,
+                    message_id=message_id, confidence=mention.confidence,
+                    evidence=[mention.evidence] if mention.evidence else [],
+                    payload={'company': company},
+                )
+                event_ids.append(event_id)
+                resolved_suppliers.append({'company': company, 'confidence': mention.confidence, 'event_id': event_id})
 
             resolved_items = []
             for mention in mentions:
@@ -73,9 +141,13 @@ class ActionBundleService:
                     'quantity': mention.quantity,
                     'available': product['available'],
                     'minimum_stock': product['minimum_stock'],
+                    'confidence': mention.confidence,
                 })
 
-            if not resolved_items:
+            if not resolved_items and not resolved_new_products and not resolved_suppliers:
+                return
+            if existing:
+                log.info('action_bundle_deduped', user_id=user_id, contact_id=contact_id)
                 return
 
             contact = await conn.fetchrow(
@@ -84,52 +156,85 @@ class ActionBundleService:
                 contact_id,
             )
             contact_name = contact['name'] if contact else 'this contact'
-            item_summary = ', '.join(f"{i['quantity']}x {i['product_name']}" for i in resolved_items)
 
-            summary = f'Detected a request for {item_summary} from {contact_name}'
-            low_stock_items = [i for i in resolved_items if i['available'] - i['quantity'] <= i['minimum_stock']]
-            if low_stock_items:
-                names = ', '.join(i['product_name'] for i in low_stock_items)
-                summary += f'. This order will bring {names} to or below the reorder point.'
+            actions = []
+            summary_parts = []
+            confidences = []
+            evidence: list[str] = []
 
-            # Neural Layer Phase 6 (docs/NEURAL_LAYER_PLAN.md §4.9/§10) —
-            # dependsOn indices turn this from a flat checklist into a real
-            # sequence: reserve stock only after the deal exists, draft the
-            # quotation only once every item is reserved, and only remind
-            # once the quotation has actually been drafted. Additive to the
-            # {type, params} shape Business OS Phase E shipped — a consumer
-            # that ignores dependsOn still sees the exact same flat list.
-            first = resolved_items[0]
-            actions = [{
-                'type': 'create_deal',
-                'params': [contact_id, first['product_id'], first['product_name'], str(first['quantity'])],
-            }]
-            deal_index = 0
-            reserve_indices = []
-            for item in resolved_items:
+            for np in resolved_new_products:
                 actions.append({
-                    'type': 'reserve_stock',
-                    'params': [item['product_id'], item['product_name'], str(item['quantity'])],
-                    'dependsOn': [deal_index],
+                    'type': 'create_product',
+                    'params': [np['name'], np['category'] or '', str(np['estimated_price'] or ''), np['currency'] or ''],
                 })
-                reserve_indices.append(len(actions) - 1)
-            brief = f'Quotation for {item_summary}, requested by {contact_name}'
-            actions.append({'type': 'generate_document', 'params': ['quotation', contact_id, brief], 'dependsOn': reserve_indices})
-            document_index = len(actions) - 1
-            follow_up_date = (date.today() + timedelta(days=30)).isoformat()
-            actions.append({
-                'type': 'reminder',
-                'params': [f'Follow up on {item_summary} order with {contact_name}', follow_up_date],
-                'dependsOn': [document_index],
-            })
+                confidences.append(np['confidence'])
+                if np.get('evidence'):
+                    evidence.append(np['evidence'])
+            if resolved_new_products:
+                names = ', '.join(p['name'] for p in resolved_new_products)
+                summary_parts.append(f'Detected a new product not in your catalog: {names}')
+
+            for sp in resolved_suppliers:
+                actions.append({'type': 'create_supplier', 'params': [sp['company']]})
+                confidences.append(sp['confidence'])
+                if sp.get('evidence'):
+                    evidence.append(sp['evidence'])
+            if resolved_suppliers:
+                names = ', '.join(s['company'] for s in resolved_suppliers)
+                summary_parts.append(f'Detected a new supplier: {names}')
+
+            if resolved_items:
+                item_summary = ', '.join(f"{i['quantity']}x {i['product_name']}" for i in resolved_items)
+                order_summary = f'Detected a request for {item_summary} from {contact_name}'
+                low_stock_items = [i for i in resolved_items if i['available'] - i['quantity'] <= i['minimum_stock']]
+                if low_stock_items:
+                    names = ', '.join(i['product_name'] for i in low_stock_items)
+                    order_summary += f'. This order will bring {names} to or below the reorder point.'
+                summary_parts.append(order_summary)
+                confidences.extend(i['confidence'] for i in resolved_items)
+
+                # Neural Layer Phase 6 (docs/NEURAL_LAYER_PLAN.md §4.9/§10) —
+                # dependsOn indices turn this from a flat checklist into a
+                # real sequence: reserve stock only after the deal exists,
+                # draft the quotation only once every item is reserved, and
+                # only remind once the quotation has actually been drafted.
+                first = resolved_items[0]
+                deal_index = len(actions)
+                actions.append({
+                    'type': 'create_deal',
+                    'params': [contact_id, first['product_id'], first['product_name'], str(first['quantity'])],
+                })
+                reserve_indices = []
+                for item in resolved_items:
+                    actions.append({
+                        'type': 'reserve_stock',
+                        'params': [item['product_id'], item['product_name'], str(item['quantity'])],
+                        'dependsOn': [deal_index],
+                    })
+                    reserve_indices.append(len(actions) - 1)
+                brief = f'Quotation for {item_summary}, requested by {contact_name}'
+                actions.append({'type': 'generate_document', 'params': ['quotation', contact_id, brief], 'dependsOn': reserve_indices})
+                document_index = len(actions) - 1
+                follow_up_date = (date.today() + timedelta(days=30)).isoformat()
+                actions.append({
+                    'type': 'reminder',
+                    'params': [f'Follow up on {item_summary} order with {contact_name}', follow_up_date],
+                    'dependsOn': [document_index],
+                })
+
+            summary = '. '.join(summary_parts)
+            bundle_confidence = round(sum(confidences) / len(confidences), 2) if confidences else 0.5
 
             row = await conn.fetchrow(
-                """INSERT INTO action_bundles (user_id, contact_id, conversation_id, summary, actions)
-                   VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id""",
+                """INSERT INTO action_bundles (user_id, contact_id, conversation_id, summary, actions, confidence, evidence)
+                   VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb) RETURNING id""",
                 user_id, contact_id, conversation_id, summary, json.dumps(actions),
+                bundle_confidence, json.dumps(evidence),
             )
 
         bundle_id = str(row['id'])
+        if event_ids:
+            await _business_events.mark_bundled(event_ids, bundle_id)
         log.info('action_bundle_created', user_id=user_id, contact_id=contact_id, bundle_id=bundle_id)
         await publish_event(
             f'bundle:ready:{user_id}',

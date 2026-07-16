@@ -27,9 +27,22 @@ export interface ActionBundle {
   status: 'pending' | 'approved' | 'partially_approved' | 'dismissed' | 'expired'
   detectedAt: string
   resolvedAt: string | null
+  // Business Events Plan §5 — a bundle can now explain itself instead of
+  // just showing a free-text summary.
+  confidence: number | null
+  evidence: string[]
 }
 
 type ActionResult = 'idle' | 'done' | 'failed' | 'skipped'
+
+function bundleTitle(actions: BundleAction[]): string {
+  const types = new Set(actions.map(a => a.type))
+  if (types.has('create_deal')) return 'Detected order'
+  if (types.has('create_product') && types.has('create_supplier')) return 'New product & supplier detected'
+  if (types.has('create_product')) return 'New product detected'
+  if (types.has('create_supplier')) return 'New supplier detected'
+  return 'Business update detected'
+}
 
 export function ActionBundleCard({
   bundle, token, onResolved,
@@ -123,7 +136,12 @@ export function ActionBundleCard({
           <Zap size={13} className="text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-bold text-indigo-900">Detected order</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-xs font-bold text-indigo-900">{bundleTitle(bundle.actions)}</p>
+            {bundle.confidence != null && (
+              <span className="text-[10px] font-semibold text-indigo-500">{Math.round(bundle.confidence * 100)}% confident</span>
+            )}
+          </div>
           <p className="text-[11px] text-indigo-700 leading-relaxed mt-0.5">{bundle.summary}</p>
         </div>
         <ChevronRight size={14} className={`text-indigo-400 flex-shrink-0 mt-1 transition-transform ${expanded ? 'rotate-90' : ''}`} />
@@ -131,6 +149,11 @@ export function ActionBundleCard({
 
       {expanded && (
         <div className="px-3.5 pb-3.5 space-y-1.5">
+          {bundle.evidence.length > 0 && (
+            <ul className="text-[10px] text-indigo-500 space-y-0.5 pb-1">
+              {bundle.evidence.map((e, i) => <li key={i}>— {e}</li>)}
+            </ul>
+          )}
           {bundle.actions.map((action, i) => {
             const isSequenced = (action.dependsOn ?? []).length > 0
             const blocked = isSequenced && !depsSatisfied(i)

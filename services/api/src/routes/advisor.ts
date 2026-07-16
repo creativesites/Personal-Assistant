@@ -205,6 +205,10 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     displayPersona: {}, tonePreferences: {}, advicePreferences: {}, boundaries: {},
     relationshipContext: {}, interests: [], spiritualPreferences: {}, motivationalStyle: {},
     gossipStyle: {}, companionFeaturesPaused: false, personalModeEnabled: false,
+    // Business Events Part E — on-by-default kill switch for the Business
+    // Manager Assistant, same "paused=false means on" precedent as
+    // companionFeaturesPaused. See docs/BUSINESS_EVENTS_PLAN.md Part E.
+    businessManagerPaused: false,
   };
 
   function profileApiShape(r: any) {
@@ -220,6 +224,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
       gossipStyle: r.gossip_style,
       companionFeaturesPaused: r.companion_features_paused,
       personalModeEnabled: r.personal_mode_enabled,
+      businessManagerPaused: r.business_manager_paused,
     };
   }
 
@@ -228,7 +233,7 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: [profile] } = await db.query(
       `SELECT display_persona, tone_preferences, advice_preferences, boundaries, relationship_context,
               interests, spiritual_preferences, motivational_style, gossip_style,
-              companion_features_paused, personal_mode_enabled
+              companion_features_paused, personal_mode_enabled, business_manager_paused
        FROM advisor_user_profiles WHERE user_id = $1`,
       [userId],
     );
@@ -249,27 +254,39 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     // setters for personal_mode_enabled (the other being the chat intent,
     // handled inside AdvisorCompanionService) — never inferred.
     personalModeEnabled: z.boolean().optional(),
+    businessManagerPaused: z.boolean().optional(),
   });
 
   fastify.patch('/api/advisor/profile', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const body = patchProfileBody.parse(request.body);
 
-    const columns: Record<string, unknown> = {
+    const jsonbColumns: Record<string, unknown> = {
       display_persona: body.displayPersona, tone_preferences: body.tonePreferences,
       advice_preferences: body.advicePreferences, boundaries: body.boundaries,
       interests: body.interests, spiritual_preferences: body.spiritualPreferences,
       motivational_style: body.motivationalStyle, gossip_style: body.gossipStyle,
+    };
+    // companion_features_paused/business_manager_paused are plain BOOLEAN
+    // columns — kept out of the jsonbColumns loop below (which casts every
+    // value with ::jsonb) rather than cast-mismatched against it.
+    const booleanColumns: Record<string, boolean | undefined> = {
       companion_features_paused: body.companionFeaturesPaused,
+      business_manager_paused: body.businessManagerPaused,
     };
 
     const sets: string[] = ['updated_at = NOW()'];
     const values: unknown[] = [userId];
     let idx = 2;
-    for (const [col, value] of Object.entries(columns)) {
+    for (const [col, value] of Object.entries(jsonbColumns)) {
       if (value === undefined) continue;
       sets.push(`${col} = $${idx++}::jsonb`);
       values.push(JSON.stringify(value));
+    }
+    for (const [col, value] of Object.entries(booleanColumns)) {
+      if (value === undefined) continue;
+      sets.push(`${col} = $${idx++}`);
+      values.push(value);
     }
     if (body.personalModeEnabled !== undefined) {
       sets.push(`personal_mode_enabled = $${idx++}`);

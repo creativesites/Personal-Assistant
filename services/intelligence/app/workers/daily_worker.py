@@ -17,6 +17,7 @@ from ..services.motivational_detector import get_motivational_detector
 from ..services.advisor_memory_learner import get_advisor_memory_learner
 from ..services.curiosity_engine import get_curiosity_engine
 from ..services.project_progress import ProjectProgressService
+from ..services.business_manager import BusinessManagerService
 
 log = structlog.get_logger()
 
@@ -27,6 +28,7 @@ _pricing_benchmarks = PricingBenchmarkService()
 _inventory_forecast = InventoryForecastService()
 _reflection = ReflectionService()
 _project_progress = ProjectProgressService()
+_business_manager = BusinessManagerService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
 _temporal_queue      = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
@@ -44,6 +46,7 @@ _motivational_nudge_queue = Queue('companion.check_motivational', {'connection':
 _advisor_memory_learning_queue = Queue('advisor.learn_memories', {'connection': redis_conn_opts()})
 _curiosity_proactive_queue = Queue('curiosity.ask_proactively', {'connection': redis_conn_opts()})
 _project_progress_queue = Queue('project.check_progress', {'connection': redis_conn_opts()})
+_business_manager_queue = Queue('business.check_manager_nudges', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -415,6 +418,34 @@ async def run_project_progress_scheduler() -> None:
             await _project_progress_queue.add('check_progress', {})
         except Exception as exc:
             log.error('project_progress_enqueue_failed', error=str(exc))
+
+
+async def _process_business_manager(job, token: str):
+    count = await _business_manager.generate_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_business_manager_worker() -> Worker:
+    return Worker('business.check_manager_nudges', _process_business_manager, {'connection': redis_conn_opts()})
+
+
+async def run_business_manager_scheduler() -> None:
+    """Business Manager Assistant (docs/BUSINESS_EVENTS_PLAN.md Part E):
+    daily at 18:00 UTC — the next free slot after Project Management's
+    17:00 progress check."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('business_manager_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('business_manager_enqueue')
+            await _business_manager_queue.add('check_manager_nudges', {})
+        except Exception as exc:
+            log.error('business_manager_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

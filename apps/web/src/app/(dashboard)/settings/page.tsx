@@ -142,10 +142,39 @@ export default function SettingsPage() {
   const [apiReachable, setApiReachable] = useState<boolean | null>(null)
   const [pendingMode, setPendingMode] = useState<WorkspaceMode>(session.data?.mode ?? 'business')
   const [savingMode, setSavingMode] = useState(false)
+  // Business Events Part E — Business Manager Assistant kill switch. On by
+  // default (businessManagerPaused=false); see docs/BUSINESS_EVENTS_PLAN.md.
+  const [businessManagerPaused, setBusinessManagerPaused] = useState(false)
+  const [businessManagerSaving, setBusinessManagerSaving] = useState(false)
 
   useEffect(() => {
     if (session.data?.mode) setPendingMode(session.data.mode)
   }, [session.data?.mode])
+
+  useEffect(() => {
+    if (!token) return
+    apiClient<{ profile: { businessManagerPaused: boolean } }>('/api/advisor/profile', { token })
+      .then(data => setBusinessManagerPaused(data.profile.businessManagerPaused))
+      .catch(() => { /* ignore — defaults to on */ })
+  }, [token])
+
+  const toggleBusinessManager = async () => {
+    if (!token || businessManagerSaving) return
+    const next = !businessManagerPaused
+    setBusinessManagerSaving(true)
+    setBusinessManagerPaused(next)
+    try {
+      await apiClient('/api/advisor/profile', {
+        method: 'PATCH', token,
+        body: JSON.stringify({ businessManagerPaused: next }),
+      })
+    } catch {
+      setBusinessManagerPaused(!next)
+      addToast({ variant: 'error', title: 'Could not update Business Manager Assistant' })
+    } finally {
+      setBusinessManagerSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!token) return
@@ -1553,6 +1582,27 @@ export default function SettingsPage() {
                     <p className="text-xs text-gray-400 px-1">
                       Engine configuration managed by your subscription plan. Granular controls available on Pro.
                     </p>
+
+                    <Section title="Business Manager Assistant">
+                      <div className="flex items-center justify-between px-5 py-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">Proactive business formalization</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Nudges you to draft invoices, quotations, and other records for completed work — even
+                            when you don&apos;t need to send them. On by default.
+                          </p>
+                        </div>
+                        <button
+                          onClick={toggleBusinessManager}
+                          disabled={businessManagerSaving}
+                          role="switch"
+                          aria-checked={!businessManagerPaused}
+                          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${!businessManagerPaused ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                        >
+                          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${!businessManagerPaused ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+                    </Section>
                   </div>
                 )}
 

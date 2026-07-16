@@ -136,18 +136,25 @@ async def _process(job, token: str):
                 conversation_id, sender_type=sender_type, body=body, analysis=analysis,
             )
 
-        if sender_type == 'contact' and body:
-            # Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15) — a live
-            # order request proposes a multi-action bundle for the Inbox,
-            # independent of the reply-routing decision below. Skipped for
-            # historical/backfill messages (the `not is_historical` guard
-            # above) so an initial sync doesn't flood the user with stale
-            # "detected an order" cards from old conversations.
-            if analysis.order_intent_mentioned:
+        if body:
+            # Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15), generalized
+            # by docs/BUSINESS_EVENTS_PLAN.md §5 — a live order request (only
+            # meaningful from the contact, hence the sender_type check below)
+            # plus newly-detected products/suppliers not yet in the catalog
+            # (meaningful from either side of the conversation — a business
+            # owner saying "I sourced a part from ABC Auto Parts" is exactly
+            # the signal) fold into ONE multi-action bundle proposal for the
+            # Inbox. Skipped for historical/backfill messages (the
+            # `not is_historical` guard above) so an initial sync doesn't
+            # flood the user with stale "detected" cards from old conversations.
+            order_intent = analysis.order_intent_mentioned if sender_type == 'contact' else []
+            if order_intent or analysis.new_products_mentioned or analysis.suppliers_mentioned:
                 await _action_bundles.detect_and_create(
-                    user_id, contact_id, conversation_id, message_id, analysis.order_intent_mentioned,
+                    user_id, contact_id, conversation_id, message_id, order_intent,
+                    new_products=analysis.new_products_mentioned, suppliers=analysis.suppliers_mentioned,
                 )
 
+        if sender_type == 'contact' and body:
             # Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md
             # §3.5/§5.4/§9) — if the user is actively watching this
             # conversation from an Advisor session, narrate the reply and

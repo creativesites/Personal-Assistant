@@ -28,7 +28,9 @@ Return ONLY valid JSON in exactly this format:
   "connections_mentioned": [{{"other_person_name": "the other person's name as stated", "connection_type": "works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to", "confidence": 0.0, "supporting_text": "exact quote"}}],
   "products_mentioned": [{{"product_name": "the product/service name as stated", "relation_type": "purchased|interested|quoted|recommended|mentioned", "quantity": 1, "replacement_interval_days": null, "confidence": 0.0}}],
   "order_intent_mentioned": [{{"product_name": "the product/service name as stated", "quantity": 1, "confidence": 0.0}}],
-  "life_events_mentioned": [{{"event_type": "new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business", "title": "brief title", "date": null}}]
+  "life_events_mentioned": [{{"event_type": "new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business", "title": "brief title", "date": null}}],
+  "new_products_mentioned": [{{"name": "the product/service name as stated", "category": null, "estimated_price": null, "currency": null, "is_one_off": false, "confidence": 0.0, "evidence": "exact quote"}}],
+  "suppliers_mentioned": [{{"company": "the supplier/company name as stated", "confidence": 0.0, "evidence": "exact quote"}}]
 }}
 
 Important for events_detected:
@@ -66,6 +68,17 @@ Important for order_intent_mentioned:
 Important for life_events_mentioned:
 - Only include this for a major, one-off life event explicitly stated — a new job, moving house, having a child, getting married, a health issue, a bereavement, a personal achievement, starting a business. Do not include routine chat or minor updates.
 - date should be resolved to an absolute YYYY-MM-DD using today's date above if determinable, else null.
+
+Important for new_products_mentioned:
+- Only include this when a specific, named product or service is mentioned that clearly is NOT a generic/already-known catalog item — e.g. "I sourced a Toyota brake pad for this job", "I picked up a part from town for the repair". This is the counterpart to products_mentioned for things that sound like they'd need to be ADDED to a catalog, not matched against one.
+- Do not include vague mentions ("some parts", "a few supplies") — name must be specific enough to be a real catalog entry.
+- is_one_off should be true when the phrasing suggests a single job-specific item sourced for one customer ("for this job", "just for him") rather than something the business would stock and resell repeatedly.
+- estimated_price/currency should only be set when a concrete amount is stated; otherwise null.
+- evidence should be the exact quote that justifies this detection.
+
+Important for suppliers_mentioned:
+- Only include this when the sender explicitly names a specific company/business they bought from or sourced something through — "I got this from ABC Auto Parts", "ordered via Chindo Wholesalers". Do not include vague references ("a supplier", "the usual guy").
+- evidence should be the exact quote.
 """
 
 GENERATE_REPLIES = """\

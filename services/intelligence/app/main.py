@@ -32,6 +32,7 @@ from .workers.daily_worker import (
     create_advisor_memory_learning_worker, run_advisor_memory_learning_scheduler,
     create_curiosity_proactive_worker, run_curiosity_proactive_scheduler,
     create_project_progress_worker, run_project_progress_scheduler,
+    create_business_manager_worker, run_business_manager_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI):
     advisor_memory_learning_worker = create_advisor_memory_learning_worker()
     curiosity_proactive_worker = create_curiosity_proactive_worker()
     project_progress_worker = create_project_progress_worker()
+    business_manager_worker = create_business_manager_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -86,6 +88,7 @@ async def lifespan(app: FastAPI):
     advisor_memory_learning_task = asyncio.create_task(run_advisor_memory_learning_scheduler())
     curiosity_proactive_task = asyncio.create_task(run_curiosity_proactive_scheduler())
     project_progress_task = asyncio.create_task(run_project_progress_scheduler())
+    business_manager_task = asyncio.create_task(run_business_manager_scheduler())
 
     yield
 
@@ -95,6 +98,7 @@ async def lifespan(app: FastAPI):
         reflection_task, emotion_reconsolidation_task,
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
         advisor_memory_learning_task, curiosity_proactive_task, project_progress_task,
+        business_manager_task,
     ):
         task.cancel()
         try:
@@ -123,6 +127,7 @@ async def lifespan(app: FastAPI):
     await advisor_memory_learning_worker.close()
     await curiosity_proactive_worker.close()
     await project_progress_worker.close()
+    await business_manager_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

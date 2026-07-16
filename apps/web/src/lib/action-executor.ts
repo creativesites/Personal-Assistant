@@ -12,7 +12,7 @@ import { apiClient } from './api'
 // reminder action" part is shared.
 
 export interface BundleAction {
-  type: 'create_deal' | 'reserve_stock' | 'generate_document' | 'reminder'
+  type: 'create_deal' | 'reserve_stock' | 'generate_document' | 'reminder' | 'create_product' | 'create_supplier'
   params: string[]
   // Indices (into the same actions array) that must be 'done' before this
   // action can run — additive to Business OS Phase E's shipped shape, so a
@@ -45,6 +45,14 @@ export function actionLabel(action: BundleAction): string {
         catch { return date }
       })()
       return `Schedule reminder: ${title} (${formatted})`
+    }
+    case 'create_product': {
+      const [name] = action.params
+      return `Add "${name}" to catalog (secondary)`
+    }
+    case 'create_supplier': {
+      const [company] = action.params
+      return `Add supplier: ${company}`
     }
     default:
       return 'Unknown action'
@@ -89,6 +97,29 @@ export async function executeAction(action: BundleAction, token: string): Promis
         method: 'POST', token,
         body: JSON.stringify({ title, eventDate: date, eventType: 'reminder' }),
       })
+      return
+    }
+    case 'create_product': {
+      const [name, category, estimatedPrice, currency] = action.params
+      // Business Events Plan §6 — a chat-detected product starts as
+      // 'secondary' (recorded, hidden from the main catalog by default),
+      // not 'active'.
+      await apiClient('/api/products', {
+        method: 'POST', token,
+        body: JSON.stringify({
+          name,
+          category: category || undefined,
+          sellingPrice: estimatedPrice ? parseFloat(estimatedPrice) : undefined,
+          currency: currency || undefined,
+          status: 'secondary',
+          trackInventory: false,
+        }),
+      })
+      return
+    }
+    case 'create_supplier': {
+      const [company] = action.params
+      await apiClient('/api/suppliers', { method: 'POST', token, body: JSON.stringify({ company }) })
       return
     }
   }

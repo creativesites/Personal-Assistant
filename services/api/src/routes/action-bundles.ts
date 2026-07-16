@@ -28,6 +28,8 @@ function bundleApiShape(r: any) {
     status: r.status,
     detectedAt: r.detected_at,
     resolvedAt: r.resolved_at,
+    confidence: r.confidence !== null ? Number(r.confidence) : null,
+    evidence: r.evidence ?? [],
   }
 }
 

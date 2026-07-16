@@ -15,7 +15,8 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
 
       const [statsResult, lowStockResult, thinMarginResult, supplierFlagsResult, suggestedPORows,
-        topProfitableResult, topVelocityResult, avgOrderSizeResult, stockoutForecastResult] = await Promise.all([
+        topProfitableResult, topVelocityResult, avgOrderSizeResult, stockoutForecastResult,
+        recentEventsResult] = await Promise.all([
         db.query(
           `SELECT
              (SELECT COUNT(*) FROM products WHERE user_id = $1) AS total_products,
@@ -110,6 +111,23 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
            ORDER BY f.expected_stockout_date ASC LIMIT 10`,
           [userId],
         ),
+        // Business Events Part F — "Zuri Noticed" activity feed. Every
+        // detected business signal (new product/supplier mentioned, order
+        // intent, etc.) writes a business_events row regardless of whether
+        // it produced an action bundle — this surfaces the last handful as
+        // a chronological feed on Studio's Overview tab. See
+        // docs/BUSINESS_EVENTS_PLAN.md Part F.
+        db.query(
+          `SELECT be.id, be.event_type, be.confidence, be.evidence, be.payload, be.status,
+                  be.bundle_id, be.created_at,
+                  COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
+           FROM business_events be
+           LEFT JOIN contacts c ON c.id = be.contact_id
+           WHERE be.user_id = $1
+           ORDER BY be.created_at DESC
+           LIMIT 10`,
+          [userId],
+        ),
       ])
 
       const s = statsResult.rows[0]
@@ -171,6 +189,17 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
           recommendedOrderQty: r.recommended_order_qty,
           recommendedOrderDate: r.recommended_order_date,
           cashRequired: r.cash_required != null ? parseFloat(r.cash_required) : null,
+        })),
+        recentEvents: recentEventsResult.rows.map((r: any) => ({
+          id: r.id,
+          eventType: r.event_type,
+          confidence: r.confidence != null ? parseFloat(r.confidence) : null,
+          evidence: r.evidence ?? [],
+          payload: r.payload ?? {},
+          status: r.status,
+          bundleId: r.bundle_id,
+          contactName: r.contact_name,
+          createdAt: r.created_at,
         })),
       })
     },
@@ -250,6 +279,90 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
           note: 'Track expenses by generating an "expense_claim" document — a dedicated expense ledger is not yet built.',
         },
       })
+    },
+  )
+
+  // Customer Management — deliberately not a new table. `customer_status`
+  // already exists on `contacts` (migration 0021); this is a Studio-side
+  // commercial lens over the same row, same "siblings, not parallel
+  // schemas" reuse discipline as Services vs. Products. See
+  // docs/BUSINESS_EVENTS_PLAN.md §6.
+  fastify.get(
+    '/api/studio/customers',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const result = await db.query(
+        `SELECT
+           co.id, COALESCE(co.custom_name, co.display_name, co.phone_number) AS name, co.avatar_url,
+           co.company, co.job_title,
+           r.health_score, r.health_trend, r.last_interaction_at,
+           COALESCE(rev.total_cents, 0) AS revenue_events_cents,
+           COALESCE(inv.paid_cents, 0) AS paid_invoices_cents,
+           COALESCE(inv.outstanding_cents, 0) AS outstanding_cents,
+           COALESCE(inv.last_invoice_at, 'epoch'::timestamptz) AS last_invoice_at,
+           COALESCE(cp.last_purchase_at, 'epoch'::timestamptz) AS last_purchase_at,
+           COALESCE(cp.purchase_count, 0) AS purchase_count,
+           cp.product_names
+         FROM contacts co
+         JOIN relationships r ON r.contact_id = co.id AND r.user_id = $1
+         LEFT JOIN LATERAL (
+           SELECT SUM(amount_cents) AS total_cents FROM revenue_events
+           WHERE contact_id = co.id AND user_id = $1
+         ) rev ON true
+         LEFT JOIN LATERAL (
+           SELECT
+             SUM(total_cents) FILTER (WHERE status = 'paid') AS paid_cents,
+             SUM(total_cents) FILTER (WHERE status IN ('sent', 'viewed', 'downloaded')) AS outstanding_cents,
+             MAX(created_at) FILTER (WHERE document_type = 'invoice') AS last_invoice_at
+           FROM documents
+           WHERE contact_id = co.id AND user_id = $1 AND document_type = 'invoice'
+         ) inv ON true
+         LEFT JOIN LATERAL (
+           SELECT
+             COUNT(*) AS purchase_count,
+             MAX(cp.updated_at) AS last_purchase_at,
+             array_agg(DISTINCT p.name) AS product_names
+           FROM contact_products cp
+           JOIN products p ON p.id = cp.product_id
+           WHERE cp.contact_id = co.id AND cp.user_id = $1 AND cp.relation_type = 'purchased'
+         ) cp ON true
+         WHERE co.user_id = $1 AND co.customer_status = 'customer'
+         ORDER BY COALESCE(rev.total_cents, 0) + COALESCE(inv.paid_cents, 0) DESC`,
+        [userId],
+      )
+
+      const customers = result.rows.map((row) => {
+        const ltvCents = parseInt(row.revenue_events_cents, 10) + parseInt(row.paid_invoices_cents, 10)
+        const lastInvoiceAt = row.last_invoice_at === '1970-01-01T00:00:00.000Z' ? null : row.last_invoice_at
+        const lastPurchaseAt = row.last_purchase_at === '1970-01-01T00:00:00.000Z' ? null : row.last_purchase_at
+        const lastPurchase = [lastInvoiceAt, lastPurchaseAt].filter(Boolean).sort().reverse()[0] ?? null
+
+        // Compute-on-read — a handful of customer rows per page load, not a
+        // hot path, so a stored/denormalized tier column isn't warranted.
+        let tier: 'gold' | 'silver' | 'bronze' = 'bronze'
+        if (ltvCents >= 500_000) tier = 'gold'
+        else if (ltvCents >= 100_000) tier = 'silver'
+
+        return {
+          id: row.id,
+          name: row.name,
+          avatarUrl: row.avatar_url,
+          company: row.company,
+          jobTitle: row.job_title,
+          lifetimeValueCents: ltvCents,
+          outstandingCents: parseInt(row.outstanding_cents, 10),
+          purchaseCount: parseInt(row.purchase_count, 10),
+          productNames: (row.product_names ?? []).filter(Boolean),
+          lastPurchase,
+          tier,
+          atRisk: row.health_trend === 'declining',
+          healthScore: row.health_score,
+        }
+      })
+
+      return reply.send({ customers })
     },
   )
 }

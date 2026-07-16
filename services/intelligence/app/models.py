@@ -103,6 +103,31 @@ class LifeEventMention(BaseModel):
     date: str | None = None
 
 
+class NewProductMention(BaseModel):
+    """A product/service mentioned that does NOT match anything in the
+    catalog — see docs/BUSINESS_EVENTS_PLAN.md §4. ProductMention silently
+    drops an unmatched mention today; this is the 'create a product from
+    chat, with approval' signal instead. is_one_off marks the mechanic's-
+    spare-part case (sourced for a single job, not necessarily resellable)
+    — still worth recording, just not the same as a line the business
+    stocks and sells repeatedly."""
+    name: str
+    category: str | None = None
+    estimated_price: float | None = None
+    currency: str | None = None
+    is_one_off: bool = False
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    evidence: str = ''
+
+
+class SupplierMention(BaseModel):
+    """'I bought this from ABC Auto Parts' — a supplier not already in
+    `suppliers`. See docs/BUSINESS_EVENTS_PLAN.md §4."""
+    company: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    evidence: str = ''
+
+
 class MessageAnalysis(BaseModel):
     sentiment: str  # positive|negative|neutral|mixed
     sentiment_score: float = Field(ge=0.0, le=1.0)
@@ -121,6 +146,8 @@ class MessageAnalysis(BaseModel):
     products_mentioned: list[ProductMention] = Field(default_factory=list)
     order_intent_mentioned: list[OrderIntentMention] = Field(default_factory=list)
     life_events_mentioned: list[LifeEventMention] = Field(default_factory=list)
+    new_products_mentioned: list[NewProductMention] = Field(default_factory=list)
+    suppliers_mentioned: list[SupplierMention] = Field(default_factory=list)
 
 
 class ReplySuggestion(BaseModel):

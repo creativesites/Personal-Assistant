@@ -58,6 +58,10 @@ const createBody = z.object({
   // UI/insights/forecasts gate on.
   pricingModel: z.enum(['fixed', 'hourly', 'daily', 'subscription', 'milestone', 'quote', 'recurring']).optional().nullable(),
   trackInventory: z.boolean().optional(),
+  // Business Events Plan §6 — a chat-detected product is created with
+  // status='secondary' (recorded, hidden from the main catalog grid by
+  // default) rather than landing directly in 'active'.
+  status: z.enum(['active', 'secondary', 'archived', 'discontinued']).optional(),
 })
 
 const patchBody = z.object({
@@ -68,7 +72,7 @@ const patchBody = z.object({
   serialNumber: z.string().max(255).optional().nullable(),
   quantity: z.number().int().nonnegative().optional(),
   images: z.array(z.string()).optional(),
-  status: z.enum(['active', 'sold', 'archived']).optional(),
+  status: z.enum(['active', 'secondary', 'archived', 'discontinued']).optional(),
   // New fields
   sku: z.string().max(100).optional().nullable(),
   barcode: z.string().max(100).optional().nullable(),
@@ -264,6 +268,14 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: [authenticate, requireMarketingAccess] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
+      // Business Events Plan §6 — a 'secondary' product (a one-off item
+      // recorded but not meant to clutter the main catalog) is excluded by
+      // default, same as 'archived' already is; ?includeSecondary=true
+      // reveals it (the Catalog tab's "Show secondary items" toggle).
+      const { includeSecondary } = request.query as { includeSecondary?: string }
+      const statusFilter = includeSecondary === 'true'
+        ? `p.status != 'archived'`
+        : `p.status NOT IN ('archived', 'secondary')`
 
       const { rows } = await db.query<ProductRow>(
         `SELECT p.id, p.name, p.description, p.price, p.currency, p.serial_number, p.quantity,
@@ -285,7 +297,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
          LEFT JOIN contact_products cp ON cp.product_id = p.id AND cp.user_id = p.user_id
          LEFT JOIN contacts co ON co.source_product_id = p.id AND co.user_id = p.user_id
          LEFT JOIN products v ON v.parent_product_id = p.id AND v.status != 'archived'
-         WHERE p.user_id = $1 AND p.status != 'archived' AND p.parent_product_id IS NULL
+         WHERE p.user_id = $1 AND ${statusFilter} AND p.parent_product_id IS NULL
          GROUP BY p.id
          ORDER BY p.created_at DESC`,
         [userId],
@@ -439,7 +451,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
            purchase_cost, selling_price, margin, discount_rules, cross_sell, upsell,
            replacement_product_id, related_products, warranty, manual, tags,
            service_details, inventory_details, pricing_details, ai_notes, marketing_copy,
-           family_id, attributes, pricing_model, track_inventory
+           family_id, attributes, pricing_model, track_inventory, status
          )
          VALUES (
            $1, $2, $3, $4, COALESCE($5, 'ZMW'), $6, $7, COALESCE($8::jsonb, '[]'::jsonb),
@@ -449,7 +461,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
            COALESCE($28::jsonb, '[]'::jsonb), $29, COALESCE($30::jsonb, '[]'::jsonb), $31, $32,
            COALESCE($33::text[], '{}'::text[]), COALESCE($34::jsonb, '{}'::jsonb), COALESCE($35::jsonb, '{}'::jsonb),
            COALESCE($36::jsonb, '{}'::jsonb), $37, $38,
-           $39, COALESCE($40::jsonb, '{}'::jsonb), $41, $42
+           $39, COALESCE($40::jsonb, '{}'::jsonb), $41, $42, COALESCE($43, 'active')
          )
          RETURNING *`,
         [
@@ -496,6 +508,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
           body.attributes ? JSON.stringify(body.attributes) : null,
           body.pricingModel ?? null,
           body.trackInventory !== undefined ? body.trackInventory : ['product', 'bundle'].includes(body.itemType ?? 'product'),
+          body.status ?? null,
         ],
       )
 
