@@ -3,12 +3,15 @@
 import { useState } from 'react'
 import {
   TrendingUp, Target, Calendar, MessageCircle,
-  Check, Copy, Edit3, Send, ChevronRight, Loader2, FileText, ExternalLink,
+  Check, Copy, Edit3, Send, ChevronRight, Loader2, FileText, ExternalLink, Clock, GitBranch,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ActionType = 'lead_score' | 'pipeline_stage' | 'reply_draft' | 'reminder' | 'generate_document'
+export type ActionType =
+  | 'lead_score' | 'pipeline_stage' | 'reply_draft' | 'reminder' | 'generate_document'
+  // Services Management System (docs/SERVICES_PROJECTS_PLAN.md §B9)
+  | 'estimate_duration' | 'start_project'
 
 export interface ParsedAction {
   type: ActionType
@@ -19,8 +22,9 @@ export interface ChatFormatterProps {
   content: string
   /** Dark theme (Advisor page) vs light theme (IntelPanel chat tab) */
   theme?: 'dark' | 'light'
-  /** Called when the user triggers a CRM action */
-  onAction?: (action: ParsedAction) => Promise<void>
+  /** Called when the user triggers a CRM action — may resolve a value the
+   * widget renders back (e.g. start_project's created projectId) */
+  onAction?: (action: ParsedAction) => Promise<any>
   /** Contact name — used in draft card header */
   contactName?: string
 }
@@ -451,6 +455,7 @@ function ReminderWidget({
 
 const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   quotation: 'Quotation', invoice: 'Invoice', proposal: 'Proposal', contract: 'Contract',
+  statement_of_work: 'Statement of Work', service_agreement: 'Service Agreement',
 }
 
 function GenerateDocumentWidget({
@@ -507,6 +512,103 @@ function GenerateDocumentWidget({
         </p>
       )}
       {failed && <p className="text-[10px] text-red-500 font-semibold">Couldn&apos;t generate the document. Try again from the Documents page.</p>}
+    </div>
+  )
+}
+
+function EstimateDurationWidget({
+  productId, theme, onAction,
+}: { productId: string; theme: 'dark' | 'light'; onAction?: (a: ParsedAction) => Promise<any> }) {
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const estimate = async () => {
+    if (!onAction) return
+    setLoading(true)
+    setFailed(false)
+    try {
+      const res = await onAction({ type: 'estimate_duration', params: [productId] })
+      setResult(typeof res === 'string' ? res : 'Estimate ready.')
+    } catch {
+      setFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border p-3 my-2 space-y-2 ${
+      theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-amber-50 border-amber-100'
+    }`}>
+      <div className="flex items-center gap-1.5">
+        <Clock size={12} className="text-amber-400" />
+        <span className={`text-[11px] font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-amber-800'}`}>
+          Estimate Duration
+        </span>
+      </div>
+      {!result && onAction && (
+        <button onClick={estimate} disabled={loading}
+          className="flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg disabled:opacity-50 transition-colors">
+          {loading ? <Loader2 size={10} className="animate-spin" /> : <Clock size={10} />}
+          Estimate
+        </button>
+      )}
+      {result && <p className={`text-[12px] leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>{result}</p>}
+      {failed && <p className="text-[10px] text-red-500 font-semibold">Couldn&apos;t estimate — check the service&apos;s workflow stages in the Services tab.</p>}
+    </div>
+  )
+}
+
+function StartProjectWidget({
+  productId, contactId, theme, onAction,
+}: { productId: string; contactId: string; theme: 'dark' | 'light'; onAction?: (a: ParsedAction) => Promise<any> }) {
+  const [loading, setLoading] = useState(false)
+  const [done, setDone] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [projectId, setProjectId] = useState<string | null>(null)
+
+  const start = async () => {
+    if (!onAction) return
+    setLoading(true)
+    setFailed(false)
+    try {
+      const res = await onAction({ type: 'start_project', params: [productId, contactId] })
+      if (res && typeof res === 'object' && res.projectId) setProjectId(res.projectId)
+      setDone(true)
+    } catch {
+      setFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border p-3 my-2 space-y-2 ${
+      theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-violet-50 border-violet-100'
+    }`}>
+      <div className="flex items-center gap-1.5">
+        <GitBranch size={12} className="text-violet-400" />
+        <span className={`text-[11px] font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-violet-800'}`}>
+          Start Project
+        </span>
+      </div>
+      {onAction && !done && (
+        <button onClick={start} disabled={loading}
+          className="flex items-center gap-1.5 text-[10px] font-bold px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg disabled:opacity-50 transition-colors">
+          {loading ? <Loader2 size={10} className="animate-spin" /> : <GitBranch size={10} />}
+          Start Project
+        </button>
+      )}
+      {done && (
+        <p className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1.5">
+          <Check size={10} />Project created —
+          <a href={projectId ? `/projects/${projectId}` : '/projects'} className="underline inline-flex items-center gap-0.5">
+            open Projects <ExternalLink size={9} />
+          </a>
+        </p>
+      )}
+      {failed && <p className="text-[10px] text-red-500 font-semibold">Couldn&apos;t start the project. Try again from the Services tab.</p>}
     </div>
   )
 }
@@ -584,6 +686,20 @@ export function ChatFormatter({
               <GenerateDocumentWidget key={i}
                 documentType={documentType ?? 'quotation'} contactId={contactId ?? ''} brief={brief}
                 theme={theme} onAction={onAction} />
+            )
+          }
+          case 'estimate_duration': {
+            const [productId] = action.params
+            return (
+              <EstimateDurationWidget key={i}
+                productId={productId ?? ''} theme={theme} onAction={onAction} />
+            )
+          }
+          case 'start_project': {
+            const [productId, contactId] = action.params
+            return (
+              <StartProjectWidget key={i}
+                productId={productId ?? ''} contactId={contactId ?? ''} theme={theme} onAction={onAction} />
             )
           }
           default:

@@ -354,6 +354,34 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
                    NULL::bigint AS amount_cents, 75::decimal AS score
             FROM projects p
             WHERE p.user_id = $1 AND p.status = 'active' AND p.due_date < CURRENT_DATE AND p.contact_id IS NOT NULL
+
+            UNION ALL
+
+            -- Project Management Phase 1 (docs/SERVICES_PROJECTS_PLAN.md
+            -- §11.6) — same brief, two more deterministic checks.
+            SELECT 'milestone_overdue'::text AS source_type, pm.id, p.contact_id,
+                   ('Milestone overdue: ' || pm.title) AS headline, ('Project: ' || p.title) AS detail,
+                   pm.payment_amount_cents AS amount_cents, 78::decimal AS score
+            FROM project_milestones pm
+            JOIN projects p ON p.id = pm.project_id AND p.user_id = $1
+            WHERE pm.status NOT IN ('completed', 'cancelled') AND pm.target_date < CURRENT_DATE
+              AND p.contact_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT 'project_over_budget'::text AS source_type, p.id, p.contact_id,
+                   ('Project over budget: ' || p.title) AS headline,
+                   ('Invoiced ' || inv.invoiced_cents || ' vs estimated ' || p.estimated_budget_cents) AS detail,
+                   inv.invoiced_cents AS amount_cents, 70::decimal AS score
+            FROM projects p
+            JOIN LATERAL (
+              SELECT COALESCE(SUM(d.total_cents), 0) AS invoiced_cents
+              FROM documents d
+              WHERE d.user_id = p.user_id AND d.document_type = 'invoice'
+                AND (d.project_id = p.id OR (d.project_id IS NULL AND d.deal_id = p.deal_id))
+            ) inv ON true
+            WHERE p.user_id = $1 AND p.status = 'active' AND p.contact_id IS NOT NULL
+              AND p.estimated_budget_cents IS NOT NULL AND inv.invoiced_cents > p.estimated_budget_cents
           )
           SELECT i.*, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url
           FROM today_suggestions i

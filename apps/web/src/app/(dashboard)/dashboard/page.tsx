@@ -28,6 +28,8 @@ import {
   ShieldCheck,
   ListChecks,
   FolderKanban,
+  Flag,
+  Wallet,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -89,7 +91,7 @@ interface ReflectionData {
 // appends detail/amount — no client-side composition logic needed.
 interface BriefItem {
   id: string
-  sourceType: 'suggestion' | 'opportunity' | 'health_decline' | 'event' | 'task_overdue' | 'project_behind'
+  sourceType: 'suggestion' | 'opportunity' | 'health_decline' | 'event' | 'task_overdue' | 'project_behind' | 'milestone_overdue' | 'project_over_budget'
   headline: string
   detail: string | null
   amountCents: number | null
@@ -114,6 +116,8 @@ const BRIEF_STYLES: Record<BriefItem['sourceType'], { Icon: LucideIcon; iconBg: 
   event: { Icon: Calendar, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
   task_overdue: { Icon: ListChecks, iconBg: 'bg-amber-50', iconColor: 'text-amber-600' },
   project_behind: { Icon: FolderKanban, iconBg: 'bg-violet-50', iconColor: 'text-violet-600' },
+  milestone_overdue: { Icon: Flag, iconBg: 'bg-rose-50', iconColor: 'text-rose-600' },
+  project_over_budget: { Icon: Wallet, iconBg: 'bg-orange-50', iconColor: 'text-orange-600' },
 }
 
 // Health Rollup (docs/RELATIONSHIP_OS_PLAN.md §5.10/§6.9) — a composite
@@ -205,6 +209,8 @@ function sourceLabel(sourceType: BriefItem['sourceType']) {
   if (sourceType === 'event') return 'Moment'
   if (sourceType === 'task_overdue') return 'Task overdue'
   if (sourceType === 'project_behind') return 'Project behind'
+  if (sourceType === 'milestone_overdue') return 'Milestone overdue'
+  if (sourceType === 'project_over_budget') return 'Over budget'
   return 'Nudge'
 }
 

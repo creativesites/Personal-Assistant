@@ -23,17 +23,21 @@ const MANUAL_STATUSES = ['sent', 'accepted', 'rejected', 'paid', 'archived'] as 
 // used), and the documents.document_type CHECK constraint (migration 0043)
 // already allows both, so the plain createBody path should too rather than
 // forcing every proposal/contract through the separate ai-generate path.
-const PHASE_0_TYPES = ['quotation', 'invoice', 'proposal', 'contract'] as const;
+export const PHASE_0_TYPES = ['quotation', 'invoice', 'proposal', 'contract', 'statement_of_work', 'service_agreement'] as const;
 
 // Phase 2 (AI generation) additionally supports proposals/contracts — the
 // minimal/modern templates render narrative "sections" generically, so no
 // new template file was needed, just a wider type list. See plan §7/§11.
-const AI_GENERATE_TYPES = ['quotation', 'invoice', 'proposal', 'contract'] as const;
+// statement_of_work/service_agreement (Services Management System, see
+// docs/SERVICES_PROJECTS_PLAN.md §B9) reuse the same generic template —
+// no new template needed there either.
+const AI_GENERATE_TYPES = ['quotation', 'invoice', 'proposal', 'contract', 'statement_of_work', 'service_agreement'] as const;
 const DOCUMENT_CATEGORY: Record<string, string> = {
   quotation: 'sales', invoice: 'sales', proposal: 'sales', contract: 'legal',
+  statement_of_work: 'legal', service_agreement: 'legal',
 };
 
-const lineItemSchema = z.object({
+export const lineItemSchema = z.object({
   productId: z.string().uuid().optional(),
   description: z.string().min(1).max(500),
   quantity: z.number().positive(),
@@ -70,6 +74,7 @@ const createBody = z.object({
   dealId: z.string().uuid().optional(),
   opportunityId: z.string().uuid().optional(),
   conversationId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
 });
 
 const updateBody = createBody.partial().extend({
@@ -148,6 +153,7 @@ export function formatDocument(r: any) {
     dealId: r.deal_id,
     opportunityId: r.opportunity_id,
     conversationId: r.conversation_id,
+    projectId: r.project_id,
     supplierId: r.supplier_id,
     templateId: r.template_id,
     contact: r.contact_name ? { id: r.contact_id, name: r.contact_name, avatarUrl: r.avatar_url ?? null } : null,
@@ -317,14 +323,15 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
 
     const { rows: [doc] } = await db.query(
       `INSERT INTO documents
-         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id, project_id,
           document_type, document_category, document_number, title, status, structured_data,
           currency, subtotal_cents, discount_cents, tax_cents, total_cents, requested_by, ai_generated)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'sales',$8,$9,'draft',$10,$11,$12,$13,$14,$15,'user',false)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sales',$9,$10,'draft',$11,$12,$13,$14,$15,$16,'user',false)
        RETURNING *`,
       [
         userId, body.contactId ?? null, body.dealId ?? null, body.opportunityId ?? null,
-        body.conversationId ?? null, body.templateId ?? null, body.documentType, documentNumber, title,
+        body.conversationId ?? null, body.templateId ?? null, body.projectId ?? null,
+        body.documentType, documentNumber, title,
         JSON.stringify(structuredData), body.currency ?? 'ZMW', subtotalCents, discountCents, taxCents, totalCents,
       ],
     );
@@ -447,6 +454,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       dealId: z.string().uuid().optional(),
       opportunityId: z.string().uuid().optional(),
       conversationId: z.string().uuid().optional(),
+      projectId: z.string().uuid().optional(),
     }).parse(request.body);
 
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
@@ -490,15 +498,15 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
 
     const { rows: [doc] } = await db.query(
       `INSERT INTO documents
-         (user_id, contact_id, deal_id, opportunity_id, conversation_id,
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, project_id,
           document_type, document_category, document_number, title, status, structured_data,
           subtotal_cents, discount_cents, tax_cents, total_cents,
           requested_by, ai_generated, ai_reasoning)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',$10,$11,$12,$13,$14,'user',true,$15)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,'user',true,$16)
        RETURNING *`,
       [
         userId, body.contactId, body.dealId ?? null, body.opportunityId ?? null, body.conversationId ?? null,
-        body.documentType, DOCUMENT_CATEGORY[body.documentType] ?? 'sales', documentNumber, title,
+        body.projectId ?? null, body.documentType, DOCUMENT_CATEGORY[body.documentType] ?? 'sales', documentNumber, title,
         JSON.stringify(structuredData), subtotalCents, discountCents, taxCents, totalCents, generated.reasoning || null,
       ],
     );

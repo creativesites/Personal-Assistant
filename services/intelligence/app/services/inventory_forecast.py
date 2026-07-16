@@ -36,7 +36,7 @@ class InventoryForecastService:
                 JOIN stock_movements sm ON sm.product_id = p.id
                   AND sm.movement_type = 'sale'
                   AND sm.created_at > NOW() - make_interval(days => $1)
-                WHERE p.item_type != 'service'
+                WHERE p.track_inventory
                 GROUP BY p.id, p.available, p.purchase_cost, p.supplier_lead_time
                 HAVING SUM(-sm.quantity_delta) > 0
                 """,

@@ -27,6 +27,7 @@ const createBody = z.object({
   expectedDeliveryDate: z.string().optional(),
   notes: z.string().max(2000).optional(),
   autoApprove: z.boolean().optional(),
+  projectId: z.string().uuid().optional(),
 })
 
 type ApproveResult = { error: string; status: number } | { document: any }
@@ -128,12 +129,12 @@ export async function purchaseOrdersRoutes(fastify: FastifyInstance): Promise<vo
 
       const { rows: [doc] } = await db.query(
         `INSERT INTO documents
-           (user_id, supplier_id, document_type, document_category, document_number, title, status,
+           (user_id, supplier_id, project_id, document_type, document_category, document_number, title, status,
             structured_data, currency, subtotal_cents, discount_cents, tax_cents, total_cents,
             requested_by, ai_generated)
-         VALUES ($1, $2, 'purchase_order', 'operations', $3, $4, 'draft', $5, 'ZMW', $6, $7, $8, $9, 'user', false)
+         VALUES ($1, $2, $3, 'purchase_order', 'operations', $4, $5, 'draft', $6, 'ZMW', $7, $8, $9, $10, 'user', false)
          RETURNING *`,
-        [userId, body.supplierId, documentNumber, title, JSON.stringify(structuredData),
+        [userId, body.supplierId, body.projectId ?? null, documentNumber, title, JSON.stringify(structuredData),
           subtotalCents, discountCents, taxCents, totalCents],
       )
 

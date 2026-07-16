@@ -17,7 +17,7 @@ log = structlog.get_logger()
 
 DOCUMENT_CATEGORY = {
     'quotation': 'sales', 'invoice': 'sales', 'proposal': 'sales', 'contract': 'legal',
-    'service_agreement': 'legal', 'project_plan': 'operations',
+    'service_agreement': 'legal', 'statement_of_work': 'legal', 'project_plan': 'operations',
 }
 
 # Was in document_renderer.py, alongside the Jinja2/Playwright rendering

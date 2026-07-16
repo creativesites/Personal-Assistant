@@ -19,9 +19,9 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
         db.query(
           `SELECT
              (SELECT COUNT(*) FROM products WHERE user_id = $1) AS total_products,
-             (SELECT COALESCE(SUM(available * purchase_cost), 0) FROM products WHERE user_id = $1) AS inventory_value,
-             (SELECT COUNT(*) FROM products WHERE user_id = $1 AND available <= minimum_stock AND available > 0) AS low_stock_count,
-             (SELECT COUNT(*) FROM products WHERE user_id = $1 AND available = 0) AS out_of_stock_count,
+             (SELECT COALESCE(SUM(available * purchase_cost), 0) FROM products WHERE user_id = $1 AND track_inventory) AS inventory_value,
+             (SELECT COUNT(*) FROM products WHERE user_id = $1 AND track_inventory AND available <= minimum_stock AND available > 0) AS low_stock_count,
+             (SELECT COUNT(*) FROM products WHERE user_id = $1 AND track_inventory AND available = 0) AS out_of_stock_count,
              (SELECT COUNT(*) FROM suppliers WHERE user_id = $1) AS total_suppliers,
              (SELECT COALESCE(SUM(outstanding_balance), 0) FROM suppliers WHERE user_id = $1) AS outstanding_supplier_balance,
              (SELECT COUNT(*) FROM business_facts WHERE user_id = $1 AND category = 'business_rule' AND is_active = true) AS active_rules`,
@@ -29,7 +29,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
         ),
         db.query(
           `SELECT id, name, available, minimum_stock
-           FROM products WHERE user_id = $1 AND available <= minimum_stock
+           FROM products WHERE user_id = $1 AND track_inventory AND available <= minimum_stock
            ORDER BY available ASC LIMIT 10`,
           [userId],
         ),
@@ -61,7 +61,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
            FROM products p
            JOIN supplier_products sp ON sp.product_id = p.id
            JOIN suppliers s ON s.id = sp.supplier_id AND s.user_id = p.user_id
-           WHERE p.user_id = $1 AND p.available <= p.minimum_stock AND p.parent_product_id IS NULL
+           WHERE p.user_id = $1 AND p.track_inventory AND p.available <= p.minimum_stock AND p.parent_product_id IS NULL
            ORDER BY p.id, sp.cost ASC NULLS LAST
            LIMIT 10`,
           [userId],
@@ -209,7 +209,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
         ),
         db.query(
           `SELECT
-             COALESCE(SUM(available * purchase_cost), 0) AS inventory_value,
+             COALESCE(SUM(available * purchase_cost) FILTER (WHERE track_inventory), 0) AS inventory_value,
              COALESCE(AVG(margin) FILTER (WHERE margin IS NOT NULL), 0) AS avg_margin_pct
            FROM products WHERE user_id = $1`,
           [userId],

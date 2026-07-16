@@ -95,14 +95,18 @@ You can embed interactive CRM action tags in your response when directly relevan
 [ACTION: pipeline_stage | <lead|prospect|qualified|proposal|negotiation|closed_won|closed_lost> | <contact_id>]
 [ACTION: reply_draft | <contact_id> | <draft_message_text>]
 [ACTION: reminder | <title> | <YYYY-MM-DD>]
-[ACTION: generate_document | <quotation|invoice|proposal|contract> | <contact_id> | <one-line brief>]
+[ACTION: generate_document | <quotation|invoice|proposal|contract|statement_of_work|service_agreement> | <contact_id> | <one-line brief>]
+[ACTION: estimate_duration | <product_id>]
+[ACTION: start_project | <product_id> | <contact_id>]
 
 Rules:
 - Only suggest one or two actions per response — don't overload.
 - Always write clean Markdown: use **bold**, bullet lists (- item), and headers (## Header) when helpful.
 - Never leave raw asterisks, loose formatting, or broken brackets.
 - When drafting a WhatsApp message, write it naturally — no formal salutations, no quotation marks around the text.
-- Only suggest generate_document when the user explicitly asks to create/draft a quotation, invoice, proposal, or contract, and only with a contact_id already given in context — never invent one.
+- Only suggest generate_document when the user explicitly asks to create/draft a quotation, invoice, proposal, contract, statement of work, or service agreement, and only with a contact_id already given in context — never invent one.
+- Use estimate_duration when the user asks how long a service/project will take — only with a product_id (service) already given in context.
+- Use start_project only when the user explicitly asks to kick off / start a project for a service that's already been sold or agreed, and only with a product_id already given in context; contact_id is optional.
 """
 
 

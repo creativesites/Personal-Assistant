@@ -52,6 +52,12 @@ const createBody = z.object({
   // docs/BUSINESS_OS_PLAN.md §5)
   familyId: z.string().uuid().optional().nullable(),
   attributes: z.record(z.any()).optional(),
+  // Services Management System (see docs/SERVICES_PROJECTS_PLAN.md) —
+  // pricingModel is meaningful only for itemType='service' (and siblings);
+  // trackInventory is the single conditional the rest of Studio's inventory
+  // UI/insights/forecasts gate on.
+  pricingModel: z.enum(['fixed', 'hourly', 'daily', 'subscription', 'milestone', 'quote', 'recurring']).optional().nullable(),
+  trackInventory: z.boolean().optional(),
 })
 
 const patchBody = z.object({
@@ -100,6 +106,8 @@ const patchBody = z.object({
   discountMaxPct: z.number().min(0).max(100).optional(),
   familyId: z.string().uuid().optional().nullable(),
   attributes: z.record(z.any()).optional(),
+  pricingModel: z.enum(['fixed', 'hourly', 'daily', 'subscription', 'milestone', 'quote', 'recurring']).optional().nullable(),
+  trackInventory: z.boolean().optional(),
 })
 
 const generateVariantsBody = z.object({
@@ -172,6 +180,8 @@ type ProductRow = {
   parent_product_id?: string | null
   variant_count?: string
   incoming?: number
+  pricing_model?: string | null
+  track_inventory?: boolean
 }
 
 function toApiShape(p: ProductRow) {
@@ -241,6 +251,10 @@ function toApiShape(p: ProductRow) {
 
     // Business OS Phase B
     incoming: p.incoming ?? 0,
+
+    // Services Management System
+    pricingModel: p.pricing_model ?? null,
+    trackInventory: p.track_inventory ?? true,
   }
 }
 
@@ -263,6 +277,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
                 p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
                 p.discount_min_pct, p.discount_max_pct,
                 p.family_id, p.attributes, p.parent_product_id, p.incoming,
+                p.pricing_model, p.track_inventory,
                 COUNT(DISTINCT cp.contact_id) AS linked_contacts,
                 COUNT(DISTINCT co.id) FILTER (WHERE co.source_product_id = p.id) AS attributed_leads,
                 COUNT(DISTINCT v.id) AS variant_count
@@ -300,7 +315,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
                 p.manual, p.tags, p.service_details, p.inventory_details, p.pricing_details,
                 p.ai_notes, p.marketing_copy, p.min_price, p.max_price,
                 p.discount_min_pct, p.discount_max_pct,
-                p.family_id, p.attributes, p.parent_product_id, p.incoming
+                p.family_id, p.attributes, p.parent_product_id, p.incoming,
+                p.pricing_model, p.track_inventory
          FROM products p
          WHERE p.user_id = $1 AND p.parent_product_id = $2 AND p.status != 'archived'
          ORDER BY p.name ASC`,
@@ -423,7 +439,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
            purchase_cost, selling_price, margin, discount_rules, cross_sell, upsell,
            replacement_product_id, related_products, warranty, manual, tags,
            service_details, inventory_details, pricing_details, ai_notes, marketing_copy,
-           family_id, attributes
+           family_id, attributes, pricing_model, track_inventory
          )
          VALUES (
            $1, $2, $3, $4, COALESCE($5, 'ZMW'), $6, $7, COALESCE($8::jsonb, '[]'::jsonb),
@@ -433,7 +449,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
            COALESCE($28::jsonb, '[]'::jsonb), $29, COALESCE($30::jsonb, '[]'::jsonb), $31, $32,
            COALESCE($33::text[], '{}'::text[]), COALESCE($34::jsonb, '{}'::jsonb), COALESCE($35::jsonb, '{}'::jsonb),
            COALESCE($36::jsonb, '{}'::jsonb), $37, $38,
-           $39, COALESCE($40::jsonb, '{}'::jsonb)
+           $39, COALESCE($40::jsonb, '{}'::jsonb), $41, $42
          )
          RETURNING *`,
         [
@@ -478,6 +494,8 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
           body.marketingCopy ?? null,
           body.familyId ?? null,
           body.attributes ? JSON.stringify(body.attributes) : null,
+          body.pricingModel ?? null,
+          body.trackInventory !== undefined ? body.trackInventory : ['product', 'bundle'].includes(body.itemType ?? 'product'),
         ],
       )
 
@@ -574,6 +592,14 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       if (body.discountMaxPct !== undefined) { sets.push(`discount_max_pct = $${idx++}`); values.push(body.discountMaxPct) }
       if (body.familyId !== undefined) { sets.push(`family_id = $${idx++}`); values.push(body.familyId) }
       if (body.attributes !== undefined) { sets.push(`attributes = $${idx++}::jsonb`); values.push(JSON.stringify(body.attributes)) }
+      if (body.pricingModel !== undefined) { sets.push(`pricing_model = $${idx++}`); values.push(body.pricingModel) }
+      if (body.trackInventory !== undefined) { sets.push(`track_inventory = $${idx++}`); values.push(body.trackInventory) }
+      // itemType changing without an explicit trackInventory override should
+      // re-derive the sensible default (a service switched from 'product'
+      // shouldn't keep tracking stock, and vice versa).
+      if (body.itemType !== undefined && body.trackInventory === undefined) {
+        sets.push(`track_inventory = $${idx++}`); values.push(['product', 'bundle'].includes(body.itemType))
+      }
 
       const { rowCount } = await db.query(
         `UPDATE products SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2`,

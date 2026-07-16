@@ -16,6 +16,7 @@ from ..services.spiritual_companion import get_spiritual_companion
 from ..services.motivational_detector import get_motivational_detector
 from ..services.advisor_memory_learner import get_advisor_memory_learner
 from ..services.curiosity_engine import get_curiosity_engine
+from ..services.project_progress import ProjectProgressService
 
 log = structlog.get_logger()
 
@@ -25,6 +26,7 @@ _document_followups = DocumentFollowupService()
 _pricing_benchmarks = PricingBenchmarkService()
 _inventory_forecast = InventoryForecastService()
 _reflection = ReflectionService()
+_project_progress = ProjectProgressService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
 _temporal_queue      = Queue('temporal.clock_check',     {'connection': redis_conn_opts()})
@@ -41,6 +43,7 @@ _spiritual_devotional_queue = Queue('companion.send_devotionals', {'connection':
 _motivational_nudge_queue = Queue('companion.check_motivational', {'connection': redis_conn_opts()})
 _advisor_memory_learning_queue = Queue('advisor.learn_memories', {'connection': redis_conn_opts()})
 _curiosity_proactive_queue = Queue('curiosity.ask_proactively', {'connection': redis_conn_opts()})
+_project_progress_queue = Queue('project.check_progress', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -384,6 +387,34 @@ async def run_curiosity_proactive_scheduler() -> None:
             await _curiosity_proactive_queue.add('ask', {})
         except Exception as exc:
             log.error('curiosity_proactive_enqueue_failed', error=str(exc))
+
+
+async def _process_project_progress(job, token: str):
+    count = await _project_progress.generate_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_project_progress_worker() -> Worker:
+    return Worker('project.check_progress', _process_project_progress, {'connection': redis_conn_opts()})
+
+
+async def run_project_progress_scheduler() -> None:
+    """Project Management Phase 1 (docs/SERVICES_PROJECTS_PLAN.md §11.7):
+    daily at 17:00 UTC — the next free slot after the curiosity layer's
+    proactive check (16:00)."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('project_progress_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('project_progress_enqueue')
+            await _project_progress_queue.add('check_progress', {})
+        except Exception as exc:
+            log.error('project_progress_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:
