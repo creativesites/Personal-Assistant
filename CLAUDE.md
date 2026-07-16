@@ -536,6 +536,18 @@ See `docs/PRICING_PAYMENTS_PLAN.md` for the full design — a tiered daily/weekl
 
 ---
 
+## AI Usage Tiers — Light / Normal / Heavy
+
+**From now on, every new AI-driven engine, cron, or feature must be designed against three usage-intensity tiers, not a single assumed load.** This is a design axis, orthogonal to the subscription plan tiers above (`daily_pass`/`monthly_personal`/`monthly_business`/etc.) — a `monthly_business` subscriber can still be a Light user of AI features (a solo freelancer who barely messages), and a `free`/trial user can spike Heavy for a day. Concretely:
+
+- **Light** — infrequent messages, few contacts/products, most engines finding nothing to do most runs. Design point: schedulers must degrade to near-zero cost when there's nothing to act on (already true of every deterministic cron in this codebase — `document_followups.py`/`project_progress.py`/`business_manager.py` all no-op cheaply on an empty result set), and proactive nudges should not over-fire relative to how little is happening.
+- **Normal** — the default assumed load this codebase has mostly been built against so far (a handful of active conversations/day, occasional proactive nudges, moderate Studio/ERP activity).
+- **Heavy** — high message volume, large catalogs/customer bases, frequent Advisor/Studio chat use, many concurrent action bundles/projects. Design point: this is where token cost and DB load actually matter — batch where possible (the existing `Promise.all` fan-out pattern in `studio.ts`'s insights/customers endpoints), avoid N+1 queries, and make sure any new per-item LLM call (a new detector, a new per-message classification) is justified rather than assumed affordable at scale.
+
+The existing `subscription_plans`/`try_consume_credit()` machinery (see Pricing & Mobile Money Payments above) is the natural enforcement point once a feature needs hard limits — the three daily counters (`messages_remaining_today`/`ai_replies_remaining_today`/`nudges_remaining_today`) already give a per-user usage signal a Light/Normal/Heavy classification can be read off of directly (e.g. days where a user's counters barely move vs. days they're exhausted early). When designing a new engine, explicitly note in its planning doc (the `docs/*_PLAN.md` convention) how it behaves at each tier — this is now as standard a design question as "what does this look like on mobile" (see Design System above), not an afterthought left to a later optimization pass.
+
+---
+
 ## Studio → Commercial Hub: Services Management System
 
 See `docs/SERVICES_PROJECTS_PLAN.md` for the full design — Studio's evolution from a product-only catalog into a real commercial hub that models **offerings** (products and services as siblings), plus Project Management Phase 1 below. A service is a `products` row with `item_type` in `service`/`subscription`/`package` (the enum, images, tags, family/attributes, WhatsApp catalog sync, and AI negotiation bounds already existed from migration `0049` — this reuses all of it rather than standing up a parallel `services` table).
@@ -624,6 +636,8 @@ This codebase has a real, measured problem: `apps/web/src/app/(dashboard)/studio
 ## Design System
 
 **This is the default styling for every page in `apps/web` from now on.** It was established by `dashboard/page.tsx` and `advisor/page.tsx` and is also fully implemented in `settings/page.tsx`. Treat these three files as the reference implementation — when in doubt, look at how they solve a problem before inventing a new pattern. This supersedes the older flat gray/white token list under "Phase 1 UI Audit" below and the old dark slate-900 chat theme (no longer used anywhere).
+
+**Mobile-first is a hard requirement, not a breakpoint afterthought.** Design and build every view for a phone screen first, then progressively enhance up through `sm:`/`md:`/`lg:` — never the reverse. The bar is a premium native mobile app, not "a website that also works on phones": generous touch targets (44px minimum height on every interactive element, per the Phase 1 UI Audit baseline below), sticky/scrollable tab bars that keep the active tab in view rather than resetting on navigation (the `settings/page.tsx` tab-bar pattern is the reference), bottom-sheet-style modals and inline expand/collapse over anything that assumes desktop hover states, and no horizontal scroll traps on data-dense views (tables/wide cards get their own `overflow-x-auto` container, per Artifact-style rules, rather than blowing out the page). Any new page or module — dashboard, Studio tab, Advisor surface — is reviewed against a phone viewport before a desktop one.
 
 **Page background** — a soft gradient that fades from indigo/teal tints into slate at the bottom, not a flat color:
 ```
