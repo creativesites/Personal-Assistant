@@ -1,7 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ReactElement } from 'react';
-import { renderToBuffer } from '@react-pdf/renderer';
 import { config } from '../../config';
 import { buildBusinessContext, buildDocumentContext } from './context';
 import type { BusinessProfileRow, ContactRow, DocumentRow } from './context';
@@ -30,6 +29,7 @@ export async function renderDocumentPdf(
   const { document: documentContext, contact: contactContext } = buildDocumentContext(document, contact);
 
   const element = Template({ document: documentContext, business, contact: contactContext }) as any;
+  const { renderToBuffer } = await import('@react-pdf/renderer') as any;
   return renderToBuffer(element);
 }
 

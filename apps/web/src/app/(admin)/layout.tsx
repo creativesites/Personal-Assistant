@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { Menu, X, ChevronLeft } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 
 const NAV = [
@@ -36,6 +37,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const session = useZuriSession()
   const router = useRouter()
   const pathname = usePathname()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Close sidebar on route change
+  useEffect(() => { setSidebarOpen(false) }, [pathname])
 
   useEffect(() => {
     if (session.status === 'loading') return
@@ -56,12 +61,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gray-950 flex">
-      {/* Sidebar */}
-      <aside className="w-60 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-gray-800 flex items-center gap-2.5">
+  const currentPage = NAV.find(n => n.href === pathname)?.label ?? 'Admin'
+
+  const SidebarContent = () => (
+    <>
+      {/* Logo */}
+      <div className="px-5 py-5 border-b border-gray-800 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-sm">Z</span>
           </div>
@@ -70,50 +76,97 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <p className="text-indigo-400 text-[10px] font-medium mt-0.5 uppercase tracking-wider">Admin</p>
           </div>
         </div>
+        <button
+          onClick={() => setSidebarOpen(false)}
+          className="md:hidden p-1.5 rounded-lg text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
-        {/* Nav */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3">
-          <div className="space-y-0.5">
-            {NAV.map((item) => {
-              const isActive = pathname === item.href
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                  }`}
-                >
-                  {item.icon}
-                  {item.label}
-                </Link>
-              )
-            })}
-          </div>
-        </nav>
-
-        {/* Footer */}
-        <div className="border-t border-gray-800 p-4 space-y-1">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to app
-          </Link>
-          <div className="px-3 py-2">
-            <p className="text-xs text-gray-600 truncate">{session.data.user.email}</p>
-          </div>
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-4 px-3">
+        <div className="space-y-0.5">
+          {NAV.map((item) => {
+            const isActive = pathname === item.href
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            )
+          })}
         </div>
+      </nav>
+
+      {/* Footer */}
+      <div className="border-t border-gray-800 p-4 space-y-1">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Back to app
+        </Link>
+        <div className="px-3 py-2">
+          <p className="text-xs text-gray-600 truncate">{session.data.user.email}</p>
+        </div>
+      </div>
+    </>
+  )
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex flex-col md:flex-row">
+
+      {/* ── Mobile top bar ─────────────────────────────────────────────────── */}
+      <div className="md:hidden flex items-center gap-3 bg-gray-900 border-b border-gray-800 px-4 py-3.5 sticky top-0 z-50">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center flex-shrink-0">
+            <span className="text-white font-bold text-xs">Z</span>
+          </div>
+          <span className="text-white font-semibold text-sm truncate">{currentPage}</span>
+          <span className="text-indigo-400 text-[10px] font-medium uppercase tracking-wider">Admin</span>
+        </div>
+        <Link href="/dashboard" className="text-gray-500 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-gray-800">
+          <ChevronLeft className="w-4 h-4" />
+        </Link>
+      </div>
+
+      {/* ── Mobile sidebar overlay ─────────────────────────────────────────── */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-50 md:z-auto
+        w-64 md:w-60 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col
+        transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <SidebarContent />
       </aside>
 
-      {/* Main */}
-      <main className="flex-1 overflow-auto bg-gray-950">
-        {children}
+      {/* ── Main ──────────────────────────────────────────────────────────── */}
+      <main className="flex-1 overflow-auto bg-gray-950 min-w-0">
+        <div className="p-4 md:p-0">
+          {children}
+        </div>
       </main>
     </div>
   )

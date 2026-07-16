@@ -1,13 +1,10 @@
 """
-Free-tier rotation across Alibaba/DashScope Qwen models.
+Model pool rotation for AI text generation.
 
-Each model gets ~1M free tokens for testing. Pools are task-scoped (a
-sentiment-analysis call must never land on an OCR-only model), and once a
-model's cumulative usage crosses the limit the pool advances to the next
-model in its list. Counters live in Redis (not memory) because the
-intelligence service has no leader election — an in-process counter would
-reset on every restart and blow through the free tier unpredictably across
-workers.
+Primary pool uses Google Gemini (generous free tier, high quality).
+Falls back to Alibaba/DashScope Qwen models when Gemini quota runs low.
+Each model gets a token budget before the pool advances to the next model.
+Counters live in Redis so they survive restarts and are shared across workers.
 """
 
 import structlog
@@ -19,21 +16,18 @@ log = structlog.get_logger()
 TOKEN_LIMIT = 1_000_000
 
 POOLS: dict[str, list[str]] = {
-    # Ordered: most free-tier headroom first, quality preserved throughout.
-    # qwen-turbo: ~2M free, very fast — ideal for per-message analysis.
-    # qwen-plus: ~4M free, good quality for reply generation / profiling.
-    # qwen-long: ~10M free, handles long conversation contexts well.
-    # Remaining are ~1M free each; quality escalates as the pool rotates.
+    # Gemini first (large free quota, excellent quality for all tasks).
+    # Qwen models as fallback if Gemini quota is exhausted.
     'text': [
+        'gemini/gemini-2.5-flash',
+        'gemini/gemini-2.0-flash',
+        'gemini/gemini-1.5-flash',
         'dashscope/qwen-turbo',
         'dashscope/qwen-plus',
         'dashscope/qwen-long',
         'dashscope/qwen-max',
         'dashscope/qwen3-max',
         'dashscope/qwen3.5-plus-2026-02-1',
-        'dashscope/qwen-plus-2025-07-28',
-        'dashscope/qwen3.7-plus',
-        'dashscope/qwen3.5-122b-a10b',
     ],
     'vision': [
         'dashscope/qwen3-vl-32b-thinking',

@@ -644,7 +644,7 @@ export default function AdvisorPage() {
         </header>
 
         {/* COMPANION MODE CHIPS — Advisor Companion Plan Phase 1 (§4.4/§7.2) */}
-        <div className="flex-shrink-0 border-b border-white/80 bg-white/60 px-3 md:px-6 py-2 overflow-x-auto backdrop-blur-xl">
+        {/* <div className="flex-shrink-0 border-b border-white/80 bg-white/60 px-3 md:px-6 py-2 overflow-x-auto backdrop-blur-xl">
           <div className="flex items-center gap-1.5 w-max">
             {COMPANION_MODES.map(mode => (
               <button
@@ -677,7 +677,7 @@ export default function AdvisorPage() {
               </span>
             )}
           </div>
-        </div>
+        </div> */}
 
         {/* "Zuri Noticed Something" — Advisor Companion Plan Phase 4.5 (§3.7/§6.9/§7.7) */}
         {companionFeed.length > 0 && (
