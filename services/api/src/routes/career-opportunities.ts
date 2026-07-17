@@ -81,6 +81,7 @@ function opportunityApiShape(r: any) {
     matchBreakdown: r.match_breakdown ?? {},
     status: r.status,
     confidence: r.confidence != null ? parseFloat(r.confidence) : null,
+    projectId: r.project_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -208,6 +209,62 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
       values,
     )
     return reply.send({ opportunity: opportunityApiShape(updated) })
+  })
+
+  // ── POST /api/career/opportunities/:id/apply — Applications as Projects
+  // (see docs/CAREER_GROWTH_ENGINE_PLAN.md §9). Moves the opportunity to
+  // 'applied' and creates a projects row with the plan's own default task
+  // template, the identical "copy a workflow template into projects/
+  // project_tasks" convenience POST /api/products/:id/start-project already
+  // established for Services Management — reapplied here rather than a new
+  // mechanism. A second apply on an opportunity that already has a project
+  // just returns the existing one instead of creating a duplicate.
+  fastify.post('/api/career/opportunities/:id/apply', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const { rows: [opportunity] } = await db.query(
+      'SELECT id, title, contact_id, project_id, status FROM career_opportunities WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    )
+    if (!opportunity) return reply.code(404).send({ error: 'Opportunity not found' })
+
+    if (opportunity.project_id) {
+      const { rows: [existingProject] } = await db.query(
+        'SELECT id, title FROM projects WHERE id = $1 AND user_id = $2', [opportunity.project_id, userId],
+      )
+      if (existingProject) {
+        return reply.send({ projectId: existingProject.id, title: existingProject.title, alreadyExisted: true })
+      }
+    }
+
+    const { rows: [project] } = await db.query(
+      `INSERT INTO projects (user_id, contact_id, title, status, career_opportunity_id)
+       VALUES ($1, $2, $3, 'active', $4) RETURNING id, title`,
+      [userId, opportunity.contact_id, `Apply: ${opportunity.title}`, id],
+    )
+
+    const followUpDate = new Date()
+    followUpDate.setDate(followUpDate.getDate() + 7)
+    const defaultTasks: { title: string; dueDate?: string }[] = [
+      { title: 'Tailor resume' },
+      { title: 'Write cover letter' },
+      { title: 'Submit application' },
+      { title: 'Follow up in 7 days', dueDate: followUpDate.toISOString().slice(0, 10) },
+    ]
+    for (const task of defaultTasks) {
+      await db.query(
+        'INSERT INTO project_tasks (project_id, title, due_date) VALUES ($1, $2, $3)',
+        [project.id, task.title, task.dueDate ?? null],
+      )
+    }
+
+    await db.query(
+      `UPDATE career_opportunities SET status = 'applied', project_id = $1, updated_at = NOW() WHERE id = $2`,
+      [project.id, id],
+    )
+
+    return reply.code(201).send({ projectId: project.id, title: project.title, taskCount: defaultTasks.length })
   })
 
   fastify.delete('/api/career/opportunities/:id', { preHandler: authenticate }, async (request, reply) => {

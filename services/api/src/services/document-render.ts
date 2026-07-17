@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import { db } from '../lib/db';
 import { config } from '../config';
-import { renderDocumentPdf, storagePathFor } from '../lib/pdf/render';
+import { renderDocumentPdf, renderResumePdf, renderCoverLetterPdf, storagePathFor } from '../lib/pdf/render';
 import type { BusinessProfileRow, ContactRow, DocumentRow } from '../lib/pdf/context';
 
 export interface RenderResult {
@@ -23,6 +23,10 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
     'SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId],
   );
   if (!document) throw new NotFoundError('Document not found');
+
+  if (document.document_type === 'resume' || document.document_type === 'cover_letter') {
+    return renderAndSaveResumeOrCoverLetter(document, documentId, userId);
+  }
 
   const { rows: [businessProfile] } = await db.query<BusinessProfileRow & { default_template_id: string | null }>(
     'SELECT * FROM business_profiles WHERE user_id = $1', [userId],
@@ -79,6 +83,46 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
 
   // Fire-and-forget — ai_summary/embedding are advisory metadata, not part
   // of what makes a PDF "generated"; don't make the caller wait on them.
+  summarizeDocument(documentId, userId).catch(() => {});
+
+  return { id: documentId, status: newStatus, storagePath, aiSummary: null };
+}
+
+// Career & Growth Engine Phase 3 — resume/cover_letter documents have no
+// business/contact, only the user themselves, so this is a fully separate
+// path from the business/contact-shaped renderAndSaveDocument above rather
+// than threading nulls through buildBusinessContext/buildDocumentContext.
+async function renderAndSaveResumeOrCoverLetter(
+  document: DocumentRow & { id: string; status: string; document_type: string; structured_data: any },
+  documentId: string, userId: string,
+): Promise<RenderResult> {
+  const { rows: [user] } = await db.query<{ full_name: string | null; email: string }>(
+    'SELECT full_name, email FROM users WHERE id = $1', [userId],
+  );
+  const { rows: [careerProfile] } = await db.query<{ linkedin_url: string | null; github_url: string | null; country: string | null }>(
+    'SELECT linkedin_url, github_url, country FROM career_profiles WHERE user_id = $1', [userId],
+  );
+  const fullName = user?.full_name || user?.email || 'Applicant';
+  const contactLine = [user?.email, careerProfile?.country, careerProfile?.linkedin_url, careerProfile?.github_url]
+    .filter(Boolean).join(' · ');
+
+  const pdfBuffer = document.document_type === 'resume'
+    ? await renderResumePdf(document.structured_data ?? {}, fullName, contactLine)
+    : await renderCoverLetterPdf(document.structured_data ?? {}, fullName, contactLine);
+
+  const storagePath = await storagePathFor(userId, documentId);
+  await fs.writeFile(storagePath, pdfBuffer);
+
+  const newStatus = document.status === 'draft' ? 'generated' : document.status;
+  await db.query(
+    `UPDATE documents SET storage_path = $1, status = $2, updated_at = NOW() WHERE id = $3`,
+    [storagePath, newStatus, documentId],
+  );
+  await db.query(
+    `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'generated', '{}')`,
+    [documentId],
+  );
+
   summarizeDocument(documentId, userId).catch(() => {});
 
   return { id: documentId, status: newStatus, storagePath, aiSummary: null };

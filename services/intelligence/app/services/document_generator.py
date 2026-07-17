@@ -18,6 +18,7 @@ log = structlog.get_logger()
 DOCUMENT_CATEGORY = {
     'quotation': 'sales', 'invoice': 'sales', 'proposal': 'sales', 'contract': 'legal',
     'service_agreement': 'legal', 'statement_of_work': 'legal', 'project_plan': 'operations',
+    'resume': 'hr', 'cover_letter': 'hr', 'portfolio_page': 'hr',
 }
 
 # Was in document_renderer.py, alongside the Jinja2/Playwright rendering
@@ -45,6 +46,18 @@ def summarize_content(structured: dict) -> str:
     sections = structured.get('sections') or []
     if sections:
         return '; '.join(s.get('heading', '') for s in sections)
+    # resume/cover_letter shapes (Career & Growth Engine Phase 3) — no
+    # items/sections, so summarize_document()'s fallback would otherwise
+    # read as a broken "no items or sections" line for these document types.
+    experience = structured.get('experience') or []
+    if experience:
+        return ', '.join(f"{e.get('title', '')} at {e.get('company', '')}" for e in experience[:3])
+    body = structured.get('body')
+    if body:
+        return body[:200]
+    raw_text = structured.get('rawText')
+    if raw_text:
+        return raw_text[:200]
     return 'no items or sections'
 
 

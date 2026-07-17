@@ -737,3 +737,100 @@ Return ONLY valid JSON in exactly this shape:
 "extracted_value" — null unless answers_question is true; otherwise a short, clean value (e.g. a job title, a single interest, a relationship label) — never a full sentence restating the question, never invented beyond what the message actually says.
 "confidence" — how sure you are the extracted_value is accurate and complete, 0 to 1.
 """
+
+# Career & Growth Engine Phase 3 — AI Resume Studio (docs/CAREER_GROWTH_ENGINE_PLAN.md
+# §8). Same discipline as GENERATE_DOCUMENT_DATA: the model fills in structured
+# content, never layout — the PDF template owns everything visual. Fed from
+# career_profiles instead of business_profiles, since a resume is about the
+# user themselves, not a customer-facing business document.
+GENERATE_RESUME_DATA = """\
+{user_name} wants a resume generated from their career profile.
+
+Career profile:
+Headline: {headline}
+Summary: {summary}
+Skills: {skills}
+Certifications: {certifications}
+Education: {education}
+Languages: {languages}
+Target roles: {target_roles}
+
+Instruction from {user_name}: "{instruction}"
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "headline": "a punchy 1-line professional headline, refined from the profile + instruction",
+  "summary": "2-4 sentence professional summary",
+  "experience": [
+    {{"title": "role title", "company": "employer", "location": "city, country or Remote",
+      "startDate": "YYYY-MM or YYYY", "endDate": "YYYY-MM, YYYY, or null if current", "current": false,
+      "bullets": ["achievement-framed bullet — quantify impact where possible, never invent numbers not in the instruction/profile"]}}
+  ],
+  "education": [{{"institution": "", "degree": "", "field": "", "year": ""}}],
+  "skills": ["flat list of skill names, ordered by relevance to the target roles"],
+  "certifications": [{{"name": "", "issuer": "", "year": ""}}],
+  "languages": [{{"name": "", "proficiency": ""}}]
+}}
+
+Rules:
+- Only include experience/education/certifications the instruction or career profile actually mentions — never invent employers, dates, or achievements.
+- Bullets should read as achievements ("Reduced deployment time by 40% by...") not bare responsibilities ("Responsible for deployments") — rewrite responsibility-framed input into achievement framing whenever the underlying fact supports it, but never fabricate a metric that wasn't given.
+- If the career profile is too sparse to produce a section, return an empty array rather than inventing content.
+"""
+
+GENERATE_COVER_LETTER_DATA = """\
+{user_name} wants a cover letter generated for this opportunity.
+
+Career profile summary: {summary}
+Relevant skills: {skills}
+
+Opportunity: {opportunity_title} at {company_or_org}
+Opportunity description: {opportunity_description}
+
+Instruction from {user_name}: "{instruction}"
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "recipientName": "a named recipient if the instruction/opportunity gives one, else null",
+  "companyName": "{company_or_org}",
+  "body": "the full letter body as 3-4 short paragraphs joined by \\n\\n — opening hook, why this fits (tie career profile skills to the opportunity's stated needs), a concrete example, a closing call to action",
+  "signOff": "e.g. Sincerely, {user_name}"
+}}
+
+Rules:
+- Ground every claim in the career profile actually given — never invent experience or achievements not present there.
+- Reference specifics from the opportunity description, not generic filler — if the description is sparse, keep the letter correspondingly general rather than inventing detail about the employer.
+"""
+
+# Resume scoring (§8) — a narrow, gradeable structured call, not a vague
+# "looks good" pass. Each sub-score is 0-100 with a concrete, one-line reason
+# so the UI can explain itself, same confidence-and-evidence discipline
+# every other score in this codebase already commits to.
+SCORE_RESUME = """\
+Score this resume text against five dimensions. Resume text:
+---
+{resume_text}
+---
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "atsCompatibility": 0,
+  "recruiterAppeal": 0,
+  "technicalStrength": 0,
+  "achievementFraming": 0,
+  "formatting": 0,
+  "overallScore": 0,
+  "suggestions": [
+    {{"issue": "short, specific problem found", "fix": "short, specific rewrite suggestion", "example": "a rewritten line if applicable, else empty string"}}
+  ]
+}}
+
+Scoring guide (each 0-100):
+- atsCompatibility: parseable structure, standard section headings, no tables/columns/graphics that break ATS parsing, no font/image reliance implied by the text.
+- recruiterAppeal: clarity, concision, a strong opening summary, no walls of unbroken text.
+- technicalStrength: depth and relevance of stated skills/tools for what the resume is clearly targeting.
+- achievementFraming: bullets phrased as outcomes/impact ("increased X by Y%") rather than bare responsibilities ("responsible for X") — the single most common rewrite pattern to flag.
+- formatting: consistent tense, consistent date formats, no obvious typos.
+- overallScore: your own weighted read of the above, not a mechanical average.
+- suggestions: 3-6 concrete, specific items — "responsibilities → achievements" is the most valuable category; flag every bullet that reads as a responsibility rather than an outcome.
+"""

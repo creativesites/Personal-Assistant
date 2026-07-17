@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Briefcase, Plus, Loader2, X, Sparkles, Target, MapPin, Building2, Radar } from 'lucide-react'
+import { Briefcase, Plus, Loader2, Target, Radar } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
-import { Badge, BadgeVariant, EmptyState, Input, Modal, SkeletonCard, Textarea, useToast } from '@/components/ui'
+import { Badge, EmptyState, Input, Modal, SkeletonCard, Textarea, useToast } from '@/components/ui'
+import { ResumeStudio } from './_components/resume-studio'
+import { OpportunityCard, type CareerOpportunity } from './_components/opportunity-card'
 
 // Zuri Career & Growth Engine, Phase 1 (see docs/CAREER_GROWTH_ENGINE_PLAN.md
 // §3/§5) — a Career Profile (the single professional-identity source) plus
@@ -25,20 +27,6 @@ interface CareerProfile {
   githubUrl: string | null
   linkedinUrl: string | null
   portfolioUrl: string | null
-}
-
-interface CareerOpportunity {
-  id: string
-  category: string
-  title: string
-  companyOrOrg: string | null
-  location: string | null
-  isRemote: boolean | null
-  source: string
-  status: string
-  contactName?: string
-  matchScore: number | null
-  createdAt: string
 }
 
 interface ActivityEvent {
@@ -70,11 +58,6 @@ const STATUS_FILTERS = [
   { key: 'interviewing', label: 'Interviewing' },
   { key: 'offered', label: 'Offered' },
 ]
-
-const STATUS_VARIANTS: Record<string, BadgeVariant> = {
-  detected: 'default', shortlisted: 'info', applied: 'info', interviewing: 'warning',
-  offered: 'success', accepted: 'success', rejected: 'error', withdrawn: 'default', archived: 'default',
-}
 
 function formatCategory(category: string) {
   return category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -199,6 +182,10 @@ export default function CareerPage() {
     }
   }
 
+  const handleApplied = (opp: CareerOpportunity, projectId: string) => {
+    setOpportunities(prev => prev.map(o => o.id === opp.id ? { ...o, projectId, status: 'applied' } : o))
+  }
+
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)] pb-10">
       <div className="max-w-5xl mx-auto px-4 pt-6 space-y-5">
@@ -272,6 +259,8 @@ export default function CareerPage() {
           </div>
         )}
 
+        {token && <ResumeStudio token={token} opportunities={opportunities.map(o => ({ id: o.id, title: o.title, companyOrOrg: o.companyOrOrg }))} />}
+
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-900">Opportunities</h2>
@@ -311,48 +300,7 @@ export default function CareerPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {opportunities.map(opp => (
-                <div key={opp.id} className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-gray-900 text-sm truncate">{opp.title}</p>
-                        <Badge variant="purple">{formatCategory(opp.category)}</Badge>
-                        {opp.source === 'whatsapp_detected' && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
-                            <Sparkles className="w-3 h-3" />Zuri noticed
-                          </span>
-                        )}
-                      </div>
-                      {(opp.companyOrOrg || opp.location) && (
-                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
-                          {opp.companyOrOrg && <span className="inline-flex items-center gap-1"><Building2 className="w-3 h-3" />{opp.companyOrOrg}</span>}
-                          {opp.location && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{opp.location}</span>}
-                        </p>
-                      )}
-                      {opp.contactName && (
-                        <p className="text-xs text-gray-400 mt-0.5">via {opp.contactName}</p>
-                      )}
-                    </div>
-                    {opp.matchScore != null && (
-                      <div className="shrink-0 text-right">
-                        <p className="text-lg font-black text-gray-950 tabular-nums">{opp.matchScore}%</p>
-                        <p className="text-[10px] text-gray-400">match</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mt-3">
-                    <Badge variant={STATUS_VARIANTS[opp.status] ?? 'default'}>{opp.status}</Badge>
-                    <select
-                      value={opp.status}
-                      onChange={e => updateStatus(opp, e.target.value)}
-                      className="text-xs rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-gray-700 font-medium"
-                    >
-                      {['detected', 'shortlisted', 'applied', 'interviewing', 'offered', 'accepted', 'rejected', 'withdrawn', 'archived'].map(s => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                <OpportunityCard key={opp.id} opp={opp} token={token ?? ''} onStatusChange={updateStatus} onApplied={handleApplied} />
               ))}
             </div>
           )}
