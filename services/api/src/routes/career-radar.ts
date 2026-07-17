@@ -63,9 +63,18 @@ export async function careerRadarRoutes(fastify: FastifyInstance): Promise<void>
         `SELECT outcome, created_at FROM career_interviews WHERE user_id = $1 ORDER BY created_at DESC`,
         [userId],
       ),
+      // Career & Growth Engine Phase 8 (§13) — the employer taxonomy join
+      // lets an opportunity at a known bank/telecom/mining/etc. employer
+      // count as a target-industry match even when the title/category text
+      // itself doesn't literally mention that industry.
       db.query(
-        `SELECT title, category FROM career_opportunities
-         WHERE user_id = $1 AND created_at > NOW() - INTERVAL '90 days'`,
+        `SELECT DISTINCT ON (co.id) co.id, co.title, co.category, cec.category AS employer_category
+         FROM career_opportunities co
+         LEFT JOIN career_employer_categories cec
+           ON co.company_or_org ILIKE '%' || cec.employer_name || '%'
+           OR EXISTS (SELECT 1 FROM unnest(cec.aliases) a WHERE co.company_or_org ILIKE '%' || a || '%')
+         WHERE co.user_id = $1 AND co.created_at > NOW() - INTERVAL '90 days'
+         ORDER BY co.id`,
         [userId],
       ),
     ])
@@ -106,7 +115,10 @@ export async function careerRadarRoutes(fastify: FastifyInstance): Promise<void>
     // ── Market Demand (Phase 1 proxy — see file header) ─────────────────
     const roleTerms = [...targetRoles, ...targetIndustries].map(s => s.toLowerCase())
     const matchingOpportunities = roleTerms.length === 0 ? opportunityResult.rows.length : opportunityResult.rows.filter((o: any) =>
-      roleTerms.some(term => o.title?.toLowerCase().includes(term) || o.category?.toLowerCase().includes(term)),
+      roleTerms.some(term =>
+        o.title?.toLowerCase().includes(term) || o.category?.toLowerCase().includes(term)
+        || (o.employer_category && (term.includes(o.employer_category) || o.employer_category.includes(term))),
+      ),
     ).length
     const marketDemandScore = clamp(matchingOpportunities * 20)
 

@@ -27,6 +27,25 @@ _RECRUITER_KEYWORDS = ('recruiter', 'talent acquisition', 'talent partner', 'hea
 _HIRING_MANAGER_KEYWORDS = ('hiring manager', 'engineering manager', 'head of', 'director', 'vp ', 'ceo', 'cto', 'founder')
 
 
+async def _lookup_employer_category(conn, company_name: str | None) -> str | None:
+    """Career & Growth Engine Phase 8 (docs/CAREER_GROWTH_ENGINE_PLAN.md
+    §13) — the plan's own worked example: recognizing 'Zanaco'/'MTN Zambia'/
+    'Barrick'/'ZRA' as employer-type signals. A static reference table
+    lookup, not a scraped directory — matches if the contact's stored
+    company name contains a known employer name or alias as a substring
+    (handles 'MTN Zambia Ltd', 'Zanaco Plc', etc.)."""
+    if not company_name:
+        return None
+    row = await conn.fetchrow(
+        """SELECT category FROM career_employer_categories
+           WHERE $1 ILIKE '%' || employer_name || '%'
+              OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE $1 ILIKE '%' || a || '%')
+           LIMIT 1""",
+        company_name,
+    )
+    return row['category'] if row else None
+
+
 class CareerSignalsService:
     async def recompute(self, contact_id: str, user_id: str) -> dict:
         pool = await get_pool()
@@ -73,6 +92,8 @@ class CareerSignalsService:
                 or 'mentor_of' in connection_types
             ) and float(rel['health_score'] or 70) >= 60
 
+            employer_category = await _lookup_employer_category(conn, contact['company'] if contact else None)
+
             value = {
                 'isRecruiter': is_recruiter,
                 'isHiringManager': is_hiring_manager,
@@ -81,6 +102,7 @@ class CareerSignalsService:
                 'mutualProfessionalContacts': len(connections),
                 'currentRole': contact['job_title'] if contact else None,
                 'currentCompany': contact['company'] if contact else None,
+                'employerCategory': employer_category,
             }
 
             await conn.execute(
