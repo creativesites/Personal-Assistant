@@ -59,6 +59,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { uploadProductImage } from '@/lib/storage'
+import { businessEventLabel, businessEventDetail } from '@/lib/business-event-labels'
 import {
   type Product, type Supplier,
   marginColor, stockVariant, itemTypeBadgeVariant, formatCurrency, calcMargin,
@@ -524,28 +525,16 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
           Financial Overview above. See docs/BUSINESS_EVENTS_PLAN.md Part F. */}
       {insights && insights.recentEvents.length > 0 && (
         <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-3">Zuri Noticed</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-gray-900">Zuri Noticed</p>
+            <Link href="/feed" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
+              View all <ChevronDown className="w-3 h-3 -rotate-90" />
+            </Link>
+          </div>
           <div className="space-y-1">
             {insights.recentEvents.map(ev => {
-              const labels: Record<string, string> = {
-                product_detected: 'New product detected',
-                supplier_detected: 'New supplier detected',
-                invoice_gap: 'No invoice on file',
-                // Zuri Reality Engine (docs/REALITY_ENGINE_PLAN.md §4/§8)
-                nudge_auto_resolved: 'A nudge resolved itself',
-                contradiction_invoice_paid_deal_open: 'Invoice paid, deal still open',
-                contradiction_negative_inventory: 'Negative inventory detected',
-                contradiction_project_complete_tasks_incomplete: 'Project complete, tasks pending',
-                // Business Manager insight promotion (docs/PLATFORM_POLISH_PLAN.md §5.2)
-                low_stock_alert: 'Out of stock',
-                thin_margin_alert: 'Thin margin',
-                supplier_flag_alert: 'Supplier flagged',
-                duplicate_contact_detected: 'Possible duplicate contact',
-                unmet_demand_alert: 'Unmet demand detected',
-                dormant_customer_alert: 'Dormant customer',
-              }
-              const label = labels[ev.eventType] ?? ev.eventType.replace(/_/g, ' ')
-              const detail = ev.payload?.name ?? ev.payload?.company ?? ev.contactName
+              const label = businessEventLabel(ev.eventType)
+              const detail = businessEventDetail(ev.payload, ev.contactName)
               return (
                 <div key={ev.id} className="flex items-start gap-3 border-b border-gray-50 py-2.5 last:border-b-0">
                   <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">

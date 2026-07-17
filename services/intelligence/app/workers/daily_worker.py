@@ -19,6 +19,7 @@ from ..services.curiosity_engine import get_curiosity_engine
 from ..services.project_progress import ProjectProgressService
 from ..services.business_manager import BusinessManagerService
 from ..services.business_manager_insights import BusinessManagerInsightsService
+from ..services.business_feed_detectors import BusinessFeedDetectorService
 from ..services.reality_engine import RealityEngineService
 from ..services.career_coach import get_career_coach
 from ..services.job_discovery import get_job_discovery
@@ -34,6 +35,7 @@ _reflection = ReflectionService()
 _project_progress = ProjectProgressService()
 _business_manager = BusinessManagerService()
 _business_manager_insights = BusinessManagerInsightsService()
+_business_feed_detectors = BusinessFeedDetectorService()
 _reality_engine = RealityEngineService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
@@ -44,6 +46,8 @@ _document_followup_queue = Queue('documents.check_followups', {'connection': red
 _pricing_benchmark_queue = Queue('documents.refresh_pricing_benchmarks', {'connection': redis_conn_opts()})
 _inventory_forecast_queue = Queue('inventory.refresh_forecasts', {'connection': redis_conn_opts()})
 _reflection_queue = Queue('reflection.generate_weekly', {'connection': redis_conn_opts()})
+_reflection_monthly_queue = Queue('reflection.generate_monthly', {'connection': redis_conn_opts()})
+_reflection_quarterly_queue = Queue('reflection.generate_quarterly', {'connection': redis_conn_opts()})
 _emotion_reconsolidation_queue = Queue('emotion.reconsolidate', {'connection': redis_conn_opts()})
 _gossip_detection_queue = Queue('companion.detect_gossip', {'connection': redis_conn_opts()})
 _interest_cron_queue = Queue('companion.run_interest_cron', {'connection': redis_conn_opts()})
@@ -58,6 +62,7 @@ _reality_engine_daily_queue = Queue('reality.daily_sweep', {'connection': redis_
 _career_coach_queue = Queue('career.check_coach_nudges', {'connection': redis_conn_opts()})
 _job_discovery_queue = Queue('career.run_job_discovery', {'connection': redis_conn_opts()})
 _business_manager_insights_queue = Queue('business.check_manager_insights', {'connection': redis_conn_opts()})
+_business_feed_queue = Queue('business.generate_feed_events', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -107,6 +112,24 @@ async def _process_reflection(job, token: str):
 
 def create_reflection_worker() -> Worker:
     return Worker('reflection.generate_weekly', _process_reflection, {'connection': redis_conn_opts()})
+
+
+async def _process_reflection_monthly(job, token: str):
+    count = await _reflection.generate_for_all_users('monthly')
+    return {'ok': True, 'count': count}
+
+
+def create_reflection_monthly_worker() -> Worker:
+    return Worker('reflection.generate_monthly', _process_reflection_monthly, {'connection': redis_conn_opts()})
+
+
+async def _process_reflection_quarterly(job, token: str):
+    count = await _reflection.generate_for_all_users('quarterly')
+    return {'ok': True, 'count': count}
+
+
+def create_reflection_quarterly_worker() -> Worker:
+    return Worker('reflection.generate_quarterly', _process_reflection_quarterly, {'connection': redis_conn_opts()})
 
 
 async def _process_emotion_reconsolidation(job, token: str):
@@ -213,6 +236,48 @@ async def run_reflection_scheduler() -> None:
             await _reflection_queue.add('generate', {})
         except Exception as exc:
             log.error('reflection_enqueue_failed', error=str(exc))
+
+
+async def run_reflection_monthly_scheduler() -> None:
+    """Platform Polish Phase 5 (§7.1) — the monthly cadence
+    reflection.py::_period_bounds already branched on, finally wired: the
+    1st of each month at 11:00 UTC, same hour as the weekly job since they
+    never collide (one is day-of-week gated, this is day-of-month gated)."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=11, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        while target.day != 1:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('reflection_monthly_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('reflection_monthly_enqueue')
+            await _reflection_monthly_queue.add('generate_monthly', {})
+        except Exception as exc:
+            log.error('reflection_monthly_enqueue_failed', error=str(exc))
+
+
+async def run_reflection_quarterly_scheduler() -> None:
+    """Platform Polish Phase 5 (§7.1) — a new quarterly bucket: the 1st of
+    January/April/July/October at 11:00 UTC."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=11, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        while not (target.day == 1 and target.month in (1, 4, 7, 10)):
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('reflection_quarterly_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('reflection_quarterly_enqueue')
+            await _reflection_quarterly_queue.add('generate_quarterly', {})
+        except Exception as exc:
+            log.error('reflection_quarterly_enqueue_failed', error=str(exc))
 
 
 async def run_emotion_reconsolidation_scheduler() -> None:
@@ -593,6 +658,34 @@ async def run_business_manager_insights_scheduler() -> None:
             await _business_manager_insights_queue.add('check_manager_insights', {})
         except Exception as exc:
             log.error('business_manager_insights_enqueue_failed', error=str(exc))
+
+
+async def _process_business_feed(job, token: str):
+    count = await _business_feed_detectors.generate_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_business_feed_worker() -> Worker:
+    return Worker('business.generate_feed_events', _process_business_feed, {'connection': redis_conn_opts()})
+
+
+async def run_business_feed_scheduler() -> None:
+    """Business Feed (docs/PLATFORM_POLISH_PLAN.md §7.2): daily at 22:00 UTC
+    — the next free slot after the Business Manager insights promoter's
+    21:00 check."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=22, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('business_feed_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('business_feed_enqueue')
+            await _business_feed_queue.add('generate_feed_events', {})
+        except Exception as exc:
+            log.error('business_feed_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

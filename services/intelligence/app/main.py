@@ -25,6 +25,8 @@ from .workers.daily_worker import (
     create_pricing_benchmark_worker, run_pricing_benchmark_scheduler,
     create_inventory_forecast_worker, run_inventory_forecast_scheduler,
     create_reflection_worker, run_reflection_scheduler,
+    create_reflection_monthly_worker, run_reflection_monthly_scheduler,
+    create_reflection_quarterly_worker, run_reflection_quarterly_scheduler,
     create_emotion_reconsolidation_worker, run_emotion_reconsolidation_scheduler,
     create_gossip_detection_worker, run_gossip_detection_scheduler,
     create_interest_cron_worker, run_interest_cron_scheduler,
@@ -39,6 +41,7 @@ from .workers.daily_worker import (
     create_career_coach_worker, run_career_coach_scheduler,
     create_job_discovery_worker, run_job_discovery_scheduler,
     create_business_manager_insights_worker, run_business_manager_insights_scheduler,
+    create_business_feed_worker, run_business_feed_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -67,6 +70,8 @@ async def lifespan(app: FastAPI):
     pricing_benchmark_worker = create_pricing_benchmark_worker()
     inventory_forecast_worker = create_inventory_forecast_worker()
     reflection_worker = create_reflection_worker()
+    reflection_monthly_worker = create_reflection_monthly_worker()
+    reflection_quarterly_worker = create_reflection_quarterly_worker()
     emotion_reconsolidation_worker = create_emotion_reconsolidation_worker()
     gossip_detection_worker = create_gossip_detection_worker()
     interest_cron_worker = create_interest_cron_worker()
@@ -81,6 +86,7 @@ async def lifespan(app: FastAPI):
     career_coach_worker = create_career_coach_worker()
     job_discovery_worker = create_job_discovery_worker()
     business_manager_insights_worker = create_business_manager_insights_worker()
+    business_feed_worker = create_business_feed_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -91,6 +97,8 @@ async def lifespan(app: FastAPI):
     pricing_benchmark_task = asyncio.create_task(run_pricing_benchmark_scheduler())
     inventory_forecast_task = asyncio.create_task(run_inventory_forecast_scheduler())
     reflection_task = asyncio.create_task(run_reflection_scheduler())
+    reflection_monthly_task = asyncio.create_task(run_reflection_monthly_scheduler())
+    reflection_quarterly_task = asyncio.create_task(run_reflection_quarterly_scheduler())
     emotion_reconsolidation_task = asyncio.create_task(run_emotion_reconsolidation_scheduler())
     gossip_detection_task = asyncio.create_task(run_gossip_detection_scheduler())
     interest_cron_task = asyncio.create_task(run_interest_cron_scheduler())
@@ -105,17 +113,18 @@ async def lifespan(app: FastAPI):
     career_coach_task = asyncio.create_task(run_career_coach_scheduler())
     job_discovery_task = asyncio.create_task(run_job_discovery_scheduler())
     business_manager_insights_task = asyncio.create_task(run_business_manager_insights_scheduler())
+    business_feed_task = asyncio.create_task(run_business_feed_scheduler())
 
     yield
 
     for task in (
         scheduler_task, temporal_task, world_knowledge_task, consolidation_task,
         document_followup_task, pricing_benchmark_task, inventory_forecast_task,
-        reflection_task, emotion_reconsolidation_task,
+        reflection_task, reflection_monthly_task, reflection_quarterly_task, emotion_reconsolidation_task,
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
         advisor_memory_learning_task, curiosity_proactive_task, project_progress_task,
         business_manager_task, reality_engine_hourly_task, reality_engine_daily_task, career_coach_task,
-        job_discovery_task, business_manager_insights_task,
+        job_discovery_task, business_manager_insights_task, business_feed_task,
     ):
         task.cancel()
         try:
@@ -136,6 +145,8 @@ async def lifespan(app: FastAPI):
     await pricing_benchmark_worker.close()
     await inventory_forecast_worker.close()
     await reflection_worker.close()
+    await reflection_monthly_worker.close()
+    await reflection_quarterly_worker.close()
     await emotion_reconsolidation_worker.close()
     await gossip_detection_worker.close()
     await interest_cron_worker.close()
@@ -150,6 +161,7 @@ async def lifespan(app: FastAPI):
     await career_coach_worker.close()
     await job_discovery_worker.close()
     await business_manager_insights_worker.close()
+    await business_feed_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

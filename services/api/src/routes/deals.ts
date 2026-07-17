@@ -5,6 +5,7 @@ import { authenticate } from '../plugins/authenticate'
 import { resolveInvoiceGapNudges } from '../lib/reality-engine'
 import { reserveStock } from '../lib/stock'
 import { publishInboxEvent } from '../lib/inbox-events'
+import { recordBusinessEvent, checkMilestoneCrossing } from '../lib/business-feed'
 
 // Default task template for a project auto-suggested off a closed deal —
 // Platform Polish Phase 1 (docs/PLATFORM_POLISH_PLAN.md §3.1). Deliberately
@@ -233,6 +234,19 @@ export async function dealsRoutes(fastify: FastifyInstance): Promise<void> {
           // immediately rather than leaving it until the daily sweep.
           await resolveInvoiceGapNudges(userId, { dealId: id }, 'Deal closed won')
             .catch(() => { /* best-effort — the stage update itself already succeeded */ })
+
+          // Business Feed (docs/PLATFORM_POLISH_PLAN.md §7.2) —
+          // milestone-counter-crossing for "the Nth deal closed."
+          const { rows: [{ n: closedCount }] } = await db.query<{ n: string }>(
+            `SELECT COUNT(*)::int AS n FROM deals WHERE user_id = $1 AND stage = 'closed_won'`,
+            [userId],
+          )
+          const dealMilestone = checkMilestoneCrossing(parseInt(closedCount, 10))
+          if (dealMilestone) {
+            await recordBusinessEvent(userId, 'milestone_deal_closed', {
+              evidence: [`${dealMilestone}th deal closed`], payload: { count: dealMilestone },
+            }).catch(() => {})
+          }
 
           // Platform Polish Phase 1 (docs/PLATFORM_POLISH_PLAN.md §3) — the
           // "everything connects" chain. Stock reservation is safe to do

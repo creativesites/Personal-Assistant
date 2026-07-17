@@ -40,6 +40,7 @@ import { documentsRoutes } from './routes/documents';
 import { recurringDocumentsRoutes } from './routes/recurring-documents';
 import { suppliersRoutes } from './routes/suppliers';
 import { studioRoutes } from './routes/studio';
+import { businessFeedRoutes } from './routes/business-feed';
 import { productFamiliesRoutes } from './routes/product-families';
 import { purchaseOrdersRoutes } from './routes/purchase-orders';
 import { inventoryLocationsRoutes } from './routes/inventory-locations';
@@ -136,6 +137,7 @@ export async function buildApp() {
   await fastify.register(recurringDocumentsRoutes);
   await fastify.register(suppliersRoutes);
   await fastify.register(studioRoutes);
+  await fastify.register(businessFeedRoutes);
   await fastify.register(productFamiliesRoutes);
   await fastify.register(purchaseOrdersRoutes);
   await fastify.register(inventoryLocationsRoutes);

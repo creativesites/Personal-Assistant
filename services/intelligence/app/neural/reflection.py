@@ -18,6 +18,7 @@ log = structlog.get_logger()
 _MIN_EMOTIONAL_SIGNALS = 3
 _EMOTIONAL_DELTA_THRESHOLD = 0.15
 _LATENCY_CHANGE_THRESHOLD = 0.2  # 20% faster/slower to be worth mentioning
+_MIN_SAMPLE_PER_BUCKET = 3  # quote-latency-vs-conversion insight (§7.1)
 
 
 class ReflectionService:
@@ -37,6 +38,8 @@ class ReflectionService:
 
     async def _period_bounds(self, period_type: str) -> tuple[date, date]:
         today = date.today()
+        if period_type == 'quarterly':
+            return today - timedelta(days=90), today
         if period_type == 'monthly':
             return today - timedelta(days=30), today
         if period_type == 'daily':
@@ -208,7 +211,96 @@ class ReflectionService:
                     'evidence': [],
                 })
 
+            # Platform Polish Phase 5 (§7.1) — business-facing highlights:
+            # invoices sent/paid this period, and sales trend vs the prior
+            # period of the same length. Same "reuse an existing signal"
+            # discipline as every category above.
+            invoice_row = await conn.fetchrow(
+                """SELECT COUNT(*) FILTER (WHERE sent_at >= $2) AS sent_count,
+                          COUNT(*) FILTER (WHERE paid_at >= $2) AS paid_count,
+                          COALESCE(SUM(total_cents) FILTER (WHERE paid_at >= $2), 0) AS paid_cents
+                   FROM documents WHERE user_id = $1 AND document_type = 'invoice'""",
+                user_id, period_start,
+            )
+            if invoice_row and (invoice_row['sent_count'] or invoice_row['paid_count']):
+                parts = []
+                if invoice_row['sent_count']:
+                    parts.append(f"{invoice_row['sent_count']} invoice{'s' if invoice_row['sent_count'] != 1 else ''} sent")
+                if invoice_row['paid_count']:
+                    parts.append(f"{invoice_row['paid_count']} paid ({float(invoice_row['paid_cents']) / 100:,.2f})")
+                highlights.append({
+                    'category': 'business',
+                    'text': f"Invoicing this period: {', '.join(parts)}.",
+                    'evidence': [],
+                })
+
+            sales_row = await conn.fetchrow(
+                """SELECT
+                     COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= $2), 0) AS current_cents,
+                     COALESCE(SUM(amount_cents) FILTER (WHERE created_at < $2 AND created_at >= $2 - ($3 || ' days')::interval), 0) AS prior_cents
+                   FROM revenue_events WHERE user_id = $1""",
+                user_id, period_start, window_days,
+            )
+            if sales_row and sales_row['prior_cents'] and sales_row['current_cents']:
+                current_cents, prior_cents = float(sales_row['current_cents']), float(sales_row['prior_cents'])
+                pct_change = (current_cents - prior_cents) / prior_cents * 100
+                if abs(pct_change) >= 10:
+                    direction = 'up' if pct_change > 0 else 'down'
+                    highlights.append({
+                        'category': 'business',
+                        'text': f"Sales trended {direction} {abs(pct_change):.0f}% vs the prior period.",
+                        'evidence': [f"{current_cents / 100:,.2f} this period vs {prior_cents / 100:,.2f} prior"],
+                    })
+
+            correlation = await self._quote_latency_conversion_insight(conn, user_id)
+            if correlation:
+                highlights.append(correlation)
+
         return highlights
+
+    async def _quote_latency_conversion_insight(self, conn, user_id: str) -> dict | None:
+        """The founder's own worked example (plan §7.1): "customers who
+        received quotations within 30 minutes converted twice as often."
+        One bounded, all-time aggregation — not a general correlation
+        engine — bucketing quotations by how long they sat between being
+        generated and actually sent, correlated with whether that contact's
+        deal ultimately closed. Deliberately all-time rather than
+        period-scoped, since a single week rarely has enough quotations per
+        bucket to say anything honest."""
+        row = await conn.fetchrow(
+            """
+            WITH quote_latency AS (
+              SELECT d.contact_id, EXTRACT(EPOCH FROM (d.sent_at - d.created_at)) / 60 AS latency_minutes
+              FROM documents d
+              WHERE d.user_id = $1 AND d.document_type = 'quotation' AND d.sent_at IS NOT NULL AND d.contact_id IS NOT NULL
+            ),
+            bucketed AS (
+              SELECT ql.contact_id, ql.latency_minutes < 30 AS is_fast,
+                     EXISTS (
+                       SELECT 1 FROM deals dl WHERE dl.contact_id = ql.contact_id AND dl.user_id = $1 AND dl.stage = 'closed_won'
+                     ) AS closed_won
+              FROM quote_latency ql
+            )
+            SELECT
+              COUNT(*) FILTER (WHERE is_fast) AS fast_count,
+              COUNT(*) FILTER (WHERE is_fast AND closed_won) AS fast_won,
+              COUNT(*) FILTER (WHERE NOT is_fast) AS slow_count,
+              COUNT(*) FILTER (WHERE NOT is_fast AND closed_won) AS slow_won
+            FROM bucketed
+            """,
+            user_id,
+        )
+        if not row or row['fast_count'] < _MIN_SAMPLE_PER_BUCKET or row['slow_count'] < _MIN_SAMPLE_PER_BUCKET:
+            return None
+        fast_rate = row['fast_won'] / row['fast_count']
+        slow_rate = row['slow_won'] / row['slow_count']
+        if fast_rate <= slow_rate:
+            return None  # only surface when the data actually supports "faster is better" — never invent the story
+        return {
+            'category': 'business',
+            'text': f"Customers who got a quotation within 30 minutes converted at {fast_rate * 100:.0f}%, vs {slow_rate * 100:.0f}% for slower quotes.",
+            'evidence': [f"{row['fast_count']} fast quote(s), {row['slow_count']} slower quote(s)"],
+        }
 
     async def _save(self, user_id: str, period_type: str, highlights: list[dict]) -> None:
         period_start, period_end = await self._period_bounds(period_type)

@@ -10,6 +10,7 @@ import { QUEUE_NAMES } from '@zuri/types';
 import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
 import { renderAndSaveDocument, NotFoundError } from '../services/document-render';
 import { resolveInvoiceGapNudges } from '../lib/reality-engine';
+import { recordBusinessEvent, checkMilestoneCrossing } from '../lib/business-feed';
 
 // quotation -> invoice -> receipt. Each target renders fine with the Phase 0
 // templates (they're generic line-item layouts, not quotation/invoice-
@@ -633,13 +634,37 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       [id, status],
     );
 
-    if (status === 'paid' && (updated.deal_id || updated.project_id)) {
-      // Reality Engine Layer 1 (docs/REALITY_ENGINE_PLAN.md §7, Hook B) —
-      // a paid invoice resolves the matching invoice-gap nudge immediately
-      // rather than leaving it until the daily sweep catches it.
-      await resolveInvoiceGapNudges(
-        userId, { dealId: updated.deal_id, projectId: updated.project_id }, 'Invoice marked paid',
-      ).catch(() => { /* best-effort — the status update itself already succeeded */ });
+    if (status === 'paid') {
+      if (updated.deal_id || updated.project_id) {
+        // Reality Engine Layer 1 (docs/REALITY_ENGINE_PLAN.md §7, Hook B) —
+        // a paid invoice resolves the matching invoice-gap nudge immediately
+        // rather than leaving it until the daily sweep catches it.
+        await resolveInvoiceGapNudges(
+          userId, { dealId: updated.deal_id, projectId: updated.project_id }, 'Invoice marked paid',
+        ).catch(() => { /* best-effort — the status update itself already succeeded */ });
+      }
+
+      // Business Feed (docs/PLATFORM_POLISH_PLAN.md §7.2) — a payment-posted
+      // event for every paid invoice, plus a milestone-counter-crossing
+      // event ("the Nth invoice paid") when the running count hits a round
+      // number. Both best-effort — a feed write should never block the
+      // status update that already succeeded.
+      await recordBusinessEvent(userId, 'payment_posted', {
+        contactId: updated.contact_id,
+        evidence: [`Invoice ${updated.document_number} marked paid (${(updated.total_cents / 100).toFixed(2)} ${updated.currency})`],
+        payload: { documentId: updated.id, totalCents: updated.total_cents, currency: updated.currency },
+      }).catch(() => {});
+
+      const { rows: [{ n: paidCount }] } = await db.query<{ n: string }>(
+        `SELECT COUNT(*)::int AS n FROM documents WHERE user_id = $1 AND document_type = 'invoice' AND status = 'paid'`,
+        [userId],
+      );
+      const milestone = checkMilestoneCrossing(parseInt(paidCount, 10));
+      if (milestone) {
+        await recordBusinessEvent(userId, 'milestone_invoice_paid', {
+          evidence: [`${milestone}th invoice paid`], payload: { count: milestone },
+        }).catch(() => {});
+      }
     }
 
     return reply.send({ document: formatDocument(updated) });
