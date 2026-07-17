@@ -5,6 +5,7 @@ import { Sparkles, Building2, MapPin, Briefcase, ChevronDown, ChevronUp, Loader2
 import Link from 'next/link'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, BadgeVariant, useToast } from '@/components/ui'
+import { ReadinessChecklist, ResumeMatchPanel, CompanyIntelligencePanel } from './opportunity-insights'
 
 // Career & Growth Engine Phase 4 — Applications as Projects + Interview
 // Memory (docs/CAREER_GROWTH_ENGINE_PLAN.md §9/§10). Extracted out of
@@ -268,6 +269,12 @@ export function OpportunityCard({
         <button onClick={toggleExpanded} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-700">
           Interviews {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
+      </div>
+
+      <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mt-2 pt-2 border-t border-gray-50">
+        <ReadinessChecklist opportunityId={opp.id} token={token} />
+        <ResumeMatchPanel opportunityId={opp.id} token={token} />
+        <CompanyIntelligencePanel opportunityId={opp.id} token={token} companyOrOrg={opp.companyOrOrg} />
       </div>
 
       <div className="mt-2">

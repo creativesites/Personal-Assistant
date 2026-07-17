@@ -327,6 +327,137 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     })
   })
 
+  // ── GET /api/career/opportunities/:id/readiness — Job Search OS §15.12,
+  // Application Readiness Checklist. Deterministic, non-AI — same "exact
+  // thresholds over narrative" discipline as Studio's Zuri Insights.
+  fastify.get('/api/career/opportunities/:id/readiness', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const { rows: [opportunity] } = await db.query(
+      'SELECT id FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
+    )
+    if (!opportunity) return reply.code(404).send({ error: 'Opportunity not found' })
+
+    const [{ rows: [docCounts] }, { rows: [profile] }] = await Promise.all([
+      db.query(
+        `SELECT COUNT(*) FILTER (WHERE document_type = 'resume') AS resume_count,
+                COUNT(*) FILTER (WHERE document_type = 'cover_letter') AS cover_letter_count
+         FROM documents WHERE user_id = $1`,
+        [userId],
+      ),
+      db.query(
+        'SELECT github_url, linkedin_url, portfolio_url, certifications FROM career_profiles WHERE user_id = $1',
+        [userId],
+      ),
+    ])
+
+    const hasResume = Number(docCounts?.resume_count ?? 0) > 0
+    const hasCoverLetter = Number(docCounts?.cover_letter_count ?? 0) > 0
+    const hasPortfolioLink = !!(profile?.github_url || profile?.linkedin_url || profile?.portfolio_url)
+    const hasCertifications = Array.isArray(profile?.certifications) && profile.certifications.length > 0
+
+    const checklist = [
+      { key: 'resume', label: 'Resume', ready: hasResume, fixHref: '/career' },
+      { key: 'coverLetter', label: 'Cover letter', ready: hasCoverLetter, fixHref: '/career' },
+      { key: 'portfolioLink', label: 'Portfolio / GitHub / LinkedIn URL', ready: hasPortfolioLink, fixHref: '/career' },
+      { key: 'certifications', label: 'Certifications listed', ready: hasCertifications, fixHref: '/career' },
+    ]
+    const readyCount = checklist.filter(c => c.ready).length
+
+    return reply.send({ checklist, readyCount, totalCount: checklist.length })
+  })
+
+  // ── GET /api/career/opportunities/:id/resume-match — Job Search OS
+  // §15.11, Auto CV Matching. Proxies to the intelligence service's
+  // opportunity->resumes embedding match (the inverse of resume->
+  // opportunities), which returns a suggestTailoring flag when the best
+  // match is weak.
+  fastify.get('/api/career/opportunities/:id/resume-match', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const { rows: [opportunity] } = await db.query(
+      'SELECT id FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
+    )
+    if (!opportunity) return reply.code(404).send({ error: 'Opportunity not found' })
+
+    try {
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+      const res = await fetch(`${intelligenceUrl}/internal/career/opportunities/${id}/resume-match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      })
+      if (!res.ok) return reply.code(502).send({ error: 'Failed to match resumes against this opportunity' })
+      return reply.send(await res.json())
+    } catch (err) {
+      fastify.log.error({ err }, 'career_opportunity_resume_match_error')
+      return reply.code(502).send({ error: 'Failed to match resumes against this opportunity' })
+    }
+  })
+
+  // ── GET /api/career/opportunities/:id/company-intelligence — Job Search
+  // OS §15.14. Merges the intelligence service's web-search synthesis (+ the
+  // ghosting signal computed there from the user's own application history)
+  // with the existing interview-patterns lookup (§10) in one response, so
+  // the frontend doesn't need two separate calls.
+  fastify.get('/api/career/opportunities/:id/company-intelligence', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const { rows: [opportunity] } = await db.query(
+      'SELECT company_or_org FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
+    )
+    if (!opportunity) return reply.code(404).send({ error: 'Opportunity not found' })
+    if (!opportunity.company_or_org) {
+      return reply.code(400).send({ error: 'This opportunity has no company/organisation name to research' })
+    }
+
+    let intelligence: any = {
+      companyName: opportunity.company_or_org, cultureNotes: null, recentNews: null,
+      interviewProcessNotes: null, sourceCount: 0, ghosting: { hasHistory: false, applicationCount: 0, likelyGhoster: false, note: null },
+    }
+    try {
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+      const res = await fetch(`${intelligenceUrl}/internal/career/company-intelligence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, company_name: opportunity.company_or_org }),
+      })
+      if (res.ok) intelligence = await res.json()
+    } catch (err) {
+      fastify.log.error({ err }, 'career_company_intelligence_error')
+    }
+
+    const { rows: interviewRows } = await db.query(
+      `SELECT ci.interview_type, ci.questions_asked, ci.difficulty_rating
+       FROM career_interviews ci
+       JOIN career_opportunities co ON co.id = ci.career_opportunity_id
+       WHERE ci.user_id = $1 AND co.company_or_org ILIKE $2
+       ORDER BY ci.created_at DESC LIMIT 50`,
+      [userId, `%${opportunity.company_or_org}%`],
+    )
+    const typeCounts: Record<string, number> = {}
+    const questions: string[] = []
+    let ratingSum = 0, ratingCount = 0
+    for (const r of interviewRows) {
+      typeCounts[r.interview_type] = (typeCounts[r.interview_type] ?? 0) + 1
+      for (const q of r.questions_asked ?? []) questions.push(q)
+      if (r.difficulty_rating != null) { ratingSum += r.difficulty_rating; ratingCount++ }
+    }
+
+    return reply.send({
+      ...intelligence,
+      pastInterviews: {
+        interviewCount: interviewRows.length,
+        typeFrequency: Object.entries(typeCounts).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count),
+        averageDifficulty: ratingCount ? Math.round((ratingSum / ratingCount) * 10) / 10 : null,
+        pastQuestions: questions.slice(0, 20),
+      },
+    })
+  })
+
   fastify.delete('/api/career/opportunities/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }

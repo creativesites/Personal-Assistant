@@ -46,6 +46,8 @@ _VALID_CATEGORIES = {
     'grant', 'scholarship', 'tender', 'supplier_opportunity', 'acquisition',
 }
 
+_CONSULTING_KEYWORDS = ('consulting', 'consultant', 'freelance', 'contract', 'advisory')
+
 _INDUSTRY_TO_EMPLOYER_CATEGORY = {
     'bank': 'bank', 'banking': 'bank', 'finance': 'bank', 'financial': 'bank',
     'telecom': 'telecom', 'telecommunications': 'telecom',
@@ -69,6 +71,16 @@ def _normalize_key(title: str | None, company: str | None) -> str:
     t = re.sub(r'[^a-z0-9]+', ' ', (title or '').lower()).strip()
     c = re.sub(r'[^a-z0-9]+', ' ', (company or '').lower()).strip()
     return f'{t}|{c}'
+
+
+def _has_consulting_signal(target_industries: list[str] | None, target_roles: list[str] | None, has_business_profile: bool) -> bool:
+    """Job Search OS §15.15 — Passive Opportunity Radar beyond jobs. A
+    business_profile row is a strong signal on its own; otherwise a plain
+    keyword check on the user's own target roles/industries."""
+    if has_business_profile:
+        return True
+    text = ' '.join((target_industries or []) + (target_roles or [])).lower()
+    return any(kw in text for kw in _CONSULTING_KEYWORDS)
 
 
 def _employer_categories_for_industries(target_industries: list[str] | None) -> list[str]:
@@ -164,6 +176,7 @@ class JobDiscoveryService:
             f"{profile['salary_currency']} {profile['salary_expectation_cents'] / 100:,.0f}"
             if profile['salary_expectation_cents'] else 'not set'
         )
+        consulting_signal = _has_consulting_signal(profile['target_industries'], profile['target_roles'], has_business_profile)
 
         ai = get_ai_client()
         try:
@@ -180,6 +193,7 @@ class JobDiscoveryService:
                     known_local_employers=', '.join(employer_names) or 'none known',
                     seen_titles=', '.join(seen_titles[:10]) or 'none yet',
                     rejected_titles=', '.join(rejected_titles) or 'none',
+                    consulting_signal=consulting_signal,
                     query_budget=query_budget,
                 ),
             }], service='career', feature='job_search_planner', user_id=user_id)
@@ -187,7 +201,7 @@ class JobDiscoveryService:
             log.warning('job_search_planner_failed', user_id=user_id, error=str(exc))
             return 0
 
-        queries = self._flatten_plan(plan, query_budget, profile)
+        queries = self._flatten_plan(plan, query_budget, profile, consulting_signal)
         if not queries:
             return 0
 
@@ -203,12 +217,12 @@ class JobDiscoveryService:
                   candidates=len(candidates), inserted=len(inserted_rows))
         return len(inserted_rows)
 
-    def _flatten_plan(self, plan: dict, budget: int, profile) -> list[dict]:
+    def _flatten_plan(self, plan: dict, budget: int, profile, consulting_signal: bool = False) -> list[dict]:
         allow_regional = profile['relocation_preference'] != 'not_open'
         allow_remote = profile['remote_preference'] != 'onsite'
         pass_allowed = {
             'local': True, 'regional': allow_regional, 'remote': allow_remote,
-            'freelance': True, 'hidden': True,
+            'freelance': True, 'hidden': True, 'beyond_jobs': consulting_signal,
         }
         queries: list[dict] = []
         for pass_name, allowed in pass_allowed.items():

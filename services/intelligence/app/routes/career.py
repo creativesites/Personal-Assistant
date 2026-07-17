@@ -7,11 +7,13 @@ from ..services.resume_studio import (
     create_resume_document,
     generate_cover_letter_data,
     generate_resume_data,
+    match_opportunity_to_resumes,
     match_resume_to_opportunities,
     score_and_store_upload,
     score_resume_text,
 )
 from ..services.career_networking import generate_introduction_draft
+from ..services.company_intelligence import generate_company_intelligence
 
 # Career & Growth Engine Phase 3 — AI Resume Studio (docs/CAREER_GROWTH_ENGINE_PLAN.md
 # §8). Mirrors routes/documents.py's internal-route shape exactly — Node
@@ -112,3 +114,27 @@ async def introduction_draft(body: IntroductionDraftRequest):
         body.opportunity_title, body.company_or_org,
     )
     return {'draft': draft}
+
+
+class ResumeMatchForOpportunityRequest(BaseModel):
+    user_id: str
+
+
+@router.post('/opportunities/{opportunity_id}/resume-match')
+async def opportunity_resume_match(opportunity_id: str, body: ResumeMatchForOpportunityRequest):
+    """Job Search OS §15.11 — Auto CV Matching (opportunity->resumes)."""
+    try:
+        return await match_opportunity_to_resumes(body.user_id, opportunity_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+class CompanyIntelligenceRequest(BaseModel):
+    user_id: str
+    company_name: str
+
+
+@router.post('/company-intelligence')
+async def company_intelligence(body: CompanyIntelligenceRequest):
+    """Job Search OS §15.14 — Company Intelligence."""
+    return await generate_company_intelligence(body.user_id, body.company_name)

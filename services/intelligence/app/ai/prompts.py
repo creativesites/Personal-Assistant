@@ -901,6 +901,7 @@ User profile:
 - Known local employers matching their target industries (use these for specific per-employer queries in the "local" pass, e.g. "{{role}} jobs {{employer}}"): {known_local_employers}
 - Recently seen opportunities (don't re-search for these exact roles/companies): {seen_titles}
 - Recently rejected (avoid this exact profile/level again unless a materially different angle): {rejected_titles}
+- Has a business profile / signals consulting-freelance interest (widen search beyond traditional jobs to partnerships, consulting, speaking, grants, tenders, board positions, etc. if true): {consulting_signal}
 
 Total query budget across all passes: {query_budget}
 
@@ -910,7 +911,8 @@ Return ONLY valid JSON in exactly this shape:
   "regional": ["query 1"],
   "remote": ["query 1"],
   "freelance": ["query 1"],
-  "hidden": ["query 1"]
+  "hidden": ["query 1"],
+  "beyond_jobs": ["query 1"]
 }}
 
 Rules:
@@ -919,6 +921,7 @@ Rules:
 - "remote": remote-first/global queries — leave empty if remote_preference is "onsite".
 - "freelance": Upwork/Toptal/PeoplePerHour/direct-contract phrasing — only include if the user's skills/target roles suggest contract/freelance/consulting openness, otherwise leave empty.
 - "hidden": search-engine-indexed social/community phrasing like "we're looking for a developer", "hiring soon", site-scoped queries against twitter.com/reddit.com/github.com/linkedin.com — a proxy for informally-posted openings, not a live social API.
+- "beyond_jobs": queries for non-traditional-job opportunities matching the user's skills/industries — partnerships, consulting engagements, speaking opportunities, grants, scholarships, tenders, board positions, research collaborations, mentorship programmes — only if consulting_signal is true, otherwise leave empty.
 - Every query must be a real, usable search-engine query string (not a description of one) and must reflect the user's actual skills/roles — never a single generic "software developer jobs" query repeated with minor variation.
 - Distribute the total query_budget across the arrays you actually populate; leave an array empty (not padded with filler) if that pass doesn't apply.
 """
@@ -968,4 +971,30 @@ Rules:
 - "category": one of job, contract, consulting, investment, speaking, partnership, collaboration, freelance, board_position, research, mentorship, grant, scholarship, tender, supplier_opportunity, acquisition — infer from context, default to "job" if unclear.
 - "requiredSkills"/"topResponsibilities": only what the text actually states, never invented technologies or duties. Empty arrays are fine if the snippet is too short to say.
 - Never add a fact, number, or claim not present in the title/snippet above.
+"""
+
+# Job Search OS §15.14 — Company Intelligence. One synthesis call over
+# several already-fetched web search results, explicitly instructed to
+# decline any claim it has zero evidence for rather than filling the gap
+# with a plausible-sounding guess — the same discipline every extraction
+# prompt in this file already follows, applied to synthesis instead of
+# single-listing extraction.
+SYNTHESIZE_COMPANY_INTELLIGENCE = """\
+Synthesize what's known about {company_name} from these web search results. Cite how many distinct sources actually support each claim you make.
+
+Search results:
+{search_results}
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "cultureNotes": "1-2 sentences on culture/reviews, or null if the results say nothing meaningful about this",
+  "recentNews": "1-2 sentences on recent news/activity, or null if nothing recent turned up",
+  "interviewProcessNotes": "1-2 sentences on their interview process if the results mention it, or null if not",
+  "sourceCount": 0
+}}
+
+Rules:
+- "sourceCount": how many of the results above actually contained usable information (not just search noise/irrelevant pages).
+- Any field is null if the search results genuinely don't support a claim — never invent a culture/process/news claim with no evidence behind it, even a vague-sounding plausible one.
+- Keep each populated field short and factual, not marketing copy.
 """

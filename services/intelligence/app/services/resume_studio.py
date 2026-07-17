@@ -299,3 +299,68 @@ async def match_resume_to_opportunities(user_id: str, document_id: str, limit: i
 
     results.sort(key=lambda r: r['matchScore'], reverse=True)
     return results[:limit]
+
+
+_TAILOR_SUGGESTION_THRESHOLD = 70
+
+
+async def match_opportunity_to_resumes(user_id: str, opportunity_id: str) -> dict:
+    """Job Search OS §15.11 — Auto CV Matching, the inverse direction of
+    match_resume_to_opportunities() above (opportunity->resumes instead of
+    resume->opportunities), same cosine-similarity mechanism reused rather
+    than a second embedding scheme. When the best-matching resume scores
+    below the threshold, the caller surfaces a "tailor a version" suggestion
+    — never "generate fake experience" to close the gap (see plan §15.11's
+    own explicit boundary)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        opportunity = await conn.fetchrow(
+            'SELECT id, title, company_or_org, description FROM career_opportunities WHERE id = $1 AND user_id = $2',
+            opportunity_id, user_id,
+        )
+        if not opportunity:
+            raise ValueError('Opportunity not found')
+
+        resumes = await conn.fetch(
+            """SELECT id, title, embedding, structured_data FROM documents
+               WHERE user_id = $1 AND document_type = 'resume'
+               ORDER BY created_at DESC LIMIT 10""",
+            user_id,
+        )
+
+    if not resumes:
+        return {'hasResumes': False, 'matches': [], 'bestScore': None, 'suggestTailoring': False}
+
+    ai = get_ai_client()
+    opp_text = f"{opportunity['title']} at {opportunity['company_or_org'] or ''}: {opportunity['description'] or ''}"
+    opp_vec = await ai.embed(opp_text[:2000], service='career', feature='opportunity_embedding', user_id=user_id)
+    if opp_vec is None:
+        raise ValueError('Could not compute an opportunity embedding — try again shortly')
+    opp_vec = np.array(opp_vec, dtype=np.float32)
+
+    results = []
+    for resume in resumes:
+        resume_vec = resume['embedding']
+        if resume_vec is None:
+            structured = resume['structured_data'] or {}
+            text = structured.get('rawText') or json.dumps(structured)
+            resume_vec = await ai.embed(text[:2000], service='career', feature='resume_embedding', user_id=user_id)
+            if resume_vec is None:
+                continue
+        resume_vec = np.array(resume_vec, dtype=np.float32)
+        denom = (np.linalg.norm(resume_vec) * np.linalg.norm(opp_vec)) or 1.0
+        cosine = float(np.dot(resume_vec, opp_vec) / denom)
+        results.append({
+            'documentId': str(resume['id']),
+            'title': resume['title'],
+            'matchScore': round(max(0.0, min(1.0, cosine)) * 100),
+        })
+
+    results.sort(key=lambda r: r['matchScore'], reverse=True)
+    best_score = results[0]['matchScore'] if results else None
+    return {
+        'hasResumes': True,
+        'matches': results,
+        'bestScore': best_score,
+        'suggestTailoring': best_score is not None and best_score < _TAILOR_SUGGESTION_THRESHOLD,
+    }
