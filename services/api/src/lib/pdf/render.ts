@@ -8,6 +8,10 @@ import Minimal from './templates/Minimal';
 import Modern from './templates/Modern';
 import Resume from './templates/Resume';
 import CoverLetter from './templates/CoverLetter';
+import CvModern from './templates/CvModern';
+import CvExecutive from './templates/CvExecutive';
+import CvCreative from './templates/CvCreative';
+import { buildCvRenderData } from './cv-context';
 
 // Node/@react-pdf/renderer port of services/intelligence/app/services/
 // document_renderer.py's render_document_pdf()/storage_path_for() — AI/
@@ -71,6 +75,32 @@ export async function renderCoverLetterPdf(
   }) as any;
   const { renderToBuffer } = await import('@react-pdf/renderer') as any;
   return renderToBuffer(element);
+}
+
+// CV Studio Phase 5 (docs/CV_STUDIO_PLAN.md §5) — the four CV templates,
+// picked by career_cvs.template_key. "professional" reuses the existing
+// Resume component verbatim (it becomes the base for Professional per the
+// plan's own §1); the other three are new siblings sharing the same
+// CvRenderData shape from cv-context.ts.
+export async function renderCvPdf(cvId: string, userId: string): Promise<Buffer | null> {
+  const data = await buildCvRenderData(cvId, userId);
+  if (!data) return null;
+
+  const props = {
+    fullName: data.fullName, headline: data.headline, summary: data.summary, contactLine: data.contactLine,
+    pageSize: data.pageSize, experience: data.experience, education: data.education,
+    skillGroups: data.skillGroups, skills: data.skills, certifications: data.certifications,
+    projects: data.projects, awards: data.awards, volunteer: data.volunteer, memberships: data.memberships,
+    publications: data.publications, referencesMode: data.referencesMode, references: data.references,
+  };
+
+  const element = data.templateKey === 'modern' ? CvModern(props as any)
+    : data.templateKey === 'executive' ? CvExecutive(props as any)
+    : data.templateKey === 'creative' ? CvCreative(props as any)
+    : Resume(props as any);
+
+  const { renderToBuffer } = await import('@react-pdf/renderer') as any;
+  return renderToBuffer(element as any);
 }
 
 export async function storagePathFor(userId: string, documentId: string): Promise<string> {

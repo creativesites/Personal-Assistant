@@ -42,6 +42,7 @@ export interface ResumeProps {
   headline?: string;
   summary?: string;
   contactLine?: string;
+  pageSize?: string;
   experience?: ResumeExperience[];
   education?: ResumeEducation[];
   skills?: string[];
@@ -79,12 +80,12 @@ function dateRange(exp: ResumeExperience): string {
 }
 
 export default function Resume({
-  fullName, headline, summary, contactLine, experience = [], education = [],
+  fullName, headline, summary, contactLine, pageSize = 'A4', experience = [], education = [],
   skills = [], certifications = [], languages = [],
 }: ResumeProps) {
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size={pageSize === 'Letter' ? 'LETTER' : 'A4'} style={styles.page}>
         <Text style={styles.name}>{fullName}</Text>
         {headline ? <Text style={styles.headline}>{headline}</Text> : null}
         {contactLine ? <Text style={styles.contactLine}>{contactLine}</Text> : null}

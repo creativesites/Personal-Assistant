@@ -2,7 +2,9 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Eye, EyeOff, ArrowLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, EyeOff, ArrowLeft, Download, Loader2 } from 'lucide-react'
+import { apiClient, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ui'
 import { useCareerProfile } from './use-career-profile'
 import { PersonalDetailsStep } from './personal-details-step'
 import { SummaryStep, ObjectivesStep } from './summary-objectives-step'
@@ -26,18 +28,63 @@ const STEPS = [
   'Professional Memberships', 'Publications', 'References', 'Additional Information',
 ] as const
 
+// CV Studio Phase 5 (docs/CV_STUDIO_PLAN.md §5) — the four templates the
+// on-demand PDF render picks from. The live preview below stays a single,
+// plain HTML mirror regardless of which is selected (§9's own documented
+// simplification) — only the downloaded PDF actually looks different per
+// template.
+const TEMPLATES = [
+  { key: 'professional', label: 'Professional' },
+  { key: 'modern', label: 'Modern' },
+  { key: 'executive', label: 'Executive' },
+  { key: 'creative', label: 'Creative' },
+] as const
+
 export function WizardShell({
-  cvId, token, initialProjectLinks,
+  cvId, token, initialProjectLinks, initialTemplateKey,
 }: {
   cvId: string
   token: string
   initialProjectLinks: ProjectLink[]
+  initialTemplateKey: string
 }) {
+  const { addToast } = useToast()
   const { profile, updateField } = useCareerProfile(token)
   const [step, setStep] = useState(0)
   const [showPreview, setShowPreview] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [projectLinks, setProjectLinks] = useState<ProjectLink[]>(initialProjectLinks)
+  const [templateKey, setTemplateKey] = useState(initialTemplateKey)
+  const [downloading, setDownloading] = useState(false)
+
+  const changeTemplate = async (key: string) => {
+    setTemplateKey(key)
+    try {
+      await apiClient(`/api/career/cvs/${cvId}`, { method: 'PATCH', token, body: JSON.stringify({ templateKey: key }) })
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Could not change template', description: err instanceof ApiError ? err.message : undefined })
+    }
+  }
+
+  const downloadPdf = async () => {
+    setDownloading(true)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      const res = await fetch(`${apiUrl}/api/career/cvs/${cvId}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'cv.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to download PDF' })
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const bumpRefresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -168,17 +215,34 @@ export function WizardShell({
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
         <Link href="/career/cv-studio" className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-gray-700">
           <ArrowLeft className="w-4 h-4" />Back to CVs
         </Link>
-        <button
-          onClick={() => setShowPreview(v => !v)}
-          className="lg:hidden inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
-        >
-          {showPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          {showPreview ? 'Hide preview' : 'Preview'}
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={templateKey}
+            onChange={e => changeTemplate(e.target.value)}
+            className="rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700"
+          >
+            {TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+          </select>
+          <button
+            onClick={downloadPdf}
+            disabled={downloading}
+            className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 text-white px-3 py-1.5 text-xs font-bold shadow-sm disabled:opacity-60"
+          >
+            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            PDF
+          </button>
+          <button
+            onClick={() => setShowPreview(v => !v)}
+            className="lg:hidden inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
+          >
+            {showPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {showPreview ? 'Hide preview' : 'Preview'}
+          </button>
+        </div>
       </div>
 
       {/* Mobile: horizontal step strip */}

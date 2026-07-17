@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { renderCvPdf } from '../lib/pdf/render'
 
 // CV Studio Phase 1 (docs/CV_STUDIO_PLAN.md §3, §10, §18) — the CV-as-a-
 // view-over-profile object model. A tailored variant is a new career_cvs
@@ -345,5 +346,23 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     return reply.code(201).send({ cv: cvApiShape(created) })
+  })
+
+  // ── PDF download (§5, §9) — assembled fresh from the live relational
+  // tables on every request ("the real React-PDF render happens on-demand
+  // for download" — no persisted documents row for a CV Studio render,
+  // unlike the older whole-document Resume Studio flow).
+  fastify.get('/api/career/cvs/:id/pdf', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const pdf = await renderCvPdf(id, userId)
+    if (!pdf) return reply.code(404).send({ error: 'CV not found' })
+
+    const { rows: [cv] } = await db.query('SELECT title FROM career_cvs WHERE id = $1', [id])
+    const filename = `${(cv?.title || 'cv').replace(/[^a-z0-9]+/gi, '-')}.pdf`
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(pdf)
   })
 }

@@ -9,7 +9,7 @@ import { WizardShell } from '../../_components/cv-studio/wizard-shell'
 import type { ProjectLink } from '../../_components/cv-studio/projects-step'
 
 interface CvDetailResponse {
-  cv: { id: string; title: string }
+  cv: { id: string; title: string; templateKey: string }
   sections: unknown[]
   projectLinks: ProjectLink[]
 }
@@ -35,7 +35,11 @@ export default function CvStudioWizardPage() {
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]">
-      <WizardShell cvId={params.id} token={token} initialProjectLinks={detail.projectLinks} />
+      <WizardShell
+        cvId={params.id} token={token}
+        initialProjectLinks={detail.projectLinks}
+        initialTemplateKey={detail.cv.templateKey}
+      />
     </div>
   )
 }
