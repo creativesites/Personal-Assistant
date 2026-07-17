@@ -2,9 +2,9 @@ import Link from 'next/link'
 import { Phone, Mail } from 'lucide-react'
 
 const LINKS = {
-  Products: [
-    { label: 'Zuri WhatsApp', href: '/whatsapp' },
-    { label: 'Zuri Marketing', href: '/marketing' },
+  Product: [
+    { label: 'Business System', href: '/whatsapp' },
+    { label: 'Marketing', href: '/marketing' },
     { label: 'How it works', href: '/how-it-works' },
     { label: 'Pricing', href: '/pricing' },
     { label: 'Privacy', href: '/privacy' },
@@ -42,7 +42,7 @@ export function MarketingFooter() {
               <span className="text-gray-900 font-bold text-lg">Zuri</span>
             </div>
             <p className="text-sm text-gray-500 leading-relaxed mb-5">
-              The AI system that runs how small businesses actually sell — from getting discovered on social media to closing the deal on WhatsApp.
+              The AI system that runs your business — from getting discovered on social media to closing the deal on WhatsApp — and grows your career alongside it.
             </p>
 
             {/* Contact details */}

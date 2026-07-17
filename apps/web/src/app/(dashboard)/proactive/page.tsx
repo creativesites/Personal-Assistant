@@ -97,6 +97,7 @@ export default function ProactivePage() {
     // specific row(s) to remove client-side, since the payload only
     // carries a contact + count, not which suggestion types were touched.
     const socket = getSocket(token)
+    if (!socket) return
     const handleResolved = (payload: string) => {
       try {
         const data = JSON.parse(payload) as { contactId: string; count: number; reason: string }

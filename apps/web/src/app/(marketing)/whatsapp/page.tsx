@@ -65,62 +65,9 @@ const INDUSTRIES = [
 ]
 
 const PRICING = [
-  {
-    name: 'Personal',
-    price: 'K200',
-    period: '/month',
-    description: 'For individuals and freelancers who want to stay on top of their conversations.',
-    features: [
-      'Unlimited contacts',
-      'AI reply suggestions',
-      'Contact profiles & history',
-      'Daily follow‑up reminders',
-      'Relationship health scores',
-    ],
-    cta: 'Start free trial',
-    href: '/register',
-    dashboardCta: 'Go to Dashboard',
-    dashboardHref: '/dashboard',
-    highlight: false,
-  },
-  {
-    name: 'Business',
-    price: 'K400',
-    period: '/month',
-    description: 'For growing businesses that need automation and a shared team inbox.',
-    features: [
-      'Everything in Personal',
-      'Lead scoring & pipeline',
-      'AI sales & support agents',
-      'Team inbox (up to 5 users)',
-      'Broadcast campaigns',
-      'Revenue analytics',
-    ],
-    cta: 'Start free trial',
-    href: '/register',
-    dashboardCta: 'Go to Dashboard',
-    dashboardHref: '/dashboard',
-    highlight: true,
-  },
-  {
-    name: 'Enterprise',
-    price: 'K1,800',
-    period: '/month',
-    description: 'For larger teams that need custom workflows, integrations, and dedicated support.',
-    features: [
-      'Everything in Business',
-      'Unlimited team members',
-      'Custom AI agents',
-      'CRM & API integrations',
-      'White‑label option',
-      'Dedicated account manager',
-    ],
-    cta: 'Contact us',
-    href: '/contact',
-    dashboardCta: 'Contact us',
-    dashboardHref: '/contact',
-    highlight: false,
-  },
+  { name: 'Personal', price: 'K149', note: 'CRM, Advisor & Career OS' },
+  { name: 'Professional', price: 'K249', note: '+ Business OS & Studio ERP' },
+  { name: 'Business', price: 'K499', note: '+ Team, analytics & automation' },
 ]
 
 function InboxMockup() {
@@ -220,7 +167,7 @@ export default function WhatsAppProductPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start text-sm text-gray-500">
-              {['30-day free trial', 'No credit card', 'Cancel anytime'].map(item => (
+              {['7-day free trial', 'No credit card', 'Cancel anytime'].map(item => (
                 <div key={item} className="flex items-center gap-1.5">
                   <Check className="w-4 h-4 text-green-500" />
                   <span>{item}</span>
@@ -292,66 +239,37 @@ export default function WhatsAppProductPage() {
 
       {/* ── Pricing ──────────────────────────────────────────────────────── */}
       <section className="py-20 md:py-28 px-4 md:px-6">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <div className="text-center mb-14">
             <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-3">Pricing</p>
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900">
               Start free. Upgrade when you&apos;re ready.
             </h2>
-            <p className="text-gray-500 mt-4">30-day free trial on all plans. No credit card required.</p>
+            <p className="text-gray-500 mt-4">7-day free trial with full access. No credit card required.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
             {PRICING.map((plan) => (
-              <div
-                key={plan.name}
-                className={`rounded-2xl p-7 flex flex-col ${
-                  plan.highlight
-                    ? 'bg-indigo-600 text-white ring-4 ring-indigo-200 shadow-xl shadow-indigo-200/50'
-                    : 'bg-white border border-gray-200 shadow-sm'
-                }`}
-              >
-                <div className="mb-6">
-                  <p className={`text-xs font-bold uppercase tracking-widest mb-2 ${plan.highlight ? 'text-indigo-200' : 'text-gray-400'}`}>
-                    {plan.name}
-                  </p>
-                  <div className="flex items-end gap-1 mb-3">
-                    <span className={`text-4xl font-extrabold ${plan.highlight ? 'text-white' : 'text-gray-900'}`}>
-                      {plan.price}
-                    </span>
-                    <span className={`text-sm mb-1.5 ${plan.highlight ? 'text-indigo-300' : 'text-gray-500'}`}>
-                      {plan.period}
-                    </span>
-                  </div>
-                  <p className={`text-sm leading-relaxed ${plan.highlight ? 'text-indigo-200' : 'text-gray-500'}`}>
-                    {plan.description}
-                  </p>
-                </div>
-
-                <ul className="space-y-3 flex-1 mb-7">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-center gap-2.5 text-sm">
-                      <Check className={`w-4 h-4 flex-shrink-0 ${plan.highlight ? 'text-indigo-300' : 'text-indigo-500'}`} />
-                      <span className={plan.highlight ? 'text-indigo-100' : 'text-gray-600'}>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                <AuthCta
-                  className={`block text-center py-3.5 rounded-xl font-semibold text-sm transition-colors ${
-                    plan.highlight
-                      ? 'bg-white text-indigo-600 hover:bg-indigo-50'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                  }`}
-                  loggedOut={{ href: plan.href, children: plan.cta }}
-                  loggedIn={{ href: plan.dashboardHref, children: plan.dashboardCta }}
-                />
+              <div key={plan.name} className="rounded-2xl bg-white border border-gray-200 shadow-sm p-6 text-center">
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-2">{plan.name}</p>
+                <p className="text-3xl font-extrabold text-gray-900 mb-1">{plan.price}<span className="text-sm font-medium text-gray-400">/mo</span></p>
+                <p className="text-sm text-gray-500">{plan.note}</p>
               </div>
             ))}
           </div>
 
+          <div className="text-center mb-10">
+            <Link
+              href="/pricing"
+              className="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 text-base"
+            >
+              See full pricing & cadences
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+
           {/* Payment methods */}
-          <div className="mt-10 text-center">
+          <div className="text-center">
             <p className="text-sm text-gray-500 mb-4">We accept</p>
             <div className="flex items-center justify-center gap-6">
               <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm">
@@ -416,7 +334,7 @@ export default function WhatsAppProductPage() {
             loggedOut={{ href: '/register', children: <>Start your free trial<ArrowRight className="w-4 h-4" /></> }}
             loggedIn={{ href: '/dashboard', children: <>Go to Dashboard<ArrowRight className="w-4 h-4" /></> }}
           />
-          <p className="text-gray-400 text-sm mt-4">30-day trial · No credit card · Cancel anytime</p>
+          <p className="text-gray-400 text-sm mt-4">7-day trial · No credit card · Cancel anytime</p>
         </div>
       </section>
     </div>

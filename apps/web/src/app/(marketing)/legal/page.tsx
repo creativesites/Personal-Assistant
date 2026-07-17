@@ -4,14 +4,15 @@ import type { IndustryConfig } from '../_components/IndustryPage'
 const config: IndustryConfig = {
   icon: '⚖️',
   label: 'Legal Firms',
-  headline: 'Never let a client feel forgotten during their case',
-  subheadline: 'Zuri tracks every client conversation, flags when communication has lapsed, and helps you send the right update at the right time — building the trust that wins referrals.',
+  headline: 'Run client communication like a firm three times your size',
+  subheadline: 'Zuri tracks every client conversation, flags when an update has lapsed, and drafts the status message before a client has to call and ask — the operational discipline that wins referrals.',
   accentColor: 'text-slate-700',
   accentBg: 'bg-slate-50',
-  stats: [
-    { value: '94%', label: 'Client satisfaction rate' },
-    { value: '2.8×', label: 'More referrals per client' },
-    { value: '5hr', label: 'Saved on follow-ups weekly' },
+  capabilities: [
+    { label: 'Case update reminders' },
+    { label: 'Deadline extraction' },
+    { label: 'Sentiment monitoring' },
+    { label: 'Confidentiality-first storage' },
   ],
   benefits: [
     {
@@ -41,8 +42,8 @@ const config: IndustryConfig = {
     },
     {
       icon: '📊',
-      title: 'Relationship health by matter',
-      description: 'Each active matter has a relationship health score. See at a glance which client relationships need more attention right now.',
+      title: 'Matter health by client',
+      description: 'Each active matter gets a communication health score, so you can see at a glance which clients need more attention right now.',
     },
   ],
   useCases: [
@@ -52,18 +53,17 @@ const config: IndustryConfig = {
     },
     {
       title: 'Client profiles by matter',
-      description: 'Each client gets a profile — their matter, key dates, communication preferences, anxiety level, and when they last received an update.',
+      description: 'Each client gets a profile — their matter, key dates, communication preferences, and when they last received an update.',
     },
     {
       title: 'Proactive client communication',
       description: 'Daily nudges surface which clients need a check-in, with a concise status update draft tailored to their matter.',
     },
   ],
-  testimonial: {
-    quote: "Clients used to call asking for updates because they hadn\'t heard from us. With Zuri, we reach out first. Our client satisfaction scores are the highest they\'ve ever been.",
-    name: 'Adv. Simfukwe T.',
-    role: 'Managing Partner',
-    location: 'Lusaka',
+  scenario: {
+    setup: 'A client\'s matter has been quiet for three weeks while the firm waited on a filing — no bad news, just no news, which clients read as neglect.',
+    zuriDoes: 'Zuri flags the communication gap against the matter\'s own update cadence and drafts a short, professional status message summarising exactly where things stand.',
+    outcome: 'The associate reviews and sends it in under a minute — the client hears from the firm before they ever have reason to call and ask.',
   },
 }
 

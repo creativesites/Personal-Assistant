@@ -308,6 +308,7 @@ export default function InboxPage() {
     loadDefaultAgent()
     loadExcludedContacts()
     const socket = getSocket(token)
+    if (!socket) return
 
     const handleNewMessage = (payload: string) => {
       try {

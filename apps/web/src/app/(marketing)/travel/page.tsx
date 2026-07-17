@@ -5,13 +5,14 @@ const config: IndustryConfig = {
   icon: '✈️',
   label: 'Travel & Tourism',
   headline: 'Every traveller feels like your only client',
-  subheadline: 'Zuri tracks every quote, itinerary, and enquiry — scoring lead interest in real-time and sending the perfect follow-up at exactly the right moment.',
+  subheadline: 'Zuri tracks every quote, itinerary, and enquiry — scoring lead interest in real time and sending the perfect follow-up at exactly the right moment, so no quote goes cold in your inbox.',
   accentColor: 'text-sky-700',
   accentBg: 'bg-sky-50',
-  stats: [
-    { value: '3.1×', label: 'More bookings from enquiries' },
-    { value: '71%', label: 'Quote-to-booking conversion' },
-    { value: '89%', label: 'Repeat client rate' },
+  capabilities: [
+    { label: 'Destination preference tracking' },
+    { label: 'Quote follow-up timing' },
+    { label: 'Lead urgency scoring' },
+    { label: 'Post-trip follow-ups' },
   ],
   benefits: [
     {
@@ -59,11 +60,10 @@ const config: IndustryConfig = {
       description: 'Zuri monitors every open quote and nudges you at exactly the right moment — with a personalised follow-up draft that converts.',
     },
   ],
-  testimonial: {
-    quote: "My conversion rate from enquiry to booking went from 28% to 71% in 10 weeks. Zuri showed me who was serious and when to follow up.",
-    name: 'Kondwani B.',
-    role: 'Travel Consultant',
-    location: 'Livingstone',
+  scenario: {
+    setup: 'A traveller asked for a quote on a family trip, received it, and went quiet — with a departure date close enough that the window to book is closing.',
+    zuriDoes: 'Zuri flags the quote as urgent based on the travel dates mentioned, and drafts a follow-up referencing the exact itinerary already discussed.',
+    outcome: 'The agent sends a specific, well-timed nudge instead of a generic check-in — the traveller books before the dates make the trip impossible.',
   },
 }
 

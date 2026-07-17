@@ -4,14 +4,15 @@ import type { IndustryConfig } from '../_components/IndustryPage'
 const config: IndustryConfig = {
   icon: '🎓',
   label: 'Schools',
-  headline: 'Keep every parent informed, engaged, and loyal',
-  subheadline: 'Zuri tracks every parent conversation, flags follow-ups for enrolment enquiries, and helps schools communicate with the personal touch that builds community trust.',
+  headline: 'Keep every parent informed, engaged, and enrolled',
+  subheadline: 'Zuri tracks every parent conversation, flags enrolment enquiries before they go cold, and helps schools communicate with the personal touch that builds community trust and fills classrooms.',
   accentColor: 'text-purple-700',
   accentBg: 'bg-purple-50',
-  stats: [
-    { value: '89%', label: 'Parent engagement rate' },
-    { value: '3.4×', label: 'More enrolment conversions' },
-    { value: '76%', label: 'Reduction in missed follow-ups' },
+  capabilities: [
+    { label: 'Enrolment follow-ups' },
+    { label: 'Family profiles' },
+    { label: 'Event reminders' },
+    { label: 'At-risk family detection' },
   ],
   benefits: [
     {
@@ -21,7 +22,7 @@ const config: IndustryConfig = {
     },
     {
       icon: '👨‍👩‍👧',
-      title: 'Parent relationship profiles',
+      title: 'Family profiles',
       description: 'Each parent gets a profile — their child\'s name and class, communication style, concerns they\'ve raised, and how engaged they are with school communications.',
     },
     {
@@ -41,29 +42,28 @@ const config: IndustryConfig = {
     },
     {
       icon: '📊',
-      title: 'School-wide relationship health',
-      description: 'A dashboard view of all parent relationships — enrolment pipeline, active families, at-risk families, and engagement scores across the school.',
+      title: 'School-wide enrolment pipeline',
+      description: 'A dashboard view of every enquiry — enrolment pipeline stage, active families, at-risk families, and engagement across the school.',
     },
   ],
   useCases: [
     {
       title: 'Connect the school WhatsApp',
-      description: 'All parent conversations are analysed immediately. Family profiles and enrolment pipeline scores appear within the hour.',
+      description: 'All parent conversations are analysed immediately. Family profiles and enrolment pipeline stages appear within the hour.',
     },
     {
       title: 'Every family gets a profile',
-      description: 'Student names, class details, parent communication preferences, satisfaction level, and relationship health score — built automatically.',
+      description: 'Student names, class details, parent communication preferences, and engagement level — built automatically.',
     },
     {
       title: 'Proactive parent engagement',
       description: 'Daily alerts surface families that need attention — a follow-up, a check-in, or an outstanding confirmation — with ready-to-send messages.',
     },
   ],
-  testimonial: {
-    quote: "Our enrolment conversion went from 31% to 84% after we started using Zuri. Parents feel like we actually care — because now we actually follow up.",
-    name: 'Mrs. Phiri N.',
-    role: 'Head of Admissions',
-    location: 'Lusaka',
+  scenario: {
+    setup: 'A parent enquired about a place for next term, asked two follow-up questions, then went quiet for a week — a warm lead cooling with nobody assigned to chase it.',
+    zuriDoes: 'Zuri flags the enquiry as stalled, recalls exactly what the parent asked about, and drafts a warm follow-up addressing their specific questions.',
+    outcome: 'Admissions sends it in one tap — the parent responds, books a visit, and the enquiry converts instead of quietly disappearing.',
   },
 }
 

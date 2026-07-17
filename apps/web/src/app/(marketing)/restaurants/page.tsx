@@ -8,10 +8,11 @@ const config: IndustryConfig = {
   subheadline: 'Zuri tracks every reservation conversation, remembers diner preferences, and sends the right nudge at the right moment to bring customers back to your table.',
   accentColor: 'text-red-700',
   accentBg: 'bg-red-50',
-  stats: [
-    { value: '58%', label: 'More repeat visits' },
-    { value: '4.8★', label: 'Avg customer rating' },
-    { value: '2.1×', label: 'Higher table occupancy' },
+  capabilities: [
+    { label: 'Reservation extraction' },
+    { label: 'Preference memory' },
+    { label: 'Win-back nudges' },
+    { label: 'Post-visit follow-ups' },
   ],
   benefits: [
     {
@@ -37,7 +38,7 @@ const config: IndustryConfig = {
     {
       icon: '⭐',
       title: 'Post-visit follow-ups',
-      description: 'After a booking, Zuri prompts you to follow up and check satisfaction — catching issues early and generating glowing word-of-mouth.',
+      description: 'After a booking, Zuri prompts you to follow up and check satisfaction — catching issues early and generating stronger word-of-mouth.',
     },
     {
       icon: '📣',
@@ -52,18 +53,17 @@ const config: IndustryConfig = {
     },
     {
       title: 'Every regular gets a profile',
-      description: 'Dining preferences, visit frequency, satisfaction signals, and relationship health scores — all built automatically from your conversations.',
+      description: 'Dining preferences, visit frequency, and satisfaction signals — all built automatically from your conversations.',
     },
     {
       title: 'Fill tables effortlessly',
       description: 'Daily nudges tell you which customers haven\'t visited in a while and draft the perfect re-engagement message for each one.',
     },
   ],
-  testimonial: {
-    quote: "We started recognising customers by name and remembering their orders. Zuri made that possible at scale. Our regulars noticed immediately.",
-    name: 'Chef Mulenga P.',
-    role: 'Restaurant Owner',
-    location: 'Lusaka',
+  scenario: {
+    setup: 'A regular who used to book every couple of weeks hasn\'t made a reservation in over a month — easy to miss when you\'re juggling tonight\'s bookings.',
+    zuriDoes: 'Zuri flags the gap against that diner\'s usual visit rhythm, recalls their favourite table and dish from past chats, and drafts a warm, specific check-in.',
+    outcome: 'The message goes out same-day instead of never — the diner books again, and the table doesn\'t sit empty on a night it didn\'t have to.',
   },
 }
 

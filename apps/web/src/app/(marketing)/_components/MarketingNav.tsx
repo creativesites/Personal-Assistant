@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useAuth } from '@clerk/nextjs'
 
 const NAV_LINKS = [
-  { label: 'Zuri WhatsApp', href: '/whatsapp' },
-  { label: 'Zuri Marketing', href: '/marketing' },
+  { label: 'Business', href: '/whatsapp' },
+  { label: 'Marketing', href: '/marketing' },
   { label: 'How it works', href: '/how-it-works' },
   { label: 'Pricing', href: '/pricing' },
 ]
@@ -27,7 +27,7 @@ export function MarketingNav() {
               className="w-full h-full object-contain"
             />
             </div>
-            <span className="text-lg font-bold text-gray-900">Zuri WhatsApp CRM</span>
+            <span className="text-lg font-bold text-gray-900">Zuri</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">

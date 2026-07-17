@@ -5,13 +5,14 @@ const config: IndustryConfig = {
   icon: '🏠',
   label: 'Real Estate',
   headline: 'Close more deals by never losing track of a lead',
-  subheadline: 'Zuri tracks every buyer, seller, and tenant conversation — scoring lead warmth in real-time and prompting you to follow up before a client goes to a competitor.',
+  subheadline: 'Zuri scores every buyer, seller, and tenant conversation in real time and prompts you to follow up before a client goes to a competitor — a full pipeline running quietly behind your WhatsApp.',
   accentColor: 'text-blue-700',
   accentBg: 'bg-blue-50',
-  stats: [
-    { value: '2.4×', label: 'More closed deals' },
-    { value: '67%', label: 'Lead conversion rate' },
-    { value: '15hr', label: 'Saved per week' },
+  capabilities: [
+    { label: 'Lead temperature scoring' },
+    { label: 'Property preference tracking' },
+    { label: 'Follow-up timing' },
+    { label: 'Portfolio-wide pipeline view' },
   ],
   benefits: [
     {
@@ -31,8 +32,8 @@ const config: IndustryConfig = {
     },
     {
       icon: '🤝',
-      title: 'Seller relationship tracking',
-      description: 'Track vendor relationships separately — Zuri monitors their sentiment and flags when a seller might be getting impatient or considering other agents.',
+      title: 'Seller communication tracking',
+      description: 'Track vendor conversations separately — Zuri monitors sentiment and flags when a seller might be getting impatient or considering other agents.',
     },
     {
       icon: '📋',
@@ -41,8 +42,8 @@ const config: IndustryConfig = {
     },
     {
       icon: '🎯',
-      title: 'Portfolio-wide health',
-      description: 'Get a dashboard view of every active relationship — buyers, sellers, tenants, and landlords — all scored and ranked by urgency.',
+      title: 'Portfolio-wide pipeline',
+      description: 'A dashboard view of every active lead — buyers, sellers, tenants, and landlords — scored and ranked by urgency.',
     },
   ],
   useCases: [
@@ -52,18 +53,17 @@ const config: IndustryConfig = {
     },
     {
       title: 'Every lead gets a live profile',
-      description: 'Buyers, sellers, tenants, and landlords each get profiles — their property requirements, engagement level, and relationship health score.',
+      description: 'Buyers, sellers, tenants, and landlords each get profiles — their property requirements, engagement level, and pipeline stage.',
     },
     {
       title: 'Never lose a deal to silence',
       description: 'Zuri monitors every active thread and alerts you the moment a lead goes quiet — with a follow-up draft ready to send in one tap.',
     },
   ],
-  testimonial: {
-    quote: "I was losing leads to silence — they\'d enquire, I\'d get busy, and by the time I followed up they\'d gone with another agent. Zuri ended that.",
-    name: 'Tendai R.',
-    role: 'Real Estate Agent',
-    location: 'Harare',
+  scenario: {
+    setup: 'A buyer viewed a property, asked a few sharp questions, and then went quiet for eight days — long enough to be at real risk of moving to another agent.',
+    zuriDoes: 'Zuri flags the lead as cooling, surfaces exactly what they asked and what mattered to them from the viewing conversation, and drafts a specific, non-generic check-in.',
+    outcome: 'The agent sends it in one tap instead of a vague "just checking in" — the buyer replies within the hour, and the deal stays alive.',
   },
 }
 

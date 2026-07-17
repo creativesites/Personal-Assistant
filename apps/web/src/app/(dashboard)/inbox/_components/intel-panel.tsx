@@ -351,6 +351,7 @@ export function IntelPanel({
   useEffect(() => {
     if (!token) return
     const socket = getSocket(token)
+    if (!socket) return
 
     const handleNarrationReady = (payload: string) => {
       try {

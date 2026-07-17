@@ -1,16 +1,20 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Check, Smartphone, CreditCard } from 'lucide-react'
+import { Check, Smartphone, CreditCard, ArrowRight } from 'lucide-react'
 import { useAuth } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { apiClient, ApiError } from '@/lib/api'
+import { useApi } from '@/hooks/use-api'
+import { GuidedPaymentModal, type GuidedPaymentPlan } from '@/app/(dashboard)/billing/_components/guided-payment-modal'
 
-// Live-fetched from the DB-backed catalog (docs/PRICING_PAYMENTS_PLAN.md §2/§9)
-// instead of a hardcoded PLANS array — /billing and /admin/payments read the
-// exact same subscription_plans table.
+// Rebuilt against the real Zuri Membership Platform catalog (migration
+// 0083, docs/MEMBERSHIP_PLATFORM_PLAN.md) — 5 plan families sellable across
+// up to 4 billing cadences, a 7-day full-access trial, and the real guided
+// mobile-money checkout (GuidedPaymentModal, same component /billing uses)
+// instead of the old single-shot "subscribe and redirect" flow, which never
+// matched this backend's actual checkout contract.
 
 const PENDING_PLAN_STORAGE_KEY = 'zuri_pending_plan_id'
 
@@ -20,78 +24,77 @@ interface Plan {
   name: string
   priceNgwee: number
   priceFormatted: string
+  priceNgweeByok: number | null
+  priceByokFormatted: string | null
+  planFamily: string | null
+  billingPeriod: string | null
+  isCustomPricing: boolean
   durationDays: number
   messagesPerDay: number
   aiRepliesPerDay: number
   proactiveNudgesPerDay: number
+  documentsPerDay: number
 }
 
-const PLAN_COPY: Record<string, { description: string; features: string[]; badge?: string; highlight?: boolean }> = {
-  daily_pass: {
-    description: 'Try Zuri for a day — full access, no commitment.',
-    features: ['WhatsApp inbox & AI reply suggestions', 'Contact profiles & history', 'Relationship health scores'],
-  },
-  weekly_pass: {
-    description: 'A week of Zuri for freelancers between projects.',
-    features: ['Everything in the Daily Pass', 'Higher daily AI limits', 'Smart inbox'],
-  },
-  monthly_personal: {
-    description: 'For individuals and freelancers who want to stay on top of their conversations.',
+const CADENCES: { key: string; label: string }[] = [
+  { key: 'daily', label: 'Daily' },
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+  { key: 'yearly', label: 'Yearly' },
+]
+
+const FAMILY_COPY: Record<string, { description: string; features: string[]; badge?: string; highlight?: boolean }> = {
+  personal: {
+    description: 'For individuals running their WhatsApp relationships and career growth from one place.',
     features: [
-      'Unlimited contacts', 'AI reply suggestions', 'Contact profiles & history',
-      'Daily follow-up reminders', 'Relationship health scores', 'Smart inbox',
+      'WhatsApp inbox & AI reply suggestions', 'Contact profiles & relationship health',
+      'AI Advisor Companion', 'CV Studio, job search & interview prep', 'Career Radar',
     ],
   },
-  monthly_business: {
-    description: 'For growing businesses that need automation and a shared team inbox.',
+  professional: {
+    description: 'For freelancers and solopreneurs who need a real business back office, not just a CRM.',
     badge: 'Most popular',
     highlight: true,
     features: [
-      'Everything in Personal', 'Lead scoring & pipeline', 'AI sales & support agents',
-      'Broadcast campaigns', 'Revenue analytics', 'Automation rules',
+      'Everything in Personal', 'Business OS: inventory, suppliers & purchase orders',
+      'Quotations, invoices & contracts', 'Projects & deal pipeline', 'Zuri Business Manager Assistant',
     ],
   },
-  monthly_enterprise: {
-    description: 'For larger teams that need custom workflows and dedicated support.',
+  business: {
+    description: 'For growing teams that need automation, analytics, and multiple seats.',
     features: [
-      'Everything in Business', 'Unlimited AI usage', 'Custom AI agents',
-      'CRM & API integrations', 'Dedicated account manager', 'Priority support',
+      'Everything in Professional', 'Team seats & shared inbox', 'Automation & scoped auto-send',
+      'Revenue & operations analytics', 'Autonomous AI sales/support agents',
     ],
   },
 }
 
 const FAQS = [
   {
-    q: 'Can I change plans later?',
-    a: 'Yes. Subscribe to a new plan any time from Billing — your current plan keeps working until the new one is confirmed.',
-  },
-  {
-    q: 'Is there a free trial?',
-    a: 'New accounts get 30 days of Monthly Personal limits automatically. No credit card required to get started.',
+    q: 'How does the free trial work?',
+    a: 'Every new account gets 7 days of full Business-tier access — every feature unlocked, no credit card required. After 7 days you choose a plan, or continue on the Free tier with limited daily AI usage.',
   },
   {
     q: 'What payment methods do you accept?',
-    a: 'We accept Airtel Money and MTN MoMo. Send the exact amount with your reference code and an admin confirms it — usually within an hour.',
+    a: 'Airtel Money and MTN MoMo. You send the exact amount with your reference code, then confirm the details in-app — an admin matches and approves it, usually within 5–30 minutes.',
   },
   {
-    q: 'What happens when my trial ends?',
-    a: 'We\'ll remind you before your trial expires. If you don\'t subscribe to a paid plan, your account moves to the Free tier — your data is never deleted.',
+    q: 'What happens if my subscription lapses?',
+    a: 'Zuri never hard-locks your account. You get a grace period with full access, then move to a read-only mode where you can still view and export everything — nothing is ever deleted.',
   },
   {
-    q: 'Is my data safe if I cancel?',
-    a: 'Your data remains accessible after cancellation. You can export everything from Settings.',
+    q: 'What is the BYOK discount?',
+    a: 'Bring your own AI provider API key (under Settings → Enterprise) and get 30% off — since your key covers the AI usage instead of ours.',
   },
   {
-    q: 'Do you offer discounts for nonprofits or schools?',
-    a: 'Yes. Contact us and we\'ll work out a plan that fits your budget.',
+    q: 'Can I change plans or billing cadence later?',
+    a: 'Yes, any time from Billing. Daily, weekly, monthly, and yearly cadences are all available on Personal, Professional, and Business — yearly gets you roughly 2 months free.',
+  },
+  {
+    q: 'Do you offer student or nonprofit discounts?',
+    a: 'Yes — verified students get 50% off Personal (monthly). Contact us for nonprofit and school pricing.',
   },
 ]
-
-function durationLabel(days: number): string {
-  if (days === 1) return '/day'
-  if (days === 7) return '/week'
-  return '/month'
-}
 
 export default function PricingPage() {
   const router = useRouter()
@@ -99,49 +102,82 @@ export default function PricingPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
 
-  const [plans, setPlans] = useState<Plan[] | null>(null)
-  const [loadError, setLoadError] = useState(false)
-  const [subscribing, setSubscribing] = useState<string | null>(null)
+  const { data: catalog, loading: catalogLoading } = useApi<{ plans: Plan[] }>('/api/subscription-plans', token)
+  const { data: byokKeys } = useApi<{ keys: unknown[] }>('/api/byok', token)
+
+  const [cadence, setCadence] = useState('monthly')
+  const [guidedPlan, setGuidedPlan] = useState<GuidedPaymentPlan | null>(null)
   const [subscribeError, setSubscribeError] = useState<string | null>(null)
 
-  useEffect(() => {
-    apiClient<{ plans: Plan[] }>('/api/subscription-plans')
-      .then((data) => setPlans(data.plans.filter((p) => p.key !== 'free')))
-      .catch(() => setLoadError(true))
-  }, [])
+  const plans = useMemo(() => catalog?.plans ?? [], [catalog])
+  const freePlan = plans.find((p) => p.planFamily === 'free')
+  const enterprisePlan = plans.find((p) => p.planFamily === 'enterprise')
 
-  const handleSubscribe = async (plan: Plan) => {
+  const availableCadences = useMemo(() => {
+    const periods = new Set(plans.filter((p) => p.planFamily && ['personal', 'professional', 'business'].includes(p.planFamily)).map((p) => p.billingPeriod))
+    return CADENCES.filter((c) => periods.has(c.key))
+  }, [plans])
+
+  function planFor(family: string): Plan | undefined {
+    return plans.find((p) => p.planFamily === family && p.billingPeriod === cadence)
+      ?? plans.find((p) => p.planFamily === family)
+  }
+
+  function toGuidedPlan(plan: Plan): GuidedPaymentPlan {
+    return {
+      id: plan.id,
+      name: plan.name,
+      priceFormatted: plan.priceFormatted,
+      priceNgweeByok: plan.priceNgweeByok,
+      priceByokFormatted: plan.priceByokFormatted,
+      billingPeriod: plan.billingPeriod,
+    }
+  }
+
+  const handleChoose = async (plan: Plan) => {
+    setSubscribeError(null)
     if (!isSignedIn) {
       window.localStorage.setItem(PENDING_PLAN_STORAGE_KEY, plan.id)
       router.push('/register')
       return
     }
-    if (!token) return
-    setSubscribing(plan.id)
-    setSubscribeError(null)
-    try {
-      await apiClient('/api/subscriptions/checkout', {
-        method: 'POST', token, body: JSON.stringify({ planId: plan.id }),
-      })
-      router.push('/billing')
-    } catch (e) {
-      setSubscribeError(e instanceof ApiError ? e.message : 'Could not start checkout')
-      setSubscribing(null)
-    }
+    setGuidedPlan(toGuidedPlan(plan))
+  }
+
+  const handleFreeStart = () => {
+    if (!isSignedIn) { router.push('/register'); return }
+    router.push('/dashboard')
   }
 
   return (
     <div className="bg-white">
       {/* Hero */}
-      <section className="bg-gradient-to-b from-indigo-50 via-white to-white py-16 md:py-24 px-4 md:px-6 text-center">
-        <div className="max-w-2xl mx-auto">
+      <section className="relative overflow-hidden bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)] py-16 md:py-24 px-4 md:px-6 text-center">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.22),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.18),transparent_30%)]" />
+        <div className="relative max-w-2xl mx-auto">
           <p className="text-indigo-600 font-semibold text-sm uppercase tracking-widest mb-4">Pricing</p>
-          <h1 className="text-4xl md:text-5xl font-extrabold text-gray-900 mb-4">
+          <h1 className="text-4xl md:text-5xl font-black tracking-tight text-gray-950 mb-4">
             Simple, honest pricing
           </h1>
-          <p className="text-lg text-gray-500 mb-8">
-            Start free for 30 days. Upgrade when your business is ready. No surprises.
+          <p className="text-lg text-gray-600 mb-8">
+            7 days free, full access. Pick a plan that fits how you get paid — daily, weekly, monthly, or yearly.
           </p>
+
+          {availableCadences.length > 1 && (
+            <div className="inline-flex items-center gap-1 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-gray-200">
+              {availableCadences.map((c) => (
+                <button
+                  key={c.key}
+                  onClick={() => setCadence(c.key)}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    cadence === c.key ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -152,18 +188,50 @@ export default function PricingPage() {
             {subscribeError}
           </div>
         )}
-        {loadError && (
+        {!catalogLoading && plans.length === 0 && (
           <p className="max-w-5xl mx-auto mb-6 text-center text-sm text-red-500">Could not load plans — please refresh.</p>
         )}
+
         <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-5">
-          {(plans ?? []).map((plan) => {
-            const copy = PLAN_COPY[plan.key] ?? { description: '', features: [] }
+          {/* Free */}
+          {freePlan && (
+            <div className="rounded-[1.75rem] p-6 flex flex-col bg-white border border-gray-200 shadow-sm">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-widest mb-2 text-gray-400">Free</p>
+                <div className="flex items-end gap-1 mb-3">
+                  <span className="text-3xl font-black tracking-tight text-gray-950">K0</span>
+                </div>
+                <p className="text-sm leading-relaxed text-gray-500">
+                  CRM, Inbox, Advisor, and Documents stay available forever — metered by limited daily AI usage.
+                </p>
+              </div>
+              <ul className="space-y-2.5 flex-1 mb-6">
+                {['Contacts & Inbox', 'Limited AI replies/day', 'Limited documents/day', 'Limited proactive nudges/day'].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5 text-sm">
+                    <Check className="w-4 h-4 flex-shrink-0 text-indigo-500" />
+                    <span className="text-gray-600">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={handleFreeStart}
+                className="block text-center py-3.5 rounded-2xl font-semibold text-sm transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                Get started
+              </button>
+            </div>
+          )}
+
+          {(['personal', 'professional', 'business'] as const).map((family) => {
+            const plan = planFor(family)
+            const copy = FAMILY_COPY[family]
+            if (!plan) return null
             return (
               <div
-                key={plan.id}
-                className={`rounded-2xl p-6 flex flex-col relative ${
+                key={family}
+                className={`rounded-[1.75rem] p-6 flex flex-col relative ${
                   copy.highlight
-                    ? 'bg-indigo-600 text-white ring-4 ring-indigo-200 shadow-xl shadow-indigo-200/50'
+                    ? 'bg-indigo-600 text-white ring-4 ring-indigo-200 shadow-xl shadow-indigo-500/25'
                     : 'bg-white border border-gray-200 shadow-sm'
                 }`}
               >
@@ -180,14 +248,19 @@ export default function PricingPage() {
                     {plan.name}
                   </p>
                   <div className="flex items-end gap-1 mb-3">
-                    <span className={`text-3xl font-extrabold ${copy.highlight ? 'text-white' : 'text-gray-900'}`}>
+                    <span className={`text-3xl font-black tracking-tight ${copy.highlight ? 'text-white' : 'text-gray-950'}`}>
                       {plan.priceFormatted}
                     </span>
                     <span className={`text-sm mb-1 ${copy.highlight ? 'text-indigo-300' : 'text-gray-500'}`}>
-                      {durationLabel(plan.durationDays)}
+                      /{plan.billingPeriod ?? 'mo'}
                     </span>
                   </div>
-                  <p className={`text-sm leading-relaxed ${copy.highlight ? 'text-indigo-200' : 'text-gray-500'}`}>
+                  {plan.priceNgweeByok !== null && (
+                    <p className={`text-xs ${copy.highlight ? 'text-indigo-200' : 'text-gray-400'}`}>
+                      {plan.priceByokFormatted} with your own AI key (BYOK)
+                    </p>
+                  )}
+                  <p className={`text-sm leading-relaxed mt-2 ${copy.highlight ? 'text-indigo-200' : 'text-gray-500'}`}>
                     {copy.description}
                   </p>
                 </div>
@@ -199,37 +272,61 @@ export default function PricingPage() {
                       <span className={copy.highlight ? 'text-indigo-100' : 'text-gray-600'}>{feature}</span>
                     </li>
                   ))}
-                  <li className={`text-xs pt-2 border-t ${copy.highlight ? 'border-indigo-400 text-indigo-200' : 'border-gray-100 text-gray-400'}`}>
-                    {plan.messagesPerDay >= 999999 ? 'Unlimited' : plan.messagesPerDay} messages/day ·{' '}
-                    {plan.aiRepliesPerDay >= 999999 ? 'unlimited' : plan.aiRepliesPerDay} AI replies/day
-                  </li>
                 </ul>
 
                 <button
-                  onClick={() => handleSubscribe(plan)}
-                  disabled={subscribing === plan.id}
-                  className={`block text-center py-3.5 rounded-xl font-semibold text-sm transition-colors disabled:opacity-50 ${
+                  onClick={() => handleChoose(plan)}
+                  className={`block text-center py-3.5 rounded-2xl font-semibold text-sm transition-colors ${
                     copy.highlight
                       ? 'bg-white text-indigo-600 hover:bg-indigo-50'
-                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-500'
                   }`}
                 >
-                  {subscribing === plan.id ? 'Starting…' : 'Subscribe'}
+                  Choose {plan.name}
                 </button>
               </div>
             )
           })}
+
+          {/* Enterprise */}
+          {enterprisePlan && (
+            <div className="rounded-[1.75rem] p-6 flex flex-col bg-slate-950 text-white shadow-sm">
+              <div className="mb-6">
+                <p className="text-xs font-bold uppercase tracking-widest mb-2 text-slate-400">Enterprise</p>
+                <div className="flex items-end gap-1 mb-3">
+                  <span className="text-2xl font-black tracking-tight text-white">Custom</span>
+                </div>
+                <p className="text-sm leading-relaxed text-slate-300">
+                  For larger teams that need custom workflows, integrations, and dedicated support.
+                </p>
+              </div>
+              <ul className="space-y-2.5 flex-1 mb-6">
+                {['Everything in Business', 'Unlimited seats', 'Custom AI agents', 'CRM & API integrations', 'Dedicated account manager'].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5 text-sm">
+                    <Check className="w-4 h-4 flex-shrink-0 text-slate-300" />
+                    <span className="text-slate-200">{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="/contact"
+                className="block text-center py-3.5 rounded-2xl font-semibold text-sm transition-colors bg-white text-slate-950 hover:bg-gray-100"
+              >
+                Contact us
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Payment methods */}
         <div className="mt-12 text-center">
           <p className="text-sm text-gray-500 mb-4">We accept</p>
           <div className="flex items-center justify-center gap-6">
-            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm">
+            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl px-4 py-2.5 shadow-sm">
               <Smartphone className="w-5 h-5 text-yellow-500" />
               <span className="text-sm font-semibold text-gray-700">Airtel Money</span>
             </div>
-            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-4 py-2.5 shadow-sm">
+            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-2xl px-4 py-2.5 shadow-sm">
               <CreditCard className="w-5 h-5 text-blue-500" />
               <span className="text-sm font-semibold text-gray-700">MTN MoMo</span>
             </div>
@@ -240,7 +337,7 @@ export default function PricingPage() {
       {/* FAQ */}
       <section className="bg-gray-50 py-16 md:py-20 px-4 md:px-6">
         <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-10 text-center">
+          <h2 className="text-3xl font-black tracking-tight text-gray-950 mb-10 text-center">
             Frequently asked questions
           </h2>
           <div className="space-y-4">
@@ -264,20 +361,29 @@ export default function PricingPage() {
       {/* Final CTA */}
       <section className="py-16 md:py-20 px-4 md:px-6 text-center">
         <div className="max-w-xl mx-auto">
-          <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
-            Ready to make your WhatsApp work for you?
+          <h2 className="text-3xl font-black tracking-tight text-gray-950 mb-4">
+            Ready to get started?
           </h2>
           <p className="text-gray-500 mb-8">
-            30‑day free trial on all plans. No credit card required.
+            7-day free trial, full access. No credit card required.
           </p>
           <Link
             href="/register"
-            className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 text-base"
+            className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-500/25 text-base"
           >
             Start your free trial
+            <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </section>
+
+      <GuidedPaymentModal
+        plan={guidedPlan}
+        token={token}
+        hasByokKey={(byokKeys?.keys.length ?? 0) > 0}
+        onClose={() => setGuidedPlan(null)}
+        onDone={() => { setGuidedPlan(null); router.push('/billing') }}
+      />
     </div>
   )
 }
