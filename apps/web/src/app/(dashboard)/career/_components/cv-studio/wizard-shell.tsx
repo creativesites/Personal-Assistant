@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Eye, EyeOff, ArrowLeft, Download, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, EyeOff, ArrowLeft, Download, Loader2, Settings2 } from 'lucide-react'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui'
 import { useCareerProfile } from './use-career-profile'
@@ -228,6 +228,12 @@ export function WizardShell({
           >
             {TEMPLATES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
+          <Link
+            href={`/career/cv-studio/${cvId}/editor`}
+            className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-3 py-1.5 text-xs font-bold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+          >
+            <Settings2 className="w-3.5 h-3.5" />Editor
+          </Link>
           <button
             onClick={downloadPdf}
             disabled={downloading}
