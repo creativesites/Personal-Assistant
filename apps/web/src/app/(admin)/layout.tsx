@@ -34,6 +34,9 @@ const NAV = [
   { href: '/admin/promotions', label: 'Promotions', icon: (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5.586a1 1 0 01.707.293l7.414 7.414a1 1 0 010 1.414l-8.586 8.586a1 1 0 01-1.414 0L3.293 13.293A1 1 0 013 12.586V7a4 4 0 014-4z" /></svg>
   )},
+  { href: '/admin/revenue', label: 'Revenue', icon: (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 8h6m-5 0a3 3 0 000 6h4a3 3 0 010 6m-5 0h6M12 3v3m0 12v3" /></svg>
+  )},
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

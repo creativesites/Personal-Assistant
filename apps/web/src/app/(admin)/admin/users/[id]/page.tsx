@@ -17,6 +17,8 @@ interface UserDetail {
   auditLog: { action: string; details: unknown; created_at: string }[]
 }
 
+interface PlanOption { id: string; key: string; name: string; planFamily: string; billingPeriod: string; priceNgwee: number }
+
 const PLAN_OPTIONS = ['free', 'pro', 'business'] as const
 const MARKETING_ACCESS_OPTIONS = ['none', 'waitlisted', 'beta', 'enabled'] as const
 
@@ -27,6 +29,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   const token = session.data?.accessToken
 
   const { data, loading, refetch } = useApi<UserDetail>(`/api/admin/users/${id}`, token)
+  const { data: plansData } = useApi<{ plans: PlanOption[] }>('/api/admin/plans', token)
   const [saving, setSaving] = useState<string | null>(null)
 
   const patch = async (body: Record<string, unknown>, label: string) => {
@@ -37,6 +40,31 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
       await refetch()
     } finally {
       setSaving(null)
+    }
+  }
+
+  // Membership Platform Phase 8 — manual subscription adjustment (extend
+  // days / change plan), reusing admin_audit_log like every other admin
+  // mutation on this page.
+  const [extendDays, setExtendDays] = useState('30')
+  const [adjustPlanId, setAdjustPlanId] = useState('')
+  const [adjusting, setAdjusting] = useState(false)
+  const [adjustMessage, setAdjustMessage] = useState<string | null>(null)
+
+  const adjustSubscription = async (opts: { extendDays?: number; newPlanId?: string }) => {
+    if (!token) return
+    setAdjusting(true)
+    setAdjustMessage(null)
+    try {
+      await apiClient(`/api/admin/users/${id}/adjust-subscription`, {
+        method: 'POST', token, body: JSON.stringify(opts),
+      })
+      setAdjustMessage('Applied.')
+      await refetch()
+    } catch {
+      setAdjustMessage('Could not apply — check the user has a subscription.')
+    } finally {
+      setAdjusting(false)
     }
   }
 
@@ -204,6 +232,55 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
                 {saving === 'admin' ? 'Saving…' : 'Promote to admin'}
               </button>
             )}
+          </div>
+        </div>
+
+        {/* Membership adjustment */}
+        <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-gray-800">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Membership adjustment</p>
+          </div>
+          <div className="px-5 py-4 space-y-3">
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Extend subscription</p>
+              <div className="flex gap-2">
+                <input
+                  type="number" min={1} value={extendDays} onChange={(e) => setExtendDays(e.target.value)}
+                  className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  disabled={adjusting || !extendDays}
+                  onClick={() => adjustSubscription({ extendDays: Number(extendDays) })}
+                  className="flex-1 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+                >
+                  {adjusting ? 'Applying…' : `Extend ${extendDays || 0} days`}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Change to plan</p>
+              <div className="flex gap-2">
+                <select
+                  value={adjustPlanId} onChange={(e) => setAdjustPlanId(e.target.value)}
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">Select a plan…</option>
+                  {(plansData?.plans ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.billingPeriod})</option>
+                  ))}
+                </select>
+                <button
+                  disabled={adjusting || !adjustPlanId}
+                  onClick={() => adjustSubscription({ newPlanId: adjustPlanId })}
+                  className="py-2 px-3 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+
+            {adjustMessage && <p className="text-xs text-gray-400">{adjustMessage}</p>}
           </div>
         </div>
       </div>

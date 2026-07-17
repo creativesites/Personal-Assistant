@@ -188,6 +188,30 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(409).send({ error: 'User is already a member of this team' });
       }
 
+      // Membership Platform Phase 8 — seat limit: the owner's plan caps how many
+      // team_members rows (accepted + pending) their team can have at once.
+      const { rows: [team] } = await db.query<{ owner_user_id: string }>(
+        `SELECT owner_user_id FROM teams WHERE id = $1`,
+        [requesterMembership.team_id],
+      );
+      if (team) {
+        const { rows: [seatInfo] } = await db.query<{ included_seats: number; member_count: string }>(
+          `SELECT sp.included_seats,
+                  (SELECT COUNT(*) FROM team_members WHERE team_id = $2) AS member_count
+             FROM subscriptions s
+             JOIN subscription_plans sp ON sp.id = s.plan_id
+            WHERE s.user_id = $1
+            ORDER BY s.created_at DESC LIMIT 1`,
+          [team.owner_user_id, requesterMembership.team_id],
+        );
+        if (seatInfo && Number(seatInfo.member_count) >= seatInfo.included_seats) {
+          return reply.code(402).send({
+            error: 'Seat limit reached for your plan',
+            upgradeRequired: { includedSeats: seatInfo.included_seats, currentSeats: Number(seatInfo.member_count) },
+          });
+        }
+      }
+
       const { rows: [member] } = await db.query<{ id: string }>(
         `INSERT INTO team_members (team_id, user_id, role, invited_at)
          VALUES ($1, $2, $3, NOW())
