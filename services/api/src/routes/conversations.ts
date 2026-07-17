@@ -837,7 +837,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     let assistantState: Record<string, unknown> | null = null;
     let memorySuggestion: Record<string, unknown> | null = null;
     let analysis: Record<string, unknown> | null = null;
-    let proposedAction: { actionType: string; payload: Record<string, unknown>; riskLevel: string } | null = null;
+    let proposedAction: { actionType: string; payload: Record<string, unknown>; riskLevel: string; autoSend?: boolean } | null = null;
     try {
       const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/ask`, {
         method: 'POST',
@@ -850,7 +850,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           assistantState?: Record<string, unknown>
           memorySuggestion?: Record<string, unknown> | null
           analysis?: Record<string, unknown> | null
-          proposedAction?: { actionType: string; payload: Record<string, unknown>; riskLevel: string } | null
+          proposedAction?: { actionType: string; payload: Record<string, unknown>; riskLevel: string; autoSend?: boolean } | null
         };
         answer = data.answer ?? 'I was unable to generate a response.';
         assistantState = data.assistantState ?? null;
@@ -881,17 +881,46 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     );
 
     // §4.3/§5.3 — store the action before execution; never execute
-    // directly from a chat response.
+    // directly from a chat response. Platform Polish Phase 2 §4.3 is the
+    // one narrow exception: a reply already judged in-scope + not
+    // high-risk under an active scoped-automation grant (autoSend) skips
+    // straight to executing, the same override reply_gen.py's background
+    // pipeline already earns from the identical grant/check.
     let actionRequest: Record<string, unknown> | null = null;
     if (proposedAction) {
+      const autoSend = proposedAction.autoSend === true && proposedAction.actionType === 'send_whatsapp_message';
       const { rows: [created] } = await db.query(
-        `INSERT INTO advisor_action_requests (user_id, session_id, message_id, action_type, payload, risk_level)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+        `INSERT INTO advisor_action_requests (user_id, session_id, message_id, action_type, payload, risk_level, status, approved_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
          RETURNING id, action_type, status, payload, risk_level, created_at`,
-        [userId, sessionId, assistantMsg.id, proposedAction.actionType, JSON.stringify(proposedAction.payload), proposedAction.riskLevel],
+        [
+          userId, sessionId, assistantMsg.id, proposedAction.actionType, JSON.stringify(proposedAction.payload), proposedAction.riskLevel,
+          autoSend ? 'approved' : 'proposed', autoSend ? new Date() : null,
+        ],
       );
-      actionRequest = actionRequestApiShape(created);
-      // So reloaded chat history can still find/render the approval card.
+
+      if (autoSend) {
+        try {
+          const payload = created.payload as { conversationId: string; text: string };
+          const { message } = await sendWhatsAppMessage(userId, payload.conversationId, payload.text);
+          const { rows: [executed] } = await db.query(
+            `UPDATE advisor_action_requests SET status = 'completed', executed_at = NOW(), result = $1::jsonb WHERE id = $2 RETURNING *`,
+            [JSON.stringify({ sent: true, messageId: message.id, autoSent: true }), created.id],
+          );
+          actionRequest = actionRequestApiShape(executed);
+        } catch {
+          const { rows: [failed] } = await db.query(
+            `UPDATE advisor_action_requests SET status = 'failed', result = $1::jsonb WHERE id = $2 RETURNING *`,
+            [JSON.stringify({ error: 'Auto-send failed' }), created.id],
+          );
+          actionRequest = actionRequestApiShape(failed);
+        }
+      } else {
+        actionRequest = actionRequestApiShape(created);
+      }
+
+      // So reloaded chat history can still find/render the approval card
+      // (or, for an auto-sent reply, its completed state).
       await db.query(
         `UPDATE advisor_messages SET metadata = metadata || $1::jsonb WHERE id = $2`,
         [JSON.stringify({ actionRequestId: created.id }), assistantMsg.id],

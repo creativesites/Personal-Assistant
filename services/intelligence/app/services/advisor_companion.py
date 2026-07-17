@@ -326,10 +326,27 @@ class AdvisorCompanionService:
         proposed_action = None
         if intent in ('draft_reply', 'send_message') and contact_id and answer.strip():
             risk_level = await self._assess_boundary_risk(user_id, contact_id, emotional_state, is_high_risk_draft)
+            # Platform Polish Phase 2 §4.3 — extend Advisor's own send-flow
+            # with the exact override reply_gen.py's background suggestion
+            # pipeline already earns from a scoped-automation grant: only
+            # when the user has already granted this specific conversation
+            # scoped automation, and only when this exact drafted reply is
+            # judged in-scope + not high-risk, does it skip the click.
+            # Outside an active grant, or at any risk level the Boundary
+            # Keeper doesn't clear, the approval step stays mandatory.
+            auto_send = False
+            if risk_level != 'high':
+                grant = await get_scoped_automation().find_active_grant(conversation_id)
+                if grant:
+                    in_scope, _reason = await get_scoped_automation().check_reply_in_scope(
+                        grant, question, answer.strip(),
+                    )
+                    auto_send = in_scope
             proposed_action = {
                 'actionType': 'send_whatsapp_message',
                 'payload': {'conversationId': conversation_id, 'contactId': contact_id, 'text': answer.strip()},
                 'riskLevel': risk_level,
+                'autoSend': auto_send,
             }
 
         return self._response(

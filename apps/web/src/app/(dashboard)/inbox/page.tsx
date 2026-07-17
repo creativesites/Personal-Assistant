@@ -469,16 +469,15 @@ export default function InboxPage() {
     })
 
     // Business OS Phase E — a detected multi-action bundle (docs/BUSINESS_OS_PLAN.md
-    // §15). Always bump the refresh tick (ActionBundlesSection refetches
-    // scoped to whatever contact is open — a mismatch is a harmless no-op
-    // fetch) and toast the summary so the user notices even if they're
-    // looking at a different conversation.
-    socket.on('bundle:ready', (payload: string) => {
-      try {
-        const data = parseSocketPayload<{ bundleId: string; contactId: string; summary: string }>(payload)
-        setBundleRefreshTick(t => t + 1)
-        addToast({ variant: 'info', title: data.summary })
-      } catch {}
+    // §15). Platform Polish Phase 2 (docs/PLATFORM_POLISH_PLAN.md §4.1)
+    // dropped the unconditional toast this used to fire on every detection
+    // regardless of confidence — matching how reality.resolved/
+    // suggestion:ready already behave silently. Just bump the refresh tick;
+    // ActionBundlesSection refetches scoped to whatever contact is open (a
+    // mismatch is a harmless no-op fetch), and the card itself is what the
+    // user sees when they look.
+    socket.on('bundle:ready', () => {
+      setBundleRefreshTick(t => t + 1)
     })
 
     const reconcile = () => {
