@@ -17,6 +17,7 @@ from ..services.career_networking import generate_introduction_draft
 from ..services.company_intelligence import generate_company_intelligence
 from ..services.cv_assistant import rewrite_text, suggest_metric_prompt, suggest_skill_grouping
 from ..services.cv_matching import compute_cv_opportunity_match, generate_tailoring_suggestions
+from ..services.job_discovery import get_job_discovery
 
 # Career & Growth Engine Phase 3 — AI Resume Studio (docs/CAREER_GROWTH_ENGINE_PLAN.md
 # §8). Mirrors routes/documents.py's internal-route shape exactly — Node
@@ -99,6 +100,24 @@ async def score_existing_resume_route(document_id: str, body: ScoreExistingResum
         return await score_existing_resume(body.user_id, document_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+class RunJobDiscoveryRequest(BaseModel):
+    user_id: str
+
+
+@router.post('/job-discovery/run')
+async def run_job_discovery(body: RunJobDiscoveryRequest):
+    """Job Search OS manual trigger — the daily 05:00 UTC cron
+    (daily_worker.py's run_job_discovery_scheduler) calls
+    JobDiscoveryService.run_for_all_users() at a fixed hour; this lets a user
+    ask for a fresh run right now instead of waiting for the next cron tick.
+    Node (career-job-discovery.ts) owns the daily 3-successful-runs cap —
+    this endpoint just runs the same underlying per-user logic and reports
+    what it found, raising on a real failure so Node knows not to count it.
+    """
+    opportunities_found = await get_job_discovery().run_for_user(body.user_id)
+    return {'opportunitiesFound': opportunities_found}
 
 
 class MatchResumeRequest(BaseModel):

@@ -53,6 +53,7 @@ import { careerOpportunitiesRoutes } from './routes/career-opportunities';
 import { careerDocumentsRoutes } from './routes/career-documents';
 import { careerInterviewsRoutes } from './routes/career-interviews';
 import { careerRadarRoutes } from './routes/career-radar';
+import { careerJobDiscoveryRoutes } from './routes/career-job-discovery';
 import { careerProfileEntriesRoutes } from './routes/career-profile-entries';
 import { careerCvsRoutes } from './routes/career-cvs';
 import { careerCvAssistantRoutes } from './routes/career-cv-assistant';
@@ -151,6 +152,7 @@ export async function buildApp() {
   await fastify.register(careerDocumentsRoutes);
   await fastify.register(careerInterviewsRoutes);
   await fastify.register(careerRadarRoutes);
+  await fastify.register(careerJobDiscoveryRoutes);
   await fastify.register(careerProfileEntriesRoutes);
   await fastify.register(careerCvsRoutes);
   await fastify.register(careerCvAssistantRoutes);

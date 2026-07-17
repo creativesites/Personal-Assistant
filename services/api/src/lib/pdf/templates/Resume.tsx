@@ -48,6 +48,20 @@ export interface ResumeProps {
   skills?: string[];
   certifications?: ResumeCertification[];
   languages?: ResumeLanguage[];
+  // CV Studio's CvRenderData shape (services/api/src/lib/pdf/cv-context.ts) —
+  // Resume ("professional") is CV Studio's default templateKey, so it must
+  // render the same section set CvModern/CvExecutive/CvCreative do, not just
+  // the narrower shape the older Resume Studio generate-flow passes. Kept
+  // optional/unused-when-absent so renderResumePdf()'s callers (which never
+  // pass these) are unaffected.
+  skillGroups?: { groupName: string; skills: string[] }[];
+  projects?: { title: string; description?: string }[];
+  awards?: { title: string; issuer?: string; description?: string }[];
+  volunteer?: { role?: string; organisation: string; description?: string }[];
+  memberships?: { institution: string }[];
+  publications?: { title: string; publisher?: string }[];
+  referencesMode?: string;
+  references?: { name: string; company?: string }[];
 }
 
 const styles = StyleSheet.create({
@@ -72,6 +86,8 @@ const styles = StyleSheet.create({
   bulletText: { fontSize: 9, lineHeight: 1.5, color: '#374151', flex: 1 },
   skillsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   skillChip: { fontSize: 8.5, color: '#374151', backgroundColor: '#f3f4f6', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 3, marginRight: 4, marginBottom: 4 },
+  skillGroupLine: { fontSize: 9.5, marginBottom: 3 },
+  skillGroupLabel: { fontFamily: 'Helvetica-Bold', color: '#111827' },
 });
 
 function dateRange(exp: ResumeExperience): string {
@@ -81,7 +97,8 @@ function dateRange(exp: ResumeExperience): string {
 
 export default function Resume({
   fullName, headline, summary, contactLine, pageSize = 'A4', experience = [], education = [],
-  skills = [], certifications = [], languages = [],
+  skills = [], certifications = [], languages = [], skillGroups = [], projects = [],
+  awards = [], volunteer = [], memberships = [], publications = [], referencesMode, references = [],
 }: ResumeProps) {
   return (
     <Document>
@@ -135,12 +152,30 @@ export default function Resume({
           </View>
         ) : null}
 
-        {skills.length > 0 ? (
+        {skillGroups.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Skills</Text>
+            {skillGroups.map((g, i) => (
+              <Text key={i} style={styles.skillGroupLine}>
+                <Text style={styles.skillGroupLabel}>{g.groupName}: </Text>{g.skills.join(', ')}
+              </Text>
+            ))}
+          </View>
+        ) : skills.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Skills</Text>
             <View style={styles.skillsWrap}>
               {skills.map((s, i) => <Text key={i} style={styles.skillChip}>{s}</Text>)}
             </View>
+          </View>
+        ) : null}
+
+        {projects.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Projects</Text>
+            {projects.map((p, i) => (
+              <Text key={i} style={styles.summaryText}>{p.title}{p.description ? ` — ${p.description}` : ''}</Text>
+            ))}
           </View>
         ) : null}
 
@@ -155,12 +190,57 @@ export default function Resume({
           </View>
         ) : null}
 
+        {awards.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Awards</Text>
+            {awards.map((a, i) => (
+              <Text key={i} style={styles.summaryText}>{[a.title, a.issuer].filter(Boolean).join(' — ')}</Text>
+            ))}
+          </View>
+        ) : null}
+
+        {volunteer.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Volunteer Work</Text>
+            {volunteer.map((v, i) => (
+              <Text key={i} style={styles.summaryText}>{[v.role, v.organisation].filter(Boolean).join(' — ')}</Text>
+            ))}
+          </View>
+        ) : null}
+
+        {memberships.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Professional Memberships</Text>
+            {memberships.map((m, i) => <Text key={i} style={styles.summaryText}>{m.institution}</Text>)}
+          </View>
+        ) : null}
+
+        {publications.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Publications</Text>
+            {publications.map((p, i) => <Text key={i} style={styles.summaryText}>{p.title}</Text>)}
+          </View>
+        ) : null}
+
         {languages.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Languages</Text>
             <Text style={styles.summaryText}>
               {languages.map(l => [l.name, l.proficiency].filter(Boolean).join(' (') + (l.proficiency ? ')' : '')).join(', ')}
             </Text>
+          </View>
+        ) : null}
+
+        {referencesMode ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>References</Text>
+            {referencesMode === 'listed' && references.length > 0 ? (
+              references.map((r, i) => (
+                <Text key={i} style={styles.summaryText}>{[r.name, r.company].filter(Boolean).join(', ')}</Text>
+              ))
+            ) : (
+              <Text style={styles.summaryText}>Available on request</Text>
+            )}
           </View>
         ) : null}
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Briefcase, Plus, Loader2, Target, Radar } from 'lucide-react'
+import { Briefcase, Plus, Loader2, Target, Radar, Search } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, EmptyState, Input, Modal, SkeletonCard, useToast } from '@/components/ui'
@@ -76,12 +76,45 @@ function CareerPageInner() {
   const [activity, setActivity] = useState<ActivityEvent[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
 
+  const [jobDiscoveryStatus, setJobDiscoveryStatus] = useState<{ cap: number; usedToday: number; remaining: number } | null>(null)
+  const [fetchingJobs, setFetchingJobs] = useState(false)
+
   const loadActivity = () => {
     if (!token) return
     setActivityLoading(true)
     apiClient<{ events: ActivityEvent[] }>('/api/career/activity', { token })
       .then(data => { setActivity(data.events); setActivityLoading(false) })
       .catch(() => setActivityLoading(false))
+  }
+
+  const loadJobDiscoveryStatus = () => {
+    if (!token) return
+    apiClient<{ cap: number; usedToday: number; remaining: number }>('/api/career/job-discovery/status', { token })
+      .then(setJobDiscoveryStatus)
+      .catch(() => {})
+  }
+
+  const fetchJobsNow = async () => {
+    if (!token || fetchingJobs || (jobDiscoveryStatus && jobDiscoveryStatus.remaining <= 0)) return
+    setFetchingJobs(true)
+    try {
+      const result = await apiClient<{ opportunitiesFound: number; remaining: number; cap: number }>(
+        '/api/career/job-discovery/run', { method: 'POST', token },
+      )
+      setJobDiscoveryStatus({ cap: result.cap, usedToday: result.cap - result.remaining, remaining: result.remaining })
+      addToast({
+        variant: 'success',
+        title: result.opportunitiesFound > 0 ? `Found ${result.opportunitiesFound} new opportunit${result.opportunitiesFound === 1 ? 'y' : 'ies'}` : 'No new opportunities this time',
+        description: `${result.remaining} manual search${result.remaining === 1 ? '' : 'es'} left today.`,
+      })
+      loadOpportunities()
+      loadActivity()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Could not fetch jobs', description: err instanceof ApiError ? err.message : undefined })
+      loadJobDiscoveryStatus()
+    } finally {
+      setFetchingJobs(false)
+    }
   }
 
   const loadOpportunities = () => {
@@ -95,6 +128,7 @@ function CareerPageInner() {
 
   useEffect(loadOpportunities, [token, statusFilter])
   useEffect(loadActivity, [token])
+  useEffect(loadJobDiscoveryStatus, [token])
 
   const createOpportunity = async () => {
     if (!token || !newTitle.trim()) return
@@ -221,14 +255,28 @@ function CareerPageInner() {
         {token && <CoverLetterStudio token={token} opportunities={opportunities.map(o => ({ id: o.id, title: o.title, companyOrOrg: o.companyOrOrg }))} />}
 
         <div>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2">
             <h2 className="text-sm font-semibold text-gray-900">Opportunities</h2>
-            <button
-              onClick={() => setShowNewOpp(true)}
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100 shadow-sm hover:bg-indigo-50 min-h-[40px]"
-            >
-              <Plus className="w-4 h-4" />Add
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={fetchJobsNow}
+                disabled={fetchingJobs || (jobDiscoveryStatus != null && jobDiscoveryStatus.remaining <= 0)}
+                title={jobDiscoveryStatus ? `${jobDiscoveryStatus.remaining}/${jobDiscoveryStatus.cap} manual searches left today` : undefined}
+                className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100 shadow-sm hover:bg-emerald-50 min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
+              >
+                {fetchingJobs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                Fetch Jobs
+                {jobDiscoveryStatus ? (
+                  <span className="text-[10px] font-semibold text-emerald-500">{jobDiscoveryStatus.remaining}/{jobDiscoveryStatus.cap}</span>
+                ) : null}
+              </button>
+              <button
+                onClick={() => setShowNewOpp(true)}
+                className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100 shadow-sm hover:bg-indigo-50 min-h-[40px]"
+              >
+                <Plus className="w-4 h-4" />Add
+              </button>
+            </div>
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-2 mb-3 -mx-1 px-1">
