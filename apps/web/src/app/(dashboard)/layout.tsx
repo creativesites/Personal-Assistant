@@ -8,6 +8,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
 import { CommandPalette } from '@/components/command-palette'
+import { SubscriptionStatusBanner } from '@/components/subscription-status-banner'
 import {
   LayoutDashboard, MessageSquare, Zap, Users, Flame, TrendingUp,
   Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
@@ -514,6 +515,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           mobileNavMinimized ? 'pb-20 md:pb-0' : 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0'
         }`}
       >
+        <SubscriptionStatusBanner token={session.data?.accessToken} />
         {children}
       </main>
 

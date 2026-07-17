@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useState } from 'react'
-import { AlertTriangle, Bell, Flame, MessageSquare, Smartphone, SmartphoneNfc, Sparkles, Zap } from 'lucide-react'
+import { AlertTriangle, Bell, CreditCard, Flame, MessageSquare, Smartphone, SmartphoneNfc, Sparkles, Zap } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
+import { apiClient } from '@/lib/api'
 import { Avatar, Badge, EmptyState, PageHeader, SkeletonListItem } from '@/components/ui'
 
 interface Notification {
@@ -25,6 +26,7 @@ const TYPE_CONFIG: Record<string, { Icon: React.ElementType; variant: BadgeVaria
   proactive_reminder:   { Icon: Sparkles,       variant: 'purple',  iconColor: 'text-purple-500' },
   session_connected:    { Icon: Smartphone,     variant: 'success', iconColor: 'text-green-500' },
   session_disconnected: { Icon: SmartphoneNfc,  variant: 'error',   iconColor: 'text-red-400' },
+  billing:              { Icon: CreditCard,     variant: 'warning', iconColor: 'text-amber-500' },
   system:               { Icon: Bell,           variant: 'default', iconColor: 'text-gray-400' },
 }
 
@@ -58,8 +60,14 @@ export default function NotificationsPage() {
   const displayed = filter === 'unread' ? notifications.filter(n => !n.read) : notifications
   const unreadCount = notifications.filter(n => !n.read).length
 
-  const markRead = (id: string) => setMarkedRead(prev => new Set([...prev, id]))
-  const markAllRead = () => setMarkedRead(new Set(notifications.map(n => n.id)))
+  const markRead = (id: string) => {
+    setMarkedRead(prev => new Set([...prev, id]))
+    if (token) apiClient(`/api/notifications/${id}/read`, { method: 'PATCH', token }).catch(() => {})
+  }
+  const markAllRead = () => {
+    setMarkedRead(new Set(notifications.map(n => n.id)))
+    if (token) apiClient('/api/notifications/read-all', { method: 'PATCH', token }).catch(() => {})
+  }
 
   if (session.status === 'loading' || loading) {
     return (

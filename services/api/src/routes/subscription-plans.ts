@@ -243,19 +243,23 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
         plan: string
         status: string
         current_period_end: string | null
+        grace_period_ends_at: string | null
         messages_remaining_today: number
         ai_replies_remaining_today: number
         nudges_remaining_today: number
+        documents_remaining_today: number
         plan_key: string | null
         plan_name: string | null
         messages_per_day: number | null
         ai_replies_per_day: number | null
         proactive_nudges_per_day: number | null
+        documents_per_day: number | null
       }>(
-        `SELECT s.id, s.plan, s.status, s.current_period_end,
+        `SELECT s.id, s.plan, s.status, s.current_period_end, s.grace_period_ends_at,
                 s.messages_remaining_today, s.ai_replies_remaining_today, s.nudges_remaining_today,
+                s.documents_remaining_today,
                 p.key AS plan_key, p.name AS plan_name,
-                p.messages_per_day, p.ai_replies_per_day, p.proactive_nudges_per_day
+                p.messages_per_day, p.ai_replies_per_day, p.proactive_nudges_per_day, p.documents_per_day
          FROM subscriptions s
          LEFT JOIN subscription_plans p ON p.id = s.plan_id
          WHERE s.user_id = $1`,
@@ -287,6 +291,7 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
         planName: sub.plan_name,
         status: sub.status,
         currentPeriodEnd: sub.current_period_end,
+        gracePeriodEndsAt: sub.grace_period_ends_at,
         credits: {
           messagesRemaining: sub.messages_remaining_today,
           messagesPerDay: sub.messages_per_day,
@@ -294,6 +299,8 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
           aiRepliesPerDay: sub.ai_replies_per_day,
           nudgesRemaining: sub.nudges_remaining_today,
           nudgesPerDay: sub.proactive_nudges_per_day,
+          documentsRemaining: sub.documents_remaining_today,
+          documentsPerDay: sub.documents_per_day,
         },
         pendingPayment,
         mobileMoneyNumbers: {
