@@ -66,6 +66,7 @@ import {
 import { CatalogModule } from './_components/catalog-module'
 import { ServicesModule } from './_components/services-module'
 import { CustomersModule } from './_components/customers-module'
+import { FeatureGate } from '@/components/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2924,7 +2925,7 @@ function SocialModule({ token: _token }: { token: string | undefined }) {
 
 // ─── Main Page Component ──────────────────────────────────────────────────────
 
-export default function StudioPage() {
+function StudioPageInner() {
   const session = useZuriSession()
   // accessToken is string | undefined; coerce null → undefined for props
   const token = session.data?.accessToken ?? undefined
@@ -2988,5 +2989,13 @@ export default function StudioPage() {
         <div>{renderModule()}</div>
       </div>
     </div>
+  )
+}
+
+export default function StudioPage() {
+  return (
+    <FeatureGate requiredFamily="professional" featureLabel="Business OS">
+      <StudioPageInner />
+    </FeatureGate>
   )
 }

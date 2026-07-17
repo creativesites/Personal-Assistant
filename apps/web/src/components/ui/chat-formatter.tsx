@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ApiError } from '@/lib/api'
 import {
   TrendingUp, Target, Calendar, MessageCircle,
   Check, Copy, Edit3, Send, ChevronRight, Loader2, FileText, ExternalLink, Clock, GitBranch,
@@ -467,17 +468,23 @@ function GenerateDocumentWidget({
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [limitReached, setLimitReached] = useState(false)
   const label = DOCUMENT_TYPE_LABELS[documentType] ?? documentType
 
   const generate = async () => {
     if (!onAction) return
     setLoading(true)
     setFailed(false)
+    setLimitReached(false)
     try {
       await onAction({ type: 'generate_document', params: [documentType, contactId, brief] })
       setDone(true)
-    } catch {
-      setFailed(true)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 402) {
+        setLimitReached(true)
+      } else {
+        setFailed(true)
+      }
     } finally {
       setLoading(false)
     }
@@ -511,7 +518,13 @@ function GenerateDocumentWidget({
           </a>
         </p>
       )}
-      {failed && <p className="text-[10px] text-red-500 font-semibold">Couldn&apos;t generate the document. Try again from the Documents page.</p>}
+      {limitReached && (
+        <p className="text-[10px] font-semibold text-amber-500">
+          Daily document limit reached —{' '}
+          <a href="/billing" className="underline">upgrade for unlimited documents</a>.
+        </p>
+      )}
+      {failed && !limitReached && <p className="text-[10px] text-red-500 font-semibold">Couldn&apos;t generate the document. Try again from the Documents page.</p>}
     </div>
   )
 }

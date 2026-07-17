@@ -10,6 +10,7 @@ import { ResumeStudio } from './_components/resume-studio'
 import { CoverLetterStudio } from './_components/cover-letter-studio'
 import { OpportunityCard, type CareerOpportunity } from './_components/opportunity-card'
 import { CareerRadar } from './_components/career-radar'
+import { FeatureGate } from '@/components/ui'
 
 // Zuri Career & Growth Engine, Phase 1 (see docs/CAREER_GROWTH_ENGINE_PLAN.md
 // §3/§5) — a Career Profile (the single professional-identity source) plus
@@ -66,7 +67,7 @@ function formatCategory(category: string) {
   return category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
-export default function CareerPage() {
+function CareerPageInner() {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const { addToast } = useToast()
@@ -394,5 +395,13 @@ export default function CareerPage() {
         </Modal>
       )}
     </div>
+  )
+}
+
+export default function CareerPage() {
+  return (
+    <FeatureGate requiredFamily="personal" featureLabel="Career OS">
+      <CareerPageInner />
+    </FeatureGate>
   )
 }

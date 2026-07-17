@@ -5,6 +5,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { Badge, EmptyState, PageHeader, SkeletonCard } from '@/components/ui'
+import { FeatureGate } from '@/components/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -600,7 +601,7 @@ function AgentBuilderModal({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function AutomationPage() {
+function AutomationPageInner() {
   const session = useZuriSession()
   const token = session.data?.accessToken
 
@@ -938,5 +939,13 @@ export default function AutomationPage() {
         />
       )}
     </>
+  )
+}
+
+export default function AutomationPage() {
+  return (
+    <FeatureGate requiredFamily="business" featureLabel="Automation">
+      <AutomationPageInner />
+    </FeatureGate>
   )
 }

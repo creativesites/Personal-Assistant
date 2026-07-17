@@ -11,6 +11,7 @@ import {
   Plus, Trash2, Copy, ThumbsUp, ThumbsDown, BookHeart, UserCog, Smile
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { ApiError } from '@/lib/api'
 import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
@@ -474,7 +475,10 @@ export default function AdvisorPage() {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ contactId, documentType, instruction: brief || `Draft a ${documentType}` }),
     })
-    if (!genRes.ok) throw new Error('Failed to generate document')
+    if (!genRes.ok) {
+      const body = await genRes.json().catch(() => ({ error: 'Failed to generate document' }))
+      throw new ApiError(genRes.status, body.error || 'Failed to generate document')
+    }
     const { document } = await genRes.json() as { document: { id: string } }
 
     const renderRes = await fetch(`${API_URL}/api/documents/${document.id}/generate`, {

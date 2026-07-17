@@ -242,6 +242,7 @@ export default function NewDocumentPage() {
   const [aiInstruction, setAiInstruction] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [aiLimitReached, setAiLimitReached] = useState(false)
 
   const [form, setForm] = useState<FormData>({
     docType: 'invoice',
@@ -426,6 +427,7 @@ export default function NewDocumentPage() {
     }
     setAiGenerating(true)
     setAiError(null)
+    setAiLimitReached(false)
 
     try {
       const { document: doc } = await apiClient<{ document: {
@@ -468,7 +470,11 @@ export default function NewDocumentPage() {
       setStep(4)
       window.scrollTo({ top: 0 })
     } catch (err) {
-      setAiError(err instanceof ApiError ? err.message : 'AI generation failed. Try again or switch to manual.')
+      if (err instanceof ApiError && err.status === 402) {
+        setAiLimitReached(true)
+      } else {
+        setAiError(err instanceof ApiError ? err.message : 'AI generation failed. Try again or switch to manual.')
+      }
     } finally {
       setAiGenerating(false)
     }
@@ -669,7 +675,22 @@ export default function NewDocumentPage() {
                   placeholder={'Examples:\n• "Invoice for 3 months of web design at $1,500/month with 16% VAT"\n• "Quotation for office renovation: painting, flooring, and furniture"\n• "Software development proposal for e-commerce platform"'}
                   className={textareaCls}
                 />
-                {aiError && (
+                {aiLimitReached && (
+                  <div className="flex items-start gap-3 mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-200">
+                    <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-amber-900">You've hit your daily AI document limit.</p>
+                      <p className="text-xs text-amber-700 mt-0.5">Upgrade for unlimited document generation.</p>
+                    </div>
+                    <a
+                      href="/billing"
+                      className="flex-shrink-0 rounded-xl bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700 transition-colors"
+                    >
+                      Upgrade
+                    </a>
+                  </div>
+                )}
+                {aiError && !aiLimitReached && (
                   <div className="flex items-start gap-2 mt-3 p-3 bg-red-50 rounded-xl border border-red-100">
                     <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-red-700">{aiError}</p>

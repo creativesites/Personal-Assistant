@@ -754,7 +754,16 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
       addToast({ variant: 'success', title: `${aiDocumentType[0].toUpperCase()}${aiDocumentType.slice(1)} generated` })
       onCreated()
     } catch (err) {
-      addToast({ variant: 'error', title: 'Failed to generate document', description: err instanceof ApiError ? err.message : undefined })
+      if (err instanceof ApiError && err.status === 402) {
+        addToast({
+          variant: 'warning',
+          title: "You've hit your daily AI document limit",
+          description: 'Upgrade on the Billing page for unlimited document generation.',
+          duration: 6000,
+        })
+      } else {
+        addToast({ variant: 'error', title: 'Failed to generate document', description: err instanceof ApiError ? err.message : undefined })
+      }
     } finally {
       setAiGenerating(false)
     }

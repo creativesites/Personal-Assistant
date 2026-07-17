@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api'
 import Link from 'next/link'
 import { Zap, X, Loader2 } from 'lucide-react'
 import { AnalyticsSubNav } from './_components/analytics-sub-nav'
+import { FeatureGate } from '@/components/ui'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,7 +172,7 @@ function EmptyState() {
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function AnalyticsExecutivePage() {
+function AnalyticsExecutivePageInner() {
   const session = useZuriSession()
   const token = session.data?.accessToken
 
@@ -440,3 +441,11 @@ export default function AnalyticsExecutivePage() {
     </div>
   )
                     }
+
+export default function AnalyticsExecutivePage() {
+  return (
+    <FeatureGate requiredFamily="business" featureLabel="Analytics">
+      <AnalyticsExecutivePageInner />
+    </FeatureGate>
+  )
+}

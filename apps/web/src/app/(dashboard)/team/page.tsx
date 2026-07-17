@@ -5,6 +5,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { Users, CheckCircle2, X, Lock } from 'lucide-react'
+import { FeatureGate } from '@/components/ui'
 
 interface TeamMember {
   id: string
@@ -51,7 +52,7 @@ const ROLE_STYLE: Record<string, string> = {
   member: 'bg-gray-100 text-gray-600',
 }
 
-export default function TeamPage() {
+function TeamPageInner() {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const userId = session.data?.user?.id
@@ -352,5 +353,13 @@ export default function TeamPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function TeamPage() {
+  return (
+    <FeatureGate requiredFamily="business" featureLabel="Teams">
+      <TeamPageInner />
+    </FeatureGate>
   )
 }

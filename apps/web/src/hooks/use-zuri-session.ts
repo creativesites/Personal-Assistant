@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from 'react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
+// Membership Platform Phase 6 — the Entitlement Engine's effective plan
+// family, read off the session so FeatureGate can gate client-side without
+// its own round-trip. Mirrors services/api/src/lib/entitlements.ts's
+// PlanFamily type.
+export type PlanFamily = 'free' | 'personal' | 'professional' | 'business' | 'enterprise'
 
 // Module-level cache keyed by Clerk userId so it survives re-renders
 // but clears automatically when a different user signs in.
@@ -14,12 +19,14 @@ const _store: {
   mode: WorkspaceMode
   marketingAccess: MarketingAccess
   isAdmin: boolean
+  planFamily: PlanFamily
 } = {
   userId: '',
   token: '',
   mode: 'hybrid',
   marketingAccess: 'none',
   isAdmin: false,
+  planFamily: 'free',
 }
 
 // Subscribers get notified when mode changes via setStoredMode
@@ -55,6 +62,9 @@ export function useZuriSession() {
   const [isAdmin, setIsAdmin] = useState<boolean>(
     user?.id && _store.userId === user.id ? _store.isAdmin : false,
   )
+  const [planFamily, setPlanFamily] = useState<PlanFamily>(
+    user?.id && _store.userId === user.id ? _store.planFamily : 'free',
+  )
   const [syncFailed, setSyncFailed] = useState(false)
   const pending = useRef(false)
 
@@ -78,6 +88,7 @@ export function useZuriSession() {
       setToken(_store.token)
       setMode(_store.mode)
       setMarketingAccess(_store.marketingAccess)
+      setPlanFamily(_store.planFamily)
       return
     }
     if (pending.current) return
@@ -94,10 +105,12 @@ export function useZuriSession() {
           _store.mode = (data.user?.mode as WorkspaceMode) ?? 'business'
           _store.marketingAccess = (data.user?.marketingAccess as MarketingAccess) ?? 'none'
           _store.isAdmin = data.user?.isAdmin ?? false
+          _store.planFamily = (data.user?.planFamily as PlanFamily) ?? 'free'
           setToken(data.token)
           setMode(_store.mode)
           setMarketingAccess(_store.marketingAccess)
           setIsAdmin(_store.isAdmin)
+          setPlanFamily(_store.planFamily)
         } else {
           setSyncFailed(true)
         }
@@ -125,6 +138,7 @@ export function useZuriSession() {
       mode,
       marketingAccess,
       isAdmin,
+      planFamily,
       user: {
         id: user!.id,
         email: user!.emailAddresses[0]?.emailAddress ?? '',

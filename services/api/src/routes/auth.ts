@@ -5,6 +5,7 @@ import { db } from '../lib/db';
 import { config } from '../config';
 import { authenticate } from '../plugins/authenticate';
 import { MARKETING_ACCESS_OPEN_FOR_TESTING } from '../lib/marketing-access';
+import { getEffectivePlanFamily } from '../lib/entitlements';
 
 // See lib/marketing-access.ts — testing-phase override, independent of the DB value.
 function resolveMarketingAccess(dbValue: string | null | undefined): string {
@@ -144,6 +145,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         { expiresIn: '30d' },
       )
 
+      // Membership Platform Phase 6 — planFamily on the session payload so
+      // the frontend can gate (FeatureGate) without a round-trip per page.
+      const planFamily = await getEffectivePlanFamily(user.id)
+
       return reply.send({
         token,
         user: {
@@ -154,6 +159,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           marketingAccess: resolveMarketingAccess(user.marketing_access),
           isAdmin: user.is_admin ?? false,
           onboardingCompleted: user.onboarding_completed,
+          planFamily,
         },
       })
     } catch (err: any) {
