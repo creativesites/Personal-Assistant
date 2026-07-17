@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { Modal } from '@/components/ui'
 import { apiClient, ApiError } from '@/lib/api'
 
@@ -176,11 +177,19 @@ export function GuidedPaymentModal({
                 <button
                   key={n}
                   onClick={() => setNetwork(n)}
-                  className={`rounded-2xl border-2 px-4 py-4 text-sm font-bold transition-colors ${
-                    network === n ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  className={`rounded-2xl border-2 px-4 py-4 flex flex-col items-center gap-2 transition-colors ${
+                    network === n ? 'border-indigo-600 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'
                   }`}
                 >
-                  {n === 'airtel' ? 'Airtel Money' : 'MTN MoMo'}
+                  <Image
+                    src={n === 'airtel' ? '/airtel_money.png' : '/mtn_money.jpeg'}
+                    alt={n === 'airtel' ? 'Airtel Money' : 'MTN MoMo'}
+                    width={64} height={32}
+                    className="h-8 w-auto object-contain"
+                  />
+                  <span className={`text-xs font-bold ${network === n ? 'text-indigo-700' : 'text-gray-600'}`}>
+                    {n === 'airtel' ? 'Airtel Money' : 'MTN MoMo'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -196,6 +205,14 @@ export function GuidedPaymentModal({
 
         {step === 'pay' && checkout && network && (
           <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Image
+                src={network === 'airtel' ? '/airtel_money.png' : '/mtn_money.jpeg'}
+                alt={network === 'airtel' ? 'Airtel Money' : 'MTN MoMo'}
+                width={80} height={36}
+                className="h-8 w-auto object-contain"
+              />
+            </div>
             <p className="text-sm text-gray-600">
               Send <strong className="text-gray-900">{checkout.amountFormatted}</strong> to the {network === 'airtel' ? 'Airtel Money' : 'MTN MoMo'} number
               below, with the reference code as the payment note.
