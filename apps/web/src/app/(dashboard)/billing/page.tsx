@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useZuriSession } from '@/hooks/use-zuri-session'
+import { useZuriSession, refreshZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { PageHeader, SkeletonCard } from '@/components/ui'
 import { GuidedPaymentModal, type GuidedPaymentPlan } from './_components/guided-payment-modal'
@@ -139,6 +139,21 @@ export default function BillingPage() {
   const isPending = sub?.status === 'pending_payment'
   const isRejected = sub?.status === 'payment_rejected'
   const upgradeablePlans = catalog?.plans.filter((p) => p.key !== 'free') ?? []
+
+  // While a payment is awaiting admin approval, poll for the transition —
+  // approval happens out-of-band and can land any time within the
+  // "5-30 minutes" window GuidedPaymentModal already sets expectations for.
+  // Refreshing the shared session snapshot alongside the subscription
+  // itself means every FeatureGate on every page picks up the new plan
+  // family live, instead of only this one card updating on its own refetch.
+  useEffect(() => {
+    if (!isPending) return
+    const timer = setInterval(() => {
+      refetchSub()
+      refreshZuriSession()
+    }, 20_000)
+    return () => clearInterval(timer)
+  }, [isPending, refetchSub])
 
   return (
     <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]">
@@ -289,7 +304,7 @@ export default function BillingPage() {
         token={token}
         hasByokKey={(byokKeys?.keys.length ?? 0) > 0}
         onClose={() => setGuidedPlan(null)}
-        onDone={() => refetchSub()}
+        onDone={() => { refetchSub(); refreshZuriSession() }}
       />
     </div>
   )
