@@ -39,6 +39,7 @@ function emptyDraft(fields: EntryFieldConfig[]): Record<string, unknown> {
 
 function fieldValueForInput(value: unknown, type: EntryFieldType): string {
   if (type === 'array') return Array.isArray(value) ? value.join(', ') : ''
+  if (type === 'date') return value == null ? '' : String(value).slice(0, 10)
   return value == null ? '' : String(value)
 }
 

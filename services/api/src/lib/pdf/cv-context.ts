@@ -1,5 +1,16 @@
 import { db } from '../db';
 
+// node-postgres parses SQL DATE columns into JS Date objects by default (no
+// custom type parser is registered) — normalize to a plain yyyy-MM-dd string
+// before this data reaches the templates, which otherwise call
+// String()/Array.prototype.join() on the raw Date and get its long
+// toString() form (e.g. "Wed Oct 14 2020 00:00:00 GMT+0000 ...").
+function toDateStr(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 // CV Studio Phase 5 — Templates + Render Pipeline (docs/CV_STUDIO_PLAN.md
 // §5, §18 Phase 5). Assembles the live data a career_cvs row's PDF needs
 // straight from the Phase 1 relational tables — a pure data read, no AI
@@ -133,7 +144,7 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
       `SELECT name, company FROM career_references WHERE user_id = $1 ORDER BY sort_order ASC`, [userId],
     ),
     db.query(
-      `SELECT l.custom_description_override, p.name AS title FROM career_cv_project_links l
+      `SELECT l.custom_description_override, p.title FROM career_cv_project_links l
        JOIN projects p ON p.id = l.project_id WHERE l.cv_id = $1 ORDER BY l.sort_order ASC`, [cvId],
     ),
   ]);
@@ -152,21 +163,21 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
     contactLine,
     experience: employmentResult.rows.map(e => ({
       title: e.title, company: e.employer, location: e.location,
-      startDate: e.start_date, endDate: e.end_date, current: e.is_current,
+      startDate: toDateStr(e.start_date) ?? undefined, endDate: toDateStr(e.end_date), current: e.is_current,
       bullets: Array.isArray(e.achievements) && e.achievements.length > 0
         ? e.achievements
         : (e.responsibilities ? [e.responsibilities] : []),
     })),
     education: educationResult.rows.map(e => ({
       institution: e.institution, degree: e.qualification, field: e.programme,
-      year: e.end_date ? String(e.end_date).slice(0, 4) : undefined,
+      year: toDateStr(e.end_date)?.slice(0, 4),
     })),
     skillGroups: skillGroupsResult.rows.map(g => ({ groupName: g.group_name, skills: g.skills ?? [] })),
     skills: skillGroupsResult.rows.flatMap(g => g.skills ?? []),
     certifications: certificationsResult.rows.map(c => ({
-      name: c.name, issuer: c.issuer, year: c.issued_date ? String(c.issued_date).slice(0, 4) : undefined,
+      name: c.name, issuer: c.issuer, year: toDateStr(c.issued_date)?.slice(0, 4),
     })),
-    projects: projectLinksResult.rows.map(p => ({ title: p.title, description: p.custom_description_override ?? null })),
+    projects: projectLinksResult.rows.map(p => ({ title: p.title, description: p.custom_description_override ?? undefined })),
     awards: awardsResult.rows.map(a => ({ title: a.title, issuer: a.issuer, description: a.description })),
     volunteer: volunteerResult.rows.map(v => ({ role: v.role, organisation: v.organisation, description: v.description })),
     memberships: membershipsResult.rows.map(m => ({ institution: m.institution })),
