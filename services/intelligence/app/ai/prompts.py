@@ -528,12 +528,12 @@ Message: "{text}"
 
 Return JSON in exactly this format:
 {{
-  "intent": "casual_chat|relationship_advice|chat_analysis|draft_reply|send_message|watch_replies|scoped_automation|business_analysis|memory_update|settings_update|emotional_support|gossip|spiritual|motivational|activate_personal_mode|deactivate_personal_mode|unknown",
+  "intent": "casual_chat|relationship_advice|chat_analysis|draft_reply|send_message|watch_replies|scoped_automation|business_analysis|memory_update|settings_update|emotional_support|gossip|spiritual|motivational|career_advice|activate_personal_mode|deactivate_personal_mode|unknown",
   "needs_clarification": false,
   "memory_suggestion": null
 }}
 
-"intent" — pick the single best match. "activate_personal_mode"/"deactivate_personal_mode" only for an explicit request like "activate personal mode" / "turn off personal mode" / "give me the full experience" / "go back to normal" — not casual mentions of the phrase. "scoped_automation" only for an explicit, narrow auto-send request like "handle this conversation for 10 minutes, auto-send anything about the meeting time" — not a general request to draft or send one message.
+"intent" — pick the single best match. "activate_personal_mode"/"deactivate_personal_mode" only for an explicit request like "activate personal mode" / "turn off personal mode" / "give me the full experience" / "go back to normal" — not casual mentions of the phrase. "scoped_automation" only for an explicit, narrow auto-send request like "handle this conversation for 10 minutes, auto-send anything about the meeting time" — not a general request to draft or send one message. "career_advice" for anything about the user's own job search, career growth, resume, applications, interviews, or professional opportunities — not a contact's career.
 
 "needs_clarification" — true only if the message is genuinely too vague to act on without a follow-up question.
 
@@ -675,6 +675,31 @@ Their preferred motivational style (may be empty — default to gentle encourage
 Return ONLY valid JSON in exactly this shape:
 {{
   "message": "a short, warm, non-shaming nudge naming what's stacking up and offering one concrete easiest-first next step — never parental, never guilt-tripping"
+}}
+"""
+
+# Career & Growth Engine Phase 5 (docs/CAREER_GROWTH_ENGINE_PLAN.md §11) —
+# Career Coach & Motivation. Same "encouraging without becoming sentimental
+# or manipulative" tone constraint the plan names, enforced as a policy
+# block here rather than per-message ad-hoc instruction (the same pattern
+# RELATIONSHIP_ADVICE_POLICY already established). Real counts, never
+# generic sympathy — the context passed in already carries the concrete
+# numbers (applications submitted, interview rounds logged) this prompt
+# must ground its message in.
+CAREER_COACH_TONE_POLICY = """
+Be a sharp, encouraging career coach — never sentimental, never guilt-tripping, never manipulative. Ground every message in the real counts/context given, never generic career-blog platitudes. Keep it short — 2-3 sentences, one concrete next step.
+"""
+
+GENERATE_CAREER_COACH_NUDGE = """\
+You are Zuri, the user's career coach.
+{policy}
+
+Trigger: {trigger}
+Context: {context}
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "message": "a short, concrete message matching the trigger — 'celebrate': genuinely congratulate them and note the next real step (e.g. interview prep); 'rejection': acknowledge concretely using the real counts given, then reframe forward (e.g. suggest shortlisting a few more targeted roles); 'stalled': gently flag the stalled opportunities and offer one concrete next action (e.g. 'want me to shortlist three high-quality roles instead of browsing hundreds?')"
 }}
 """
 

@@ -19,6 +19,7 @@ from ..services.curiosity_engine import get_curiosity_engine
 from ..services.project_progress import ProjectProgressService
 from ..services.business_manager import BusinessManagerService
 from ..services.reality_engine import RealityEngineService
+from ..services.career_coach import get_career_coach
 
 log = structlog.get_logger()
 
@@ -51,6 +52,7 @@ _project_progress_queue = Queue('project.check_progress', {'connection': redis_c
 _business_manager_queue = Queue('business.check_manager_nudges', {'connection': redis_conn_opts()})
 _reality_engine_hourly_queue = Queue('reality.hourly_sweep', {'connection': redis_conn_opts()})
 _reality_engine_daily_queue = Queue('reality.daily_sweep', {'connection': redis_conn_opts()})
+_career_coach_queue = Queue('career.check_coach_nudges', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -499,6 +501,34 @@ async def run_reality_engine_daily_scheduler() -> None:
             await _reality_engine_daily_queue.add('daily_sweep', {})
         except Exception as exc:
             log.error('reality_engine_daily_enqueue_failed', error=str(exc))
+
+
+async def _process_career_coach(job, token: str):
+    count = await get_career_coach().run_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_career_coach_worker() -> Worker:
+    return Worker('career.check_coach_nudges', _process_career_coach, {'connection': redis_conn_opts()})
+
+
+async def run_career_coach_scheduler() -> None:
+    """Career & Growth Engine Phase 5 (docs/CAREER_GROWTH_ENGINE_PLAN.md
+    §11): daily at 20:00 UTC — the next free slot after Reality Engine's
+    19:00 daily sweep."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=20, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('career_coach_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('career_coach_enqueue')
+            await _career_coach_queue.add('check_coach_nudges', {})
+        except Exception as exc:
+            log.error('career_coach_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

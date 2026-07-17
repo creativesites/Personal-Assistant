@@ -106,8 +106,14 @@ class AdvisorCompanionService:
             # §3.9/§6.11 Phase 4.5 — "pray with me" is a normal turn, not a
             # separate action type; only reachable once a tradition is set.
             companion_mode = 'spiritual_companion'
+        if intent == 'career_advice':
+            # Career & Growth Engine Phase 5 (§11) — same auto-switch
+            # reasoning as gossip/spiritual_companion above.
+            companion_mode = 'career_coach'
         contacts_context = await self._get_contact_context(user_id, emotional_state)
         curiosity_line = await self._curiosity_context_line(user_id, question, session_id)
+        if companion_mode == 'career_coach':
+            curiosity_line += await self._career_context_line(user_id)
 
         system_prompt = self._build_system_prompt(profile, memories, emotional_state, companion_mode, contacts_context, curiosity_line)
 
@@ -222,6 +228,8 @@ class AdvisorCompanionService:
             companion_mode = 'gossip'
         if intent == 'spiritual' and (profile.get('spiritual_preferences') or {}).get('tradition'):
             companion_mode = 'spiritual_companion'  # §3.9/§6.11 Phase 4.5 — "pray with me"
+        if intent == 'career_advice':
+            companion_mode = 'career_coach'  # Career & Growth Engine Phase 5 (§11)
 
         contact_context = ''
         if contact_id:
@@ -248,6 +256,8 @@ class AdvisorCompanionService:
             emotional_context_line = "\nThe user seems to be in a tense or anxious mood right now — acknowledge that briefly if it's relevant, without making a big deal of it."
         emotional_context_line += self._spiritual_verse_line(profile, emotional_state)
         emotional_context_line += await self._curiosity_context_line(user_id, question, session_id)
+        if companion_mode == 'career_coach':
+            emotional_context_line += await self._career_context_line(user_id)
 
         is_analysis = intent in _ANALYSIS_INTENTS
         ai = get_ai_client()
@@ -472,6 +482,55 @@ class AdvisorCompanionService:
                 f"unread={row['unread_count']}, last: \"{preview}\""
             )
         return '\n'.join(context_lines)
+
+    async def _career_context_line(self, user_id: str) -> str:
+        """Career & Growth Engine Phase 5 (§11) — folded in only when
+        companion_mode is 'career_coach', the same "don't pay for context
+        the turn doesn't need" discipline as the rest of this file. Reads
+        career_profiles' own goals text, active (non-terminal)
+        career_opportunities, and the most recent career_interviews rounds —
+        no new detection pass, purely a read of what Phases 1/4 already
+        store."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            profile = await conn.fetchrow(
+                'SELECT career_goals_text, target_roles FROM career_profiles WHERE user_id = $1', user_id,
+            )
+            opportunities = await conn.fetch(
+                """SELECT title, company_or_org, status FROM career_opportunities
+                   WHERE user_id = $1 AND status NOT IN ('rejected', 'withdrawn', 'archived')
+                   ORDER BY updated_at DESC LIMIT 8""",
+                user_id,
+            )
+            interviews = await conn.fetch(
+                """SELECT ci.interview_type, ci.outcome, ci.scheduled_at, co.title, co.company_or_org
+                   FROM career_interviews ci JOIN career_opportunities co ON co.id = ci.career_opportunity_id
+                   WHERE ci.user_id = $1 ORDER BY ci.created_at DESC LIMIT 5""",
+                user_id,
+            )
+
+        if not profile and not opportunities and not interviews:
+            return "\n\nThe user hasn't set up a career profile yet — if relevant, suggest they visit /career to add their skills, target roles, and goals so advice can be more specific."
+
+        lines = ['\n\nCareer context:']
+        if profile and profile['career_goals_text']:
+            lines.append(f"Stated career goals: {profile['career_goals_text']}")
+        if profile and profile['target_roles']:
+            lines.append(f"Target roles: {', '.join(profile['target_roles'])}")
+        if opportunities:
+            opp_lines = '\n'.join(
+                f"- {o['title']}" + (f" at {o['company_or_org']}" if o['company_or_org'] else '') + f" ({o['status']})"
+                for o in opportunities
+            )
+            lines.append(f"Active opportunities:\n{opp_lines}")
+        if interviews:
+            iv_lines = '\n'.join(
+                f"- {i['interview_type'].replace('_', ' ')} for {i['title']}"
+                + (f" at {i['company_or_org']}" if i['company_or_org'] else '') + f" — outcome: {i['outcome']}"
+                for i in interviews
+            )
+            lines.append(f"Recent interview rounds:\n{iv_lines}")
+        return '\n'.join(lines)
 
     def _build_system_prompt(self, profile: dict, memories: list[dict], emotional_state: dict,
                               companion_mode: str, contacts_context: str, curiosity_line: str = '') -> str:
@@ -734,6 +793,7 @@ _COMPANION_MODE_INSTRUCTIONS = {
     'analyst': 'Be precise and evidence-first — lead with what you can actually observe before offering an interpretation.',
     'gossip': "Be playful, chatty, and opinionated about the user's contacts — but only ever state things you can actually back up from real signals; never invent drama.",
     'spiritual_companion': 'Be a quiet, non-denominational, non-proselytising source of comfort and reflection when asked — always respectful of the user\'s own stated tradition.',
+    'career_coach': "Be a sharp, encouraging career coach — concrete and action-oriented about the user's job search, applications, interviews, and professional growth. Ground every suggestion in their actual career profile/opportunities/interview history below, never generic career-blog advice.",
 }
 
 
