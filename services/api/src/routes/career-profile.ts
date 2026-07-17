@@ -52,6 +52,22 @@ const patchProfileBody = z.object({
   linkedinUrl: z.string().url().nullable().optional(),
   portfolioUrl: z.string().url().nullable().optional(),
   country: z.string().max(50).nullable().optional(),
+  // CV Studio Phase 1 (docs/CV_STUDIO_PLAN.md §3, §18) — Step 1/Step 14
+  // wizard fields. Willing-to-relocate/expected-salary reuse the existing
+  // relocationPreference/salaryExpectationCents fields above rather than
+  // duplicating them.
+  phone: z.string().max(30).nullable().optional(),
+  location: z.string().max(255).nullable().optional(),
+  websiteUrl: z.string().url().nullable().optional(),
+  drivingLicence: z.string().max(100).nullable().optional(),
+  nationality: z.string().max(100).nullable().optional(),
+  passportOrNrc: z.string().max(100).nullable().optional(),
+  availability: z.string().max(100).nullable().optional(),
+  noticePeriod: z.string().max(100).nullable().optional(),
+  interests: z.array(z.string().max(100)).optional(),
+  referencesMode: z.enum(['available_on_request', 'listed']).optional(),
+  defaultPageSize: z.enum(['A4', 'Letter']).optional(),
+  useCvTerminology: z.boolean().optional(),
 })
 
 const DEFAULT_PROFILE = {
@@ -59,6 +75,9 @@ const DEFAULT_PROFILE = {
   careerGoalsText: null, targetRoles: [], targetIndustries: [], salaryExpectationCents: null,
   salaryCurrency: 'ZMW', remotePreference: null, relocationPreference: null, workAuthorization: null,
   githubUrl: null, linkedinUrl: null, portfolioUrl: null, country: null,
+  phone: null, location: null, websiteUrl: null, drivingLicence: null, nationality: null,
+  passportOrNrc: null, availability: null, noticePeriod: null, interests: [],
+  referencesMode: 'available_on_request', defaultPageSize: 'A4', useCvTerminology: true,
 }
 
 function profileApiShape(r: any) {
@@ -81,6 +100,18 @@ function profileApiShape(r: any) {
     linkedinUrl: r.linkedin_url,
     portfolioUrl: r.portfolio_url,
     country: r.country,
+    phone: r.phone,
+    location: r.location,
+    websiteUrl: r.website_url,
+    drivingLicence: r.driving_licence,
+    nationality: r.nationality,
+    passportOrNrc: r.passport_or_nrc,
+    availability: r.availability,
+    noticePeriod: r.notice_period,
+    interests: r.interests ?? [],
+    referencesMode: r.references_mode,
+    defaultPageSize: r.default_page_size,
+    useCvTerminology: r.use_cv_terminology,
     updatedAt: r.updated_at,
   }
 }
@@ -89,7 +120,7 @@ const JSONB_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   skills: 'skills', certifications: 'certifications', education: 'education', languages: 'languages',
 }
 const ARRAY_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
-  target_roles: 'targetRoles', target_industries: 'targetIndustries',
+  target_roles: 'targetRoles', target_industries: 'targetIndustries', interests: 'interests',
 }
 const SCALAR_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   headline: 'headline', summary: 'summary', career_goals_text: 'careerGoalsText',
@@ -97,6 +128,10 @@ const SCALAR_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   remote_preference: 'remotePreference', relocation_preference: 'relocationPreference',
   work_authorization: 'workAuthorization', github_url: 'githubUrl', linkedin_url: 'linkedinUrl',
   portfolio_url: 'portfolioUrl', country: 'country',
+  phone: 'phone', location: 'location', website_url: 'websiteUrl',
+  driving_licence: 'drivingLicence', nationality: 'nationality', passport_or_nrc: 'passportOrNrc',
+  availability: 'availability', notice_period: 'noticePeriod', references_mode: 'referencesMode',
+  default_page_size: 'defaultPageSize', use_cv_terminology: 'useCvTerminology',
 }
 
 export async function careerProfileRoutes(fastify: FastifyInstance): Promise<void> {
