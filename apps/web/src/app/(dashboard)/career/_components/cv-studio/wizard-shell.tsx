@@ -13,6 +13,7 @@ import { ProjectsStep, type ProjectLink } from './projects-step'
 import { ReferencesStep } from './references-step'
 import { AdditionalInfoStep } from './additional-info-step'
 import { CvPreview } from './cv-preview'
+import { CvHealthPanel } from './cv-health-panel'
 
 // CV Studio Phase 4 — The Wizard (docs/CV_STUDIO_PLAN.md §4, §18 Phase 4).
 // Autosave on every field blur, one section per step, live preview beside
@@ -299,6 +300,7 @@ export function WizardShell({
 
         <div className={`${showPreview ? '' : 'hidden lg:block'}`}>
           <CvPreview token={token} profile={profile} projectLinks={projectLinks} refreshKey={refreshKey} />
+          <CvHealthPanel cvId={cvId} token={token} refreshKey={refreshKey} />
         </div>
       </div>
     </div>

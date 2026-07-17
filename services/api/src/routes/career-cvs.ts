@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { config } from '../config'
 import { renderCvPdf } from '../lib/pdf/render'
+import { buildCvRenderData } from '../lib/pdf/cv-context'
+import { computeCvHealth, buildCvPlainText } from '../lib/cv-health'
 
 // CV Studio Phase 1 (docs/CV_STUDIO_PLAN.md §3, §10, §18) — the CV-as-a-
 // view-over-profile object model. A tailored variant is a new career_cvs
@@ -364,5 +367,42 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     reply.header('Content-Type', 'application/pdf')
     reply.header('Content-Disposition', `attachment; filename="${filename}"`)
     return reply.send(pdf)
+  })
+
+  // ── CV Health (§7) — deterministic, non-AI checks over the same live
+  // data the PDF render reads.
+  fastify.get('/api/career/cvs/:id/health', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const data = await buildCvRenderData(id, userId)
+    if (!data) return reply.code(404).send({ error: 'CV not found' })
+
+    return reply.send(computeCvHealth(data))
+  })
+
+  // ── ATS Analysis (§7) — reuses score_resume_text()'s existing
+  // SCORE_RESUME prompt verbatim, fed from the CV's live content instead
+  // of an uploaded resume's raw text.
+  fastify.post('/api/career/cvs/:id/ats-score', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const data = await buildCvRenderData(id, userId)
+    if (!data) return reply.code(404).send({ error: 'CV not found' })
+
+    try {
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+      const res = await fetch(`${intelligenceUrl}/internal/career/resume/score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, resume_text: buildCvPlainText(data) }),
+      })
+      if (!res.ok) return reply.code(502).send({ error: 'Failed to score this CV' })
+      return reply.send(await res.json())
+    } catch (err) {
+      fastify.log.error({ err }, 'cv_ats_score_error')
+      return reply.code(502).send({ error: 'Failed to score this CV' })
+    }
   })
 }
