@@ -165,40 +165,116 @@ One profile, many documents — `document_type` gains `application_letter`, `exp
 
 ---
 
-## 15. Job Discovery Engine — Zambia-First, "Must Be Implemented"
+## 15. Job Search OS — Live AI Discovery Engine
 
-**Reuses the existing `web_search.py` (Tavily/SERP) infrastructure rather than newly wiring native Gemini search-grounding.** This mirrors the exact judgment already made and documented for `interest_companion.py` in the Advisor Companion Plan: *"its search deliberately uses only web_search.py (Tavily/SERP), not the plan's full 3-tier hybrid chain, since ai/client.py has no LiteLLM grounding/tool-calling wiring for any provider today and shipping an unverified new integration with no way to exercise real tool-call responses in this environment isn't a risk worth taking."* The same constraint is still true today — no provider has grounding/tool-calling wired in `ai/client.py`. Using the already-proven search client is lower-risk and ships faster than being the first feature to depend on unverified native grounding; "a search-capable AI finds you real jobs" is the actual user-facing promise, and that promise is met either way.
+**The reframe that matters**: this is not "what jobs exist" (a job board's question) — it's **"what jobs can this specific user realistically get today"**. Not a scraper, not a job board — an AI Opportunity Discovery Engine whose one job is: find the best opportunities for *this* user, every day, from the live web, and explain why each one is worth their time.
 
-`services/intelligence/app/services/job_discovery.py`, a new cron (`run_job_discovery_for_all_users()`, wired at the next free daily-scheduler slot):
-1. For each user with a `career_profiles` row and `target_roles`/`target_industries` set, builds search queries biased to `career_profiles.country` (defaulting to Zambia when unset) — e.g. `"{role} jobs Lusaka Zambia"`, `"{role} jobs Zambia site:linkedin.com/jobs OR site:indeed.com OR site:careers.co.zm"`, plus one broader remote-role query when `remote_preference != 'onsite'`.
-2. `web_search.py`'s `WebSearchClient.search()` returns real result snippets/URLs; one structured AI call (`EXTRACT_JOB_LISTING`, extraction-only — pull title/company/location/salary-if-stated/application-url straight from the snippet text, `null` for anything not literally present) turns each promising result into a `career_opportunities`-shaped row.
-3. Dedup against the user's existing `career_opportunities` by title+company_or_org fuzzy match (same discipline `action_bundles.py`'s new-product/supplier dedup already uses) before inserting — new rows land with `source='web_search'`, `status='detected'`, `confidence` from the extraction call.
-4. Surfaces through the *existing* "Zuri Noticed" `business_events`/activity-feed pattern (`event_type='job_discovered'`) — no new frontend mechanism, same card system Studio/Career already share.
+**Reuses the existing `web_search.py` (Tavily/SERP) infrastructure rather than newly wiring native Gemini search-grounding.** This mirrors the exact judgment already made and documented for `interest_companion.py` in the Advisor Companion Plan: *"its search deliberately uses only web_search.py (Tavily/SERP), not the plan's full 3-tier hybrid chain, since ai/client.py has no LiteLLM grounding/tool-calling wiring for any provider today and shipping an unverified new integration with no way to exercise real tool-call responses in this environment isn't a risk worth taking."* That constraint is still true today. "A search-capable AI finds you real jobs" is the actual user-facing promise, and the proven Tavily/SERP path meets it without betting the feature on an unverified integration. If/when a provider's native grounding is verified in this environment, the AI Search Planner below is provider-agnostic — swapping the execution layer doesn't change the plan's shape.
 
-Credit-gated via the existing `try_consume_credit(..., 'nudge')` convention (Pricing doc), same as every other proactive insertion site. Local-first by explicit design choice, not an accident: the plan's own §17 in `docs/CAREER_GROWTH_ENGINE_PLAN.md` already deferred "multi-source job discovery" (scraping job boards directly) as a real, separate data-sourcing project — this stays a search-and-extract pattern, not a scraper, and is honestly scoped as "as good as the search results genuinely available," not an exhaustive job board.
+### 15.1 Philosophy
+
+The engine never searches blindly with one generic query. Every search is *generated* from the user's actual profile — skills, years of experience, salary target, location, remote preference, contract/freelance openness, target industries. Two users with "software developer" as a title get completely different search plans if one wants $3,000+ remote contract work with AI experience and the other wants an entry-level in-office role in Lusaka.
+
+### 15.2 AI Search Planner
+
+One structured AI call per user per day (`PLAN_JOB_SEARCHES`, `services/intelligence/app/ai/prompts.py`) takes the user's `career_profiles` row (skills, target_roles, target_industries, country, remote_preference, salary_expectation_cents, relocation_preference) plus recent signals (their last 10 `career_opportunities` — what they've already seen, so the planner doesn't waste a query re-finding the same thing; any `rejected` opportunities, which typically means "stop suggesting this exact profile") and returns a categorized list of search query strings, not a single query. Query *count* is scaled by the AI Usage Tiers principle already established in `CLAUDE.md` (Light user: ~8 queries/day across the categories below; Normal: ~15; Heavy: ~25) rather than a fixed number for everyone — this is exactly the kind of per-call cost this codebase's tiering principle exists to bound.
+
+### 15.3 Multi-Pass Search Categories
+
+The planner buckets its generated queries into passes, each run through `web_search.py`, each producing independently-scored candidates:
+
+- **Pass 1 — Local**: biased to `career_profiles.country` (Zambia default) and, when set, city/region — explicit queries for government (`GoZ Careers`), NGOs (World Vision Zambia, CARE Zambia, USAID partners, UN Zambia), banks, mines, telecoms, universities, and local startups/recruitment agencies. Reuses `career_employer_categories` (Phase 8, already seeded) as a query-generation input: for each employer category matching the user's target industries, the planner can generate one query per top-N known employer name (e.g. target_industries includes "banking" → queries for "{role} jobs Zanaco", "{role} jobs Stanbic Bank Zambia") — a direct, concrete reuse of already-seeded data, not new scope.
+- **Pass 2 — Regional**: Zimbabwe, Botswana, Namibia, South Africa, Kenya — only generated when the user's profile doesn't explicitly rule out relocation/regional work.
+- **Pass 3 — Remote Global**: only when `remote_preference != 'onsite'` — startups, remote-first company boards, US/Europe remote listings.
+- **Pass 4 — Freelance/Contract**: only when the user's profile or opportunity history suggests openness to `contract`/`freelance` categories (already valid `career_opportunities.category` values from Phase 1) — Upwork, Toptal, PeoplePerHour, direct-contract phrasing.
+- **Pass 5 — Hidden Opportunities**: search-engine-indexed (not API-authenticated) results from social/community sources — `site:` scoped queries against Twitter/X, LinkedIn posts, GitHub, Reddit for phrasing like "we're looking for a developer", "hiring soon", "need a [role]". This is an honest proxy, not real-time social API access (this codebase has no Twitter/LinkedIn/Reddit API integration) — search engines index a meaningful fraction of public posts on these platforms, which is what this pass actually searches, not a live social feed.
+
+### 15.4 Extraction — Never Invent
+
+Each promising search result's title/URL/snippet goes through one structured, **extraction-only** AI call (`EXTRACT_JOB_LISTING`) — pull title/company/location/salary-if-literally-stated/application-url/posting-date-if-stated straight from the text, `null` for anything not present. This is metadata extraction from real search text, not content generation — the same boundary `resume_studio.py`'s scoring functions already respect, applied to parsing instead of writing.
+
+### 15.5 Freshness Filter
+
+Every candidate carries a `posted_at`/`last_verified_at` pair when the search result states one (many job-board snippets literally say "posted 3 days ago" — extracted, not inferred). A listing older than 14 days is ranked lower; older than 30 days is dropped unless a same-day re-search still surfaces it (a simple "still findable today" proxy for "still open," since there's no application-status API for third-party postings). Listings with no extractable date are treated as unknown-freshness (a small ranking penalty, not a rejection) rather than assumed fresh.
+
+### 15.6 Opportunity Scoring
+
+`career_opportunities.match_score`/`match_breakdown` (already-existing, previously-unused columns from Phase 1) finally get a real writer: a deterministic score, not a second AI call — skills overlap (extracted skills vs. `career_profiles.skills`), location/remote fit, salary fit (stated salary vs. `salary_expectation_cents`), category fit (does it match `target_roles`/`target_industries`), and the freshness factor above, each stored in `match_breakdown` so the UI can show a checklist ("✓ React, ✓ Remote, ✓ Salary above target, ✗ Requires relocation") rather than a bare percentage — the same confidence-and-evidence discipline every score in this codebase already carries.
+
+### 15.7 Duplicate Detection
+
+The same posting frequently appears across multiple sources in one day's search batch. Within-batch dedup groups candidates by fuzzy title+company match (same discipline `action_bundles.py`'s new-product/supplier dedup already established) *before* the existing against-database dedup runs — keeping the candidate with the most complete extracted fields (an official company careers-page URL over an aggregator mirror, when both are present) as the canonical row; the others are dropped, not inserted as duplicates.
+
+### 15.8 AI Summary
+
+One structured call per surfaced opportunity condenses the (often long) source text into: company, role, salary (if stated), remote status, top 3–4 responsibilities, top required skills, and — separately labeled as inference rather than fact — a short "why this might suit you" / "potential concerns" pair grounded only in the extracted fields and the user's own profile (e.g. "requires relocation" is a concern *because* the profile says not open to relocating, not a fabricated downside). No "estimated competition" figure — that would be invented with no real signal behind it; deliberately not built (see §19).
+
+### 15.9 Daily Opportunity Brief
+
+Once a day's run completes, `companion_delivery.py`'s existing `deliver_initiated_message()` helper (same mechanism `career_coach.py`/`motivational_detector.py` already use) sends one Advisor-initiated summary grounded entirely in that run's real counts — e.g. *"I found 11 new opportunities. 4 are excellent matches. 2 were posted in Zambia yesterday. 3 are remote AI roles."* Every number in the brief is a literal count from the run, never a stylistic estimate. Wired as a new daily scheduler at **05:00 UTC** (07:00 in Zambia — a genuine morning slot; the next free hour among a otherwise fully-booked 03:00–20:00 UTC daily schedule) so the discovery run and the brief that reports on it happen together.
+
+### 15.10 "Why This Job?" Explanation
+
+Rendered directly from `match_breakdown` (§15.6) — no separate AI call. Each opportunity card shows its scoring checklist as the "why," with the `confidence` field (already a `career_opportunities` column) showing how sure the match is. Trust comes from this being a plain readout of the same deterministic score, not a separately-generated narrative that could drift from the actual number.
+
+### 15.11 Auto CV Matching
+
+When a new opportunity is scored (§15.6), it's also checked against the user's existing resumes (`match_resume_to_opportunities()`'s inverse direction — same cosine-similarity mechanism, just called opportunity→resumes instead of resume→opportunities) — if the best-matching resume scores below a threshold, the opportunity card surfaces *"Your '{resume title}' scores 72% for this — tailor a version to close the gap"* rather than silently using a weak-fit CV. This is a **suggestion to reorganize existing, real experience** into a new tailored variant (§8) — never "generate fake experience" to close the gap.
+
+### 15.12 Application Readiness Checklist
+
+A deterministic, non-AI check per opportunity: does the user have a resume, a cover letter, a populated portfolio/GitHub/LinkedIn URL, and (once §3's `career_certifications` table exists) any certifications the role's extracted requirements suggest are relevant. Missing pieces link straight to the relevant CV Studio step — same "exact thresholds over narrative" discipline as Studio's Zuri Insights.
+
+### 15.13 Opportunity Timeline & Ghosting Detection
+
+`career_opportunities.status`'s existing lifecycle (`detected→shortlisted→applied→interviewing→offered→accepted/rejected/withdrawn→archived`) already *is* this timeline — "saved" maps onto the existing `shortlisted` value rather than a new one. A new Reality-Engine-style check (same detect-and-surface-only shape as the existing `contradiction_stalled_application`, Career Growth Engine Phase 7) flags a company as a likely "ghoster" when an opportunity sits in `applied` well past the norm with zero interview rounds logged — this is a read on data the system already has, not a new tracking mechanism.
+
+### 15.14 Company Intelligence
+
+A new, small `company_intelligence.py` service, using `web_search.py` the same way as everywhere else in this section — searches "{company} culture reviews", "{company} recent news", "{company} interview process" and synthesizes a short structured summary **citing how many independent sources it drew from**, explicitly declining to state a culture/process claim with zero search evidence behind it rather than inventing a plausible-sounding one. Feeds directly into the existing Interview Coach context (`_career_context_line()`, Career Growth Engine Phase 5) and the interview-patterns lookup (Phase 4) — no new delivery mechanism, just a new context input to both.
+
+### 15.15 Passive Opportunity Radar — Beyond Jobs
+
+`career_opportunities.category`'s existing CHECK vocabulary already includes `partnership`/`speaking`/`consulting`/`investment`/`board_position`/`grant`/`scholarship`/`tender`/`research`/`mentorship` (Phase 1, unused for anything beyond `job`/`contract`/`freelance` so far) — the AI Search Planner (§15.2) generates queries across these categories too whenever a user's profile signals business/consulting/freelance interest (a `business_profile` exists, or `target_industries` suggests consulting/freelance work), turning "Career OS" into a genuine Opportunity OS for solopreneurs and consultants, not just traditional job seekers — with zero new schema, since the category vocabulary was already built this broad in Phase 1.
+
+### 15.16 Zambian Localisation, Explicit Source List
+
+Search queries explicitly bias toward: government (GoZ Careers), Zambia NGO vacancy boards, UN Zambia, World Vision Zambia, CARE Zambia, USAID partner organizations, the major banks/mines/telecoms already seeded in `career_employer_categories` (Zanaco, Stanbic, MTN Zambia, Airtel Zambia, Barrick, First Quantum, etc. — plus ZESCO, worth adding to that seed table as a utility-sector entry), universities, and known local recruitment agencies. When Pass 1 (Local) returns few or no strong matches, the planner automatically widens to Pass 2 (Regional) and then Pass 3 (Remote) in the same run — never silently returning nothing.
+
+### 15.17 Job Search OS — The Broader Subsystem Framing
+
+Positioned as its own named subsystem sitting *alongside* Career OS rather than folded invisibly into it — Career OS is long-term professional growth; Job Search OS is "get employed or win the next contract, starting today." Five pillars:
+
+1. **Live AI Discovery Engine** — §15.1–§15.7, §15.16 (this section's core).
+2. **Opportunity Intelligence** — dedup, scoring, summary, explanation, freshness (§15.6–§15.10).
+3. **Application OS** — CV Studio (§2–§14) + Application Tracker (§16) + AI Tailoring (§8, §11) + Interview Prep (§15.14 + existing `career_interviews`).
+4. **Market Intelligence** *(named, not designed here — see §19)* — salary trends, in-demand-skill trends, hiring hotspots, aggregated from the same search infrastructure over time rather than a licensed salary-data feed.
+5. **Offer Intelligence** *(named, not designed here — see §19)* — comparing multiple simultaneous offers, negotiation support, benefits evaluation.
+
+Pillars 1–3 are this plan's actual scope; 4–5 are real, named, and deliberately deferred (§19) rather than sketched half-built.
 
 ---
 
 ## 16. Application Tracker
 
-Already real, from Career Growth Engine Phase 4 — `POST /api/career/opportunities/:id/apply` already turns an opportunity into a `projects` row with a default task template and reminders via the existing AI Daily Brief (`milestone_overdue`/`task_overdue` branches). No new work needed here; this plan's job is making sure Job Discovery (§15) feeds opportunities *into* this existing tracker, not building a second one.
+Already real, from Career Growth Engine Phase 4 — `POST /api/career/opportunities/:id/apply` already turns an opportunity into a `projects` row with a default task template and reminders via the existing AI Daily Brief (`milestone_overdue`/`task_overdue` branches). This plan's job is making sure Job Search OS (§15) feeds opportunities *into* this existing tracker, and that the Application Readiness checklist (§15.12) and ghosting detection (§15.13) read from the same lifecycle — not building a second tracker.
 
 ---
 
 ## 17. Reprioritized Career OS Roadmap
 
-Job search becomes the daily-engagement surface; the rest of Career OS (already shipped) becomes supporting infrastructure underneath it.
+Job Search OS (§15.17) becomes the daily-engagement surface; the rest of Career OS (already shipped across Career Growth Engine Phases 1–8) becomes supporting infrastructure underneath it.
 
 1. **CV Studio** (this doc, §2–§14) — the foundation every other feature builds on.
-2. **Job Discovery** (§15) — **flagged highest urgency** by the user; the daily reason to open the app.
-3. **Application Tracker** (§16) — already shipped (Career Growth Engine Phase 4); wire Job Discovery into it.
-4. **AI Tailoring** (§8, §11) — adapt an existing CV/cover letter to a selected job without inventing experience.
-5. **Interview Preparation** — already partly shipped (`career_interviews`, the interview-patterns lookup, `interview_success_likelihood`); company-research and salary-guidance additions are the genuinely new pieces, reusing `web_search.py` the same way §15 does.
+2. **Job Discovery / Job Search OS** (§15) — **flagged highest urgency**; the daily reason to open the app.
+3. **Application Tracker** (§16) — already shipped; wire Job Search OS into it.
+4. **AI Tailoring** (§8, §11, §15.11) — adapt an existing CV/cover letter to a selected job without inventing experience.
+5. **Interview Preparation** — already partly shipped (`career_interviews`, the interview-patterns lookup, `interview_success_likelihood`); Company Intelligence (§15.14) is the genuinely new piece.
 6. **Networking & Referrals** — already shipped (Relationship-to-Opportunity Bridge, Career Growth Engine Phase 6).
-7. **Passive Opportunity Radar** — already shipped (passive WhatsApp detection, Career Growth Engine Phase 2); §15 adds the *active* search-based counterpart.
+7. **Passive Opportunity Radar** — already shipped for WhatsApp-passive detection (Career Growth Engine Phase 2); §15.15 adds the *active*, search-based, beyond-jobs counterpart.
 8. **Career Coaching** — already shipped (Career Growth Engine Phase 5).
 
-Concretely, items 3, 6, 7, 8 need no new engineering — they already exist. This plan's real net-new engineering is items 1, 2, 4, and the research/salary-guidance half of item 5.
+Concretely, items 3, 6, 8 need no new engineering; item 7's passive half and item 5's interview-memory half already exist too. This plan's real net-new engineering is item 1 in full, item 2 in full, item 4, and Company Intelligence within item 5.
 
 ---
 
@@ -206,21 +282,21 @@ Concretely, items 3, 6, 7, 8 need no new engineering — they already exist. Thi
 
 **Phase 1 — Master Career Profile foundation**: migration for `career_employment_history`/`career_education_entries`/`career_certifications`/`career_skill_groups`/`career_awards`/`career_volunteer_work`/`career_memberships`/`career_publications`/`career_references`/`career_cvs`/`career_cv_sections`/`career_cv_project_links`/`career_cv_versions`; CRUD API for each; delete `resume_studio.py`'s whole-document generation functions (keep scoring/matching/extraction).
 
-**Phase 2 — Job Discovery Engine** (§15) — the user's flagged top priority; genuinely independent of Phase 1's UI work, can ship in parallel.
+**Phase 2 — Job Search OS, Core Discovery Loop** (§15.1–§15.10): AI Search Planner, multi-pass execution via `web_search.py`, extraction, freshness, scoring/`match_breakdown`, within-batch + against-DB dedup, AI Summary, Daily Opportunity Brief. The user's flagged top priority; independent of Phase 1, ships first.
 
-**Phase 3 — The Wizard** (§4) — 14 steps over Phase 1's tables, autosave, live preview pane.
+**Phase 3 — Job Search OS, Depth** (§15.11–§15.15): Auto CV Matching, Application Readiness checklist, ghosting detection, Company Intelligence, category-broadened Passive Radar.
 
-**Phase 4 — Templates + Render Pipeline** (§5) — Modern/Executive/Creative templates alongside the existing Professional (`Resume.tsx`).
+**Phase 4 — The Wizard** (§4) — 14 steps over Phase 1's tables, autosave, live preview pane.
 
-**Phase 5 — ATS Analysis + CV Health** (§7) — mostly reuses existing `score_resume_text()`; adds the deterministic CV Health layer.
+**Phase 5 — Templates + Render Pipeline** (§5) — Modern/Executive/Creative templates alongside the existing Professional (`Resume.tsx`).
 
-**Phase 6 — Web Editor + Version History** (§9, §10) — drag/hide/reorder, version chain.
+**Phase 6 — ATS Analysis + CV Health** (§7) — mostly reuses existing `score_resume_text()`; adds the deterministic CV Health layer.
 
-**Phase 7 — Tailored Variants + Job Matching** (§8, §11) — the CV-to-opportunity loop.
+**Phase 7 — Web Editor + Version History** (§9, §10) — drag/hide/reorder, version chain.
 
-**Phase 8 — Cover Letter Studio + Supporting Documents** (§12, §13).
+**Phase 8 — Tailored Variants + Job Matching UI** (§8, §11) — the CV-to-opportunity loop, surfaced.
 
-**Phase 9 — Interview Prep enrichment** (§17 item 5) — company research + salary guidance via `web_search.py`.
+**Phase 9 — Cover Letter Studio + Supporting Documents** (§12, §13).
 
 Each phase ships independently useful value, per this codebase's own established discipline.
 
@@ -228,4 +304,4 @@ Each phase ships independently useful value, per this codebase's own established
 
 ## 19. Deferred Roadmap (Documented, Not Built)
 
-Academic CV / International-ATS / Europass templates (§5); a true drag-and-drop *visual* page-layout editor beyond section reorder/hide (a full free-form canvas editor is a materially larger frontend investment than the structured section-editor this plan scopes); native Gemini/any-provider search-grounding (§15 explicitly uses the proven `web_search.py` path instead — revisit once grounding is wired platform-wide, per the same standing gap already noted in `docs/ADVISOR_COMPANION_PLAN.md`); a job-board-scraping pipeline beyond search-and-extract (a real, separate data-sourcing project per `docs/CAREER_GROWTH_ENGINE_PLAN.md` §17); salary benchmarking beyond what a job description states or search results surface (needs a real salary-data source, not invented ranges); multi-user/team CV review or recruiter-facing features (out of scope — this is a job-seeker product).
+**Market Intelligence** (§15.17 pillar 4) — salary trend/in-demand-skill/hiring-hotspot aggregation over time; needs a real historical data store built up from Job Search OS's own runs before it can say anything trustworthy, so it's necessarily downstream of §15 shipping first, not built alongside it. **Offer Intelligence** (§15.17 pillar 5) — multi-offer comparison and negotiation support; a genuinely new capability with its own UX, not sketched further here. Academic CV / International-ATS / Europass templates (§5); a true drag-and-drop *visual* page-layout editor beyond section reorder/hide (a full free-form canvas editor is a materially larger frontend investment than the structured section-editor this plan scopes); native Gemini/any-provider search-grounding (§15 explicitly uses the proven `web_search.py` path instead — revisit once grounding is wired platform-wide, per the same standing gap already noted in `docs/ADVISOR_COMPANION_PLAN.md`); a job-board-scraping pipeline or authenticated social-platform API integration beyond search-engine-indexed results (a real, separate data-sourcing project per `docs/CAREER_GROWTH_ENGINE_PLAN.md` §17); an "estimated competition" figure for a listing (would have zero real signal behind it — deliberately not built, see §15.8); salary benchmarking beyond what a job description states or search results surface; multi-user/team CV review or recruiter-facing features (out of scope — this is a job-seeker product).
