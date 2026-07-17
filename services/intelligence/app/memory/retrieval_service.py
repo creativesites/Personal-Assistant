@@ -241,6 +241,100 @@ def find_mentioned_catalog_item(catalog_items: list[dict], message_body: str) ->
 
 
 
+# ── Business-entity fetchers (Platform Polish Phase 4, §6.1) — symmetric
+# to the contact-entity fetchers above, so BusinessContextService
+# (business_context_service.py) has one place to pull "what does Zuri
+# already know about this business" from, rather than each caller
+# re-deriving its own opportunities/projects/invoices/deals query. ──────────
+
+async def get_open_opportunities(user_id: str, contact_id: str | None = None, limit: int = 10) -> list[dict]:
+    """Non-resolved opportunities, optionally scoped to one contact."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT o.id, o.contact_id, o.opportunity_type, o.title, o.description,
+                   o.confidence, o.expires_at, o.detected_at,
+                   COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
+            FROM opportunities o
+            JOIN contacts c ON c.id = o.contact_id
+            WHERE o.user_id = $1 AND o.status = 'open'
+              AND ($2::uuid IS NULL OR o.contact_id = $2)
+            ORDER BY o.detected_at DESC
+            LIMIT $3
+            """,
+            user_id, contact_id, limit,
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_project_status(user_id: str, project_id: str | None = None, contact_id: str | None = None) -> list[dict]:
+    """Active projects with task-completion percentage, optionally scoped to
+    one project or one contact."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT p.id, p.contact_id, p.title, p.status,
+                   COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+                   COUNT(pt.id) AS task_count,
+                   COUNT(pt.id) FILTER (WHERE pt.status = 'done') AS done_task_count
+            FROM projects p
+            JOIN contacts c ON c.id = p.contact_id
+            LEFT JOIN project_tasks pt ON pt.project_id = p.id
+            WHERE p.user_id = $1 AND p.status = 'active'
+              AND ($2::uuid IS NULL OR p.id = $2)
+              AND ($3::uuid IS NULL OR p.contact_id = $3)
+            GROUP BY p.id, p.contact_id, p.title, p.status, c.custom_name, c.display_name, c.phone_number
+            ORDER BY p.updated_at DESC
+            """,
+            user_id, project_id, contact_id,
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_invoice_aging(user_id: str, contact_id: str | None = None) -> list[dict]:
+    """Outstanding (sent/viewed/downloaded, not yet paid) invoices with days
+    outstanding — the same `structured_data->>'dueDate'` field
+    document_followups.py already reads, kept consistent here."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT d.id, d.contact_id, d.document_number, d.title, d.total_cents, d.currency, d.status,
+                   COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+                   (d.structured_data->>'dueDate')::date AS due_date,
+                   (CURRENT_DATE - d.sent_at::date) AS days_outstanding
+            FROM documents d
+            JOIN contacts c ON c.id = d.contact_id
+            WHERE d.user_id = $1 AND d.document_type = 'invoice'
+              AND d.status IN ('sent', 'viewed', 'downloaded')
+              AND ($2::uuid IS NULL OR d.contact_id = $2)
+            ORDER BY d.sent_at ASC NULLS LAST
+            """,
+            user_id, contact_id,
+        )
+    return [dict(r) for r in rows]
+
+
+async def get_deal_pipeline_summary(user_id: str) -> list[dict]:
+    """Open-deal count + total value per pipeline stage — the same
+    vocabulary `deals.stage`'s CHECK constraint declares."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT stage, COUNT(*) AS deal_count, COALESCE(SUM(value_cents), 0) AS total_value_cents
+            FROM deals
+            WHERE user_id = $1 AND stage NOT IN ('closed_won', 'closed_lost')
+            GROUP BY stage
+            ORDER BY stage
+            """,
+            user_id,
+        )
+    return [dict(r) for r in rows]
+
+
 def format_relationship_memory(rel_mem: dict) -> str:
     lines = []
     if rel_mem.get('outstanding_promises'):

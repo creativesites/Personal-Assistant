@@ -33,6 +33,7 @@ from ..memory import retrieval_service as memory
 from ..neural.emotion import get_emotion_engine, emotional_congruence
 from .scoped_automation import get_scoped_automation
 from .curiosity_engine import get_curiosity_engine
+from .business_context_service import get_business_context_service
 
 log = structlog.get_logger()
 
@@ -250,6 +251,16 @@ class AdvisorCompanionService:
                 f"pipeline_stage={contact_row.get('pipeline_stage') or 'unknown'}, "
                 f"status={contact_row.get('customer_status') or 'contact'}"
             )
+            # Platform Polish Phase 4 (§6.3) — analysis-flavored intents fold
+            # in the same business-entity context BusinessContextService
+            # centrally assembles for Studio, rather than this service
+            # re-deriving its own opportunities/projects/invoices query.
+            # Skipped for non-analysis intents so a routine chit-chat turn
+            # doesn't pay for context it won't use.
+            if intent in _ANALYSIS_INTENTS:
+                business_context = await get_business_context_service().get_context_block(user_id, contact_id=contact_id)
+                if business_context:
+                    contact_context += '\n\nBusiness context for this contact:\n' + business_context
 
         emotional_context_line = ''
         if emotional_state.get('valence', 0.0) < _LOW_VALENCE_THRESHOLD and emotional_state.get('arousal', 0.0) > _HIGH_AROUSAL_THRESHOLD:

@@ -207,11 +207,14 @@ class StudioAskRequest(BaseModel):
 
 @studio_router.post('/ask')
 async def studio_ask(body: StudioAskRequest):
-    """Business advisor — answers questions using real catalog, rules, supplier, and contact data."""
-    catalog_items = await memory.get_relevant_catalog(body.user_id, limit=50)
-    business_facts = await memory.get_business_facts(body.user_id, limit=30)
-    catalog_text = memory.format_catalog_items(catalog_items)
-    facts_text = memory.format_business_facts(business_facts)
+    """Business advisor — answers questions using real catalog, rules, supplier, and contact data.
+    Delegates context assembly + the completion call to BusinessContextService
+    (Platform Polish Phase 4, docs/PLATFORM_POLISH_PLAN.md §6.3 — the first
+    surface migrated onto it), passing Studio's own supplier/low-stock/
+    recent-contacts blocks and its `[ACTION: ...]` tag instructions as
+    surface-specific additions rather than duplicating the shared
+    catalog/facts/business-entity context assembly here."""
+    from ..services.business_context_service import get_business_context_service
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -268,32 +271,17 @@ async def studio_ask(body: StudioAskRequest):
     ]
     low_stock_text = '\n'.join(low_stock_lines) or 'Nothing currently at or below its reorder point.'
 
-    system_prompt = (
-        'You are the Zuri AI Business Advisor, a specialist in helping small business owners '
-        'manage their operations efficiently. You have access to the business\'s real catalog, '
-        'pricing rules, business policies, supplier information, and recent customer contacts shown below. '
-        'Answer questions concisely. Give actionable, specific advice. '
-        'When asked about stock, pricing, or availability — use the exact numbers from the catalog. '
-        'When citing a price or stock level, be precise. '
-        'Format responses with clear headings and bullet points when helpful.\n\n'
-        f'CATALOG (Products & Services):\n{catalog_text or "No catalog items found."}\n\n'
-        f'LOW / OUT OF STOCK:\n{low_stock_text}\n\n'
-        f'BUSINESS RULES & FACTS:\n{facts_text or "No business facts configured."}\n\n'
-        f'SUPPLIERS:\n{suppliers_text}\n\n'
-        f'RECENT CUSTOMER CONTACTS:\n{contacts_text}\n'
-        + ZURI_ACTION_INSTRUCTIONS
-    )
-
     chat_history = []
     if body.session_id:
         chat_history = await _get_session_history(body.session_id)
 
-    prompt_messages = [{'role': 'system', 'content': system_prompt}]
-    prompt_messages.extend(chat_history)
-    prompt_messages.append({'role': 'user', 'content': body.question})
-
-    ai = get_ai_client()
-    result = await ai.complete_text(
-        prompt_messages, service='studio_advisor', feature='studio_chat', user_id=body.user_id,
+    result = await get_business_context_service().answer(
+        'studio', body.user_id, body.question, chat_history=chat_history,
+        extra_context_blocks=[
+            ('LOW / OUT OF STOCK', low_stock_text),
+            ('SUPPLIERS', suppliers_text),
+            ('RECENT CUSTOMER CONTACTS', contacts_text),
+        ],
+        system_suffix=ZURI_ACTION_INSTRUCTIONS,
     )
     return {'answer': result}
