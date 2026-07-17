@@ -1079,3 +1079,50 @@ Return ONLY valid JSON in exactly this shape:
   ]
 }}
 """
+
+# CV Studio Job Matching (§11) — extracts the skills/technologies a job
+# posting itself explicitly asks for, never skills the role "probably"
+# needs. Diffed in cv_matching.py against the CV's own skill list to
+# produce a missing-skills line — a plain read of the posting text, not a
+# judgment call, same discipline the never-invent policy applies elsewhere.
+EXTRACT_JOB_REQUIREMENTS = """\
+Extract the specific skills, technologies, and qualifications explicitly required or preferred by this job posting. Only list what the posting actually states — do not infer skills the role "probably" needs.
+
+Job posting:
+---
+{description}
+---
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "requiredSkills": ["skill or technology mentioned in the posting"]
+}}
+"""
+
+# CV Studio Tailored CVs (§8) — proposes which of the user's own existing CV
+# content to surface, reorder, or lead with for a specific opportunity. The
+# never-invent policy applies exactly as it does to every rewrite call: a
+# suggestion may only reference text already present in cv_text, never a
+# new achievement, skill, or qualification.
+SUGGEST_CV_TAILORING = """\
+{policy}
+
+A user is tailoring their CV for this specific opportunity. Given their CV content and the opportunity's description, suggest which EXISTING content to emphasise, reorder, or lead with — never invent a new achievement, skill, or qualification they didn't already list.
+
+CV content:
+---
+{cv_text}
+---
+
+Opportunity:
+---
+{opportunity_text}
+---
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "suggestions": [
+    {{"type": "emphasize_achievement" | "reorder_skill" | "lead_with_summary_point", "detail": "one short, concrete instruction referencing only text already in the CV (e.g. 'Move your AWS certification earlier in Skills — this role asks for cloud experience first')"}}
+  ]
+}}
+"""

@@ -15,6 +15,7 @@ from ..services.resume_studio import (
 from ..services.career_networking import generate_introduction_draft
 from ..services.company_intelligence import generate_company_intelligence
 from ..services.cv_assistant import rewrite_text, suggest_metric_prompt, suggest_skill_grouping
+from ..services.cv_matching import compute_cv_opportunity_match, generate_tailoring_suggestions
 
 # Career & Growth Engine Phase 3 — AI Resume Studio (docs/CAREER_GROWTH_ENGINE_PLAN.md
 # §8). Mirrors routes/documents.py's internal-route shape exactly — Node
@@ -176,3 +177,34 @@ class CvSuggestSkillGroupingRequest(BaseModel):
 @router.post('/cv-assistant/suggest-skill-grouping')
 async def cv_suggest_skill_grouping(body: CvSuggestSkillGroupingRequest):
     return {'groups': await suggest_skill_grouping(body.user_id, body.skills)}
+
+
+class CvMatchRequest(BaseModel):
+    user_id: str
+    cv_text: str
+    cv_skills: list[str] = []
+
+
+@router.post('/opportunities/{opportunity_id}/cv-match')
+async def opportunity_cv_match(opportunity_id: str, body: CvMatchRequest):
+    """CV Studio §11 — Job Matching for a career_cvs row. Node assembles the
+    CV's live text/skills (it already owns those tables); this only computes
+    the embedding match + required-skills diff."""
+    try:
+        return await compute_cv_opportunity_match(body.user_id, body.cv_text, body.cv_skills, opportunity_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+class CvTailoringSuggestionsRequest(BaseModel):
+    user_id: str
+    cv_text: str
+
+
+@router.post('/opportunities/{opportunity_id}/tailoring-suggestions')
+async def opportunity_tailoring_suggestions(opportunity_id: str, body: CvTailoringSuggestionsRequest):
+    """CV Studio §8 — Tailored CVs suggestion generation."""
+    try:
+        return await generate_tailoring_suggestions(body.user_id, body.cv_text, opportunity_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, BadgeVariant, useToast } from '@/components/ui'
 import { ReadinessChecklist, ResumeMatchPanel, CompanyIntelligencePanel } from './opportunity-insights'
+import { CvTailoringPanel } from './cv-tailoring-panel'
 
 // Career & Growth Engine Phase 4 — Applications as Projects + Interview
 // Memory (docs/CAREER_GROWTH_ENGINE_PLAN.md §9/§10). Extracted out of
@@ -275,6 +276,7 @@ export function OpportunityCard({
         <ReadinessChecklist opportunityId={opp.id} token={token} />
         <ResumeMatchPanel opportunityId={opp.id} token={token} />
         <CompanyIntelligencePanel opportunityId={opp.id} token={token} companyOrOrg={opp.companyOrOrg} />
+        <CvTailoringPanel opportunityId={opp.id} token={token} />
       </div>
 
       <div className="mt-2">
