@@ -19,9 +19,7 @@ POOLS: dict[str, list[str]] = {
     # Gemini first (large free quota, excellent quality for all tasks).
     # Qwen models as fallback if Gemini quota is exhausted.
     'text': [
-        'gemini/gemini-2.5-flash',
-        'gemini/gemini-2.0-flash',
-        'gemini/gemini-1.5-flash',
+        'gemini/gemini-3.5-flash',
         'dashscope/qwen-turbo',
         'dashscope/qwen-plus',
         'dashscope/qwen-long',

@@ -107,9 +107,10 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
   if (!cv) return null;
 
   const [
-    profileResult, employmentResult, educationResult, certificationsResult, skillGroupsResult,
+    userResult, profileResult, employmentResult, educationResult, certificationsResult, skillGroupsResult,
     awardsResult, volunteerResult, membershipsResult, publicationsResult, referencesResult, projectLinksResult,
   ] = await Promise.all([
+    db.query(`SELECT full_name, email FROM users WHERE id = $1`, [userId]),
     db.query(
       `SELECT headline, summary, phone, location, github_url, linkedin_url, portfolio_url, website_url, references_mode
        FROM career_profiles WHERE user_id = $1`, [userId],
@@ -149,6 +150,7 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
     ),
   ]);
 
+  const user = userResult.rows[0] ?? {};
   const profile = profileResult.rows[0] ?? {};
   const contactLine = [profile.location, profile.phone, profile.github_url, profile.linkedin_url, profile.portfolio_url, profile.website_url]
     .filter(Boolean).join(' · ');
@@ -157,7 +159,7 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
     title: cv.title,
     templateKey: cv.template_key,
     pageSize: cv.page_size,
-    fullName: profile.headline || cv.title,
+    fullName: user.full_name || user.email || cv.title || 'Professional CV',
     headline: profile.headline,
     summary: profile.summary,
     contactLine,
