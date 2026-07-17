@@ -382,7 +382,7 @@ export default function DashboardPage() {
                 <div className="min-w-0">
                   <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-[11px] font-semibold text-indigo-700 shadow-sm shadow-indigo-100 ring-1 ring-indigo-100">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
-                    Live relationship OS
+                    Zuri Business CRM 
                   </div>
                   <h1 className="max-w-xl text-2xl font-bold leading-tight tracking-tight md:text-4xl">
                     {greeting(session.data?.user.name)}
