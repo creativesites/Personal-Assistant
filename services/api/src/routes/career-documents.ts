@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('cv_studio')]
 import { config } from '../config';
 import { renderAndSaveDocument, NotFoundError } from '../services/document-render';
 import { formatDocument } from './documents';
@@ -42,7 +45,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   // ── GET /api/career/documents — list every career document (resumes,
   // cover letters, and CV Studio Phase 9's Supporting Documents), newest
   // first.
-  fastify.get('/api/career/documents', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/documents', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { rows } = await db.query(
       `SELECT * FROM documents WHERE user_id = $1 AND document_type = ANY($2::text[])
@@ -53,7 +56,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   });
 
   // ── POST /api/career/resume — AI-generate a resume from career_profiles.
-  fastify.post('/api/career/resume', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/resume', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const body = z.object({
       instruction: z.string().min(3).max(2000),
@@ -87,7 +90,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
 
   // ── POST /api/career/cover-letter — AI-generate a cover letter tailored
   // to a specific career_opportunities row.
-  fastify.post('/api/career/cover-letter', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cover-letter', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const body = z.object({
       careerOpportunityId: z.string().uuid(),
@@ -122,7 +125,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   // intelligence service writes them to the shared doc_storage volume
   // directly (see resume_studio.py's _storage_path_for) rather than Node
   // re-uploading bytes it already received, over a second round-trip.
-  fastify.post('/api/career/resume/upload', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/resume/upload', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
 
     let data: any;
@@ -156,7 +159,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
 
   // ── POST /api/career/resume/:id/match — embedding-based CV<->opportunity
   // matching (§8), ranking the user's own open career_opportunities.
-  fastify.post('/api/career/resume/:id/match', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/resume/:id/match', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
     const { limit } = z.object({ limit: z.number().int().min(1).max(20).optional() }).parse(request.body ?? {});
@@ -175,7 +178,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   // ── POST /api/career/resume/:id/regenerate — render a document that
   // failed to render the first time (documents.generate already does this
   // for any document type; exposed here under /career for discoverability).
-  fastify.post('/api/career/resume/:id/generate', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/resume/:id/generate', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
     try {
@@ -197,7 +200,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   // and renders, never generates from scratch. Covers cover_letter and its
   // four Phase 9 siblings, which all share the exact same structured_data
   // shape.
-  fastify.post('/api/career/letters/compose', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/letters/compose', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const body = z.object({
       documentType: z.enum(LETTER_DOCUMENT_TYPES),
@@ -245,7 +248,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   // ── POST /api/career/reference-sheet — CV Studio Phase 9 Supporting
   // Documents (§13). A rendered view of career_references — no AI call,
   // no user input beyond an optional title.
-  fastify.post('/api/career/reference-sheet', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/reference-sheet', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { title } = z.object({ title: z.string().max(255).optional() }).parse(request.body ?? {});
 
@@ -289,7 +292,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
   // Documents (§13). A rendered view of the user's portfolio-visible
   // projects (projects.is_portfolio_visible, CV Studio Phase 1) — no AI
   // call.
-  fastify.post('/api/career/portfolio-pdf', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/portfolio-pdf', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { title } = z.object({ title: z.string().max(255).optional() }).parse(request.body ?? {});
 

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('business_os')]
 
 const createBody = z.object({
   company: z.string().min(1).max(255),
@@ -71,7 +74,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // ── GET /api/suppliers — list all suppliers for user ──
   fastify.get(
     '/api/suppliers',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -92,7 +95,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // ── POST /api/suppliers — create supplier ──
   fastify.post(
     '/api/suppliers',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const body = createBody.parse(request.body)
@@ -130,7 +133,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // ── PATCH /api/suppliers/:id — update supplier ──
   fastify.patch(
     '/api/suppliers/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -165,7 +168,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // ── DELETE /api/suppliers/:id — delete supplier ──
   fastify.delete(
     '/api/suppliers/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -207,7 +210,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/suppliers/:id/products — everything this supplier can source
   fastify.get(
     '/api/suppliers/:id/products',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -229,7 +232,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // product, cheapest first (used to auto-pick a supplier for a suggested PO)
   fastify.get(
     '/api/products/:id/suppliers',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -250,7 +253,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // PUT /api/suppliers/:id/products/:productId — upsert
   fastify.put(
     '/api/suppliers/:id/products/:productId',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, productId } = request.params as { id: string; productId: string }
@@ -278,7 +281,7 @@ export async function suppliersRoutes(fastify: FastifyInstance): Promise<void> {
   // DELETE /api/suppliers/:id/products/:productId
   fastify.delete(
     '/api/suppliers/:id/products/:productId',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, productId } = request.params as { id: string; productId: string }

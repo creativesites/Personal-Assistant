@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('cv_studio')]
 import { config } from '../config';
 import { buildCvRenderData } from '../lib/pdf/cv-context';
 import { buildCvPlainText } from '../lib/cv-health';
@@ -26,7 +29,7 @@ export async function careerCvMatchingRoutes(fastify: FastifyInstance): Promise<
   // Embedding-based match score (same cosine-similarity mechanism the older
   // whole-document Resume Studio flow already uses) plus a required-skills
   // diff against the CV's own skill groups.
-  fastify.get('/api/career/opportunities/:id/match/:cvId', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/match/:cvId', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id, cvId } = request.params as { id: string; cvId: string };
 
@@ -57,7 +60,7 @@ export async function careerCvMatchingRoutes(fastify: FastifyInstance): Promise<
   // Tailored CVs. Proposes which of the CV's own existing content to
   // surface/reorder for this specific opportunity — never invents new
   // content, per CV_STUDIO_NEVER_INVENT_POLICY.
-  fastify.get('/api/career/opportunities/:id/tailoring-suggestions', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/tailoring-suggestions', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
     const { cvId } = request.query as { cvId?: string };

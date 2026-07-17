@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { queues } from '../lib/queue'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('automation')]
 import { Queue } from 'bullmq'
 import { config } from '../config'
 import { publishInboxEvent } from '../lib/inbox-events'
@@ -269,7 +272,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -335,7 +338,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/agents',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -389,7 +392,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -404,7 +407,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/agents/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -429,7 +432,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents/default',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { rows: [row] } = await db.query<{ id: string }>(
@@ -446,7 +449,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/agents/default',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -474,7 +477,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/agents/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -495,7 +498,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents/:id/actions',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -553,7 +556,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents/:id/assignments',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -598,7 +601,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents/:id/memories',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -667,7 +670,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/agents/:id/memories/:memoryId',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, memoryId } = request.params as { id: string; memoryId: string }
@@ -687,7 +690,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/agents/:id/assignments',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -729,7 +732,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/agents/:id/assignments/:assignmentId',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, assignmentId } = request.params as { id: string; assignmentId: string }
@@ -761,7 +764,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/knowledge-base',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const query = request.query as Record<string, string>
@@ -806,7 +809,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/knowledge-base',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -854,7 +857,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/knowledge-base/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -900,7 +903,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/knowledge-base/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -926,7 +929,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/escalations',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const query = request.query as Record<string, string>
@@ -981,7 +984,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/agents/:id/performance',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -1049,7 +1052,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/agents/:id/corrections',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -1102,7 +1105,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/escalations/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('automation')]
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
 import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
@@ -16,7 +19,7 @@ const regenerateBody = z.object({
 });
 
 export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/api/proactive', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/proactive', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
 
     const { rows } = await db.query(
@@ -65,7 +68,7 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/proactive/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -93,7 +96,7 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
   // dock uses, then marks the suggestion 'sent' so it drops out of the queue.
   fastify.post(
     '/api/proactive/:id/send',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -163,7 +166,7 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
   // steered by free-text user instruction. Updates the row in place.
   fastify.post(
     '/api/proactive/:id/regenerate',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -206,7 +209,7 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
   // STAGE_STALL_THRESHOLD_DAYS so "stalled" means the same thing everywhere.
   fastify.get(
     '/api/proactive/recommendations',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -286,7 +289,7 @@ export async function proactiveRoutes(fastify: FastifyInstance): Promise<void> {
   // account-wide summary line, not per-contact, so it's returned separately.
   fastify.get(
     '/api/proactive/brief',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 

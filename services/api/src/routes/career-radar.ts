@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('job_search')]
 
 // Zuri Career & Growth Engine, Phase 7 — Career Radar (see
 // docs/CAREER_GROWTH_ENGINE_PLAN.md §12). A 0-100 composite score computed
@@ -32,7 +35,7 @@ function clamp(n: number): number {
 }
 
 export async function careerRadarRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/api/career/radar', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/radar', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
 
     const [

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('teams')]
 
 const createTeamBody = z.object({
   name: z.string().min(1).max(255),
@@ -31,7 +34,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/team — get the team the current user belongs to, with all members
   fastify.get(
     '/api/team',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -108,7 +111,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/team — create a new team; creator becomes owner
   fastify.post(
     '/api/team',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -147,7 +150,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/team/invite — invite a user by email
   fastify.post(
     '/api/team/invite',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -199,7 +202,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // PATCH /api/team/members/:memberId — change a member's role
   fastify.patch(
     '/api/team/members/:memberId',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { memberId } = request.params as { memberId: string };
@@ -237,7 +240,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // DELETE /api/team/members/:memberId — remove a member
   fastify.delete(
     '/api/team/members/:memberId',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { memberId } = request.params as { memberId: string };
@@ -265,7 +268,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // PATCH /api/team/accept — accept a pending invite for the current user
   fastify.patch(
     '/api/team/accept',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -287,7 +290,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/team/inbox — shared inbox: conversations with assignment info
   fastify.get(
     '/api/team/inbox',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -351,7 +354,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/conversations/:id/assign — assign a conversation to a member/team
   fastify.post(
     '/api/conversations/:id/assign',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -389,7 +392,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/conversations/:id/lock — lock a conversation for the current user
   fastify.post(
     '/api/conversations/:id/lock',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -424,7 +427,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/conversations/:id/unlock — unlock a conversation (only if locked by current user)
   fastify.post(
     '/api/conversations/:id/unlock',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -453,7 +456,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/conversations/:id/notes — list internal notes for a conversation
   fastify.get(
     '/api/conversations/:id/notes',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -493,7 +496,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/conversations/:id/notes — add an internal note
   fastify.post(
     '/api/conversations/:id/notes',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };

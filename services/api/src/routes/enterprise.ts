@@ -4,6 +4,9 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { requireFeature } from '../lib/entitlements';
+
+const gate = [authenticate, requireFeature('enterprise_api')];
 
 const createWebhookBody = z.object({
   name: z.string().min(1).max(255),
@@ -60,7 +63,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /api/webhooks — list webhooks for user
   fastify.get(
     '/api/webhooks',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -79,7 +82,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // POST /api/webhooks — create a webhook
   fastify.post(
     '/api/webhooks',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -104,7 +107,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // PATCH /api/webhooks/:id — update a webhook
   fastify.patch(
     '/api/webhooks/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -148,7 +151,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // DELETE /api/webhooks/:id — delete a webhook
   fastify.delete(
     '/api/webhooks/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -166,7 +169,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /api/webhooks/:id/deliveries — recent deliveries (last 50)
   fastify.get(
     '/api/webhooks/:id/deliveries',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -193,7 +196,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // POST /api/webhooks/:id/test — send a test ping payload
   fastify.post(
     '/api/webhooks/:id/test',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -253,7 +256,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /api/api-keys — list API keys (never return key_hash)
   fastify.get(
     '/api/api-keys',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -272,7 +275,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // POST /api/api-keys — create an API key
   fastify.post(
     '/api/api-keys',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -316,7 +319,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // DELETE /api/api-keys/:id — revoke an API key
   fastify.delete(
     '/api/api-keys/:id',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
@@ -336,7 +339,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /api/data-retention — get user's retention policy (or defaults if not set)
   fastify.get(
     '/api/data-retention',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -366,7 +369,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // PUT /api/data-retention — upsert retention policy
   fastify.put(
     '/api/data-retention',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -406,7 +409,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /api/whitelabel — get white-label config (or null)
   fastify.get(
     '/api/whitelabel',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -424,7 +427,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // PUT /api/whitelabel — upsert white-label config
   fastify.put(
     '/api/whitelabel',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -465,7 +468,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // GET /api/crm — list active CRM integrations (never return tokens)
   fastify.get(
     '/api/crm',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -484,7 +487,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // POST /api/crm/connect — connect a CRM
   fastify.post(
     '/api/crm/connect',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
 
@@ -524,7 +527,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   // DELETE /api/crm/:provider — disconnect a CRM (soft delete)
   fastify.delete(
     '/api/crm/:provider',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { provider } = request.params as { provider: string };

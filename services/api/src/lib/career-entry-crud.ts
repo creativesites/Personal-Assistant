@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from './db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from './entitlements'
+
+const gate = [authenticate, requireFeature('career_os')]
 
 // CV Studio Phase 1 (docs/CV_STUDIO_PLAN.md §3, §18) — the Master Career
 // Profile's nine per-entry tables (employment history, education,
@@ -42,7 +45,7 @@ function toApiShape(fields: CareerEntryField[]) {
 export function registerCareerEntryRoutes(fastify: FastifyInstance, cfg: CareerEntryResourceConfig): void {
   const shape = toApiShape(cfg.fields)
 
-  fastify.get(`/api/career/${cfg.path}`, { preHandler: authenticate }, async (request, reply) => {
+  fastify.get(`/api/career/${cfg.path}`, { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { rows } = await db.query(
       `SELECT * FROM ${cfg.table} WHERE user_id = $1 ORDER BY sort_order ASC, created_at ASC`, [userId],
@@ -50,7 +53,7 @@ export function registerCareerEntryRoutes(fastify: FastifyInstance, cfg: CareerE
     return reply.send({ items: rows.map(shape) })
   })
 
-  fastify.post(`/api/career/${cfg.path}`, { preHandler: authenticate }, async (request, reply) => {
+  fastify.post(`/api/career/${cfg.path}`, { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body: Record<string, unknown> = cfg.createSchema.parse(request.body)
 
@@ -76,7 +79,7 @@ export function registerCareerEntryRoutes(fastify: FastifyInstance, cfg: CareerE
     return reply.code(201).send({ item: shape(row) })
   })
 
-  fastify.patch(`/api/career/${cfg.path}/:id`, { preHandler: authenticate }, async (request, reply) => {
+  fastify.patch(`/api/career/${cfg.path}/:id`, { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body: Record<string, unknown> = cfg.patchSchema.parse(request.body)
@@ -107,7 +110,7 @@ export function registerCareerEntryRoutes(fastify: FastifyInstance, cfg: CareerE
     return reply.send({ item: shape(row) })
   })
 
-  fastify.delete(`/api/career/${cfg.path}/:id`, { preHandler: authenticate }, async (request, reply) => {
+  fastify.delete(`/api/career/${cfg.path}/:id`, { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rowCount } = await db.query(`DELETE FROM ${cfg.table} WHERE id = $1 AND user_id = $2`, [id, userId])

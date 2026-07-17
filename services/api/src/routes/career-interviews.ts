@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('interview_coach')]
 
 // Zuri Career & Growth Engine, Phase 4 — Interview Memory (see
 // docs/CAREER_GROWTH_ENGINE_PLAN.md §10). scheduled_at also writes a
@@ -57,7 +60,7 @@ async function defaultCalendarId(userId: string): Promise<string | null> {
 }
 
 export async function careerInterviewsRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/api/career/opportunities/:id/interviews', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/interviews', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rows } = await db.query(
@@ -67,7 +70,7 @@ export async function careerInterviewsRoutes(fastify: FastifyInstance): Promise<
     return reply.send({ interviews: rows.map(interviewApiShape) })
   })
 
-  fastify.post('/api/career/opportunities/:id/interviews', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/opportunities/:id/interviews', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = createBody.parse(request.body)
@@ -114,7 +117,7 @@ export async function careerInterviewsRoutes(fastify: FastifyInstance): Promise<
     return reply.code(201).send({ interview: interviewApiShape(created) })
   })
 
-  fastify.patch('/api/career/interviews/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.patch('/api/career/interviews/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = patchBody.parse(request.body)
@@ -177,7 +180,7 @@ export async function careerInterviewsRoutes(fastify: FastifyInstance): Promise<
     return reply.send({ interview: interviewApiShape(updated) })
   })
 
-  fastify.delete('/api/career/interviews/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.delete('/api/career/interviews/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rows: [existing] } = await db.query(
@@ -194,7 +197,7 @@ export async function careerInterviewsRoutes(fastify: FastifyInstance): Promise<
   // ── GET /api/career/interview-patterns?company=X — "Company X tends to
   // ask system design first" (§10), a plain SQL aggregation over the user's
   // own past interviews for that company, not a new prediction model.
-  fastify.get('/api/career/interview-patterns', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/interview-patterns', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { company } = z.object({ company: z.string().min(1) }).parse(request.query)
 

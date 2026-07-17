@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 import { assignDocumentNumber, computeTotals, formatDocument } from './documents'
 
 // Business OS Phase B — purchase order workflow. See docs/BUSINESS_OS_PLAN.md
@@ -79,7 +80,7 @@ export async function purchaseOrdersRoutes(fastify: FastifyInstance): Promise<vo
   // suggested-reorder insight card). ──
   fastify.post(
     '/api/purchase-orders',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const body = createBody.parse(request.body)
@@ -157,7 +158,7 @@ export async function purchaseOrdersRoutes(fastify: FastifyInstance): Promise<vo
   // in_transit movements + bumps products.incoming. ──
   fastify.post(
     '/api/purchase-orders/:id/approve',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -172,7 +173,7 @@ export async function purchaseOrdersRoutes(fastify: FastifyInstance): Promise<vo
   // mean "goods received"), writes `restock` movements + unwinds incoming. ──
   fastify.post(
     '/api/purchase-orders/:id/receive',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }

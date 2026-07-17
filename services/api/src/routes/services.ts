@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 
 // Services Management System (see docs/SERVICES_PROJECTS_PLAN.md). A
 // service is a `products` row with item_type='service' (or a sibling type)
@@ -63,7 +64,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/products/:id/pricing-tiers',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -89,7 +90,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products/:id/pricing-tiers',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -119,7 +120,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/products/:id/pricing-tiers/:tierId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { tierId } = request.params as { id: string; tierId: string }
@@ -150,7 +151,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/products/:id/pricing-tiers/:tierId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { tierId } = request.params as { id: string; tierId: string }
@@ -169,7 +170,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/products/:id/capacity',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -192,7 +193,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.put(
     '/api/products/:id/capacity',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -220,7 +221,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products/:id/capacity-movements',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -258,7 +259,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/products/:id/capacity-movements',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -288,7 +289,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/products/:id/workflow-stages',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -307,7 +308,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.put(
     '/api/products/:id/workflow-stages',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -341,7 +342,7 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products/:id/start-project',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }

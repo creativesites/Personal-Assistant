@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 
 // Business OS Phase C — multi-location inventory. See
 // docs/BUSINESS_OS_PLAN.md §7.1. Every user gets a default "Main" location
@@ -19,7 +20,7 @@ function locationApiShape(r: any) {
 export async function inventoryLocationsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/api/inventory-locations',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { rows } = await db.query(
@@ -32,7 +33,7 @@ export async function inventoryLocationsRoutes(fastify: FastifyInstance): Promis
 
   fastify.post(
     '/api/inventory-locations',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const body = createBody.parse(request.body)
@@ -53,7 +54,7 @@ export async function inventoryLocationsRoutes(fastify: FastifyInstance): Promis
 
   fastify.patch(
     '/api/inventory-locations/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -81,7 +82,7 @@ export async function inventoryLocationsRoutes(fastify: FastifyInstance): Promis
 
   fastify.delete(
     '/api/inventory-locations/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -109,7 +110,7 @@ export async function inventoryLocationsRoutes(fastify: FastifyInstance): Promis
   // GET /api/products/:id/stock-by-location — per-location breakdown for one product
   fastify.get(
     '/api/products/:id/stock-by-location',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }

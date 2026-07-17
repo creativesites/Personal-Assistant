@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 import { assignDocumentNumber, computeTotals, formatDocument, lineItemSchema, PHASE_0_TYPES } from './documents'
 
 // Business OS Phase F — lightweight project management. See
@@ -198,7 +199,7 @@ const PROJECT_LIST_SELECT = `
 export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/api/projects',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { status } = request.query as { status?: string }
@@ -221,7 +222,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/projects/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -320,7 +321,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const body = createProjectBody.parse(request.body)
@@ -339,7 +340,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/projects/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -369,7 +370,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/projects/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -388,7 +389,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects/:id/tasks',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -411,7 +412,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/projects/:id/tasks/:taskId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, taskId } = request.params as { id: string; taskId: string }
@@ -446,7 +447,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/projects/:id/tasks/:taskId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, taskId } = request.params as { id: string; taskId: string }
@@ -467,7 +468,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects/:id/documents',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -517,7 +518,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects/:id/milestones',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -543,7 +544,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/projects/:id/milestones/:milestoneId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, milestoneId } = request.params as { id: string; milestoneId: string }
@@ -581,7 +582,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/projects/:id/milestones/:milestoneId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, milestoneId } = request.params as { id: string; milestoneId: string }
@@ -602,7 +603,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects/:id/time-entries',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -627,7 +628,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects/:id/time-entries/start',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -656,7 +657,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/projects/:id/time-entries/:entryId/stop',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, entryId } = request.params as { id: string; entryId: string }
@@ -678,7 +679,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/projects/:id/time-entries/:entryId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, entryId } = request.params as { id: string; entryId: string }
@@ -707,7 +708,7 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.delete(
     '/api/projects/:id/time-entries/:entryId',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id, entryId } = request.params as { id: string; entryId: string }

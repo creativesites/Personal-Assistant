@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('career_os')]
 
 // Zuri Career & Growth Engine, Phase 1 (see docs/CAREER_GROWTH_ENGINE_PLAN.md
 // §3) — the single professional-identity source every generated artifact
@@ -135,7 +138,7 @@ const SCALAR_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
 }
 
 export async function careerProfileRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/api/career/profile', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/profile', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { rows: [profile] } = await db.query(
       'SELECT * FROM career_profiles WHERE user_id = $1', [userId],
@@ -143,7 +146,7 @@ export async function careerProfileRoutes(fastify: FastifyInstance): Promise<voi
     return reply.send({ profile: profile ? profileApiShape(profile) : DEFAULT_PROFILE })
   })
 
-  fastify.patch('/api/career/profile', { preHandler: authenticate }, async (request, reply) => {
+  fastify.patch('/api/career/profile', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body = patchProfileBody.parse(request.body)
 

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 
 // Business OS Phase A — configurable product families & attributes. See
 // docs/BUSINESS_OS_PLAN.md §5. product_families is the user-definable
@@ -126,7 +127,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── GET /api/product-families — flat list, frontend builds the tree ──
   fastify.get(
     '/api/product-families',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -144,7 +145,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── POST /api/product-families — create a family node ──
   fastify.post(
     '/api/product-families',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const body = createFamilyBody.parse(request.body)
@@ -177,7 +178,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── PATCH /api/product-families/:id — rename / reparent / reorder ──
   fastify.patch(
     '/api/product-families/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -219,7 +220,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── DELETE /api/product-families/:id — cascades to sub-families (FK) ──
   fastify.delete(
     '/api/product-families/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -237,7 +238,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── GET /api/product-families/:id/attributes — this family's own definitions ──
   fastify.get(
     '/api/product-families/:id/attributes',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -259,7 +260,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // under it" per the plan). ──
   fastify.get(
     '/api/product-families/:id/effective-attributes',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -298,7 +299,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── POST /api/product-families/:id/attributes — add an attribute definition ──
   fastify.post(
     '/api/product-families/:id/attributes',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -339,7 +340,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── PATCH /api/product-attribute-definitions/:id ──
   fastify.patch(
     '/api/product-attribute-definitions/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -371,7 +372,7 @@ export async function productFamiliesRoutes(fastify: FastifyInstance): Promise<v
   // ── DELETE /api/product-attribute-definitions/:id ──
   fastify.delete(
     '/api/product-attribute-definitions/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }

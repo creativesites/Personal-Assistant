@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 
 // Deterministic, SQL-driven business insights for the Studio ERP tabs — see
 // CLAUDE.md "Studio ERP". Rule-based rather than LLM-generated: exact
@@ -10,7 +11,7 @@ import { requireMarketingAccess } from '../lib/marketing-access'
 export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/api/studio/insights',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -214,7 +215,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
   // it's surfaced as a note rather than a hard number until that exists.
   fastify.get(
     '/api/studio/financial-overview',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -289,7 +290,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
   // docs/BUSINESS_EVENTS_PLAN.md §6.
   fastify.get(
     '/api/studio/customers',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 

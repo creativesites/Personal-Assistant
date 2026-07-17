@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('job_search')]
 import { config } from '../config'
 import { shortestIntroductionPath } from '../lib/knowledge-graph'
 
@@ -100,7 +103,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
   // Studio's GET /api/studio/insights already does for the whole business,
   // filtered down to career_opportunity_detected so /career gets its own
   // feed without duplicating the audit trail into a second table.
-  fastify.get('/api/career/activity', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/activity', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { rows } = await db.query(
       `SELECT be.id, be.event_type, be.confidence, be.evidence, be.payload, be.status,
@@ -128,7 +131,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     })
   })
 
-  fastify.get('/api/career/opportunities', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { status, category } = request.query as { status?: string; category?: string }
 
@@ -145,7 +148,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     return reply.send({ opportunities: rows.map(opportunityApiShape) })
   })
 
-  fastify.get('/api/career/opportunities/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rows: [opp] } = await db.query(
@@ -155,7 +158,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     return reply.send({ opportunity: opportunityApiShape(opp) })
   })
 
-  fastify.post('/api/career/opportunities', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/opportunities', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body = createBody.parse(request.body)
 
@@ -176,7 +179,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     return reply.code(201).send({ opportunity: opportunityApiShape(created) })
   })
 
-  fastify.patch('/api/career/opportunities/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.patch('/api/career/opportunities/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = patchBody.parse(request.body)
@@ -221,7 +224,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
   // established for Services Management — reapplied here rather than a new
   // mechanism. A second apply on an opportunity that already has a project
   // just returns the existing one instead of creating a duplicate.
-  fastify.post('/api/career/opportunities/:id/apply', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/opportunities/:id/apply', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -276,7 +279,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
   // Zuri never sends it. The path-finding is a plain SQL BFS
   // (shortestIntroductionPath, lib/knowledge-graph.ts); this route only
   // adds the one new AI call (drafting the ask) once a path exists.
-  fastify.get('/api/career/opportunities/:id/introduction-path', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/introduction-path', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -330,7 +333,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
   // ── GET /api/career/opportunities/:id/readiness — Job Search OS §15.12,
   // Application Readiness Checklist. Deterministic, non-AI — same "exact
   // thresholds over narrative" discipline as Studio's Zuri Insights.
-  fastify.get('/api/career/opportunities/:id/readiness', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/readiness', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -373,7 +376,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
   // opportunity->resumes embedding match (the inverse of resume->
   // opportunities), which returns a suggestTailoring flag when the best
   // match is weak.
-  fastify.get('/api/career/opportunities/:id/resume-match', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/resume-match', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -402,7 +405,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
   // ghosting signal computed there from the user's own application history)
   // with the existing interview-patterns lookup (§10) in one response, so
   // the frontend doesn't need two separate calls.
-  fastify.get('/api/career/opportunities/:id/company-intelligence', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/opportunities/:id/company-intelligence', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -458,7 +461,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     })
   })
 
-  fastify.delete('/api/career/opportunities/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.delete('/api/career/opportunities/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rowCount } = await db.query(

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('cv_studio')]
 import { config } from '../config'
 import { renderCvPdf } from '../lib/pdf/render'
 import { buildCvRenderData } from '../lib/pdf/cv-context'
@@ -69,7 +72,7 @@ async function writeVersionSnapshot(cvId: string, structuredContent: unknown): P
 }
 
 export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.get('/api/career/cvs', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/cvs', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { rows } = await db.query(
       'SELECT * FROM career_cvs WHERE user_id = $1 ORDER BY is_master DESC, created_at DESC', [userId],
@@ -77,7 +80,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ cvs: rows.map(cvApiShape) })
   })
 
-  fastify.get('/api/career/cvs/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/cvs/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rows: [cv] } = await db.query('SELECT * FROM career_cvs WHERE id = $1 AND user_id = $2', [id, userId])
@@ -108,7 +111,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     sourceCvId: z.string().uuid().nullable().optional(),
   })
 
-  fastify.post('/api/career/cvs', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cvs', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body = createBody.parse(request.body)
 
@@ -157,7 +160,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     structuredContent: z.record(z.any()).optional(),
   })
 
-  fastify.patch('/api/career/cvs/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.patch('/api/career/cvs/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = patchBody.parse(request.body)
@@ -198,7 +201,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ cv: cvApiShape(updated) })
   })
 
-  fastify.delete('/api/career/cvs/:id', { preHandler: authenticate }, async (request, reply) => {
+  fastify.delete('/api/career/cvs/:id', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rowCount } = await db.query('DELETE FROM career_cvs WHERE id = $1 AND user_id = $2', [id, userId])
@@ -209,7 +212,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
   // ── Sections — whole-list replace, same convention as Services
   // Management's PUT .../workflow-stages (a template is edited as one
   // ordered set, not incrementally).
-  fastify.put('/api/career/cvs/:id/sections', { preHandler: authenticate }, async (request, reply) => {
+  fastify.put('/api/career/cvs/:id/sections', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = z.object({
@@ -239,7 +242,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── Project links — checkbox-picker over the user's own projects (§4
   // Step 8). Whole-list replace, same reasoning as sections above.
-  fastify.put('/api/career/cvs/:id/project-links', { preHandler: authenticate }, async (request, reply) => {
+  fastify.put('/api/career/cvs/:id/project-links', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = z.object({
@@ -272,7 +275,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── Version history (§10) — restore/duplicate/compare, all non-
   // destructive.
-  fastify.get('/api/career/cvs/:id/versions', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/cvs/:id/versions', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const { rows: [cv] } = await db.query('SELECT id FROM career_cvs WHERE id = $1 AND user_id = $2', [id, userId])
@@ -287,7 +290,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
     })
   })
 
-  fastify.post('/api/career/cvs/:id/versions/:versionNumber/restore', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cvs/:id/versions/:versionNumber/restore', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id, versionNumber } = request.params as { id: string; versionNumber: string }
 
@@ -314,7 +317,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── Duplicate — a new career_cvs row with source_cv_id set, same
   // "Create Variant" path POST /api/career/cvs already implements.
-  fastify.post('/api/career/cvs/:id/duplicate', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cvs/:id/duplicate', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = z.object({ title: z.string().min(1).max(255).optional() }).parse(request.body ?? {})
@@ -355,7 +358,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
   // tables on every request ("the real React-PDF render happens on-demand
   // for download" — no persisted documents row for a CV Studio render,
   // unlike the older whole-document Resume Studio flow).
-  fastify.get('/api/career/cvs/:id/pdf', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/cvs/:id/pdf', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -371,7 +374,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── CV Health (§7) — deterministic, non-AI checks over the same live
   // data the PDF render reads.
-  fastify.get('/api/career/cvs/:id/health', { preHandler: authenticate }, async (request, reply) => {
+  fastify.get('/api/career/cvs/:id/health', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -384,7 +387,7 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
   // ── ATS Analysis (§7) — reuses score_resume_text()'s existing
   // SCORE_RESUME prompt verbatim, fed from the CV's live content instead
   // of an uploaded resume's raw text.
-  fastify.post('/api/career/cvs/:id/ats-score', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cvs/:id/ats-score', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 

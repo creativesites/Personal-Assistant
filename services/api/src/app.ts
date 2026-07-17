@@ -60,6 +60,7 @@ import { predictionsRoutes } from './routes/predictions';
 import { subscriptionPlansRoutes } from './routes/subscription-plans';
 import { adminPaymentsRoutes } from './routes/admin-payments';
 import { servicesRoutes } from './routes/services';
+import { readOnlyModeGuard } from './lib/entitlements';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -88,6 +89,10 @@ export async function buildApp() {
       files: 1,
     },
   });
+
+  // Membership Platform Phase 2 (docs/MEMBERSHIP_PLATFORM_PLAN.md) — global
+  // read-only-mode mutation guard, ahead of every route's own preHandlers.
+  fastify.addHook('preHandler', readOnlyModeGuard);
 
   await fastify.register(healthRoutes);
   await fastify.register(authRoutes);

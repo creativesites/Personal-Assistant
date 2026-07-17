@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
+import { requireFeature } from '../lib/entitlements'
 import { coPurchasers } from '../lib/knowledge-graph'
 
 const createBody = z.object({
@@ -265,7 +266,7 @@ function toApiShape(p: ProductRow) {
 export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get(
     '/api/products',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       // Business Events Plan §6 — a 'secondary' product (a one-off item
@@ -311,7 +312,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
   // product's variant-axis attributes (see generate-variants below). ──
   fastify.get(
     '/api/products/:id/variants',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -344,7 +345,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
   // Size x Color). See docs/BUSINESS_OS_PLAN.md §5. ──
   fastify.post(
     '/api/products/:id/generate-variants',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -434,7 +435,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const body = createBody.parse(request.body)
@@ -518,7 +519,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.patch(
     '/api/products/:id',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -679,7 +680,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products/:id/stock-movements',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -785,7 +786,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/products/:id/stock-movements',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -818,7 +819,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/products/:id/contacts',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -862,7 +863,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
   // contact_products is the underlying join table. ──
   fastify.get(
     '/api/products/:id/co-purchases',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -901,7 +902,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products/:id/reserve',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
@@ -932,7 +933,7 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/products/:id/contacts',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('analytics')]
 import { requireMarketingAccess } from '../lib/marketing-access'
 
 const funnelStageBody = z.object({
@@ -131,7 +134,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/executive',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -348,7 +351,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/sales',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -467,7 +470,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/customers',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -625,7 +628,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/conversations',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -794,7 +797,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/operations',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -886,7 +889,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/opportunities',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -958,7 +961,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/predictions',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1111,7 +1114,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/health',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1254,7 +1257,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/roi',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1336,7 +1339,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/timeline',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1449,7 +1452,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/team',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1525,7 +1528,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/overview',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1609,7 +1612,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/funnel',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1671,7 +1674,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/suggestions',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1713,7 +1716,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.get(
     '/api/analytics/revenue',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1765,7 +1768,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/analytics/funnel/stage',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1815,7 +1818,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
 
   fastify.post(
     '/api/analytics/revenue',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
@@ -1870,7 +1873,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
   // see docs/ZURI_MARKETING_EXPANSION.md §9/§12.5.
   fastify.get(
     '/api/analytics/campaigns',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('analytics')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       return reply.send(await getCampaignStats(userId))
@@ -1883,7 +1886,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
   // handful of short, actionable suggestions.
   fastify.post(
     '/api/analytics/campaigns/recommendations',
-    { preHandler: [authenticate, requireMarketingAccess] },
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('analytics')] },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const stats = await getCampaignStats(userId)
@@ -1916,7 +1919,7 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
   // picks which to show per mode (or both, for hybrid).
   fastify.get(
     '/api/analytics/health-rollup',
-    { preHandler: authenticate },
+    { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 

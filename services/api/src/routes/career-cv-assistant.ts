@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { authenticate } from '../plugins/authenticate'
+import { requireFeature } from '../lib/entitlements'
+
+const gate = [authenticate, requireFeature('cv_studio')]
 import { config } from '../config'
 
 // CV Studio (docs/CV_STUDIO_PLAN.md §6) — the rewrite-only AI Assistant
@@ -28,7 +31,7 @@ async function callIntelligence<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function careerCvAssistantRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post('/api/career/cv-assistant/rewrite', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cv-assistant/rewrite', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body = z.object({
       text: z.string().min(1).max(4000),
@@ -47,7 +50,7 @@ export async function careerCvAssistantRoutes(fastify: FastifyInstance): Promise
     }
   })
 
-  fastify.post('/api/career/cv-assistant/suggest-metric', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cv-assistant/suggest-metric', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body = z.object({ text: z.string().min(1).max(2000) }).parse(request.body)
 
@@ -62,7 +65,7 @@ export async function careerCvAssistantRoutes(fastify: FastifyInstance): Promise
     }
   })
 
-  fastify.post('/api/career/cv-assistant/suggest-skill-grouping', { preHandler: authenticate }, async (request, reply) => {
+  fastify.post('/api/career/cv-assistant/suggest-skill-grouping', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const body = z.object({ skills: z.array(z.string()).min(1).max(100) }).parse(request.body)
 
