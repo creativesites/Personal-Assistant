@@ -116,11 +116,28 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
         }
       }
 
-      const { rows: [subscription] } = await db.query<{ id: string }>(
+      const { rows: existingSubs } = await db.query<{ id: string }>(
         'SELECT id FROM subscriptions WHERE user_id = $1',
         [userId],
       )
-      if (!subscription) return reply.code(404).send({ error: 'No subscription record found' })
+      let subscription: { id: string } | undefined = existingSubs[0]
+      if (!subscription) {
+        // Users who signed up before the Membership Platform migration may
+        // not have a subscriptions row — auto-create a free-tier one so
+        // checkout can proceed without a support ticket.
+        const { rows: [freePlan] } = await db.query<{ id: string }>(
+          `SELECT id FROM subscription_plans WHERE plan_family = 'free' AND is_active = TRUE LIMIT 1`,
+          [],
+        )
+        if (!freePlan) return reply.code(404).send({ error: 'No subscription record found' })
+        const { rows: [created] } = await db.query<{ id: string }>(
+          `INSERT INTO subscriptions (user_id, plan_id, status, current_period_start, current_period_end)
+           VALUES ($1, $2, 'active', NOW(), NOW() + INTERVAL '10 years')
+           RETURNING id`,
+          [userId, freePlan.id],
+        )
+        subscription = created
+      }
 
       // BYOK discount — only applied if the caller actually has a saved key
       // (services/api/src/routes/enterprise.ts's byok_keys) and this plan

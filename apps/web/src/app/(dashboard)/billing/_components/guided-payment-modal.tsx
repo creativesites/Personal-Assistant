@@ -106,8 +106,8 @@ export function GuidedPaymentModal({
           body: JSON.stringify({ phoneNumber, paidAt: paidAt ? new Date(paidAt).toISOString() : undefined }),
         })
       }
-      setStep('waiting')
       onDone()
+      close()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Confirmation failed')
     } finally {

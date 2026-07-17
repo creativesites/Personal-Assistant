@@ -140,7 +140,6 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           m.media_mime_type,
           m.transcription,
           m.quoted_message_id,
-          m.sender_display_name,
           ma.sentiment,
           ma.sentiment_score,
           ma.requires_response,
@@ -186,7 +185,6 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         mediaMimeType: m.media_mime_type,
         transcription: m.transcription,
         quotedMessageId: m.quoted_message_id,
-        senderDisplayName: m.sender_display_name,
         analysis: m.sentiment
           ? {
               sentiment: m.sentiment,
@@ -367,7 +365,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           JOIN message_analyses ma ON ma.message_id = m.id
           WHERE c.user_id = $1
             AND m.sender_type = 'contact'
-            AND ma.sentiment IN ('negative', 'frustrated', 'angry')
+            AND ma.sentiment IN ('negative', 'angry')
             AND m.whatsapp_timestamp > NOW() - INTERVAL '72 hours'
           ORDER BY c.id, m.whatsapp_timestamp DESC
         ) q
