@@ -103,6 +103,22 @@ class RealityEngineService:
                     payload={'dealId': str(row['deal_id']), 'documentId': str(row['document_id'])},
                 )
                 found += 1
+                # Platform Polish Phase 1 §3.3 — turn the detection into an
+                # actionable suggestion instead of a silent log line, while
+                # keeping the safety boundary intact: this never mutates
+                # dl.stage itself, only offers to.
+                summary = f"Invoice paid — close deal \"{row['deal_title']}\"?"
+                bundle_row = await conn.fetchrow(
+                    """INSERT INTO action_bundles (user_id, contact_id, summary, actions, confidence, evidence)
+                       VALUES ($1, $2, $3, $4::jsonb, 1.0, $5::jsonb) RETURNING id""",
+                    row['user_id'], row['contact_id'], summary,
+                    json.dumps([{'type': 'advance_deal_stage', 'params': [str(row['deal_id']), 'closed_won']}]),
+                    json.dumps(evidence),
+                )
+                await publish_event(
+                    f"bundle:ready:{row['user_id']}",
+                    json.dumps({'bundleId': str(bundle_row['id']), 'contactId': str(row['contact_id']), 'summary': summary}),
+                )
 
             negative_inventory = await conn.fetch(
                 """

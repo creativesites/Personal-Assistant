@@ -5,6 +5,7 @@ import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
 import { requireFeature } from '../lib/entitlements'
 import { coPurchasers } from '../lib/knowledge-graph'
+import { reserveStock } from '../lib/stock'
 
 const createBody = z.object({
   name: z.string().min(1).max(255),
@@ -908,26 +909,10 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string }
       const body = reserveBody.parse(request.body)
 
-      const { rows: [existing] } = await db.query(
-        'SELECT stock, reserved FROM products WHERE id = $1 AND user_id = $2',
-        [id, userId],
-      )
-      if (!existing) return reply.code(404).send({ error: 'Product not found' })
+      const result = await reserveStock(userId, id, body.quantity, body.reason)
+      if (!result) return reply.code(404).send({ error: 'Product not found' })
 
-      const newReserved = existing.reserved + body.quantity
-      const newAvailable = Math.max(0, existing.stock - newReserved)
-
-      await db.query(
-        `INSERT INTO stock_movements (user_id, product_id, movement_type, quantity_delta, previous_stock, new_stock, reason)
-         VALUES ($1, $2, 'committed', $3, $4, $4, $5)`,
-        [userId, id, body.quantity, existing.stock, body.reason ?? null],
-      )
-      await db.query(
-        'UPDATE products SET reserved = $1, available = $2, updated_at = NOW() WHERE id = $3 AND user_id = $4',
-        [newReserved, newAvailable, id, userId],
-      )
-
-      return reply.code(201).send({ reserved: newReserved, available: newAvailable })
+      return reply.code(201).send(result)
     },
   )
 

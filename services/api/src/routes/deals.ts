@@ -3,6 +3,15 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { resolveInvoiceGapNudges } from '../lib/reality-engine'
+import { reserveStock } from '../lib/stock'
+import { publishInboxEvent } from '../lib/inbox-events'
+
+// Default task template for a project auto-suggested off a closed deal —
+// Platform Polish Phase 1 (docs/PLATFORM_POLISH_PLAN.md §3.1). Deliberately
+// generic (no per-service workflow to copy, unlike services.ts's
+// start-project, which reads a specific service's own stages) since a deal
+// isn't tied to one catalog item.
+const DEFAULT_DEAL_PROJECT_TASKS = ['Kick off with client', 'Deliver', 'Invoice & close out']
 
 const STAGES = ['discovery', 'qualified', 'proposal', 'negotiation', 'closed_won', 'closed_lost'] as const
 
@@ -180,8 +189,8 @@ export async function dealsRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string }
       const body = patchBody.parse(request.body)
 
-      const { rows: [existing] } = await db.query<{ contact_id: string; stage: string; value_cents: string; currency: string }>(
-        `SELECT contact_id, stage, value_cents, currency FROM deals WHERE id = $1 AND user_id = $2`,
+      const { rows: [existing] } = await db.query<{ contact_id: string; stage: string; value_cents: string; currency: string; title: string; product_ids: string[] }>(
+        `SELECT contact_id, stage, value_cents, currency, title, product_ids FROM deals WHERE id = $1 AND user_id = $2`,
         [id, userId],
       )
       if (!existing) return reply.code(404).send({ error: 'Deal not found' })
@@ -224,11 +233,74 @@ export async function dealsRoutes(fastify: FastifyInstance): Promise<void> {
           // immediately rather than leaving it until the daily sweep.
           await resolveInvoiceGapNudges(userId, { dealId: id }, 'Deal closed won')
             .catch(() => { /* best-effort — the stage update itself already succeeded */ })
+
+          // Platform Polish Phase 1 (docs/PLATFORM_POLISH_PLAN.md §3) — the
+          // "everything connects" chain. Stock reservation is safe to do
+          // without a click (cheap to release); a project is structurally
+          // significant, so it's only ever suggested.
+          const productIds = existing.product_ids ?? []
+          for (const productId of productIds) {
+            await reserveStock(userId, productId, 1, `Reserved from deal "${existing.title}" closing won`)
+              .catch(() => { /* best-effort — a missing/archived product shouldn't block the deal close */ })
+          }
+
+          const { rows: [existingProject] } = await db.query<{ id: string }>(
+            `SELECT id FROM projects WHERE deal_id = $1 LIMIT 1`, [id],
+          )
+          if (!existingProject) {
+            const summary = `Start a project to deliver "${existing.title}"?`
+            const { rows: [bundle] } = await db.query<{ id: string }>(
+              `INSERT INTO action_bundles (user_id, contact_id, summary, actions, confidence, evidence)
+               VALUES ($1, $2, $3, $4::jsonb, 1.0, $5::jsonb) RETURNING id`,
+              [
+                userId, existing.contact_id, summary,
+                JSON.stringify([{ type: 'start_project', params: [id, existing.contact_id, existing.title] }]),
+                JSON.stringify([`Deal "${existing.title}" closed won with no linked project yet`]),
+              ],
+            )
+            await publishInboxEvent(userId, 'bundle:ready', { bundleId: bundle.id, contactId: existing.contact_id, summary })
+          }
         }
       }
 
       const { rows: [deal] } = await db.query<DealRow>(`${SELECT_DEAL} WHERE d.id = $1`, [id])
       return reply.send({ deal: toApiShape(deal) })
+    },
+  )
+
+  // ── POST /api/deals/:id/start-project — one-click action for the
+  // action_bundles suggestion above (and reachable directly). Mirrors
+  // services.ts's start-project pattern, but there's no per-service
+  // workflow to copy for a plain deal, so it seeds a generic default
+  // template instead of reading service_workflow_stages.
+  fastify.post(
+    '/api/deals/:id/start-project',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows: [deal] } = await db.query<{ contact_id: string; title: string }>(
+        `SELECT contact_id, title FROM deals WHERE id = $1 AND user_id = $2`,
+        [id, userId],
+      )
+      if (!deal) return reply.code(404).send({ error: 'Deal not found' })
+
+      const { rows: [existingProject] } = await db.query<{ id: string }>(
+        `SELECT id FROM projects WHERE deal_id = $1 LIMIT 1`, [id],
+      )
+      if (existingProject) return reply.send({ projectId: existingProject.id, alreadyExisted: true })
+
+      const { rows: [project] } = await db.query<{ id: string }>(
+        `INSERT INTO projects (user_id, contact_id, deal_id, title, status)
+         VALUES ($1, $2, $3, $4, 'active') RETURNING id`,
+        [userId, deal.contact_id, id, deal.title],
+      )
+      for (const title of DEFAULT_DEAL_PROJECT_TASKS) {
+        await db.query('INSERT INTO project_tasks (project_id, title) VALUES ($1, $2)', [project.id, title])
+      }
+
+      return reply.code(201).send({ projectId: project.id, taskCount: DEFAULT_DEAL_PROJECT_TASKS.length })
     },
   )
 }

@@ -13,7 +13,7 @@ import { apiClient } from './api'
 
 export interface BundleAction {
   type: 'create_deal' | 'reserve_stock' | 'generate_document' | 'reminder' | 'create_product' | 'create_supplier'
-    | 'create_career_opportunity'
+    | 'create_career_opportunity' | 'start_project' | 'advance_deal_stage'
   params: string[]
   // Indices (into the same actions array) that must be 'done' before this
   // action can run — additive to Business OS Phase E's shipped shape, so a
@@ -58,6 +58,14 @@ export function actionLabel(action: BundleAction): string {
     case 'create_career_opportunity': {
       const [, title, companyOrOrg] = action.params
       return companyOrOrg ? `Track opportunity: ${title} at ${companyOrOrg}` : `Track opportunity: ${title}`
+    }
+    case 'start_project': {
+      const [, , dealTitle] = action.params
+      return `Start a project to deliver "${dealTitle}"`
+    }
+    case 'advance_deal_stage': {
+      const [, stage] = action.params
+      return `Move deal to ${stage.replace('_', ' ')}`
     }
     default:
       return 'Unknown action'
@@ -140,6 +148,16 @@ export async function executeAction(action: BundleAction, token: string): Promis
           source: 'whatsapp_detected',
         }),
       })
+      return
+    }
+    case 'start_project': {
+      const [dealId] = action.params
+      await apiClient(`/api/deals/${dealId}/start-project`, { method: 'POST', token })
+      return
+    }
+    case 'advance_deal_stage': {
+      const [dealId, stage] = action.params
+      await apiClient(`/api/deals/${dealId}`, { method: 'PATCH', token, body: JSON.stringify({ stage }) })
       return
     }
   }

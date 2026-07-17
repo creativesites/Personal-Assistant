@@ -42,6 +42,8 @@ function bundleTitle(actions: BundleAction[]): string {
   if (types.has('create_product')) return 'New product detected'
   if (types.has('create_supplier')) return 'New supplier detected'
   if (types.has('create_career_opportunity')) return 'Career opportunity detected'
+  if (types.has('start_project')) return 'Deal closed — project suggested'
+  if (types.has('advance_deal_stage')) return 'Invoice paid — deal may be closeable'
   return 'Business update detected'
 }
 
