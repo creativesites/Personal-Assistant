@@ -37,11 +37,20 @@ export function startSubscriptionLifecycleWorker(log: FastifyBaseLogger): { stop
 }
 
 async function resetDueCredits(log: FastifyBaseLogger): Promise<void> {
+  // Membership Platform Phase 1 — while status='trialing', regrant 999999
+  // on every counter regardless of the underlying plan's own per-day caps
+  // ("all Premium features for 7 days"); auth.ts's signup insert grants
+  // this once immediately, this keeps regranting it every 24h until the
+  // trial itself ends (expireEndedSubscriptions below), at which point the
+  // row naturally falls back to whatever plan_id it's on (free, if never
+  // upgraded). Also resets documents_remaining_today, the 4th counter
+  // added this phase alongside messages/ai_replies/nudges.
   const { rowCount } = await db.query(
     `UPDATE subscriptions s SET
-       messages_remaining_today = p.messages_per_day,
-       ai_replies_remaining_today = p.ai_replies_per_day,
-       nudges_remaining_today = p.proactive_nudges_per_day,
+       messages_remaining_today = CASE WHEN s.status = 'trialing' THEN 999999 ELSE p.messages_per_day END,
+       ai_replies_remaining_today = CASE WHEN s.status = 'trialing' THEN 999999 ELSE p.ai_replies_per_day END,
+       nudges_remaining_today = CASE WHEN s.status = 'trialing' THEN 999999 ELSE p.proactive_nudges_per_day END,
+       documents_remaining_today = CASE WHEN s.status = 'trialing' THEN 999999 ELSE p.documents_per_day END,
        credits_reset_at = NOW() + INTERVAL '24 hours'
      FROM subscription_plans p
      WHERE s.plan_id = p.id AND s.credits_reset_at <= NOW() AND s.status IN ('active', 'trialing')`,

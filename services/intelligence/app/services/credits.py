@@ -13,12 +13,13 @@ from ..database import get_pool
 
 log = structlog.get_logger()
 
-CreditType = Literal['message', 'ai_reply', 'nudge']
+CreditType = Literal['message', 'ai_reply', 'nudge', 'document']
 
 _COLUMN_BY_TYPE: dict[str, str] = {
     'message': 'messages_remaining_today',
     'ai_reply': 'ai_replies_remaining_today',
     'nudge': 'nudges_remaining_today',
+    'document': 'documents_remaining_today',
 }
 
 

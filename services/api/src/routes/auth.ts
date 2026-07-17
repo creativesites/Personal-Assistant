@@ -89,21 +89,32 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
-            // plan_id/credit columns join to subscription_plans (migration
-            // 0073) so the 30-day trial actually has quota from day one —
-            // matching the retargeted monthly_personal limits per
-            // docs/PRICING_PAYMENTS_PLAN.md §10 item 7.
+            // Membership Platform Phase 1 (docs/MEMBERSHIP_PLATFORM_PLAN.md
+            // §3) — a 7-day trial on the 'free' plan row, with
+            // current_period_end actually set (previously only
+            // trial_ends_at was written, so the lifecycle worker's
+            // `current_period_end < NOW()` check never fired and trials
+            // never expired). The four daily counters are granted at
+            // 999999 directly here rather than from the free plan's real
+            // small caps — "all Premium features for 7 days" — the
+            // lifecycle worker's daily reset (Phase 4) knows to keep
+            // regranting 999999 while status='trialing' and only falls
+            // back to the free plan's real caps once the trial ends.
             db.query(
               `INSERT INTO subscriptions (
-                 user_id, plan, status, trial_ends_at,
-                 plan_id, messages_remaining_today, ai_replies_remaining_today,
-                 nudges_remaining_today, credits_reset_at
+                 user_id, plan, status, trial_ends_at, current_period_start, current_period_end,
+                 plan_id, billing_period, messages_remaining_today, ai_replies_remaining_today,
+                 nudges_remaining_today, documents_remaining_today, credits_reset_at
                )
-               SELECT $1, 'pro', 'trialing', NOW() + INTERVAL '30 days',
-                 p.id, p.messages_per_day, p.ai_replies_per_day, p.proactive_nudges_per_day,
+               SELECT $1, 'pro', 'trialing', NOW() + INTERVAL '7 days', NOW(), NOW() + INTERVAL '7 days',
+                 p.id, p.billing_period, 999999, 999999, 999999, 999999,
                  NOW() + INTERVAL '24 hours'
-               FROM subscription_plans p WHERE p.key = 'monthly_personal'
+               FROM subscription_plans p WHERE p.key = 'free'
                ON CONFLICT (user_id) DO NOTHING`,
+              [created.id],
+            ),
+            db.query(
+              `INSERT INTO subscription_events (user_id, event_type, metadata) VALUES ($1, 'trial_started', '{}'::jsonb)`,
               [created.id],
             ),
             db.query('INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [created.id]),
@@ -179,14 +190,18 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     await Promise.all([
       db.query(
         `INSERT INTO subscriptions (
-           user_id, plan, status, trial_ends_at,
-           plan_id, messages_remaining_today, ai_replies_remaining_today,
-           nudges_remaining_today, credits_reset_at
+           user_id, plan, status, trial_ends_at, current_period_start, current_period_end,
+           plan_id, billing_period, messages_remaining_today, ai_replies_remaining_today,
+           nudges_remaining_today, documents_remaining_today, credits_reset_at
          )
-         SELECT $1, 'pro', 'trialing', NOW() + INTERVAL '30 days',
-           p.id, p.messages_per_day, p.ai_replies_per_day, p.proactive_nudges_per_day,
+         SELECT $1, 'pro', 'trialing', NOW() + INTERVAL '7 days', NOW(), NOW() + INTERVAL '7 days',
+           p.id, p.billing_period, 999999, 999999, 999999, 999999,
            NOW() + INTERVAL '24 hours'
-         FROM subscription_plans p WHERE p.key = 'monthly_personal'`,
+         FROM subscription_plans p WHERE p.key = 'free'`,
+        [user.id],
+      ),
+      db.query(
+        `INSERT INTO subscription_events (user_id, event_type, metadata) VALUES ($1, 'trial_started', '{}'::jsonb)`,
         [user.id],
       ),
       db.query('INSERT INTO notification_preferences (user_id) VALUES ($1)', [user.id]),

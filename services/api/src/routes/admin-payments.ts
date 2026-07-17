@@ -71,42 +71,62 @@ export async function adminPaymentsRoutes(fastify: FastifyInstance): Promise<voi
       const { id } = request.params as { id: string }
 
       const { rows: [pr] } = await db.query<{
-        id: string; subscription_id: string; plan_id: string; status: string
+        id: string; user_id: string; subscription_id: string; plan_id: string; status: string
       }>(
-        `SELECT id, subscription_id, plan_id, status FROM payment_requests WHERE id = $1`,
+        `SELECT id, user_id, subscription_id, plan_id, status FROM payment_requests WHERE id = $1`,
         [id],
       )
       if (!pr) return reply.code(404).send({ error: 'Payment request not found' })
       if (pr.status !== 'pending') return reply.code(409).send({ error: 'Payment request already reviewed' })
 
       const { rows: [plan] } = await db.query<{
-        duration_days: number; messages_per_day: number; ai_replies_per_day: number; proactive_nudges_per_day: number
+        duration_days: number; billing_period: string | null
+        messages_per_day: number; ai_replies_per_day: number; proactive_nudges_per_day: number; documents_per_day: number
       }>(
-        `SELECT duration_days, messages_per_day, ai_replies_per_day, proactive_nudges_per_day
+        `SELECT duration_days, billing_period, messages_per_day, ai_replies_per_day, proactive_nudges_per_day, documents_per_day
          FROM subscription_plans WHERE id = $1`,
         [pr.plan_id],
       )
       if (!plan) return reply.code(404).send({ error: 'Plan not found' })
 
-      await db.query(
-        `UPDATE payment_requests SET status = 'approved', reviewed_by = $1, reviewed_at = NOW() WHERE id = $2`,
-        [adminUser.userId, pr.id],
-      )
-      await db.query(
-        `UPDATE subscriptions SET
-           plan_id = $1, status = 'active',
-           current_period_start = NOW(), current_period_end = NOW() + ($2 || ' days')::interval,
-           messages_remaining_today = $3, ai_replies_remaining_today = $4, nudges_remaining_today = $5,
-           credits_reset_at = NOW() + INTERVAL '24 hours', updated_at = NOW()
-         WHERE id = $6`,
-        [pr.plan_id, plan.duration_days, plan.messages_per_day, plan.ai_replies_per_day,
-          plan.proactive_nudges_per_day, pr.subscription_id],
-      )
-      await db.query(
-        `INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-         VALUES ($1, 'payment.approve', 'payment_request', $2, '{}')`,
-        [adminUser.userId, pr.id],
-      )
+      // Membership Platform Phase 1 — approve + activate must be atomic: a
+      // crash between the two previously-separate UPDATE calls could leave
+      // a payment marked approved with the subscription never activated.
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(
+          `UPDATE payment_requests SET status = 'approved', reviewed_by = $1, reviewed_at = NOW() WHERE id = $2`,
+          [adminUser.userId, pr.id],
+        )
+        await client.query(
+          `UPDATE subscriptions SET
+             plan_id = $1, billing_period = $2, status = 'active',
+             current_period_start = NOW(), current_period_end = NOW() + ($3 || ' days')::interval,
+             grace_period_ends_at = NULL, read_only_at = NULL,
+             messages_remaining_today = $4, ai_replies_remaining_today = $5, nudges_remaining_today = $6,
+             documents_remaining_today = $7,
+             credits_reset_at = NOW() + INTERVAL '24 hours', updated_at = NOW()
+           WHERE id = $8`,
+          [pr.plan_id, plan.billing_period, plan.duration_days, plan.messages_per_day, plan.ai_replies_per_day,
+            plan.proactive_nudges_per_day, plan.documents_per_day, pr.subscription_id],
+        )
+        await client.query(
+          `INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+           VALUES ($1, 'payment.approve', 'payment_request', $2, '{}')`,
+          [adminUser.userId, pr.id],
+        )
+        await client.query(
+          `INSERT INTO subscription_events (user_id, event_type, metadata) VALUES ($1, 'payment_approved', $2::jsonb)`,
+          [pr.user_id, JSON.stringify({ paymentRequestId: pr.id, planId: pr.plan_id })],
+        )
+        await client.query('COMMIT')
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
+      }
 
       return reply.send({ ok: true })
     },
@@ -120,29 +140,44 @@ export async function adminPaymentsRoutes(fastify: FastifyInstance): Promise<voi
       const { id } = request.params as { id: string }
       const body = rejectBody.parse(request.body)
 
-      const { rows: [pr] } = await db.query<{ id: string; subscription_id: string; status: string }>(
-        `SELECT id, subscription_id, status FROM payment_requests WHERE id = $1`,
+      const { rows: [pr] } = await db.query<{ id: string; user_id: string; subscription_id: string; status: string }>(
+        `SELECT id, user_id, subscription_id, status FROM payment_requests WHERE id = $1`,
         [id],
       )
       if (!pr) return reply.code(404).send({ error: 'Payment request not found' })
       if (pr.status !== 'pending') return reply.code(409).send({ error: 'Payment request already reviewed' })
 
-      await db.query(
-        `UPDATE payment_requests SET status = 'rejected', rejected_reason = $1, reviewed_by = $2, reviewed_at = NOW()
-         WHERE id = $3`,
-        [body.reason, adminUser.userId, pr.id],
-      )
-      // Never touches plan_id/credits — a rejected upgrade attempt doesn't
-      // downgrade whatever plan the subscription already had, if any.
-      await db.query(
-        `UPDATE subscriptions SET status = 'payment_rejected', updated_at = NOW() WHERE id = $1`,
-        [pr.subscription_id],
-      )
-      await db.query(
-        `INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-         VALUES ($1, 'payment.reject', 'payment_request', $2, $3)`,
-        [adminUser.userId, pr.id, JSON.stringify({ reason: body.reason })],
-      )
+      // Membership Platform Phase 1 — same atomicity fix as approve above.
+      const client = await db.connect()
+      try {
+        await client.query('BEGIN')
+        await client.query(
+          `UPDATE payment_requests SET status = 'rejected', rejected_reason = $1, reviewed_by = $2, reviewed_at = NOW()
+           WHERE id = $3`,
+          [body.reason, adminUser.userId, pr.id],
+        )
+        // Never touches plan_id/credits — a rejected upgrade attempt doesn't
+        // downgrade whatever plan the subscription already had, if any.
+        await client.query(
+          `UPDATE subscriptions SET status = 'payment_rejected', updated_at = NOW() WHERE id = $1`,
+          [pr.subscription_id],
+        )
+        await client.query(
+          `INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+           VALUES ($1, 'payment.reject', 'payment_request', $2, $3)`,
+          [adminUser.userId, pr.id, JSON.stringify({ reason: body.reason })],
+        )
+        await client.query(
+          `INSERT INTO subscription_events (user_id, event_type, metadata) VALUES ($1, 'payment_rejected', $2::jsonb)`,
+          [pr.user_id, JSON.stringify({ paymentRequestId: pr.id, reason: body.reason })],
+        )
+        await client.query('COMMIT')
+      } catch (err) {
+        await client.query('ROLLBACK')
+        throw err
+      } finally {
+        client.release()
+      }
 
       return reply.send({ ok: true })
     },

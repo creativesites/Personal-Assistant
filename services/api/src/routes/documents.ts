@@ -458,6 +458,21 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       projectId: z.string().uuid().optional(),
     }).parse(request.body);
 
+    // Membership Platform Phase 1 — same atomic try_consume_credit primitive
+    // credits.py uses for message analysis/reply generation, mirrored here in
+    // Node since this route already owns the Postgres connection and the
+    // synchronous HTTP call to intelligence happens right below (no need for
+    // a new Python round-trip just to check a counter).
+    const { rows: [creditRow] } = await db.query(
+      `UPDATE subscriptions SET documents_remaining_today = documents_remaining_today - 1
+       WHERE user_id = $1 AND status IN ('active', 'trialing') AND documents_remaining_today > 0
+       RETURNING id`,
+      [userId],
+    );
+    if (!creditRow) {
+      return reply.code(402).send({ error: 'Daily document generation limit reached. Upgrade for unlimited documents.' });
+    }
+
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
     let generated: {
       items: z.infer<typeof lineItemSchema>[]; sections: { heading: string; body: string }[];
