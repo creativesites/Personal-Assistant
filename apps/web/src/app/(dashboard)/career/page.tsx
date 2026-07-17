@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Briefcase, Plus, Loader2, Target, Radar } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -207,12 +208,20 @@ export default function CareerPage() {
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setShowProfileEdit(true)}
-            className="relative mt-4 inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-4 py-2.5 text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 active:bg-indigo-700 min-h-[44px]"
-          >
-            {profile?.headline ? 'Edit Profile' : 'Set Up Profile'}
-          </button>
+          <div className="relative mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowProfileEdit(true)}
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-4 py-2.5 text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 active:bg-indigo-700 min-h-[44px]"
+            >
+              {profile?.headline ? 'Edit Profile' : 'Set Up Profile'}
+            </button>
+            <Link
+              href="/career/cv-studio"
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 text-white px-4 py-2.5 text-sm font-bold shadow-lg shadow-slate-900/15 hover:bg-slate-800 min-h-[44px]"
+            >
+              CV Studio
+            </Link>
+          </div>
         </div>
 
         {profile && (profile.targetRoles?.length > 0 || profile.remotePreference) && (

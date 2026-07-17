@@ -998,3 +998,84 @@ Rules:
 - Any field is null if the search results genuinely don't support a claim — never invent a culture/process/news claim with no evidence behind it, even a vague-sounding plausible one.
 - Keep each populated field short and factual, not marketing copy.
 """
+
+# CV Studio (docs/CV_STUDIO_PLAN.md §6) — the never-invent contract every AI
+# button in the wizard/editor must honor. Prepended to every rewrite call
+# below; this is the one policy block that makes "AI writes your CV" become
+# "Zuri helps you build the best version of your real professional history."
+CV_STUDIO_NEVER_INVENT_POLICY = """
+You are editing text the user already wrote about their own real experience. Rewrite, reorganise, or
+tighten language — never add a company, title, date, employer, number, metric, or achievement that
+was not already present in the input. If a rewrite would be stronger with a specific number the user
+hasn't provided, say so rather than inventing one.
+"""
+
+REWRITE_OPERATION_INSTRUCTIONS = {
+    'improve_wording': 'Improve clarity and word choice without changing the meaning.',
+    'shorten': 'Make this noticeably more concise while keeping every real fact.',
+    'tone_professional': 'Rewrite in a professional, neutral tone suited to banks/government/NGOs/corporate roles.',
+    'tone_executive': 'Rewrite in a confident, leadership-forward tone suited to senior/management roles.',
+    'tone_graduate': 'Rewrite in an enthusiastic, growth-oriented tone suited to a graduate/early-career applicant.',
+    'ats_optimise': 'Rewrite to be more ATS-parseable: plain language, standard terms, no unusual formatting cues in the text itself.',
+    'fix_grammar': 'Fix grammar, spelling, and punctuation only — do not change wording choices beyond what correctness requires.',
+    'remove_repetition': 'Remove repeated words/phrases and redundant sentences while keeping every distinct fact.',
+    'responsibilities_to_achievements': (
+        'Reframe responsibility-style phrasing ("Developed websites") into achievement-style phrasing '
+        '("Developed and maintained multiple client websites using React and Node.js") using only facts '
+        'already stated in the text — add no new numbers, scope, or outcomes not already present.'
+    ),
+}
+
+# Rewrite-only CV Assistant (§6) — one generic prompt parameterized by
+# operation rather than ten near-identical prompts, the same "one shared
+# template, many small instruction variants" judgment CLASSIFY_ADVISOR_TURN's
+# sibling prompts already use elsewhere in this file. rewrite_for_industry
+# fills {operation_instruction} with an industry-specific instruction built
+# by the caller instead of one of the fixed operations above.
+REWRITE_CV_TEXT = """\
+{policy}
+
+{operation_instruction}
+
+Text to rewrite:
+---
+{text}
+---
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "rewritten": "the rewritten text"
+}}
+"""
+
+# §4 Step 4's "Add Metrics" action — deliberately asks a question back
+# instead of inventing a number, per the plan's own explicit example.
+SUGGEST_METRIC_PROMPT = """\
+{policy}
+
+This achievement/responsibility could be stronger with a specific number, but none is given:
+---
+{text}
+---
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "question": "one short, specific question asking the user for the real number/scope needed (e.g. 'How many client sites did you maintain, and over what time period?')"
+}}
+"""
+
+# §4 Step 7 — "AI can suggest grouping": only re-buckets skills the user
+# already listed, never adds a skill they didn't provide.
+SUGGEST_SKILL_GROUPING = """\
+{policy}
+
+Group these skills into sensible categories (e.g. Programming, Soft Skills, Management, Languages, Business, Engineering, Design) — use only the skills listed, invent no new ones, and don't drop any:
+{skills}
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "groups": [
+    {{"groupName": "Programming", "skills": ["skill from the input list"]}}
+  ]
+}}
+"""

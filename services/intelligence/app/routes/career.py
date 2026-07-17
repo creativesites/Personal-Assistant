@@ -14,6 +14,7 @@ from ..services.resume_studio import (
 )
 from ..services.career_networking import generate_introduction_draft
 from ..services.company_intelligence import generate_company_intelligence
+from ..services.cv_assistant import rewrite_text, suggest_metric_prompt, suggest_skill_grouping
 
 # Career & Growth Engine Phase 3 — AI Resume Studio (docs/CAREER_GROWTH_ENGINE_PLAN.md
 # §8). Mirrors routes/documents.py's internal-route shape exactly — Node
@@ -138,3 +139,40 @@ class CompanyIntelligenceRequest(BaseModel):
 async def company_intelligence(body: CompanyIntelligenceRequest):
     """Job Search OS §15.14 — Company Intelligence."""
     return await generate_company_intelligence(body.user_id, body.company_name)
+
+
+class CvRewriteRequest(BaseModel):
+    user_id: str
+    text: str
+    operation: str
+    industry: str | None = None
+
+
+@router.post('/cv-assistant/rewrite')
+async def cv_rewrite(body: CvRewriteRequest):
+    """CV Studio §6 — rewrite-only AI Assistant."""
+    try:
+        rewritten = await rewrite_text(body.user_id, body.text, body.operation, body.industry)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {'rewritten': rewritten}
+
+
+class CvSuggestMetricRequest(BaseModel):
+    user_id: str
+    text: str
+
+
+@router.post('/cv-assistant/suggest-metric')
+async def cv_suggest_metric(body: CvSuggestMetricRequest):
+    return {'question': await suggest_metric_prompt(body.user_id, body.text)}
+
+
+class CvSuggestSkillGroupingRequest(BaseModel):
+    user_id: str
+    skills: list[str]
+
+
+@router.post('/cv-assistant/suggest-skill-grouping')
+async def cv_suggest_skill_grouping(body: CvSuggestSkillGroupingRequest):
+    return {'groups': await suggest_skill_grouping(body.user_id, body.skills)}
