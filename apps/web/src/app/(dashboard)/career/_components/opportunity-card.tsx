@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, Building2, MapPin, Briefcase, ChevronDown, ChevronUp, Loader2, Plus, ExternalLink, Users } from 'lucide-react'
+import { Sparkles, Building2, MapPin, Briefcase, ChevronDown, ChevronUp, Loader2, Plus, ExternalLink, Users, Check, X } from 'lucide-react'
 import Link from 'next/link'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, BadgeVariant, useToast } from '@/components/ui'
@@ -23,8 +23,31 @@ export interface CareerOpportunity {
   status: string
   contactName?: string
   matchScore: number | null
+  matchBreakdown?: {
+    skills?: number
+    location?: number
+    salary?: number
+    category?: number
+    freshness?: number
+    matchedSkills?: string[]
+    missingSkills?: string[]
+  } | null
+  applicationUrl?: string | null
   projectId: string | null
   createdAt: string
+}
+
+// Job Search OS §15.10 — "Why this job?" renders directly from
+// match_breakdown, never a separately-generated narrative that could drift
+// from the actual score. Only web_search-sourced opportunities carry a
+// breakdown today (job_discovery.py is its only writer).
+const BREAKDOWN_LABELS: Record<string, string> = {
+  skills: 'Skills match', location: 'Location fit', salary: 'Salary fit',
+  category: 'Role/industry fit', freshness: 'Freshness',
+}
+
+function hasBreakdown(b: CareerOpportunity['matchBreakdown']): b is NonNullable<CareerOpportunity['matchBreakdown']> {
+  return !!b && b.skills != null
 }
 
 interface CareerInterview {
@@ -85,6 +108,7 @@ export function OpportunityCard({
 
   const [introPath, setIntroPath] = useState<IntroductionPathResponse | null>(null)
   const [loadingIntroPath, setLoadingIntroPath] = useState(false)
+  const [showBreakdown, setShowBreakdown] = useState(false)
 
   const apply = async () => {
     setApplying(true)
@@ -173,12 +197,45 @@ export function OpportunityCard({
           {opp.contactName && <p className="text-xs text-gray-400 mt-0.5">via {opp.contactName}</p>}
         </div>
         {opp.matchScore != null && (
-          <div className="shrink-0 text-right">
+          <button
+            onClick={() => setShowBreakdown(v => !v)}
+            className="shrink-0 text-right"
+            disabled={!hasBreakdown(opp.matchBreakdown)}
+          >
             <p className="text-lg font-black text-gray-950 tabular-nums">{opp.matchScore}%</p>
-            <p className="text-[10px] text-gray-400">match</p>
-          </div>
+            <p className="text-[10px] text-gray-400 inline-flex items-center gap-0.5">
+              match{hasBreakdown(opp.matchBreakdown) && (showBreakdown ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />)}
+            </p>
+          </button>
         )}
       </div>
+
+      {showBreakdown && hasBreakdown(opp.matchBreakdown) && (
+        <div className="mt-2 rounded-xl bg-indigo-50/70 px-3 py-2 space-y-1">
+          {(['skills', 'location', 'salary', 'category', 'freshness'] as const)
+            .filter(k => opp.matchBreakdown?.[k] != null)
+            .map(k => (
+              <div key={k} className="flex items-center justify-between text-[11px]">
+                <span className="inline-flex items-center gap-1 text-indigo-800">
+                  {(opp.matchBreakdown![k] as number) >= 60
+                    ? <Check className="w-3 h-3 text-emerald-600" />
+                    : <X className="w-3 h-3 text-rose-500" />}
+                  {BREAKDOWN_LABELS[k]}
+                </span>
+                <span className="font-semibold text-indigo-700 tabular-nums">{opp.matchBreakdown![k]}%</span>
+              </div>
+            ))}
+          {!!opp.matchBreakdown.missingSkills?.length && (
+            <p className="text-[11px] text-rose-600 pt-1">Missing: {opp.matchBreakdown.missingSkills.join(', ')}</p>
+          )}
+          {opp.applicationUrl && (
+            <a href={opp.applicationUrl} target="_blank" rel="noopener noreferrer"
+               className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 pt-1">
+              View listing<ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between mt-3 gap-2">
         <Badge variant={STATUS_VARIANTS[opp.status] ?? 'default'}>{opp.status}</Badge>

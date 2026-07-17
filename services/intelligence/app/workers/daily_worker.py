@@ -20,6 +20,7 @@ from ..services.project_progress import ProjectProgressService
 from ..services.business_manager import BusinessManagerService
 from ..services.reality_engine import RealityEngineService
 from ..services.career_coach import get_career_coach
+from ..services.job_discovery import get_job_discovery
 
 log = structlog.get_logger()
 
@@ -53,6 +54,7 @@ _business_manager_queue = Queue('business.check_manager_nudges', {'connection': 
 _reality_engine_hourly_queue = Queue('reality.hourly_sweep', {'connection': redis_conn_opts()})
 _reality_engine_daily_queue = Queue('reality.daily_sweep', {'connection': redis_conn_opts()})
 _career_coach_queue = Queue('career.check_coach_nudges', {'connection': redis_conn_opts()})
+_job_discovery_queue = Queue('career.run_job_discovery', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -529,6 +531,36 @@ async def run_career_coach_scheduler() -> None:
             await _career_coach_queue.add('check_coach_nudges', {})
         except Exception as exc:
             log.error('career_coach_enqueue_failed', error=str(exc))
+
+
+async def _process_job_discovery(job, token: str):
+    count = await get_job_discovery().run_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_job_discovery_worker() -> Worker:
+    return Worker('career.run_job_discovery', _process_job_discovery, {'connection': redis_conn_opts()})
+
+
+async def run_job_discovery_scheduler() -> None:
+    """Job Search OS Core Discovery Loop (docs/CV_STUDIO_PLAN.md §15.9):
+    daily at 05:00 UTC (07:00 Zambia time — a genuine morning slot) so the
+    discovery run and the Daily Opportunity Brief that reports on it happen
+    together. The next free hour on an otherwise fully-booked 03:00-20:00
+    UTC daily schedule."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=5, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('job_discovery_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('job_discovery_enqueue')
+            await _job_discovery_queue.add('run_job_discovery', {})
+        except Exception as exc:
+            log.error('job_discovery_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

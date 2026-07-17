@@ -37,6 +37,7 @@ from .workers.daily_worker import (
     create_reality_engine_hourly_worker, run_reality_engine_hourly_scheduler,
     create_reality_engine_daily_worker, run_reality_engine_daily_scheduler,
     create_career_coach_worker, run_career_coach_scheduler,
+    create_job_discovery_worker, run_job_discovery_scheduler,
 )
 from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
@@ -77,6 +78,7 @@ async def lifespan(app: FastAPI):
     reality_engine_hourly_worker = create_reality_engine_hourly_worker()
     reality_engine_daily_worker = create_reality_engine_daily_worker()
     career_coach_worker = create_career_coach_worker()
+    job_discovery_worker = create_job_discovery_worker()
     logger.info('workers_started')
 
     scheduler_task = asyncio.create_task(run_daily_scheduler())
@@ -99,6 +101,7 @@ async def lifespan(app: FastAPI):
     reality_engine_hourly_task = asyncio.create_task(run_reality_engine_hourly_scheduler())
     reality_engine_daily_task = asyncio.create_task(run_reality_engine_daily_scheduler())
     career_coach_task = asyncio.create_task(run_career_coach_scheduler())
+    job_discovery_task = asyncio.create_task(run_job_discovery_scheduler())
 
     yield
 
@@ -109,6 +112,7 @@ async def lifespan(app: FastAPI):
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
         advisor_memory_learning_task, curiosity_proactive_task, project_progress_task,
         business_manager_task, reality_engine_hourly_task, reality_engine_daily_task, career_coach_task,
+        job_discovery_task,
     ):
         task.cancel()
         try:
@@ -141,6 +145,7 @@ async def lifespan(app: FastAPI):
     await reality_engine_hourly_worker.close()
     await reality_engine_daily_worker.close()
     await career_coach_worker.close()
+    await job_discovery_worker.close()
     logger.info('workers_stopped')
 
     await close_redis_publisher()

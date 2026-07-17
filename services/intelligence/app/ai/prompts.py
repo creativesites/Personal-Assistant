@@ -873,3 +873,99 @@ Scoring guide (each 0-100):
 - overallScore: your own weighted read of the above, not a mechanical average.
 - suggestions: 3-6 concrete, specific items — "responsibilities → achievements" is the most valuable category; flag every bullet that reads as a responsibility rather than an outcome.
 """
+
+# Job Search OS — Core Discovery Loop (docs/CV_STUDIO_PLAN.md §15.2). One
+# structured call per user per day generates a categorized, profile-specific
+# search plan rather than one generic "software developer jobs" query — two
+# users with the same job title get completely different plans once salary
+# target, remote preference, and openness to contract/freelance work factor
+# in. Query count is scaled by the AI Usage Tiers principle (CLAUDE.md) —
+# the caller passes query_budget already sized to the user's Light/Normal/
+# Heavy tier, this prompt just distributes that budget across passes rather
+# than being told a fixed number itself. Regional/remote passes are also
+# gated in code (job_discovery.py's _flatten_plan) as a safety net beyond
+# this prompt's own instruction, since relocation/remote preference are
+# real boolean-ish profile fields, not something worth trusting an LLM
+# judgment call alone to respect.
+PLAN_JOB_SEARCHES = """\
+Generate a job/opportunity search plan for this user. You are planning search-engine queries (via a web search API), not searching yourself.
+
+User profile:
+- Skills: {skills}
+- Target roles: {target_roles}
+- Target industries: {target_industries}
+- Country: {country}
+- Remote preference: {remote_preference}
+- Relocation preference: {relocation_preference}
+- Salary expectation: {salary_expectation}
+- Known local employers matching their target industries (use these for specific per-employer queries in the "local" pass, e.g. "{{role}} jobs {{employer}}"): {known_local_employers}
+- Recently seen opportunities (don't re-search for these exact roles/companies): {seen_titles}
+- Recently rejected (avoid this exact profile/level again unless a materially different angle): {rejected_titles}
+
+Total query budget across all passes: {query_budget}
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "local": ["query 1", "query 2"],
+  "regional": ["query 1"],
+  "remote": ["query 1"],
+  "freelance": ["query 1"],
+  "hidden": ["query 1"]
+}}
+
+Rules:
+- "local": biased to the user's country/city — include government, NGO, bank, mining, telecom, university, and startup/recruitment-agency queries where relevant to their target roles/industries. Use the known local employers list for specific queries when it's non-empty.
+- "regional": neighboring-region queries (for Zambia: Zimbabwe, Botswana, Namibia, South Africa, Kenya) — leave empty if relocation_preference is "not_open".
+- "remote": remote-first/global queries — leave empty if remote_preference is "onsite".
+- "freelance": Upwork/Toptal/PeoplePerHour/direct-contract phrasing — only include if the user's skills/target roles suggest contract/freelance/consulting openness, otherwise leave empty.
+- "hidden": search-engine-indexed social/community phrasing like "we're looking for a developer", "hiring soon", site-scoped queries against twitter.com/reddit.com/github.com/linkedin.com — a proxy for informally-posted openings, not a live social API.
+- Every query must be a real, usable search-engine query string (not a description of one) and must reflect the user's actual skills/roles — never a single generic "software developer jobs" query repeated with minor variation.
+- Distribute the total query_budget across the arrays you actually populate; leave an array empty (not padded with filler) if that pass doesn't apply.
+"""
+
+# Job Search OS — extraction + fit summary in one call (docs/CV_STUDIO_PLAN.md
+# §15.4/§15.8). Combined deliberately: both operate on the same source text,
+# and this halves the AI-call count per candidate versus a separate
+# extraction pass and summary pass, the same "one structured call covering
+# two adjacent concerns" judgment CLASSIFY_ADVISOR_TURN already made for
+# intent+memory-suggestion. This is extraction from real search-result text,
+# not content generation — null for anything not literally present, and
+# whyThisMightSuit/potentialConcerns are grounded only in the extracted
+# fields compared against the user's own stated preferences, never invented.
+# No "estimated competition" field — there is no real signal behind one.
+EXTRACT_JOB_LISTING = """\
+A web search returned this result:
+Title: {title}
+URL: {url}
+Snippet: {snippet}
+
+The user searching has these skills: {user_skills}. Target roles: {target_roles}. Remote preference: {remote_preference}. Relocation preference: {relocation_preference}.
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "isJobRelated": true,
+  "title": "the role/opportunity title as stated",
+  "companyOrOrg": "employer/organisation name, or null if not stated",
+  "location": "location as stated, or null",
+  "isRemote": true,
+  "salaryMin": null,
+  "salaryMax": null,
+  "salaryCurrency": null,
+  "postedAt": null,
+  "applicationUrl": "{url}",
+  "category": "job",
+  "requiredSkills": ["skill mentioned in the text"],
+  "topResponsibilities": ["responsibility mentioned in the text"],
+  "summary": "2-3 sentence plain-language summary of what this opportunity actually is",
+  "whyThisMightSuit": "a short reason grounded only in the extracted fields vs. the user's stated skills/preferences above, or null if nothing stands out",
+  "potentialConcerns": "a short concern grounded only in the extracted fields vs. the user's stated preferences (e.g. requires relocation when they're not open to it), or null if none"
+}}
+
+Rules:
+- "isJobRelated": false if this result is clearly not a job/opportunity listing (a news article, a generic homepage, an unrelated page) — when false, other fields can be minimal/null.
+- "isRemote": true/false only if the text says so or clearly implies it; null if genuinely unstated.
+- "salaryMin"/"salaryMax"/"salaryCurrency"/"postedAt": null unless a number/date is LITERALLY present in the title or snippet — never estimate or infer one.
+- "category": one of job, contract, consulting, investment, speaking, partnership, collaboration, freelance, board_position, research, mentorship, grant, scholarship, tender, supplier_opportunity, acquisition — infer from context, default to "job" if unclear.
+- "requiredSkills"/"topResponsibilities": only what the text actually states, never invented technologies or duties. Empty arrays are fine if the snippet is too short to say.
+- Never add a fact, number, or claim not present in the title/snippet above.
+"""
