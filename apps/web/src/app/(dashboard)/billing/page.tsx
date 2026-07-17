@@ -8,6 +8,8 @@ import { GuidedPaymentModal, type GuidedPaymentPlan } from './_components/guided
 import { MembershipCard } from './_components/membership-card'
 import { UsageCards, type UsageSummary } from './_components/usage-cards'
 import { BillingTimeline, type TimelineEntry } from './_components/billing-timeline'
+import { ReferralGiftCard } from './_components/referral-gift-card'
+import { StudentVerificationCard } from './_components/student-verification-card'
 
 // Membership Platform Phase 5 (docs/MEMBERSHIP_PLATFORM_PLAN.md) — the
 // premium billing dashboard rebuild: Membership Card + Progress Ring,
@@ -208,6 +210,10 @@ export default function BillingPage() {
           )}
 
           <BillingTimeline entries={timelineData?.timeline ?? []} />
+
+          <ReferralGiftCard token={token} plans={upgradeablePlans.filter((p) => !p.isCustomPricing)} />
+
+          <StudentVerificationCard token={token} />
 
           {/* Zambia mobile money notice */}
           <div className="rounded-2xl bg-green-50 border border-green-200 px-4 py-3 flex items-start gap-3">

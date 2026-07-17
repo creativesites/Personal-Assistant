@@ -15,9 +15,6 @@ import { authenticate } from '../plugins/authenticate'
 const checkoutBody = z.object({
   planId: z.string().uuid(),
   useOwnApiKey: z.boolean().optional(),
-  // Accepted now, not yet validated/applied — the promo_codes/
-  // referral_codes tables land in Phase 7. A caller can start sending these
-  // today without a second frontend change once that phase ships.
   promoCode: z.string().max(50).optional(),
   referralCode: z.string().max(20).optional(),
 })
@@ -105,6 +102,20 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
       )
       if (!plan) return reply.code(404).send({ error: 'Plan not found' })
 
+      // Membership Platform Phase 7 — the student-discounted variant is
+      // deliberately is_active=FALSE (hidden from the public catalog), so
+      // "not found" alone would already stop a non-student — this is the
+      // real server-side enforcement, not just obscurity.
+      if (plan.key.endsWith('_student')) {
+        const { rows: [user] } = await db.query<{ is_verified_student: boolean }>(
+          'SELECT is_verified_student FROM users WHERE id = $1',
+          [userId],
+        )
+        if (!user?.is_verified_student) {
+          return reply.code(403).send({ error: 'This plan requires student verification' })
+        }
+      }
+
       const { rows: [subscription] } = await db.query<{ id: string }>(
         'SELECT id FROM subscriptions WHERE user_id = $1',
         [userId],
@@ -117,12 +128,54 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
       // doesn't). Silently falls back to the standard price otherwise
       // rather than erroring on a stale/optimistic client flag.
       let usesOwnApiKey = false
-      let amountNgwee = plan.price_ngwee
+      let amountNgwee = Number(plan.price_ngwee)
       if (body.useOwnApiKey && plan.price_ngwee_byok !== null) {
         const { rows: [byok] } = await db.query('SELECT 1 FROM byok_keys WHERE user_id = $1 LIMIT 1', [userId])
         if (byok) {
           usesOwnApiKey = true
-          amountNgwee = plan.price_ngwee_byok
+          amountNgwee = Number(plan.price_ngwee_byok)
+        }
+      }
+
+      // Promo code — applied on top of whichever base price (standard or
+      // BYOK) was just resolved. Silently ignored if invalid/expired/
+      // exhausted/not-applicable rather than blocking checkout over a typo.
+      let appliedPromo: { id: string; code: string } | null = null
+      if (body.promoCode) {
+        const { rows: [promo] } = await db.query<{
+          id: string; code: string; discount_type: string; discount_value: number
+        }>(
+          `SELECT id, code, discount_type, discount_value FROM promo_codes
+           WHERE code = $1 AND is_active = TRUE
+             AND valid_from <= NOW() AND (valid_until IS NULL OR valid_until > NOW())
+             AND (max_redemptions IS NULL OR times_redeemed < max_redemptions)
+             AND (applicable_plan_family IS NULL OR applicable_plan_family = $2)`,
+          [body.promoCode.toUpperCase(), plan.plan_family],
+        )
+        if (promo) {
+          const discountNgwee = promo.discount_type === 'percent'
+            ? Math.round(amountNgwee * (promo.discount_value / 100))
+            : promo.discount_value
+          amountNgwee = Math.max(0, amountNgwee - discountNgwee)
+          appliedPromo = { id: promo.id, code: promo.code }
+        }
+      }
+
+      // Referral — records who referred this user (once, on their first
+      // checkout attempt); the actual +14-day reward for both parties is
+      // applied only once this same payment is later approved (see
+      // admin-payments.ts), never here, to prevent abuse.
+      if (body.referralCode) {
+        const { rows: [referralCodeRow] } = await db.query<{ id: string; user_id: string }>(
+          'SELECT id, user_id FROM referral_codes WHERE code = $1',
+          [body.referralCode.toUpperCase()],
+        )
+        if (referralCodeRow && referralCodeRow.user_id !== userId) {
+          await db.query(
+            `INSERT INTO referral_redemptions (referral_code_id, referred_user_id)
+             VALUES ($1, $2) ON CONFLICT (referred_user_id) DO NOTHING`,
+            [referralCodeRow.id, userId],
+          )
         }
       }
 
@@ -151,12 +204,22 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
       }
       if (!paymentRequest) return reply.code(500).send({ error: 'Could not generate a unique reference code' })
 
+      if (appliedPromo) {
+        await db.query(
+          `INSERT INTO promo_code_redemptions (promo_code_id, user_id, payment_request_id, discount_ngwee_applied)
+           VALUES ($1, $2, $3, $4)`,
+          [appliedPromo.id, userId, paymentRequest.id, Number(plan.price_ngwee) - amountNgwee],
+        )
+        await db.query(`UPDATE promo_codes SET times_redeemed = times_redeemed + 1 WHERE id = $1`, [appliedPromo.id])
+      }
+
       return reply.send({
         paymentRequestId: paymentRequest.id,
         referenceCode: paymentRequest.reference_code,
         amountNgwee: Number(amountNgwee),
         amountFormatted: formatNgwee(amountNgwee),
         usesOwnApiKey,
+        promoCodeApplied: appliedPromo?.code ?? null,
         planName: plan.name,
         billingPeriod: plan.billing_period,
         mobileMoneyNumbers: {
