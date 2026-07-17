@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, Building2, MapPin, Briefcase, ChevronDown, ChevronUp, Loader2, Plus, ExternalLink } from 'lucide-react'
+import { Sparkles, Building2, MapPin, Briefcase, ChevronDown, ChevronUp, Loader2, Plus, ExternalLink, Users } from 'lucide-react'
 import Link from 'next/link'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, BadgeVariant, useToast } from '@/components/ui'
@@ -37,6 +37,20 @@ interface CareerInterview {
   outcome: string
 }
 
+interface IntroductionPathHop {
+  contactId: string
+  contactName: string
+  connectionType: string | null
+}
+
+interface IntroductionPathResponse {
+  hasTarget: boolean
+  isDirect: boolean
+  targetContactName?: string
+  path: IntroductionPathHop[]
+  draft: string | null
+}
+
 const STATUS_VARIANTS: Record<string, BadgeVariant> = {
   detected: 'default', shortlisted: 'info', applied: 'info', interviewing: 'warning',
   offered: 'success', accepted: 'success', rejected: 'error', withdrawn: 'default', archived: 'default',
@@ -68,6 +82,9 @@ export function OpportunityCard({
   const [newType, setNewType] = useState('phone_screen')
   const [newScheduledAt, setNewScheduledAt] = useState('')
   const [addingInterview, setAddingInterview] = useState(false)
+
+  const [introPath, setIntroPath] = useState<IntroductionPathResponse | null>(null)
+  const [loadingIntroPath, setLoadingIntroPath] = useState(false)
 
   const apply = async () => {
     setApplying(true)
@@ -119,6 +136,18 @@ export function OpportunityCard({
       await apiClient(`/api/career/interviews/${interview.id}`, { method: 'PATCH', token, body: JSON.stringify({ outcome }) })
     } catch {
       // best-effort — a stale badge here isn't worth a full refetch
+    }
+  }
+
+  const findIntroductionPath = async () => {
+    setLoadingIntroPath(true)
+    try {
+      const data = await apiClient<IntroductionPathResponse>(`/api/career/opportunities/${opp.id}/introduction-path`, { token })
+      setIntroPath(data)
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Could not find an introduction path', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setLoadingIntroPath(false)
     }
   }
 
@@ -182,6 +211,41 @@ export function OpportunityCard({
         <button onClick={toggleExpanded} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-700">
           Interviews {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
+      </div>
+
+      <div className="mt-2">
+        {!introPath ? (
+          <button
+            onClick={findIntroductionPath}
+            disabled={loadingIntroPath}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-violet-600 hover:text-violet-700 disabled:opacity-60"
+          >
+            {loadingIntroPath ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Users className="w-3.5 h-3.5" />}
+            Who can introduce me?
+          </button>
+        ) : (
+          <div className="rounded-xl bg-violet-50 px-3 py-2 text-xs">
+            {!introPath.hasTarget ? (
+              <p className="text-violet-700">No known hiring contact for this opportunity yet — add one on the opportunity to unlock this.</p>
+            ) : introPath.isDirect ? (
+              <p className="text-violet-700">You already know <strong>{introPath.targetContactName}</strong> directly — reach out yourself.</p>
+            ) : introPath.path.length === 0 ? (
+              <p className="text-violet-700"><strong>{introPath.targetContactName}</strong> isn't reachable through your network yet — a cold outreach may be the only option.</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-violet-700">
+                  {introPath.path.map(h => h.contactName).join(' → ')} → <strong>{introPath.targetContactName}</strong>
+                </p>
+                {introPath.draft && (
+                  <div className="rounded-lg bg-white px-2.5 py-2">
+                    <p className="text-[10px] font-semibold text-gray-500 mb-1">Draft ask to {introPath.path[0].contactName}:</p>
+                    <p className="text-gray-700 italic">&ldquo;{introPath.draft}&rdquo;</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {expanded && (

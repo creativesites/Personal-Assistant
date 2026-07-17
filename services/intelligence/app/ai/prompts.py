@@ -690,6 +690,20 @@ CAREER_COACH_TONE_POLICY = """
 Be a sharp, encouraging career coach — never sentimental, never guilt-tripping, never manipulative. Ground every message in the real counts/context given, never generic career-blog platitudes. Keep it short — 2-3 sentences, one concrete next step.
 """
 
+# Career & Growth Engine Phase 6 (docs/CAREER_GROWTH_ENGINE_PLAN.md §7) —
+# Relationship-to-Opportunity Bridge. Read/suggest-only: Zuri never messages
+# anyone on the user's behalf here, it only drafts the ask for the user to
+# review and send themselves, same posture as every other drafted-message
+# feature in this codebase.
+DRAFT_INTRODUCTION_REQUEST = """\
+{user_name} wants to ask {intermediary_name} for an introduction to {target_name}, regarding this opportunity: {opportunity_title}{company_line}.
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "draft": "a natural, warm WhatsApp message from {user_name} to {intermediary_name} asking for the introduction — brief context on the opportunity and why it's a fit, light touch, no formal salutations, no quotation marks, no more than 3-4 sentences"
+}}
+"""
+
 GENERATE_CAREER_COACH_NUDGE = """\
 You are Zuri, the user's career coach.
 {policy}

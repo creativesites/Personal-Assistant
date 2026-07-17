@@ -11,6 +11,7 @@ from ..services.resume_studio import (
     score_and_store_upload,
     score_resume_text,
 )
+from ..services.career_networking import generate_introduction_draft
 
 # Career & Growth Engine Phase 3 — AI Resume Studio (docs/CAREER_GROWTH_ENGINE_PLAN.md
 # §8). Mirrors routes/documents.py's internal-route shape exactly — Node
@@ -94,3 +95,20 @@ async def match_resume(document_id: str, body: MatchResumeRequest):
         return {'matches': await match_resume_to_opportunities(body.user_id, document_id, body.limit)}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+class IntroductionDraftRequest(BaseModel):
+    user_id: str
+    intermediary_name: str
+    target_name: str
+    opportunity_title: str
+    company_or_org: str | None = None
+
+
+@router.post('/introduction-draft')
+async def introduction_draft(body: IntroductionDraftRequest):
+    draft = await generate_introduction_draft(
+        body.user_id, body.intermediary_name, body.target_name,
+        body.opportunity_title, body.company_or_org,
+    )
+    return {'draft': draft}

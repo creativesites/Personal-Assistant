@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
+import { config } from '../config'
+import { shortestIntroductionPath } from '../lib/knowledge-graph'
 
 // Zuri Career & Growth Engine, Phase 1 (see docs/CAREER_GROWTH_ENGINE_PLAN.md
 // §5) — one Opportunity object spanning jobs/contracts/consulting/grants/
@@ -265,6 +267,64 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     )
 
     return reply.code(201).send({ projectId: project.id, title: project.title, taskCount: defaultTasks.length })
+  })
+
+  // ── GET /api/career/opportunities/:id/introduction-path — Relationship-
+  // to-Opportunity Bridge (see docs/CAREER_GROWTH_ENGINE_PLAN.md §7).
+  // Read/suggest-only: finds who the user actually knows who's closest to
+  // this opportunity's hiring contact, and drafts the introduction ask —
+  // Zuri never sends it. The path-finding is a plain SQL BFS
+  // (shortestIntroductionPath, lib/knowledge-graph.ts); this route only
+  // adds the one new AI call (drafting the ask) once a path exists.
+  fastify.get('/api/career/opportunities/:id/introduction-path', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+
+    const { rows: [opportunity] } = await db.query(
+      'SELECT title, company_or_org FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
+    )
+    if (!opportunity) return reply.code(404).send({ error: 'Opportunity not found' })
+
+    const result = await shortestIntroductionPath(userId, id)
+    if (!result) {
+      return reply.send({ hasTarget: false, isDirect: false, path: [], draft: null })
+    }
+    if (result.isDirect) {
+      return reply.send({
+        hasTarget: true, isDirect: true, targetContactName: result.targetContactName, path: result.path, draft: null,
+      })
+    }
+    if (result.path.length === 0) {
+      return reply.send({
+        hasTarget: true, isDirect: false, targetContactName: result.targetContactName, path: [], draft: null,
+      })
+    }
+
+    let draft: string | null = null
+    try {
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+      const res = await fetch(`${intelligenceUrl}/internal/career/introduction-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          intermediary_name: result.path[0].contactName,
+          target_name: result.targetContactName,
+          opportunity_title: opportunity.title,
+          company_or_org: opportunity.company_or_org,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json() as { draft?: string }
+        draft = data.draft ?? null
+      }
+    } catch (err) {
+      fastify.log.error({ err }, 'career_introduction_draft_error')
+    }
+
+    return reply.send({
+      hasTarget: true, isDirect: false, targetContactName: result.targetContactName, path: result.path, draft,
+    })
   })
 
   fastify.delete('/api/career/opportunities/:id', { preHandler: authenticate }, async (request, reply) => {
