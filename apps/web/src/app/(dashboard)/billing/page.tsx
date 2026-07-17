@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
-import { apiClient, ApiError } from '@/lib/api'
 import { PageHeader, SkeletonCard } from '@/components/ui'
+import { GuidedPaymentModal, type GuidedPaymentPlan } from './_components/guided-payment-modal'
 
 // See docs/PRICING_PAYMENTS_PLAN.md §5/§9 — this page is the first real
 // backing endpoint /billing has ever had (previously wired to a
@@ -35,10 +35,16 @@ interface Plan {
   name: string
   priceNgwee: number
   priceFormatted: string
+  priceNgweeByok: number | null
+  priceByokFormatted: string | null
+  planFamily: string | null
+  billingPeriod: string | null
+  isCustomPricing: boolean
   durationDays: number
   messagesPerDay: number
   aiRepliesPerDay: number
   proactiveNudgesPerDay: number
+  documentsPerDay: number
 }
 
 function CreditBar({ label, remaining, perDay }: { label: string; remaining: number; perDay: number | null }) {
@@ -75,36 +81,32 @@ export default function BillingPage() {
 
   const { data: sub, loading: subLoading, refetch: refetchSub } = useApi<SubscriptionMe>('/api/subscriptions/me', token)
   const { data: catalog, loading: plansLoading } = useApi<{ plans: Plan[] }>('/api/subscription-plans', token)
+  const { data: byokKeys } = useApi<{ keys: unknown[] }>('/api/byok', token)
 
-  const [checkingOut, setCheckingOut] = useState<string | null>(null)
-  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  const [guidedPlan, setGuidedPlan] = useState<GuidedPaymentPlan | null>(null)
 
-  const runCheckout = async (planId: string) => {
-    if (!token) return
-    setCheckingOut(planId)
-    setCheckoutError(null)
-    try {
-      await apiClient('/api/subscriptions/checkout', {
-        method: 'POST', token, body: JSON.stringify({ planId }),
-      })
-      refetchSub()
-    } catch (e) {
-      setCheckoutError(e instanceof ApiError ? e.message : 'Could not start checkout')
-    } finally {
-      setCheckingOut(null)
+  function toGuidedPlan(plan: Plan): GuidedPaymentPlan {
+    return {
+      id: plan.id,
+      name: plan.name,
+      priceFormatted: plan.priceFormatted,
+      priceNgweeByok: plan.priceNgweeByok,
+      priceByokFormatted: plan.priceByokFormatted,
+      billingPeriod: plan.billingPeriod,
     }
   }
 
   // Resume a checkout started while signed out from /pricing — the chosen
   // plan is stashed in localStorage before the redirect through /register.
   useEffect(() => {
-    if (!token) return
+    if (!token || !catalog) return
     const pendingPlanId = window.localStorage.getItem(PENDING_PLAN_STORAGE_KEY)
     if (!pendingPlanId) return
     window.localStorage.removeItem(PENDING_PLAN_STORAGE_KEY)
-    runCheckout(pendingPlanId)
+    const plan = catalog.plans.find((p) => p.id === pendingPlanId)
+    if (plan) setGuidedPlan(toGuidedPlan(plan))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token])
+  }, [token, catalog])
 
   const loading = session.status === 'loading' || subLoading
 
@@ -199,10 +201,6 @@ export default function BillingPage() {
             </div>
           )}
 
-          {checkoutError && (
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{checkoutError}</div>
-          )}
-
           {/* Credits */}
           {sub?.credits && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -259,11 +257,11 @@ export default function BillingPage() {
                         {plan.priceFormatted}<span className="text-xs text-gray-400">{durationLabel(plan.durationDays)}</span>
                       </p>
                       <button
-                        onClick={() => runCheckout(plan.id)}
-                        disabled={isCurrent || checkingOut === plan.id}
+                        onClick={() => setGuidedPlan(toGuidedPlan(plan))}
+                        disabled={isCurrent}
                         className="px-4 py-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                       >
-                        {checkingOut === plan.id ? 'Starting…' : isCurrent ? 'Current' : 'Subscribe'}
+                        {isCurrent ? 'Current' : 'Subscribe'}
                       </button>
                     </div>
                   </div>
@@ -277,6 +275,14 @@ export default function BillingPage() {
           </p>
         </div>
       </div>
+
+      <GuidedPaymentModal
+        plan={guidedPlan}
+        token={token}
+        hasByokKey={(byokKeys?.keys.length ?? 0) > 0}
+        onClose={() => setGuidedPlan(null)}
+        onDone={() => refetchSub()}
+      />
     </div>
   )
 }
