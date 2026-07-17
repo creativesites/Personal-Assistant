@@ -17,9 +17,9 @@ from ..database import get_pool
 
 
 class Prediction(BaseModel):
-    subject_type: str        # 'product' | 'contact' | 'project' | 'deal' | 'business_metric'
+    subject_type: str        # 'product' | 'contact' | 'project' | 'deal' | 'business_metric' | 'career_opportunity'
     subject_id: str | None
-    prediction_type: str     # 'stockout' | 'purchase_likelihood' | 'renewal_due' | 'churn_risk'
+    prediction_type: str     # 'stockout' | 'purchase_likelihood' | 'renewal_due' | 'churn_risk' | 'interview_success_likelihood'
     predicted_value: dict
     confidence: float
     evidence: list[str]
@@ -34,6 +34,8 @@ class PredictionEngine:
             return await self._predict_from_opportunity(prediction_type, subject_id, user_id)
         if prediction_type == 'purchase_likelihood':
             return await self._predict_purchase_likelihood(subject_id, user_id)
+        if prediction_type == 'interview_success_likelihood':
+            return await self._predict_interview_success(subject_id, user_id)
         return None
 
     async def _predict_stockout(self, product_id: str, user_id: str) -> Prediction | None:
@@ -143,6 +145,62 @@ class PredictionEngine:
         return Prediction(
             subject_type='contact', subject_id=contact_id, prediction_type='purchase_likelihood',
             predicted_value={'likelihood': round(confidence, 2)},
+            confidence=confidence,
+            evidence=evidence,
+            computed_at=datetime.now(timezone.utc),
+        )
+
+    async def _predict_interview_success(self, career_opportunity_id: str, user_id: str) -> Prediction | None:
+        """Career & Growth Engine Phase 7 (docs/CAREER_GROWTH_ENGINE_PLAN.md
+        §12/§14) — the plan's own named prediction_type adapter. Same
+        deterministic-heuristic discipline as purchase_likelihood: plain SQL
+        over the user's own past interview outcomes, scoped first to the
+        same company (career_coach.py's interview-patterns lookup already
+        established that's meaningful), falling back to the user's overall
+        track record when there's no company-specific history yet."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            opportunity = await conn.fetchrow(
+                'SELECT company_or_org FROM career_opportunities WHERE id = $1 AND user_id = $2',
+                career_opportunity_id, user_id,
+            )
+            if not opportunity:
+                return None
+
+            company_stats = None
+            if opportunity['company_or_org']:
+                company_stats = await conn.fetchrow(
+                    """SELECT COUNT(*) FILTER (WHERE ci.outcome = 'passed') AS passed,
+                              COUNT(*) FILTER (WHERE ci.outcome IN ('passed', 'failed')) AS decided
+                       FROM career_interviews ci JOIN career_opportunities co ON co.id = ci.career_opportunity_id
+                       WHERE ci.user_id = $1 AND co.company_or_org ILIKE $2""",
+                    user_id, opportunity['company_or_org'],
+                )
+            overall_stats = await conn.fetchrow(
+                """SELECT COUNT(*) FILTER (WHERE outcome = 'passed') AS passed,
+                          COUNT(*) FILTER (WHERE outcome IN ('passed', 'failed')) AS decided
+                   FROM career_interviews WHERE user_id = $1""",
+                user_id,
+            )
+
+        evidence: list[str] = []
+        if company_stats and company_stats['decided']:
+            likelihood = float(company_stats['passed']) / float(company_stats['decided'])
+            confidence = 0.6
+            evidence.append(f"{company_stats['passed']}/{company_stats['decided']} past round(s) at this company passed")
+        elif overall_stats and overall_stats['decided']:
+            likelihood = float(overall_stats['passed']) / float(overall_stats['decided'])
+            confidence = 0.35
+            evidence.append(f"{overall_stats['passed']}/{overall_stats['decided']} past interview round(s) passed overall")
+        else:
+            likelihood = 0.5
+            confidence = 0.15
+            evidence.append('No past interview history yet — a neutral baseline')
+
+        return Prediction(
+            subject_type='career_opportunity', subject_id=career_opportunity_id,
+            prediction_type='interview_success_likelihood',
+            predicted_value={'likelihood': round(likelihood, 2)},
             confidence=confidence,
             evidence=evidence,
             computed_at=datetime.now(timezone.utc),

@@ -7,6 +7,7 @@ import { apiClient, ApiError } from '@/lib/api'
 import { Badge, EmptyState, Input, Modal, SkeletonCard, Textarea, useToast } from '@/components/ui'
 import { ResumeStudio } from './_components/resume-studio'
 import { OpportunityCard, type CareerOpportunity } from './_components/opportunity-card'
+import { CareerRadar } from './_components/career-radar'
 
 // Zuri Career & Growth Engine, Phase 1 (see docs/CAREER_GROWTH_ENGINE_PLAN.md
 // §3/§5) — a Career Profile (the single professional-identity source) plus
@@ -226,6 +227,8 @@ export default function CareerPage() {
             )}
           </div>
         )}
+
+        {token && <CareerRadar token={token} />}
 
         {!activityLoading && activity.length > 0 && (
           <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">

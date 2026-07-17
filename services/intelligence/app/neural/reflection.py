@@ -179,6 +179,35 @@ class ReflectionService:
                     'evidence': [f"Total value {amount:,.2f}"],
                 })
 
+            # Career & Growth Engine Phase 7 (docs/CAREER_GROWTH_ENGINE_PLAN.md
+            # §12) — opportunities detected/applied/interviewed this period.
+            # Same "reuse an existing signal, no new detection pass"
+            # discipline as every other category above.
+            career_row = await conn.fetchrow(
+                """SELECT
+                     COUNT(*) FILTER (WHERE created_at >= $2) AS detected_count,
+                     COUNT(*) FILTER (WHERE status = 'applied' AND updated_at >= $2) AS applied_count
+                   FROM career_opportunities WHERE user_id = $1""",
+                user_id, period_start,
+            )
+            interview_count = await conn.fetchval(
+                'SELECT COUNT(*) FROM career_interviews WHERE user_id = $1 AND created_at >= $2',
+                user_id, period_start,
+            )
+            career_parts = []
+            if career_row and career_row['detected_count']:
+                career_parts.append(f"{career_row['detected_count']} new opportunit{'ies' if career_row['detected_count'] != 1 else 'y'} detected")
+            if career_row and career_row['applied_count']:
+                career_parts.append(f"{career_row['applied_count']} application{'s' if career_row['applied_count'] != 1 else ''} submitted")
+            if interview_count:
+                career_parts.append(f"{interview_count} interview round{'s' if interview_count != 1 else ''} logged")
+            if career_parts:
+                highlights.append({
+                    'category': 'career',
+                    'text': f"Career activity this period: {', '.join(career_parts)}.",
+                    'evidence': [],
+                })
+
         return highlights
 
     async def _save(self, user_id: str, period_type: str, highlights: list[dict]) -> None:

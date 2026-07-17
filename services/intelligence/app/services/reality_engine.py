@@ -147,6 +147,54 @@ class RealityEngineService:
                 )
                 found += 1
 
+            # Career & Growth Engine Phase 7 (docs/CAREER_GROWTH_ENGINE_PLAN.md
+            # §14) — same detect-and-surface-only shape: an application
+            # sitting in 'applied' with no movement past a threshold.
+            stalled_applications = await conn.fetch(
+                """
+                SELECT co.id AS opportunity_id, co.user_id, co.title, co.company_or_org
+                FROM career_opportunities co
+                WHERE co.status = 'applied' AND co.updated_at < NOW() - INTERVAL '21 days'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM business_events be
+                    WHERE be.event_type = 'contradiction_stalled_application'
+                      AND be.payload->>'opportunityId' = co.id::text
+                      AND be.created_at >= NOW() - INTERVAL '21 days'
+                  )
+                """
+            )
+            for row in stalled_applications:
+                await _business_events.record(
+                    str(row['user_id']), 'contradiction_stalled_application',
+                    confidence=1.0,
+                    evidence=[f"\"{row['title']}\"" + (f" at {row['company_or_org']}" if row['company_or_org'] else '') + " has been in 'applied' status for 21+ days with no movement"],
+                    payload={'opportunityId': str(row['opportunity_id'])},
+                )
+                found += 1
+
+            # An interview past its scheduled date with no outcome recorded.
+            overdue_interviews = await conn.fetch(
+                """
+                SELECT ci.id AS interview_id, ci.user_id, ci.scheduled_at, co.title, co.company_or_org
+                FROM career_interviews ci JOIN career_opportunities co ON co.id = ci.career_opportunity_id
+                WHERE ci.outcome = 'pending' AND ci.scheduled_at IS NOT NULL
+                  AND ci.scheduled_at < NOW() - INTERVAL '2 days'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM business_events be
+                    WHERE be.event_type = 'contradiction_interview_overdue_outcome'
+                      AND be.payload->>'interviewId' = ci.id::text
+                  )
+                """
+            )
+            for row in overdue_interviews:
+                await _business_events.record(
+                    str(row['user_id']), 'contradiction_interview_overdue_outcome',
+                    confidence=1.0,
+                    evidence=[f"Interview for \"{row['title']}\"" + (f" at {row['company_or_org']}" if row['company_or_org'] else '') + f" was scheduled {row['scheduled_at']} with no outcome logged yet"],
+                    payload={'interviewId': str(row['interview_id'])},
+                )
+                found += 1
+
         log.info('reality_engine_hourly_sweep', contradictions_found=found)
         return found
 
