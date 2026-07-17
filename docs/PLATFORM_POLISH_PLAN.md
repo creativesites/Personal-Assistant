@@ -132,6 +132,10 @@ Genuinely new engine, reusing an existing pattern rather than inventing one: `jo
 
 **Files:** new `services/intelligence/app/services/ask_anything.py`, new prompt in `ai/prompts.py`, `services/api/src/routes/search.ts` (new), `apps/web/src/components/command-palette.tsx` (extend, don't replace).
 
+**Shipped.** `ASK_ANYTHING` (`ai/prompts.py`) lists the entire queryable vocabulary in the prompt itself — 5 entities × their fixed field list, 6 comparison ops — and returns `{entityType, filters, sort}`; a field or entity outside that list simply isn't expressible, by design, not a validation afterthought. `ask_anything.py`'s `classify_question()` calls it and defensively drops any filter/sort the model returns that doesn't match the fixed schema (a defense-in-depth check, not the primary enforcement — the prompt is). Exposed internally at `POST /internal/search/ask` (`routes/search.py`), proxied by `services/api/src/routes/search.ts`'s `POST /api/search/ask`, which owns the actual per-entity SQL builders (`ENTITIES` map: column names, which fields are numeric, `contains`→`ILIKE`/`eq`→`=`/etc.) — classification and query-building are deliberately two different services, matching this codebase's Python-classifies/Node-queries split used elsewhere (e.g. `career-documents.ts`'s `callIntelligence()` pattern, reused here verbatim). `command-palette.tsx` gained a fourth view (`ask-results`) reached by pressing Enter in the root search box with text typed — additive, not a replacement: the existing substring-matched static-action list and contact list still render above/alongside it while typing, exactly as the plan specified.
+
+With Phase 6 shipped, all 7 phases of this plan (0 through 6) are complete.
+
 ---
 
 ## 9. Explicitly Deferred (documented, not built)

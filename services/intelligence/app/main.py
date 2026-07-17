@@ -16,6 +16,7 @@ from .routes.documents import router as documents_router
 from .routes.auto_reply import router as auto_reply_router
 from .routes.predictions import router as predictions_router
 from .routes.career import router as career_router
+from .routes.search import router as search_router
 from .workers.message_worker import create_message_worker
 from .workers.profile_worker import create_profile_worker
 from .workers.daily_worker import (
@@ -188,3 +189,4 @@ app.include_router(documents_router)
 app.include_router(auto_reply_router)
 app.include_router(predictions_router)
 app.include_router(career_router)
+app.include_router(search_router)

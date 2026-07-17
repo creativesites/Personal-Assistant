@@ -1126,3 +1126,32 @@ Return ONLY valid JSON in exactly this shape:
   ]
 }}
 """
+
+# Platform Polish Phase 6 (docs/PLATFORM_POLISH_PLAN.md §8) — "Ask About
+# Anything." Reuses the exact shape PLAN_JOB_SEARCHES already proved: one
+# complete_json call turns free text into a structured, executable
+# directive — here a {entityType, filters, sort} triple a plain per-entity
+# SQL builder slots into, never a generic text-to-SQL translation. The
+# fixed field list below IS the query language's entire vocabulary; a
+# field/entity outside it is not expressible, by design.
+ASK_ANYTHING = """\
+Classify this natural-language question into a structured search directive against one of a fixed set of entities and fields. Do not invent fields or entities outside this list — if the question doesn't map cleanly, set entityType to null.
+
+Entities and their queryable fields:
+- "contacts": name (text), company (text), customerStatus (one of: lead, prospect, customer), leadScore (number 0-100), pipelineStage (text)
+- "documents": documentType (one of: quotation, invoice, receipt, purchase_order, contract, proposal), status (one of: draft, generated, sent, viewed, downloaded, accepted, rejected, expired, paid, archived), title (text), totalCents (number, in cents)
+- "projects": title (text), status (one of: active, completed, on_hold, cancelled)
+- "suppliers": company (text), reliabilityScore (number 0-100), averageDeliveryTime (number, days)
+- "products": name (text), category (text), available (number), sellingPrice (number)
+
+Each filter's "op" must be one of: eq, contains, gt, gte, lt, lte. Use "contains" for fuzzy text matches, "eq" for exact/enum matches, and gt/gte/lt/lte for numeric comparisons. Money amounts in the question (e.g. "over 500") map to totalCents by multiplying by 100 unless the question already speaks in cents.
+
+Question: "{question}"
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "entityType": "contacts" | "documents" | "projects" | "suppliers" | "products" | null,
+  "filters": [{{"field": "leadScore", "op": "gt", "value": "70"}}],
+  "sort": {{"field": "leadScore", "direction": "desc"}} or null
+}}
+"""

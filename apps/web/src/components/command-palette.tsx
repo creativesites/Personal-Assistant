@@ -10,8 +10,14 @@ import { downloadCsv } from '@/lib/export-csv'
 
 interface ContactLite { id: string; name: string }
 
-type View = 'root' | 'pick-contact' | 'create-deal'
+type View = 'root' | 'pick-contact' | 'create-deal' | 'ask-results'
 type PendingAction = 'task' | 'health' | 'deal' | null
+
+interface AskResponse {
+  entityType: string | null
+  results: Record<string, unknown>[]
+  message?: string
+}
 
 async function exportRelationships(token: string) {
   const data = await apiClient<{ relationships: Array<Record<string, unknown>> }>('/api/relationships', { token })
@@ -58,6 +64,8 @@ export function CommandPalette() {
   const [dealTitle, setDealTitle] = useState('')
   const [dealValue, setDealValue] = useState('')
   const [busy, setBusy] = useState(false)
+  const [askResponse, setAskResponse] = useState<AskResponse | null>(null)
+  const [asking, setAsking] = useState(false)
 
   function close() {
     setOpen(false)
@@ -67,6 +75,28 @@ export function CommandPalette() {
     setSelectedContact(null)
     setDealTitle('')
     setDealValue('')
+    setAskResponse(null)
+  }
+
+  // Ask About Anything (docs/PLATFORM_POLISH_PLAN.md §8) — a real search
+  // box alongside the existing hardcoded-action/substring-contact-match
+  // list, not a replacement for it. Triggered by pressing Enter with text
+  // typed and no exact static-action/contact match already showing.
+  async function askAnything() {
+    if (!token || !query.trim() || busy || asking) return
+    setAsking(true)
+    try {
+      const res = await apiClient<AskResponse>('/api/search/ask', {
+        method: 'POST', token, body: JSON.stringify({ question: query.trim() }),
+      })
+      setAskResponse(res)
+      setView('ask-results')
+    } catch {
+      setAskResponse({ entityType: null, results: [], message: "Something went wrong — try rephrasing." })
+      setView('ask-results')
+    } finally {
+      setAsking(false)
+    }
   }
 
   useEffect(() => {
@@ -180,12 +210,14 @@ export function CommandPalette() {
               autoFocus
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder={view === 'pick-contact' ? 'Search contacts…' : 'Search actions or contacts…'}
+              onKeyDown={e => { if (view === 'root' && e.key === 'Enter' && query.trim()) askAnything() }}
+              placeholder={view === 'pick-contact' ? 'Search contacts…' : view === 'ask-results' ? 'Ask about anything…' : 'Search actions, contacts, or ask a question + Enter…'}
               className="flex-1 text-sm outline-none"
             />
+            {asking && <RefreshCw size={14} className="text-gray-400 animate-spin flex-shrink-0" />}
             {view !== 'root' && (
               <button
-                onClick={() => { setView('root'); setPendingAction(null); setQuery('') }}
+                onClick={() => { setView('root'); setPendingAction(null); setQuery(''); setAskResponse(null) }}
                 className="text-xs text-gray-400 hover:text-gray-600 flex-shrink-0"
               >
                 Back
@@ -285,8 +317,37 @@ export function CommandPalette() {
           </div>
         )}
 
+        {view === 'ask-results' && askResponse && (
+          <div className="max-h-96 overflow-y-auto py-2">
+            {!askResponse.entityType || askResponse.results.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-gray-400">
+                {askResponse.message ?? 'No matches for that question.'}
+              </p>
+            ) : (
+              <div className="px-2">
+                <p className="px-3 pt-1 pb-2 text-[10px] text-gray-400 uppercase tracking-wide font-medium">
+                  {askResponse.results.length} {askResponse.entityType}
+                </p>
+                {askResponse.results.map((row, i) => {
+                  const entries = Object.entries(row).filter(([k]) => k !== 'id')
+                  const primary = entries[0]?.[1]
+                  const rest = entries.slice(1)
+                  return (
+                    <div key={(row.id as string) ?? i} className="px-3 py-2 rounded-lg hover:bg-gray-50">
+                      <p className="text-sm text-gray-900 font-medium">{String(primary ?? '—')}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {rest.map(([k, v]) => `${k}: ${v ?? '—'}`).join(' · ')}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="px-4 py-2 border-t border-gray-50 text-[10px] text-gray-400 flex items-center justify-between">
-          <span>Search actions and contacts</span>
+          <span>Search actions and contacts, or ask a question</span>
           <span>⌘K</span>
         </div>
       </div>
