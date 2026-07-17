@@ -28,6 +28,30 @@ class InventoryForecastService:
         updated = 0
 
         async with pool.acquire() as conn:
+            # Platform Polish Phase 0 — a product that stops selling (or
+            # stops tracking inventory) keeps its last forecast forever
+            # otherwise; computed_at silently ages with nothing checking
+            # recency. Clear the stale row instead of leaving a lie.
+            deleted = await conn.fetch(
+                """
+                DELETE FROM inventory_forecasts f
+                USING products p
+                WHERE f.product_id = p.id
+                  AND (
+                    NOT p.track_inventory
+                    OR NOT EXISTS (
+                      SELECT 1 FROM stock_movements sm
+                      WHERE sm.product_id = p.id AND sm.movement_type = 'sale'
+                        AND sm.created_at > NOW() - make_interval(days => $1)
+                    )
+                  )
+                RETURNING f.product_id
+                """,
+                _VELOCITY_WINDOW_DAYS,
+            )
+            if deleted:
+                log.info('inventory_forecasts_expired_stale', count=len(deleted))
+
             rows = await conn.fetch(
                 """
                 SELECT p.id AS product_id, p.available, p.purchase_cost, p.supplier_lead_time,

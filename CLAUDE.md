@@ -394,7 +394,7 @@ PostgreSQL 16 with pgvector. 72 migrations applied (0001–0072) — `docs/SCHEM
 Key design notes:
 - All PKs are `uuid` (gen_random_uuid())
 - `contact_insights` stores atomic AI observations — grows indefinitely, deactivated not deleted
-- `context_snapshots` holds compressed relationship summaries with vector embeddings — replaces raw message history in prompts
+- `context_snapshots` was designed to hold compressed relationship summaries with vector embeddings, but no code has ever written to it (`proactive.py` explicitly documents the fallback: "defined in schema, never written by any code") — the real "recent context" mechanism in prompts today is `contact_profiles.personality_summary`/`current_life_context`, refreshed on a message-count cadence by `message_worker.py`/`profile_worker.py`. Treat this table as reserved-but-unused, not load-bearing.
 - `relationship_health_logs` is append-only — `relationships.health_score` is the live value
 - `events` (AI-extracted) and `calendar_events` (user-facing) are separate — linked via `source_event_id`
 - `documents` is strictly AI/template-generated business documents (quotations, invoices, proposals, contracts, etc.) — distinct from `contact_documents`, which is human-uploaded files; cross-linked via `contact_documents.generated_document_id`

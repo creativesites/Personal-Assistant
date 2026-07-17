@@ -4,7 +4,12 @@ synchronized with reality across three cadences: Layer 1 event-driven
 (`resolve_relationship_nudges`, called live from message_worker.py — see
 Hook B in reality-engine.ts for the Node-side invoice-gap counterpart),
 Layer 2 hourly contradiction detection (`run_hourly_sweep`), and Layer 3
-daily stale-row expiry (`run_daily_sweep`).
+daily stale-row expiry (`run_daily_sweep`). Platform Polish Phase 0 (see
+docs/PLATFORM_POLISH_PLAN.md §2) extended Layer 3 to also close
+`opportunities` rows past their own `expires_at`/recovered `churn_risk`
+rows, and to decay weak `business_facts`/`contact_insights` confidence —
+the same "nothing goes stale" mandate, applied to two tables that
+previously only ever wrote forward.
 
 Deliberately reuses `business_events` (migration 0076) as its own log rather
 than a new generic table — new event_type values only. No new LLM calls
@@ -21,10 +26,12 @@ import structlog
 from ..database import get_pool
 from ..queue import publish_event
 from .business_events import BusinessEventService
+from .business_memory_maintenance import get_business_memory_maintenance
 
 log = structlog.get_logger()
 
 _business_events = BusinessEventService()
+_memory_maintenance = get_business_memory_maintenance()
 
 _STALE_NUDGE_DAYS = 14
 _STALE_BUNDLE_DAYS = 7
@@ -234,8 +241,33 @@ class RealityEngineService:
             )
             expired += len(gossip_rows)
 
+            # Platform Polish Phase 0 §2.3 — opportunities.expires_at is
+            # advisory-only today; nothing else ever closes a row past it.
+            expired_opportunity_rows = await conn.fetch(
+                """UPDATE opportunities SET status = 'expired', resolved_at = NOW()
+                   WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at < NOW()
+                   RETURNING id, user_id"""
+            )
+            expired += len(expired_opportunity_rows)
+
+            # A churn_risk flag raised while health was declining should
+            # close itself once the relationship has since recovered —
+            # otherwise it just sits 'open' forever even after the thing
+            # it warned about stopped being true.
+            recovered_churn_rows = await conn.fetch(
+                """UPDATE opportunities o SET status = 'expired', resolved_at = NOW()
+                   FROM relationships r
+                   WHERE o.contact_id = r.contact_id AND o.status = 'open'
+                     AND o.opportunity_type = 'churn_risk' AND r.health_trend = 'improving'
+                   RETURNING o.id, o.user_id"""
+            )
+            expired += len(recovered_churn_rows)
+
             by_user: dict[str, int] = {}
-            for row in [*nudge_rows, *bundle_rows, *event_rows, *gossip_rows]:
+            for row in [
+                *nudge_rows, *bundle_rows, *event_rows, *gossip_rows,
+                *expired_opportunity_rows, *recovered_churn_rows,
+            ]:
                 uid = str(row['user_id'])
                 by_user[uid] = by_user.get(uid, 0) + 1
             for user_id, count in by_user.items():
@@ -244,6 +276,11 @@ class RealityEngineService:
                     evidence=[f"Daily sweep expired {count} stale item(s) untouched for 14+ days"],
                     payload={'sweptCount': count},
                 )
+
+        # §2.2 — same "cognitive garbage collection" job, a different table:
+        # weak, unreinforced business_facts/contact_insights rows decay the
+        # same way advisor_memories already does.
+        expired += await _memory_maintenance.deactivate_weak_facts()
 
         log.info('reality_engine_daily_sweep', expired=expired)
         return expired
