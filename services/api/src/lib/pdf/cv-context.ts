@@ -107,13 +107,16 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
   if (!cv) return null;
 
   const [
-    userResult, profileResult, employmentResult, educationResult, certificationsResult, skillGroupsResult,
+    profileResult, employmentResult, educationResult, certificationsResult, skillGroupsResult,
     awardsResult, volunteerResult, membershipsResult, publicationsResult, referencesResult, projectLinksResult,
   ] = await Promise.all([
-    db.query(`SELECT full_name, email FROM users WHERE id = $1`, [userId]),
     db.query(
-      `SELECT headline, summary, phone, location, github_url, linkedin_url, portfolio_url, website_url, references_mode
-       FROM career_profiles WHERE user_id = $1`, [userId],
+      `SELECT cp.full_name, cp.email, cp.headline, cp.summary, cp.phone, cp.location,
+              cp.github_url, cp.linkedin_url, cp.portfolio_url, cp.website_url, cp.references_mode,
+              u.full_name AS user_full_name, u.email AS user_email
+       FROM users u
+       LEFT JOIN career_profiles cp ON cp.user_id = u.id
+       WHERE u.id = $1`, [userId],
     ),
     db.query(
       `SELECT title, employer, location, start_date, end_date, is_current, responsibilities, achievements
@@ -150,16 +153,23 @@ export async function buildCvRenderData(cvId: string, userId: string): Promise<C
     ),
   ]);
 
-  const user = userResult.rows[0] ?? {};
   const profile = profileResult.rows[0] ?? {};
-  const contactLine = [profile.location, profile.phone, profile.github_url, profile.linkedin_url, profile.portfolio_url, profile.website_url]
+  // Read-through default, same as GET /api/career/profile — a person may
+  // want a different display name/professional email on their CV than
+  // their Zuri login identity, so career_profiles.full_name/email always
+  // wins once set, but a user who downloads a CV before ever opening
+  // Personal Details still gets a real name/email instead of the CV's own
+  // title standing in for a person's name.
+  const fullName = profile.full_name || profile.user_full_name || cv.title;
+  const email = profile.email || profile.user_email;
+  const contactLine = [profile.location, profile.phone, email, profile.github_url, profile.linkedin_url, profile.portfolio_url, profile.website_url]
     .filter(Boolean).join(' · ');
 
   return {
     title: cv.title,
     templateKey: cv.template_key,
     pageSize: cv.page_size,
-    fullName: user.full_name || user.email || cv.title || 'Professional CV',
+    fullName,
     headline: profile.headline,
     summary: profile.summary,
     contactLine,

@@ -10,6 +10,7 @@ from ..services.resume_studio import (
     match_opportunity_to_resumes,
     match_resume_to_opportunities,
     score_and_store_upload,
+    score_existing_resume,
     score_resume_text,
 )
 from ..services.career_networking import generate_introduction_draft
@@ -86,6 +87,18 @@ async def upload_resume(body: UploadResumeRequest):
         return await score_and_store_upload(body.user_id, file_bytes, body.mime_type, body.title)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+class ScoreExistingResumeRequest(BaseModel):
+    user_id: str
+
+
+@router.post('/resume/{document_id}/score')
+async def score_existing_resume_route(document_id: str, body: ScoreExistingResumeRequest):
+    try:
+        return await score_existing_resume(body.user_id, document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 class MatchResumeRequest(BaseModel):

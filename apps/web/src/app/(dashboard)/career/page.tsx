@@ -5,11 +5,13 @@ import Link from 'next/link'
 import { Briefcase, Plus, Loader2, Target, Radar } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
-import { Badge, EmptyState, Input, Modal, SkeletonCard, Textarea, useToast } from '@/components/ui'
+import { Badge, EmptyState, Input, Modal, SkeletonCard, useToast } from '@/components/ui'
 import { ResumeStudio } from './_components/resume-studio'
 import { CoverLetterStudio } from './_components/cover-letter-studio'
 import { OpportunityCard, type CareerOpportunity } from './_components/opportunity-card'
 import { CareerRadar } from './_components/career-radar'
+import { CareerProfileEditor } from './_components/career-profile-editor'
+import { useCareerProfile } from './_components/cv-studio/use-career-profile'
 import { FeatureGate } from '@/components/ui'
 
 // Zuri Career & Growth Engine, Phase 1 (see docs/CAREER_GROWTH_ENGINE_PLAN.md
@@ -17,21 +19,6 @@ import { FeatureGate } from '@/components/ui'
 // the Opportunity Engine's status-lifecycle list. Deliberately ungated by
 // workspace mode (business/personal) — career growth matters in both, same
 // reasoning as the Goals page sitting in this codebase's ungated nav group.
-
-interface CareerProfile {
-  headline: string | null
-  summary: string | null
-  skills: { name: string; level?: string; yearsExperience?: number }[]
-  targetRoles: string[]
-  targetIndustries: string[]
-  salaryExpectationCents: number | null
-  salaryCurrency: string
-  remotePreference: string | null
-  country: string | null
-  githubUrl: string | null
-  linkedinUrl: string | null
-  portfolioUrl: string | null
-}
 
 interface ActivityEvent {
   id: string
@@ -72,14 +59,9 @@ function CareerPageInner() {
   const token = session.data?.accessToken
   const { addToast } = useToast()
 
-  const [profile, setProfile] = useState<CareerProfile | null>(null)
-  const [profileLoading, setProfileLoading] = useState(true)
+  const careerProfile = useCareerProfile(token ?? '')
+  const { profile } = careerProfile
   const [showProfileEdit, setShowProfileEdit] = useState(false)
-  const [savingProfile, setSavingProfile] = useState(false)
-  const [headlineDraft, setHeadlineDraft] = useState('')
-  const [summaryDraft, setSummaryDraft] = useState('')
-  const [targetRolesDraft, setTargetRolesDraft] = useState('')
-  const [remotePrefDraft, setRemotePrefDraft] = useState('')
 
   const [opportunities, setOpportunities] = useState<CareerOpportunity[]>([])
   const [oppsLoading, setOppsLoading] = useState(true)
@@ -102,21 +84,6 @@ function CareerPageInner() {
       .catch(() => setActivityLoading(false))
   }
 
-  const loadProfile = () => {
-    if (!token) return
-    setProfileLoading(true)
-    apiClient<{ profile: CareerProfile }>('/api/career/profile', { token })
-      .then(data => {
-        setProfile(data.profile)
-        setHeadlineDraft(data.profile.headline ?? '')
-        setSummaryDraft(data.profile.summary ?? '')
-        setTargetRolesDraft((data.profile.targetRoles ?? []).join(', '))
-        setRemotePrefDraft(data.profile.remotePreference ?? '')
-        setProfileLoading(false)
-      })
-      .catch(() => setProfileLoading(false))
-  }
-
   const loadOpportunities = () => {
     if (!token) return
     setOppsLoading(true)
@@ -126,32 +93,8 @@ function CareerPageInner() {
       .catch(() => setOppsLoading(false))
   }
 
-  useEffect(loadProfile, [token])
   useEffect(loadOpportunities, [token, statusFilter])
   useEffect(loadActivity, [token])
-
-  const saveProfile = async () => {
-    if (!token) return
-    setSavingProfile(true)
-    try {
-      await apiClient('/api/career/profile', {
-        method: 'PATCH', token,
-        body: JSON.stringify({
-          headline: headlineDraft.trim() || null,
-          summary: summaryDraft.trim() || null,
-          targetRoles: targetRolesDraft.split(',').map(s => s.trim()).filter(Boolean),
-          remotePreference: remotePrefDraft || null,
-        }),
-      })
-      addToast({ variant: 'success', title: 'Career profile updated' })
-      setShowProfileEdit(false)
-      loadProfile()
-    } catch (err) {
-      addToast({ variant: 'error', title: 'Could not save profile', description: err instanceof ApiError ? err.message : undefined })
-    } finally {
-      setSavingProfile(false)
-    }
-  }
 
   const createOpportunity = async () => {
     if (!token || !newTitle.trim()) return
@@ -323,45 +266,13 @@ function CareerPageInner() {
         </div>
       </div>
 
-      {showProfileEdit && (
-        <Modal open={showProfileEdit} onClose={() => setShowProfileEdit(false)} title="Career Profile">
-          <div className="space-y-4 p-1">
-            <Input label="Headline" value={headlineDraft} onChange={e => setHeadlineDraft(e.target.value)} placeholder="e.g. Senior Backend Engineer" />
-            <Textarea
-              label="Summary"
-              value={summaryDraft}
-              onChange={e => setSummaryDraft(e.target.value)}
-              rows={3}
-              placeholder="A short professional summary"
-            />
-            <Input label="Target roles (comma-separated)" value={targetRolesDraft} onChange={e => setTargetRolesDraft(e.target.value)} placeholder="Senior AI Engineer, Tech Lead" />
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Remote preference</label>
-              <select
-                value={remotePrefDraft}
-                onChange={e => setRemotePrefDraft(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">No preference set</option>
-                <option value="onsite">Onsite</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="remote">Remote</option>
-                <option value="no_preference">No preference</option>
-              </select>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setShowProfileEdit(false)} className="rounded-2xl px-4 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 min-h-[44px]">Cancel</button>
-              <button
-                onClick={saveProfile}
-                disabled={savingProfile}
-                className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-4 py-2.5 text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 min-h-[44px] disabled:opacity-60"
-              >
-                {savingProfile && <Loader2 className="w-4 h-4 animate-spin" />}
-                Save
-              </button>
-            </div>
-          </div>
-        </Modal>
+      {token && (
+        <CareerProfileEditor
+          token={token}
+          open={showProfileEdit}
+          onClose={() => setShowProfileEdit(false)}
+          sharedProfile={careerProfile}
+        />
       )}
 
       {showNewOpp && (

@@ -209,12 +209,25 @@ async def score_and_store_upload(user_id: str, file_bytes: bytes, mime_type: str
     """Resume analysis (§8) — the uploaded PDF's own bytes are the storage
     artifact (no react-pdf re-render — that would discard the original
     formatting the person already chose), so the caller (career-documents.ts)
-    writes storage_path directly after this returns the created row."""
+    writes storage_path directly after this returns the created row.
+
+    Saving the upload and scoring it are deliberately decoupled: a transient
+    AI failure (rate limit, provider outage, a malformed JSON response)
+    used to lose the entire upload, since the whole function threw before
+    anything was written. Now the document + original file are always saved
+    first; scoring is best-effort on top, and score_existing_resume() below
+    lets the caller retry it later without re-uploading."""
     resume_text = extract_resume_text(file_bytes, mime_type)
     if not resume_text.strip():
         raise ValueError('Could not extract any text from this file')
 
-    score = await score_resume_text(user_id, resume_text)
+    score = None
+    score_failed = False
+    try:
+        score = await score_resume_text(user_id, resume_text)
+    except Exception:
+        log.warning('resume_upload_scoring_failed', user_id=user_id)
+        score_failed = True
 
     ai = get_ai_client()
     embedding = None
@@ -247,7 +260,36 @@ async def score_and_store_upload(user_id: str, file_bytes: bytes, mime_type: str
         )
     document = dict(row)
 
-    return {'document': document, 'score': score}
+    return {'document': document, 'score': score, 'scoreFailed': score_failed}
+
+
+async def score_existing_resume(user_id: str, document_id: str) -> dict:
+    """On-demand (re)scoring for a resume that was uploaded without a score —
+    either the initial upload's AI call failed, or a future feature adds
+    resumes some other way that skips scoring. Re-uses the rawText already
+    captured at upload time rather than re-extracting from the stored file."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT id, structured_data FROM documents WHERE id = $1 AND user_id = $2 AND document_type = 'resume'",
+            document_id, user_id,
+        )
+        if not doc:
+            raise ValueError('Resume not found')
+
+        structured_data = dict(doc['structured_data'] or {})
+        resume_text = structured_data.get('rawText')
+        if not resume_text:
+            raise ValueError('This resume has no extracted text to score — try re-uploading it')
+
+        score = await score_resume_text(user_id, resume_text)
+        structured_data['score'] = score
+
+        row = await conn.fetchrow(
+            "UPDATE documents SET structured_data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING *",
+            json.dumps(structured_data), document_id,
+        )
+    return {'document': dict(row), 'score': score}
 
 
 async def match_resume_to_opportunities(user_id: str, document_id: str, limit: int = 5) -> list[dict]:

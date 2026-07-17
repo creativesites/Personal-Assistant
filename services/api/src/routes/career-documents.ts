@@ -147,12 +147,32 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
     const title = typeof data.fields?.title?.value === 'string' ? data.fields.title.value : undefined;
 
     try {
-      const result = await callIntelligence<{ document: any; score: any }>('/internal/career/resume/upload', {
+      const result = await callIntelligence<{ document: any; score: any; scoreFailed: boolean }>('/internal/career/resume/upload', {
         user_id: userId, file_base64: buf.toString('base64'), mime_type: mimetype, title: title ?? null,
       });
-      return reply.code(201).send({ document: formatDocument(result.document), score: result.score });
+      return reply.code(201).send({
+        document: formatDocument(result.document), score: result.score, scoreFailed: result.scoreFailed,
+      });
     } catch (err) {
       fastify.log.error({ err }, 'career_resume_upload_error');
+      return reply.code(502).send({ error: 'Failed to save resume' });
+    }
+  });
+
+  // ── POST /api/career/resume/:id/score — on-demand (re)scoring for a
+  // resume that was uploaded without a score (the initial upload's AI call
+  // failed) — never re-runs text extraction, reuses structured_data.rawText
+  // already captured at upload time.
+  fastify.post('/api/career/resume/:id/score', { preHandler: gate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    try {
+      const result = await callIntelligence<{ document: any; score: any }>(`/internal/career/resume/${id}/score`, {
+        user_id: userId,
+      });
+      return reply.send({ document: formatDocument(result.document), score: result.score });
+    } catch (err) {
+      fastify.log.error({ err }, 'career_resume_score_error');
       return reply.code(502).send({ error: 'Failed to analyse resume' });
     }
   });
@@ -297,7 +317,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
     const { title } = z.object({ title: z.string().max(255).optional() }).parse(request.body ?? {});
 
     const { rows: projects } = await db.query(
-      'SELECT title, description FROM projects WHERE user_id = $1 AND is_portfolio_visible = TRUE ORDER BY created_at DESC',
+      'SELECT title FROM projects WHERE user_id = $1 AND is_portfolio_visible = TRUE ORDER BY created_at DESC',
       [userId],
     );
     if (projects.length === 0) {
@@ -309,7 +329,7 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
       const result = await callIntelligence<{ document: { id: string } }>('/internal/career/documents/save', {
         user_id: userId,
         document_type: 'portfolio_pdf',
-        structured_data: { projects: projects.map(p => ({ title: p.title, description: p.description })) },
+        structured_data: { projects: projects.map(p => ({ title: p.title })) },
         title: title ?? null,
       });
       documentId = result.document.id;

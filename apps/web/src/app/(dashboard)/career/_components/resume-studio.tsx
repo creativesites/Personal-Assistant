@@ -53,6 +53,7 @@ export function ResumeStudio({ token, opportunities }: { token: string; opportun
 
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [scoringId, setScoringId] = useState<string | null>(null)
 
   const [scoreModalDoc, setScoreModalDoc] = useState<CareerDocument | null>(null)
   const [matchResults, setMatchResults] = useState<{ opportunityId: string; title: string; companyOrOrg: string | null; matchScore: number }[] | null>(null)
@@ -106,14 +107,32 @@ export function ResumeStudio({ token, opportunities }: { token: string; opportun
         const body = await res.json().catch(() => ({ error: 'Upload failed' }))
         throw new Error(body.error || 'Upload failed')
       }
-      const data = await res.json() as { document: CareerDocument; score: ResumeScore }
-      addToast({ variant: 'success', title: `Scored ${data.score.overallScore}/100` })
+      const data = await res.json() as { document: CareerDocument; score: ResumeScore | null; scoreFailed: boolean }
+      if (data.scoreFailed || !data.score) {
+        addToast({ variant: 'info', title: 'Resume saved', description: 'Analysis failed — you can retry it any time from the list below.' })
+      } else {
+        addToast({ variant: 'success', title: `Resume saved — scored ${data.score.overallScore}/100` })
+      }
       loadDocuments()
     } catch (err) {
-      addToast({ variant: 'error', title: 'Could not analyse resume', description: err instanceof Error ? err.message : undefined })
+      addToast({ variant: 'error', title: 'Could not save resume', description: err instanceof Error ? err.message : undefined })
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const scoreResume = async (doc: CareerDocument) => {
+    if (!token) return
+    setScoringId(doc.id)
+    try {
+      const data = await apiClient<{ score: ResumeScore }>(`/api/career/resume/${doc.id}/score`, { method: 'POST', token })
+      addToast({ variant: 'success', title: `Scored ${data.score.overallScore}/100` })
+      loadDocuments()
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Analysis failed', description: err instanceof ApiError ? err.message : undefined })
+    } finally {
+      setScoringId(null)
     }
   }
 
@@ -184,9 +203,18 @@ export function ResumeStudio({ token, opportunities }: { token: string; opportun
                   <Badge variant={doc.documentType === 'resume' ? 'purple' : 'info'}>
                     {doc.documentType === 'resume' ? 'Resume' : 'Cover Letter'}
                   </Badge>
-                  {doc.structuredData?.score && (
+                  {doc.structuredData?.score ? (
                     <button onClick={() => setScoreModalDoc(doc)} className="text-[10px] font-bold text-emerald-700 bg-emerald-50 rounded-full px-2 py-0.5">
                       {doc.structuredData.score.overallScore}/100
+                    </button>
+                  ) : doc.documentType === 'resume' && doc.structuredData?.source === 'uploaded' && (
+                    <button
+                      onClick={() => scoreResume(doc)}
+                      disabled={scoringId === doc.id}
+                      className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 rounded-full px-2 py-0.5 disabled:opacity-60"
+                    >
+                      {scoringId === doc.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Sparkles className="w-2.5 h-2.5" />}
+                      {scoringId === doc.id ? 'Analysing…' : 'Analyse'}
                     </button>
                   )}
                 </div>

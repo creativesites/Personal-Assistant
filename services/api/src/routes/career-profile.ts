@@ -37,6 +37,8 @@ const languageSchema = z.object({
 })
 
 const patchProfileBody = z.object({
+  fullName: z.string().max(255).nullable().optional(),
+  email: z.string().email().max(255).nullable().optional(),
   headline: z.string().max(255).nullable().optional(),
   summary: z.string().nullable().optional(),
   skills: z.array(skillSchema).optional(),
@@ -74,6 +76,7 @@ const patchProfileBody = z.object({
 })
 
 const DEFAULT_PROFILE = {
+  fullName: null, email: null,
   headline: null, summary: null, skills: [], certifications: [], education: [], languages: [],
   careerGoalsText: null, targetRoles: [], targetIndustries: [], salaryExpectationCents: null,
   salaryCurrency: 'ZMW', remotePreference: null, relocationPreference: null, workAuthorization: null,
@@ -85,6 +88,8 @@ const DEFAULT_PROFILE = {
 
 function profileApiShape(r: any) {
   return {
+    fullName: r.full_name,
+    email: r.email,
     headline: r.headline,
     summary: r.summary,
     skills: r.skills ?? [],
@@ -126,6 +131,7 @@ const ARRAY_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   target_roles: 'targetRoles', target_industries: 'targetIndustries', interests: 'interests',
 }
 const SCALAR_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
+  full_name: 'fullName', email: 'email',
   headline: 'headline', summary: 'summary', career_goals_text: 'careerGoalsText',
   salary_expectation_cents: 'salaryExpectationCents', salary_currency: 'salaryCurrency',
   remote_preference: 'remotePreference', relocation_preference: 'relocationPreference',
@@ -143,7 +149,23 @@ export async function careerProfileRoutes(fastify: FastifyInstance): Promise<voi
     const { rows: [profile] } = await db.query(
       'SELECT * FROM career_profiles WHERE user_id = $1', [userId],
     )
-    return reply.send({ profile: profile ? profileApiShape(profile) : DEFAULT_PROFILE })
+    const shape = profile ? profileApiShape(profile) : { ...DEFAULT_PROFILE }
+
+    // Read-through default only — a person may want a different display
+    // name/professional email on their CV than their Zuri login identity,
+    // so this is never written back to career_profiles, just pre-filled
+    // for a user who hasn't visited Personal Details yet.
+    if (!shape.fullName || !shape.email) {
+      const { rows: [user] } = await db.query<{ full_name: string | null; email: string }>(
+        'SELECT full_name, email FROM users WHERE id = $1', [userId],
+      )
+      if (user) {
+        if (!shape.fullName) shape.fullName = user.full_name
+        if (!shape.email) shape.email = user.email
+      }
+    }
+
+    return reply.send({ profile: shape })
   })
 
   fastify.patch('/api/career/profile', { preHandler: gate }, async (request, reply) => {

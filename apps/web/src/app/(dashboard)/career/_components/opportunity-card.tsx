@@ -272,7 +272,13 @@ export function OpportunityCard({
         </button>
       </div>
 
-      <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 mt-2 pt-2 border-t border-gray-50">
+      {/* grid, not flex-wrap: each panel's expanded content used to inherit
+          its flex item's shrink-to-fit width (as narrow as its own button
+          label), squashing any real content into an unreadable column —
+          worst on mobile, where there's the least width to go around. A
+          grid gives every panel a full, predictable column regardless of
+          whether it's collapsed or expanded. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 mt-2 pt-2 border-t border-gray-50">
         <ReadinessChecklist opportunityId={opp.id} token={token} />
         <ResumeMatchPanel opportunityId={opp.id} token={token} />
         <CompanyIntelligencePanel opportunityId={opp.id} token={token} companyOrOrg={opp.companyOrOrg} />

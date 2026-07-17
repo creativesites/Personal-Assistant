@@ -10,6 +10,8 @@ import { apiClient } from '@/lib/api'
 // discipline every other wizard step uses.
 
 export interface CareerProfile {
+  fullName: string | null
+  email: string | null
   headline: string | null
   summary: string | null
   careerGoalsText: string | null

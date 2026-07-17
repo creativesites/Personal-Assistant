@@ -38,6 +38,13 @@ function parseDate(value?: string | null): Date | null {
 export function computeCvHealth(data: CvRenderData): CvHealthResult {
   const issues: CvHealthIssue[] = [];
 
+  if (!data.contactLine.includes('@')) {
+    issues.push({
+      key: 'missing_email', description: 'No email address on your profile.',
+      fixAction: 'Add your email in Personal Details.', points: 10,
+    });
+  }
+
   if (!data.contactLine.toLowerCase().includes('linkedin') && !data.contactLine.includes('linkedin.com')) {
     issues.push({
       key: 'missing_linkedin', description: 'No LinkedIn URL on your profile.',

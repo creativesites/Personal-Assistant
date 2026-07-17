@@ -22,8 +22,10 @@ export function PersonalDetailsStep({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500">Your professional title, contact details, and links — the header of every CV generated from your profile.</p>
+      <p className="text-sm text-gray-500">Your name, professional title, contact details, and links — the header of every CV generated from your profile.</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {field('fullName', 'Full name', 'e.g. Chanda Mwape')}
+        {field('email', 'Email')}
         {field('headline', 'Professional title', 'e.g. Senior Software Engineer')}
         {field('phone', 'Phone')}
         {field('location', 'Location', 'City, Country')}
