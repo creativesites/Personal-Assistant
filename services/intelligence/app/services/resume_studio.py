@@ -155,19 +155,27 @@ async def score_resume_text(user_id: str, resume_text: str) -> dict:
     }
 
 
+_DOCUMENT_TYPE_LABELS = {
+    'resume': 'Resume', 'cover_letter': 'Cover Letter', 'application_letter': 'Application Letter',
+    'expression_of_interest': 'Expression of Interest', 'personal_statement': 'Personal Statement',
+    'motivation_letter': 'Motivation Letter', 'reference_sheet': 'Reference Sheet', 'portfolio_pdf': 'Portfolio',
+}
+
+
 async def create_resume_document(
     user_id: str, document_type: str, structured_data: dict, ai_generated: bool,
     title: str | None = None, source_document_id: str | None = None,
     embedding: list[float] | None = None,
 ) -> dict:
-    """Inserts a resume/cover_letter documents row. Deliberately not routed
-    through document_generator.py's create_document_row() — that function's
-    insert hard-codes the items/sections/subtotal shape this document type
-    doesn't have. contact_id is NULL (a resume is about the user, not a
-    contact) and document_category is 'hr', matching the pre-existing
-    CHECK vocabulary from migration 0043 — no schema change needed there."""
+    """Inserts a resume/cover_letter/CV Studio Phase 9 Supporting Document
+    row. Deliberately not routed through document_generator.py's
+    create_document_row() — that function's insert hard-codes the
+    items/sections/subtotal shape this document type doesn't have.
+    contact_id is NULL (these are about the user, not a contact) and
+    document_category is 'hr', matching the pre-existing CHECK vocabulary
+    from migration 0043 — no schema change needed there."""
     document_number = await assign_document_number(user_id, document_type)
-    label = 'Resume' if document_type == 'resume' else 'Cover Letter'
+    label = _DOCUMENT_TYPE_LABELS.get(document_type, document_type.replace('_', ' ').title())
     resolved_title = title or f'{label} {document_number}'
 
     pool = await get_pool()

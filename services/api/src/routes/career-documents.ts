@@ -30,15 +30,24 @@ async function callIntelligence<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// CV Studio Phase 9 (docs/CV_STUDIO_PLAN.md §12, §13) — the six new
+// document types added alongside resume/cover_letter.
+const LETTER_DOCUMENT_TYPES = [
+  'cover_letter', 'application_letter', 'expression_of_interest',
+  'personal_statement', 'motivation_letter',
+] as const;
+const CAREER_DOCUMENT_TYPES = [...LETTER_DOCUMENT_TYPES, 'resume', 'reference_sheet', 'portfolio_pdf'];
+
 export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<void> {
-  // ── GET /api/career/documents — list resumes/cover letters (Resume Studio's
-  // document list), newest first.
+  // ── GET /api/career/documents — list every career document (resumes,
+  // cover letters, and CV Studio Phase 9's Supporting Documents), newest
+  // first.
   fastify.get('/api/career/documents', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { rows } = await db.query(
-      `SELECT * FROM documents WHERE user_id = $1 AND document_type IN ('resume', 'cover_letter')
+      `SELECT * FROM documents WHERE user_id = $1 AND document_type = ANY($2::text[])
        ORDER BY created_at DESC`,
-      [userId],
+      [userId, CAREER_DOCUMENT_TYPES],
     );
     return reply.send({ documents: rows.map(formatDocument) });
   });
@@ -177,5 +186,142 @@ export async function careerDocumentsRoutes(fastify: FastifyInstance): Promise<v
       fastify.log.error({ err }, 'career_resume_generate_pdf_error');
       return reply.code(500).send({ error: 'Failed to generate PDF' });
     }
+  });
+
+  // ── POST /api/career/letters/compose — CV Studio Phase 9 Cover Letter
+  // Studio (§12). Deliberately NOT the old invent-from-instruction flow
+  // (/api/career/cover-letter above, kept as-is per Phase 1's deliberate
+  // deferral) — the body here is real, user-composed text (drafted, picked
+  // from real achievements, or AI-polished via the existing generic
+  // /api/career/cv-assistant/rewrite endpoint) that this route only saves
+  // and renders, never generates from scratch. Covers cover_letter and its
+  // four Phase 9 siblings, which all share the exact same structured_data
+  // shape.
+  fastify.post('/api/career/letters/compose', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const body = z.object({
+      documentType: z.enum(LETTER_DOCUMENT_TYPES),
+      recipientName: z.string().max(255).nullable().optional(),
+      companyName: z.string().max(255).nullable().optional(),
+      body: z.string().min(1).max(8000),
+      signOff: z.string().max(500).optional(),
+      title: z.string().max(255).optional(),
+    }).parse(request.body);
+
+    const { rows: [user] } = await db.query<{ full_name: string | null; email: string }>(
+      'SELECT full_name, email FROM users WHERE id = $1', [userId],
+    );
+    const fullName = user?.full_name || user?.email || 'Applicant';
+
+    let documentId: string;
+    try {
+      const result = await callIntelligence<{ document: { id: string } }>('/internal/career/documents/save', {
+        user_id: userId,
+        document_type: body.documentType,
+        structured_data: {
+          recipientName: body.recipientName ?? null,
+          companyName: body.companyName ?? null,
+          body: body.body,
+          signOff: body.signOff ?? `Sincerely,\n${fullName}`,
+        },
+        title: body.title ?? null,
+      });
+      documentId = result.document.id;
+    } catch (err) {
+      fastify.log.error({ err }, 'career_letter_compose_error');
+      return reply.code(502).send({ error: 'Failed to save this document' });
+    }
+
+    try {
+      await renderAndSaveDocument(documentId, userId);
+    } catch (err) {
+      fastify.log.error({ err }, 'career_letter_render_error');
+    }
+
+    const { rows: [doc] } = await db.query('SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId]);
+    return reply.code(201).send({ document: formatDocument(doc) });
+  });
+
+  // ── POST /api/career/reference-sheet — CV Studio Phase 9 Supporting
+  // Documents (§13). A rendered view of career_references — no AI call,
+  // no user input beyond an optional title.
+  fastify.post('/api/career/reference-sheet', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { title } = z.object({ title: z.string().max(255).optional() }).parse(request.body ?? {});
+
+    const { rows: references } = await db.query(
+      'SELECT name, company, phone, email, relationship FROM career_references WHERE user_id = $1 ORDER BY sort_order ASC',
+      [userId],
+    );
+    if (references.length === 0) {
+      return reply.code(400).send({ error: 'No references on file yet — add some in your Master Career Profile first' });
+    }
+
+    let documentId: string;
+    try {
+      const result = await callIntelligence<{ document: { id: string } }>('/internal/career/documents/save', {
+        user_id: userId,
+        document_type: 'reference_sheet',
+        structured_data: {
+          references: references.map(r => ({
+            name: r.name, company: r.company, phone: r.phone, email: r.email, relationship: r.relationship,
+          })),
+        },
+        title: title ?? null,
+      });
+      documentId = result.document.id;
+    } catch (err) {
+      fastify.log.error({ err }, 'career_reference_sheet_error');
+      return reply.code(502).send({ error: 'Failed to generate reference sheet' });
+    }
+
+    try {
+      await renderAndSaveDocument(documentId, userId);
+    } catch (err) {
+      fastify.log.error({ err }, 'career_reference_sheet_render_error');
+    }
+
+    const { rows: [doc] } = await db.query('SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId]);
+    return reply.code(201).send({ document: formatDocument(doc) });
+  });
+
+  // ── POST /api/career/portfolio-pdf — CV Studio Phase 9 Supporting
+  // Documents (§13). A rendered view of the user's portfolio-visible
+  // projects (projects.is_portfolio_visible, CV Studio Phase 1) — no AI
+  // call.
+  fastify.post('/api/career/portfolio-pdf', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { title } = z.object({ title: z.string().max(255).optional() }).parse(request.body ?? {});
+
+    const { rows: projects } = await db.query(
+      'SELECT title, description FROM projects WHERE user_id = $1 AND is_portfolio_visible = TRUE ORDER BY created_at DESC',
+      [userId],
+    );
+    if (projects.length === 0) {
+      return reply.code(400).send({ error: 'No portfolio-visible projects yet — mark a project as portfolio-visible first' });
+    }
+
+    let documentId: string;
+    try {
+      const result = await callIntelligence<{ document: { id: string } }>('/internal/career/documents/save', {
+        user_id: userId,
+        document_type: 'portfolio_pdf',
+        structured_data: { projects: projects.map(p => ({ title: p.title, description: p.description })) },
+        title: title ?? null,
+      });
+      documentId = result.document.id;
+    } catch (err) {
+      fastify.log.error({ err }, 'career_portfolio_pdf_error');
+      return reply.code(502).send({ error: 'Failed to generate portfolio PDF' });
+    }
+
+    try {
+      await renderAndSaveDocument(documentId, userId);
+    } catch (err) {
+      fastify.log.error({ err }, 'career_portfolio_pdf_render_error');
+    }
+
+    const { rows: [doc] } = await db.query('SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId]);
+    return reply.code(201).send({ document: formatDocument(doc) });
   });
 }

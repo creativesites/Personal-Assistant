@@ -8,6 +8,8 @@ import Minimal from './templates/Minimal';
 import Modern from './templates/Modern';
 import Resume from './templates/Resume';
 import CoverLetter from './templates/CoverLetter';
+import ReferenceSheet from './templates/ReferenceSheet';
+import PortfolioPdf from './templates/PortfolioPdf';
 import CvModern from './templates/CvModern';
 import CvExecutive from './templates/CvExecutive';
 import CvCreative from './templates/CvCreative';
@@ -73,6 +75,30 @@ export async function renderCoverLetterPdf(
     body: structuredData.body ?? '',
     signOff: structuredData.signOff ?? `Sincerely,\n${fullName}`,
   }) as any;
+  const { renderToBuffer } = await import('@react-pdf/renderer') as any;
+  return renderToBuffer(element);
+}
+
+// CV Studio Phase 9 (docs/CV_STUDIO_PLAN.md §13) — Supporting Documents.
+// reference_sheet/portfolio_pdf each get their own plain template (a rendered
+// view of career_references / portfolio-visible projects); the four
+// letter-shaped types (cover_letter and its Phase 9 siblings
+// application_letter/expression_of_interest/personal_statement/
+// motivation_letter) all reuse renderCoverLetterPdf verbatim — they share
+// the exact same {recipientName, companyName, body, signOff} shape, so a
+// second near-identical template would be pure duplication.
+export async function renderReferenceSheetPdf(
+  structuredData: Record<string, any>, fullName: string, contactLine: string,
+): Promise<Buffer> {
+  const element = ReferenceSheet({ fullName, contactLine, references: structuredData.references ?? [] }) as any;
+  const { renderToBuffer } = await import('@react-pdf/renderer') as any;
+  return renderToBuffer(element);
+}
+
+export async function renderPortfolioPdf(
+  structuredData: Record<string, any>, fullName: string, contactLine: string,
+): Promise<Buffer> {
+  const element = PortfolioPdf({ fullName, contactLine, projects: structuredData.projects ?? [] }) as any;
   const { renderToBuffer } = await import('@react-pdf/renderer') as any;
   return renderToBuffer(element);
 }

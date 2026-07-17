@@ -7,6 +7,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, EmptyState, Input, Modal, SkeletonCard, Textarea, useToast } from '@/components/ui'
 import { ResumeStudio } from './_components/resume-studio'
+import { CoverLetterStudio } from './_components/cover-letter-studio'
 import { OpportunityCard, type CareerOpportunity } from './_components/opportunity-card'
 import { CareerRadar } from './_components/career-radar'
 
@@ -272,6 +273,8 @@ export default function CareerPage() {
         )}
 
         {token && <ResumeStudio token={token} opportunities={opportunities.map(o => ({ id: o.id, title: o.title, companyOrOrg: o.companyOrOrg }))} />}
+
+        {token && <CoverLetterStudio token={token} opportunities={opportunities.map(o => ({ id: o.id, title: o.title, companyOrOrg: o.companyOrOrg }))} />}
 
         <div>
           <div className="flex items-center justify-between mb-3">

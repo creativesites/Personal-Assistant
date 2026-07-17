@@ -208,3 +208,33 @@ async def opportunity_tailoring_suggestions(opportunity_id: str, body: CvTailori
         return await generate_tailoring_suggestions(body.user_id, body.cv_text, opportunity_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+# CV Studio Phase 9 (§12, §13) — save a user-composed (never AI-invented-
+# from-scratch) letter or supporting document. One shared route for all six
+# new document types rather than six near-identical ones — the shape
+# differs only in structured_data, which Node already assembled from real
+# career_references/projects/user-drafted text before calling this.
+_SAVEABLE_DOCUMENT_TYPES = {
+    'cover_letter', 'application_letter', 'expression_of_interest',
+    'personal_statement', 'motivation_letter', 'reference_sheet', 'portfolio_pdf',
+}
+
+
+class SaveCareerDocumentRequest(BaseModel):
+    user_id: str
+    document_type: str
+    structured_data: dict
+    title: str | None = None
+    ai_generated: bool = False
+
+
+@router.post('/documents/save')
+async def save_career_document(body: SaveCareerDocumentRequest):
+    if body.document_type not in _SAVEABLE_DOCUMENT_TYPES:
+        raise HTTPException(status_code=400, detail=f'Unsupported document_type: {body.document_type}')
+    document = await create_resume_document(
+        body.user_id, body.document_type, body.structured_data,
+        ai_generated=body.ai_generated, title=body.title,
+    )
+    return {'document': document}

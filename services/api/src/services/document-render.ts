@@ -1,8 +1,21 @@
 import * as fs from 'fs/promises';
 import { db } from '../lib/db';
 import { config } from '../config';
-import { renderDocumentPdf, renderResumePdf, renderCoverLetterPdf, storagePathFor } from '../lib/pdf/render';
+import {
+  renderDocumentPdf, renderResumePdf, renderCoverLetterPdf, renderReferenceSheetPdf, renderPortfolioPdf,
+  storagePathFor,
+} from '../lib/pdf/render';
 import type { BusinessProfileRow, ContactRow, DocumentRow } from '../lib/pdf/context';
+
+// CV Studio Phase 9 (docs/CV_STUDIO_PLAN.md §12, §13) — the four letter-
+// shaped Supporting Document types added this phase reuse cover_letter's
+// exact render path/structured_data shape; reference_sheet/portfolio_pdf
+// get their own templates but share the same "no business/contact" render
+// branch as resume/cover_letter below.
+const CAREER_DOCUMENT_TYPES = new Set([
+  'resume', 'cover_letter', 'application_letter', 'expression_of_interest',
+  'personal_statement', 'motivation_letter', 'reference_sheet', 'portfolio_pdf',
+]);
 
 export interface RenderResult {
   id: string;
@@ -24,7 +37,7 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
   );
   if (!document) throw new NotFoundError('Document not found');
 
-  if (document.document_type === 'resume' || document.document_type === 'cover_letter') {
+  if (CAREER_DOCUMENT_TYPES.has(document.document_type)) {
     return renderAndSaveResumeOrCoverLetter(document, documentId, userId);
   }
 
@@ -108,7 +121,11 @@ async function renderAndSaveResumeOrCoverLetter(
 
   const pdfBuffer = document.document_type === 'resume'
     ? await renderResumePdf(document.structured_data ?? {}, fullName, contactLine)
-    : await renderCoverLetterPdf(document.structured_data ?? {}, fullName, contactLine);
+    : document.document_type === 'reference_sheet'
+    ? await renderReferenceSheetPdf(document.structured_data ?? {}, fullName, contactLine)
+    : document.document_type === 'portfolio_pdf'
+    ? await renderPortfolioPdf(document.structured_data ?? {}, fullName, contactLine)
+    : await renderCoverLetterPdf(document.structured_data ?? {}, fullName, contactLine); // every letter-shaped type
 
   const storagePath = await storagePathFor(userId, documentId);
   await fs.writeFile(storagePath, pdfBuffer);
