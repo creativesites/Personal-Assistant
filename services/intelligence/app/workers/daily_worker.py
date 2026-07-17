@@ -18,6 +18,7 @@ from ..services.advisor_memory_learner import get_advisor_memory_learner
 from ..services.curiosity_engine import get_curiosity_engine
 from ..services.project_progress import ProjectProgressService
 from ..services.business_manager import BusinessManagerService
+from ..services.business_manager_insights import BusinessManagerInsightsService
 from ..services.reality_engine import RealityEngineService
 from ..services.career_coach import get_career_coach
 from ..services.job_discovery import get_job_discovery
@@ -32,6 +33,7 @@ _inventory_forecast = InventoryForecastService()
 _reflection = ReflectionService()
 _project_progress = ProjectProgressService()
 _business_manager = BusinessManagerService()
+_business_manager_insights = BusinessManagerInsightsService()
 _reality_engine = RealityEngineService()
 
 _proactive_queue     = Queue('proactive.generate_daily', {'connection': redis_conn_opts()})
@@ -55,6 +57,7 @@ _reality_engine_hourly_queue = Queue('reality.hourly_sweep', {'connection': redi
 _reality_engine_daily_queue = Queue('reality.daily_sweep', {'connection': redis_conn_opts()})
 _career_coach_queue = Queue('career.check_coach_nudges', {'connection': redis_conn_opts()})
 _job_discovery_queue = Queue('career.run_job_discovery', {'connection': redis_conn_opts()})
+_business_manager_insights_queue = Queue('business.check_manager_insights', {'connection': redis_conn_opts()})
 
 
 async def _process_proactive(job, token: str):
@@ -561,6 +564,35 @@ async def run_job_discovery_scheduler() -> None:
             await _job_discovery_queue.add('run_job_discovery', {})
         except Exception as exc:
             log.error('job_discovery_enqueue_failed', error=str(exc))
+
+
+async def _process_business_manager_insights(job, token: str):
+    count = await _business_manager_insights.generate_for_all_users()
+    return {'ok': True, 'count': count}
+
+
+def create_business_manager_insights_worker() -> Worker:
+    return Worker('business.check_manager_insights', _process_business_manager_insights, {'connection': redis_conn_opts()})
+
+
+async def run_business_manager_insights_scheduler() -> None:
+    """Platform Polish Phase 3 (docs/PLATFORM_POLISH_PLAN.md §5.2): promotes
+    Studio's passive lowStock/thinMargin/supplierFlags insights into durable
+    business_events. Daily at 21:00 UTC — the next free slot after Career
+    Coach's 20:00 check."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        target = now.replace(hour=21, minute=0, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_secs = (target - now).total_seconds()
+        log.info('business_manager_insights_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('business_manager_insights_enqueue')
+            await _business_manager_insights_queue.add('check_manager_insights', {})
+        except Exception as exc:
+            log.error('business_manager_insights_enqueue_failed', error=str(exc))
 
 
 async def run_temporal_scheduler() -> None:

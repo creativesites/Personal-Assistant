@@ -98,6 +98,120 @@ class BusinessManagerService:
                 """
             )
 
+            # §5.5 — a wider net than the project/deal-scoped checks above:
+            # any contact already marked a customer who has NEVER had a
+            # single invoice or quotation generated, regardless of whether
+            # they have an active project or a closed deal on file.
+            customers_without_any_invoice = await conn.fetch(
+                """
+                SELECT c.id AS contact_id, c.user_id,
+                       COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
+                FROM contacts c
+                LEFT JOIN advisor_user_profiles aup ON aup.user_id = c.user_id
+                WHERE c.customer_status = 'customer'
+                  AND COALESCE(aup.business_manager_paused, FALSE) = FALSE
+                  AND NOT EXISTS (
+                    SELECT 1 FROM documents d
+                    WHERE d.user_id = c.user_id AND d.contact_id = c.id
+                      AND d.document_type IN ('invoice', 'quotation')
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM business_events be
+                    WHERE be.user_id = c.user_id AND be.event_type = 'invoice_gap'
+                      AND be.payload->>'contactId' = c.id::text
+                  )
+                """
+            )
+
+            # §5.6 — dormant-customer win-back: a customer whose relationship
+            # health is declining and who hasn't purchased (or been
+            # invoiced) in 60+ days. Commercially framed, distinct from the
+            # personal check_in/reconnect nudges clock_engine.py generates
+            # for non-customer contacts.
+            dormant_customers = await conn.fetch(
+                """
+                SELECT * FROM (
+                  SELECT c.id AS contact_id, c.user_id,
+                         COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+                         GREATEST(
+                           COALESCE(inv.last_invoice_at, '-infinity'::timestamptz),
+                           COALESCE(cp.last_purchase_at, '-infinity'::timestamptz)
+                         ) AS last_commercial_activity_at
+                  FROM contacts c
+                  JOIN relationships r ON r.contact_id = c.id AND r.user_id = c.user_id
+                  LEFT JOIN advisor_user_profiles aup ON aup.user_id = c.user_id
+                  LEFT JOIN LATERAL (
+                    SELECT MAX(created_at) AS last_invoice_at FROM documents
+                    WHERE contact_id = c.id AND user_id = c.user_id AND document_type IN ('invoice', 'quotation')
+                  ) inv ON true
+                  LEFT JOIN LATERAL (
+                    SELECT MAX(updated_at) AS last_purchase_at FROM contact_products
+                    WHERE contact_id = c.id AND user_id = c.user_id AND relation_type = 'purchased'
+                  ) cp ON true
+                  WHERE c.customer_status = 'customer' AND r.health_trend = 'declining'
+                    AND COALESCE(aup.business_manager_paused, FALSE) = FALSE
+                    AND NOT EXISTS (
+                      SELECT 1 FROM business_events be
+                      WHERE be.user_id = c.user_id AND be.event_type = 'dormant_customer_alert'
+                        AND be.contact_id = c.id AND be.created_at > NOW() - INTERVAL '30 days'
+                    )
+                ) x
+                WHERE x.last_commercial_activity_at > '-infinity'::timestamptz
+                  AND x.last_commercial_activity_at < NOW() - INTERVAL '60 days'
+                """
+            )
+
+            for row in dormant_customers:
+                if not await try_consume_credit(row['user_id'], 'nudge'):
+                    log.info('business_manager_skipped_no_credits', contact_id=row['contact_id'])
+                    continue
+                days_dormant = (await conn.fetchval(
+                    'SELECT EXTRACT(DAY FROM NOW() - $1::timestamptz)::int', row['last_commercial_activity_at'],
+                ))
+                evidence = f"\"{row['contact_name']}\" hasn't purchased or been invoiced in {days_dormant} days, and their relationship health is declining"
+                title = f"Win back {row['contact_name']}?"
+                body = (
+                    f"{row['contact_name']} hasn't bought anything in {days_dormant} days and their "
+                    f"relationship health is trending down — want Zuri to draft a check-in or a special offer?"
+                )
+                draft = f"Hi {row['contact_name']}, it's been a while — just checking in. Anything I can help with?"
+                event_id = await _business_events.record(
+                    user_id=str(row['user_id']), event_type='dormant_customer_alert', contact_id=str(row['contact_id']),
+                    confidence=0.7, evidence=[evidence], payload={'contactId': str(row['contact_id']), 'daysDormant': days_dormant},
+                )
+                await conn.execute(
+                    """INSERT INTO proactive_queue
+                         (user_id, contact_id, suggestion_type, title, body, draft_message, priority,
+                          status, suggested_for_date, business_event_id)
+                       VALUES ($1, $2, 'reconnect', $3, $4, $5, 3, 'pending', CURRENT_DATE, $6)""",
+                    row['user_id'], row['contact_id'], title, body, draft, event_id,
+                )
+                log.info('business_manager_dormant_customer', event_id=event_id)
+                created += 1
+
+            for row in customers_without_any_invoice:
+                if not await try_consume_credit(row['user_id'], 'nudge'):
+                    log.info('business_manager_skipped_no_credits', contact_id=row['contact_id'])
+                    continue
+                evidence = f"\"{row['contact_name']}\" is marked as a customer but has never had an invoice or quotation on file"
+                title = f"No invoice on file: {row['contact_name']}"
+                body = (
+                    f"{row['contact_name']} is marked as a customer but has never had an invoice or "
+                    f"quotation generated — want Zuri to draft one?"
+                )
+                event_id = await _business_events.record(
+                    user_id=str(row['user_id']), event_type='invoice_gap', contact_id=str(row['contact_id']),
+                    confidence=0.6, evidence=[evidence], payload={'contactId': str(row['contact_id'])},
+                )
+                await conn.execute(
+                    """INSERT INTO proactive_queue
+                         (user_id, contact_id, suggestion_type, title, body, priority, status, suggested_for_date, business_event_id)
+                       VALUES ($1, $2, 'follow_up', $3, $4, 4, 'pending', CURRENT_DATE, $5)""",
+                    row['user_id'], row['contact_id'], title, body, event_id,
+                )
+                log.info('business_manager_invoice_gap', kind='customer_never_invoiced', event_id=event_id)
+                created += 1
+
             for row in projects_without_invoice:
                 if not await try_consume_credit(row['user_id'], 'nudge'):
                     log.info('business_manager_skipped_no_credits', project_id=row['project_id'])

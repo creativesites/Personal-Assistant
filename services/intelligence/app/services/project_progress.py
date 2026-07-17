@@ -40,7 +40,9 @@ class ProjectProgressService:
                 FROM project_milestones pm
                 JOIN projects p ON p.id = pm.project_id
                 JOIN contacts c ON c.id = p.contact_id
+                LEFT JOIN advisor_user_profiles aup ON aup.user_id = p.user_id
                 WHERE pm.status = 'completed' AND pm.requires_client_approval = TRUE AND pm.approved_at IS NULL
+                  AND COALESCE(aup.business_manager_paused, FALSE) = FALSE
                   AND NOT EXISTS (
                     SELECT 1 FROM project_events pe
                     WHERE pe.project_id = p.id AND pe.event_type = 'milestone_approval_suggested'
@@ -58,12 +60,14 @@ class ProjectProgressService:
                 FROM projects p
                 JOIN contacts c ON c.id = p.contact_id
                 JOIN project_tasks pt ON pt.project_id = p.id
+                LEFT JOIN advisor_user_profiles aup ON aup.user_id = p.user_id
                 WHERE p.status = 'active'
+                  AND COALESCE(aup.business_manager_paused, FALSE) = FALSE
                   AND NOT EXISTS (
                     SELECT 1 FROM project_events pe
                     WHERE pe.project_id = p.id AND pe.event_type = 'progress_threshold_suggested'
                   )
-                GROUP BY p.id, p.user_id, p.contact_id, p.title, c.custom_name, c.display_name, c.phone_number
+                GROUP BY p.id, p.user_id, p.contact_id, p.title, c.custom_name, c.display_name, c.phone_number, aup.business_manager_paused
                 HAVING COUNT(pt.id) > 0
                    AND COUNT(pt.id) FILTER (WHERE pt.status = 'done')::float / COUNT(pt.id) >= $1
                 """,

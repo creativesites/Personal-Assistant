@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
+import { mergeContacts } from '../lib/contact-merge';
 
 // Business Workspace Phase 2 §7 — the Inbox AI Action card's signal.
 // 'quoted' means the customer asked for pricing; if a live quotation
@@ -86,7 +87,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       LEFT JOIN relationships r        ON r.contact_id  = co.id AND r.user_id  = $1
       LEFT JOIN contact_profiles cp    ON cp.contact_id = co.id AND cp.user_id = $1
       LEFT JOIN contact_tags ct        ON ct.contact_id = co.id AND ct.user_id = $1
-      WHERE co.user_id = $1 AND co.is_group = false AND co.archived_at IS NULL
+      WHERE co.user_id = $1 AND co.is_group = false AND co.archived_at IS NULL AND co.merged_into_id IS NULL
       GROUP BY co.id, r.id, cp.id
       ORDER BY r.importance_tier ASC NULLS LAST, co.last_message_at DESC NULLS LAST
       LIMIT 500`,
@@ -1147,5 +1148,67 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         occurredAt: r.occurred_at,
       })),
     });
+  });
+
+  // ── Duplicate detection + merge (docs/PLATFORM_POLISH_PLAN.md §5.3) ─────────
+  // Plain SQL, no fuzzy-string library — a normalized-phone match (last 9
+  // digits, tolerant of country-code prefix variants) or an exact
+  // case-insensitive name match between two distinct, not-yet-merged
+  // contacts for the same user. An honest simplification of true fuzzy
+  // matching, not Levenshtein distance — same "ship a real slice" discipline
+  // as every other deterministic detector in this codebase.
+  fastify.get('/api/contacts/duplicates', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const { rows } = await db.query(
+      `SELECT
+         a.id AS contact_a_id, COALESCE(a.custom_name, a.display_name, a.phone_number) AS contact_a_name,
+         b.id AS contact_b_id, COALESCE(b.custom_name, b.display_name, b.phone_number) AS contact_b_name,
+         CASE WHEN RIGHT(REGEXP_REPLACE(a.phone_number, '\\D', '', 'g'), 9) =
+                   RIGHT(REGEXP_REPLACE(b.phone_number, '\\D', '', 'g'), 9)
+              THEN 'phone' ELSE 'name' END AS match_reason
+       FROM contacts a
+       JOIN contacts b ON b.user_id = a.user_id AND b.id > a.id
+       WHERE a.user_id = $1 AND a.is_group = false AND b.is_group = false
+         AND a.merged_into_id IS NULL AND b.merged_into_id IS NULL
+         AND (
+           (a.phone_number IS NOT NULL AND b.phone_number IS NOT NULL
+            AND LENGTH(REGEXP_REPLACE(a.phone_number, '\\D', '', 'g')) >= 9
+            AND RIGHT(REGEXP_REPLACE(a.phone_number, '\\D', '', 'g'), 9) =
+                RIGHT(REGEXP_REPLACE(b.phone_number, '\\D', '', 'g'), 9))
+           OR
+           (COALESCE(a.custom_name, a.display_name) IS NOT NULL
+            AND LOWER(TRIM(COALESCE(a.custom_name, a.display_name))) = LOWER(TRIM(COALESCE(b.custom_name, b.display_name))))
+         )
+       ORDER BY match_reason, contact_a_name
+       LIMIT 50`,
+      [userId],
+    );
+
+    return reply.send({
+      duplicates: rows.map((r: any) => ({
+        contactA: { id: r.contact_a_id, name: r.contact_a_name },
+        contactB: { id: r.contact_b_id, name: r.contact_b_name },
+        matchReason: r.match_reason,
+      })),
+    });
+  });
+
+  fastify.post('/api/contacts/:id/merge', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { duplicateContactId } = request.body as { duplicateContactId?: string };
+
+    if (!duplicateContactId) {
+      return reply.code(400).send({ error: 'duplicateContactId is required' });
+    }
+
+    try {
+      await mergeContacts(userId, id, duplicateContactId);
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message ?? 'Merge failed' });
+    }
+
+    return reply.send({ ok: true, primaryContactId: id, mergedContactId: duplicateContactId });
   });
 }

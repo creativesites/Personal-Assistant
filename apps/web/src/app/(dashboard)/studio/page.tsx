@@ -536,6 +536,13 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
                 contradiction_invoice_paid_deal_open: 'Invoice paid, deal still open',
                 contradiction_negative_inventory: 'Negative inventory detected',
                 contradiction_project_complete_tasks_incomplete: 'Project complete, tasks pending',
+                // Business Manager insight promotion (docs/PLATFORM_POLISH_PLAN.md §5.2)
+                low_stock_alert: 'Out of stock',
+                thin_margin_alert: 'Thin margin',
+                supplier_flag_alert: 'Supplier flagged',
+                duplicate_contact_detected: 'Possible duplicate contact',
+                unmet_demand_alert: 'Unmet demand detected',
+                dormant_customer_alert: 'Dormant customer',
               }
               const label = labels[ev.eventType] ?? ev.eventType.replace(/_/g, ' ')
               const detail = ev.payload?.name ?? ev.payload?.company ?? ev.contactName

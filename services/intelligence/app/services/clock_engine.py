@@ -26,7 +26,11 @@ class ClockEngine:
                 user_id,
             )
 
-            # Clocks due for checking (not checked in last 4 hours)
+            # Clocks due for checking (not checked in last 4 hours). A
+            # customer contact's reconnect-window nudge is business-relevant
+            # and gated by business_manager_paused; a non-customer contact's
+            # clock is a personal check-in and always evaluates regardless
+            # of that toggle.
             clocks = await conn.fetch(
                 """SELECT rc.id, rc.contact_id, rc.clock_type,
                           rc.avg_days_between_messages, rc.std_dev_days,
@@ -37,10 +41,13 @@ class ClockEngine:
                    FROM relationship_clocks rc
                    JOIN contacts co ON co.id = rc.contact_id
                    JOIN relationships r ON r.contact_id = rc.contact_id AND r.user_id = $1
+                   LEFT JOIN advisor_user_profiles aup ON aup.user_id = rc.user_id
                    WHERE rc.user_id = $1
                      AND rc.is_active = TRUE
                      AND (rc.last_checked_at IS NULL
                           OR rc.last_checked_at < NOW() - INTERVAL '4 hours')
+                     AND (co.customer_status != 'customer'
+                          OR COALESCE(aup.business_manager_paused, FALSE) = FALSE)
                    ORDER BY r.importance_tier ASC, r.health_score ASC
                    LIMIT 50""",
                 user_id,

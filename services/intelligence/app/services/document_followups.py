@@ -26,10 +26,12 @@ class DocumentFollowupService:
                        (d.structured_data->>'validUntil')::date AS valid_until
                 FROM documents d
                 JOIN contacts c ON c.id = d.contact_id
+                LEFT JOIN advisor_user_profiles aup ON aup.user_id = d.user_id
                 WHERE d.document_type = 'quotation'
                   AND d.status NOT IN ('accepted', 'rejected', 'paid', 'archived', 'expired')
                   AND d.structured_data->>'validUntil' IS NOT NULL
                   AND (d.structured_data->>'validUntil')::date < CURRENT_DATE
+                  AND COALESCE(aup.business_manager_paused, FALSE) = FALSE
                   AND NOT EXISTS (
                     SELECT 1 FROM document_events de
                     WHERE de.document_id = d.id AND de.event_type = 'follow_up_suggested'
@@ -44,10 +46,12 @@ class DocumentFollowupService:
                        (d.structured_data->>'dueDate')::date AS due_date
                 FROM documents d
                 JOIN contacts c ON c.id = d.contact_id
+                LEFT JOIN advisor_user_profiles aup ON aup.user_id = d.user_id
                 WHERE d.document_type = 'invoice'
                   AND d.status NOT IN ('paid', 'archived')
                   AND d.structured_data->>'dueDate' IS NOT NULL
                   AND (d.structured_data->>'dueDate')::date < CURRENT_DATE
+                  AND COALESCE(aup.business_manager_paused, FALSE) = FALSE
                   AND NOT EXISTS (
                     SELECT 1 FROM document_events de
                     WHERE de.document_id = d.id AND de.event_type = 'follow_up_suggested'
