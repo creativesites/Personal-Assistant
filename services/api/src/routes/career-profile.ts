@@ -14,6 +14,12 @@ const gate = [authenticate, requireFeature('career_os')]
 
 const REMOTE_PREFERENCES = ['onsite', 'hybrid', 'remote', 'no_preference'] as const
 const RELOCATION_PREFERENCES = ['open', 'not_open', 'depends'] as const
+// Career OS Living Companion redesign — career_mode drives /career's
+// section ordering (job_seeker/employed/freelancer/business_owner/
+// networking); experienceLevel/employmentTypePreference are the two
+// genuinely-missing fields the onboarding quick-start form needs.
+const CAREER_MODES = ['job_seeker', 'employed', 'freelancer', 'business_owner', 'networking'] as const
+const EXPERIENCE_LEVELS = ['entry', 'mid', 'senior', 'lead', 'executive'] as const
 
 const skillSchema = z.object({
   name: z.string().min(1).max(100),
@@ -73,6 +79,14 @@ const patchProfileBody = z.object({
   referencesMode: z.enum(['available_on_request', 'listed']).optional(),
   defaultPageSize: z.enum(['A4', 'Letter']).optional(),
   useCvTerminology: z.boolean().optional(),
+  // Career OS Living Companion redesign
+  careerMode: z.enum(CAREER_MODES).nullable().optional(),
+  experienceLevel: z.enum(EXPERIENCE_LEVELS).nullable().optional(),
+  employmentTypePreference: z.array(z.string().max(30)).optional(),
+  // Special-cased below rather than a plain scalar column — this marks a
+  // moment (onboarding finished), so the timestamp is always server-set via
+  // NOW(), never accepted from the client.
+  onboardingCompleted: z.boolean().optional(),
 })
 
 const DEFAULT_PROFILE = {
@@ -84,6 +98,7 @@ const DEFAULT_PROFILE = {
   phone: null, location: null, websiteUrl: null, drivingLicence: null, nationality: null,
   passportOrNrc: null, availability: null, noticePeriod: null, interests: [],
   referencesMode: 'available_on_request', defaultPageSize: 'A4', useCvTerminology: true,
+  careerMode: null, onboardingCompletedAt: null, experienceLevel: null, employmentTypePreference: [],
 }
 
 function profileApiShape(r: any) {
@@ -120,6 +135,10 @@ function profileApiShape(r: any) {
     referencesMode: r.references_mode,
     defaultPageSize: r.default_page_size,
     useCvTerminology: r.use_cv_terminology,
+    careerMode: r.career_mode,
+    onboardingCompletedAt: r.onboarding_completed_at,
+    experienceLevel: r.experience_level,
+    employmentTypePreference: r.employment_type_preference ?? [],
     updatedAt: r.updated_at,
   }
 }
@@ -129,6 +148,7 @@ const JSONB_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
 }
 const ARRAY_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   target_roles: 'targetRoles', target_industries: 'targetIndustries', interests: 'interests',
+  employment_type_preference: 'employmentTypePreference',
 }
 const SCALAR_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   full_name: 'fullName', email: 'email',
@@ -141,6 +161,7 @@ const SCALAR_COLUMNS: Record<string, keyof z.infer<typeof patchProfileBody>> = {
   driving_licence: 'drivingLicence', nationality: 'nationality', passport_or_nrc: 'passportOrNrc',
   availability: 'availability', notice_period: 'noticePeriod', references_mode: 'referencesMode',
   default_page_size: 'defaultPageSize', use_cv_terminology: 'useCvTerminology',
+  career_mode: 'careerMode', experience_level: 'experienceLevel',
 }
 
 export async function careerProfileRoutes(fastify: FastifyInstance): Promise<void> {
@@ -193,6 +214,9 @@ export async function careerProfileRoutes(fastify: FastifyInstance): Promise<voi
       if (value === undefined) continue
       sets.push(`${col} = $${idx++}`)
       values.push(value)
+    }
+    if (body.onboardingCompleted) {
+      sets.push('onboarding_completed_at = NOW()')
     }
 
     await db.query(

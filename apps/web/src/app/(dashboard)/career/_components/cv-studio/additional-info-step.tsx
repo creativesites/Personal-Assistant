@@ -10,6 +10,13 @@ import type { CareerProfile } from './use-career-profile'
 
 const REMOTE_PREFERENCES = ['onsite', 'hybrid', 'remote', 'no_preference'] as const
 const RELOCATION_PREFERENCES = ['open', 'not_open', 'depends'] as const
+const CAREER_MODES = [
+  { value: 'job_seeker', label: 'Job Seeker' },
+  { value: 'employed', label: 'Employed, growing my career' },
+  { value: 'freelancer', label: 'Freelancer / Consultant' },
+  { value: 'business_owner', label: 'Business Owner' },
+  { value: 'networking', label: 'Networking-focused' },
+] as const
 
 export function AdditionalInfoStep({
   profile, updateField,
@@ -22,6 +29,19 @@ export function AdditionalInfoStep({
       <p className="text-sm text-gray-500">Availability, preferences, and interests — shown on your CV only where relevant.</p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">How Zuri helps you</label>
+          <select
+            defaultValue={profile.careerMode ?? ''}
+            onChange={e => updateField('careerMode', (e.target.value || null) as CareerProfile['careerMode'])}
+            className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">Not set</option>
+            {CAREER_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">Changes what Career OS prioritizes for you — not permanent, switch anytime.</p>
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">Willing to relocate</label>
           <select

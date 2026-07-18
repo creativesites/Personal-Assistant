@@ -36,6 +36,10 @@ export function startRedisSubscriber(io: Server): void {
     // auto-resolved because reality caught up with it (a reply was sent,
     // an invoice was created); lets the Proactive dock drop the row live.
     'reality.resolved:*',
+    // Career OS Living Companion redesign — job_discovery.py's restructured
+    // per-pass loop publishes live progress here as a run proceeds, same
+    // dual DB-row + Redis pattern history:progress:* already established.
+    'career.job_discovery.progress:*',
     (err) => {
       if (err) console.error('Redis psubscribe error:', err);
     },
@@ -55,9 +59,16 @@ export function startRedisSubscriber(io: Server): void {
       return;
     }
 
-    // channel format: "event_type:userId"  e.g. "whatsapp:qr:abc-123"
+    // channel format: "event_type:userId"  e.g. "whatsapp:qr:abc-123" (a
+    // multi-segment event type) or "reality.resolved:abc-123" (a single
+    // dotted segment — only one colon). Either shape needs at least 2 parts
+    // once split; a 2-part channel like the latter was previously dropped
+    // here entirely (guard required 3), which silently broke every
+    // single-colon channel (reality.resolved, advisor.reply_received,
+    // advisor.narration_ready, career.job_discovery.progress) despite each
+    // being documented as already wired end-to-end.
     const parts = channel.split(':');
-    if (parts.length < 3) return;
+    if (parts.length < 2) return;
 
     const userId = parts[parts.length - 1];
     // event = everything except the last segment

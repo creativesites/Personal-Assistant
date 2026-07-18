@@ -38,19 +38,28 @@ export interface CareerProfile {
   referencesMode: 'available_on_request' | 'listed'
   defaultPageSize: 'A4' | 'Letter'
   useCvTerminology: boolean
+  // Career OS Living Companion redesign
+  careerMode: 'job_seeker' | 'employed' | 'freelancer' | 'business_owner' | 'networking' | null
+  onboardingCompletedAt: string | null
+  experienceLevel: 'entry' | 'mid' | 'senior' | 'lead' | 'executive' | null
+  employmentTypePreference: string[]
+  skills?: { name: string; level?: string; yearsExperience?: number }[]
 }
 
 export function useCareerProfile(token: string) {
   const [profile, setProfile] = useState<CareerProfile | null>(null)
 
-  useEffect(() => {
+  const refetch = useCallback(() => {
+    if (!token) return
     apiClient<{ profile: CareerProfile }>('/api/career/profile', { token }).then(d => setProfile(d.profile))
   }, [token])
+
+  useEffect(refetch, [refetch])
 
   const updateField = useCallback(<K extends keyof CareerProfile>(key: K, value: CareerProfile[K]) => {
     setProfile(prev => (prev ? { ...prev, [key]: value } : prev))
     apiClient('/api/career/profile', { method: 'PATCH', token, body: JSON.stringify({ [key]: value }) }).catch(() => {})
   }, [token])
 
-  return { profile, updateField }
+  return { profile, updateField, refetch }
 }

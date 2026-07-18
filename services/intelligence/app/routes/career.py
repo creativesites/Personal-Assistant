@@ -104,6 +104,14 @@ async def score_existing_resume_route(document_id: str, body: ScoreExistingResum
 
 class RunJobDiscoveryRequest(BaseModel):
     user_id: str
+    # Career OS Living Companion redesign — Node creates the
+    # career_job_discovery_runs row up front (it owns the daily-cap
+    # bookkeeping and needs a runId to return to the client immediately,
+    # before this potentially multi-minute call even starts), and passes the
+    # id through so run_for_user() updates that same row instead of creating
+    # a second one.
+    run_id: str | None = None
+    is_manual: bool = True
 
 
 @router.post('/job-discovery/run')
@@ -116,7 +124,9 @@ async def run_job_discovery(body: RunJobDiscoveryRequest):
     this endpoint just runs the same underlying per-user logic and reports
     what it found, raising on a real failure so Node knows not to count it.
     """
-    opportunities_found = await get_job_discovery().run_for_user(body.user_id)
+    opportunities_found = await get_job_discovery().run_for_user(
+        body.user_id, run_id=body.run_id, is_manual=body.is_manual,
+    )
     return {'opportunitiesFound': opportunities_found}
 
 

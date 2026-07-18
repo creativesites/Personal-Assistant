@@ -19,6 +19,7 @@ dedicated tier signal exists yet. Cost is bounded further by a keyword
 pre-filter before any extraction AI call is spent, and a hard cap on total
 candidates extracted per run.
 """
+import json
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -27,6 +28,7 @@ import structlog
 from ..ai.client import get_ai_client
 from ..ai.prompts import EXTRACT_JOB_LISTING, PLAN_JOB_SEARCHES
 from ..database import get_pool
+from ..queue import publish_event
 from .companion_delivery import deliver_initiated_message
 from .web_search import get_web_search
 
@@ -103,6 +105,8 @@ def _parse_date(value) -> date | None:
 
 class JobDiscoveryService:
     async def run_for_all_users(self) -> int:
+        await self._archive_stale_opportunities()
+
         pool = await get_pool()
         async with pool.acquire() as conn:
             users = await conn.fetch(
@@ -115,12 +119,54 @@ class JobDiscoveryService:
         for u in users:
             user_id = str(u['user_id'])
             try:
-                total_found += await self.run_for_user(user_id)
+                total_found += await self.run_for_user(user_id, is_manual=False)
             except Exception as exc:
                 log.error('job_discovery_run_failed', user_id=user_id, error=str(exc))
         return total_found
 
-    async def run_for_user(self, user_id: str) -> int:
+    async def _archive_stale_opportunities(self) -> None:
+        """Career OS Living Companion redesign, Phase 6 (§6) — the daily
+        05:00 UTC cron already re-runs discovery once a day per user (a
+        genuine "daily refresh"); the one real gap was that nothing ever
+        expired a stale career_opportunities row. Mirrors Reality Engine's
+        own "cognitive garbage collection" convention (reality_engine.py's
+        run_daily_sweep) rather than inventing a new sweep pattern — a
+        `detected` row (never even looked at — shortlisted/applied/etc. all
+        mean the user acted on it) older than 30 days is archived, not
+        deleted, so it stays available for the "Detected" status filter's
+        history but stops cluttering the live feed."""
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            archived = await conn.fetchval(
+                """WITH updated AS (
+                     UPDATE career_opportunities
+                     SET status = 'archived'
+                     WHERE status = 'detected'
+                       AND source = 'web_search'
+                       AND created_at < NOW() - INTERVAL '30 days'
+                     RETURNING id
+                   )
+                   SELECT COUNT(*) FROM updated""",
+            )
+        if archived:
+            log.info('job_discovery_stale_opportunities_archived', count=archived)
+
+    async def run_for_user(self, user_id: str, run_id: str | None = None, is_manual: bool = True) -> int:
+        """Career OS Living Companion redesign — restructured from a single
+        flat query list processed all-at-once into a per-pass loop
+        (local -> regional -> remote -> freelance -> hidden -> beyond_jobs),
+        inserting each pass's scored results immediately rather than
+        batching everything until the very end. This is what makes the
+        frontend's job feed genuinely fill in progressively during a run,
+        not just what makes the progress bar move. Every pass boundary
+        updates career_job_discovery_runs and publishes
+        career.job_discovery.progress:{user_id} (same dual DB-row +
+        Redis/Socket.io pattern history-sync.ts's history:progress channel
+        already established) so a connected client sees live progress and a
+        reloading client can recover state via a plain GET.
+        run_id is created here when absent (the daily cron path, §run_for_all_users,
+        never passes one — Node's manual-trigger route creates it up front
+        instead, since Node owns the daily-cap bookkeeping)."""
         pool = await get_pool()
         async with pool.acquire() as conn:
             profile = await conn.fetchrow(
@@ -130,6 +176,8 @@ class JobDiscoveryService:
                 user_id,
             )
             if not profile or not profile['target_roles']:
+                if run_id:
+                    await self._finish_run(run_id, user_id, status='completed', opportunities_found=0)
                 return 0
 
             plan_row = await conn.fetchrow(
@@ -177,6 +225,11 @@ class JobDiscoveryService:
         )
         consulting_signal = _has_consulting_signal(profile['target_industries'], profile['target_roles'], has_business_profile)
 
+        if run_id is None:
+            run_id = await self._create_run_row(user_id, is_manual)
+        await self._publish_progress(run_id, user_id, phase='planning', passes_completed=0,
+                                      passes_total=0, opportunities_found=0)
+
         ai = get_ai_client()
         try:
             plan = await ai.complete_json([{
@@ -198,41 +251,130 @@ class JobDiscoveryService:
             }], service='career', feature='job_search_planner', user_id=user_id)
         except Exception as exc:
             log.warning('job_search_planner_failed', user_id=user_id, error=str(exc))
+            await self._finish_run(run_id, user_id, status='failed', opportunities_found=0, error_message=str(exc)[:500])
             return 0
 
-        queries = self._flatten_plan(plan, query_budget, profile, consulting_signal)
-        if not queries:
+        grouped = self._group_by_pass(plan, query_budget, profile, consulting_signal)
+        if not grouped:
+            await self._finish_run(run_id, user_id, status='completed', opportunities_found=0)
             return 0
 
-        candidates = await self._search_and_extract(user_id, queries, skills, profile)
-        deduped = self._dedup_within_batch(candidates)
-        fresh = [c for c in deduped if _normalize_key(c.get('title'), c.get('companyOrOrg')) not in existing_keys]
-        scored = [self._score(c, profile, skills) for c in fresh]
+        passes_total = len(grouped)
+        total_inserted: list[dict] = []
+        extractions_used = 0
 
-        inserted_rows = await self._insert_opportunities(user_id, scored)
-        if inserted_rows:
-            await self._send_daily_brief(user_id, scored, inserted_rows)
-        log.info('job_discovery_run_complete', user_id=user_id, tier=tier, queries=len(queries),
-                  candidates=len(candidates), inserted=len(inserted_rows))
-        return len(inserted_rows)
+        for i, (pass_name, pass_queries) in enumerate(grouped.items()):
+            await self._publish_progress(run_id, user_id, phase=f'searching_{pass_name}',
+                                          passes_completed=i, passes_total=passes_total,
+                                          opportunities_found=len(total_inserted))
+            remaining_budget = max(0, _MAX_EXTRACTIONS_PER_RUN - extractions_used)
+            if remaining_budget <= 0:
+                break
+            candidates, used = await self._search_and_extract(user_id, pass_queries, skills, profile, remaining_budget)
+            extractions_used += used
 
-    def _flatten_plan(self, plan: dict, budget: int, profile, consulting_signal: bool = False) -> list[dict]:
+            deduped = self._dedup_within_batch(candidates)
+            fresh = [c for c in deduped if _normalize_key(c.get('title'), c.get('companyOrOrg')) not in existing_keys]
+            scored = [self._score(c, profile, skills) for c in fresh]
+
+            await self._publish_progress(run_id, user_id, phase='scoring', passes_completed=i,
+                                          passes_total=passes_total, opportunities_found=len(total_inserted))
+
+            inserted_rows = await self._insert_opportunities(user_id, scored)
+            for r in inserted_rows:
+                existing_keys.add(_normalize_key(r['title'], r['company_or_org']))
+            total_inserted.extend(inserted_rows)
+
+            await self._publish_progress(run_id, user_id, phase=f'searching_{pass_name}', passes_completed=i + 1,
+                                          passes_total=passes_total, opportunities_found=len(total_inserted))
+
+        if total_inserted:
+            await self._send_daily_brief(user_id, [], total_inserted)
+
+        await self._finish_run(run_id, user_id, status='completed', opportunities_found=len(total_inserted))
+        log.info('job_discovery_run_complete', user_id=user_id, tier=tier, passes=passes_total,
+                  inserted=len(total_inserted))
+        return len(total_inserted)
+
+    async def _create_run_row(self, user_id: str, is_manual: bool) -> str:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO career_job_discovery_runs (user_id, is_manual)
+                   VALUES ($1, $2) RETURNING id""",
+                user_id, is_manual,
+            )
+        return str(row['id'])
+
+    async def _publish_progress(
+        self, run_id: str, user_id: str, *, phase: str, passes_completed: int,
+        passes_total: int, opportunities_found: int,
+    ) -> None:
+        # Dual-write, mirroring history-sync.ts's history:progress precedent —
+        # a DB row for anyone polling/reloading mid-run, Redis/Socket.io for
+        # anyone connected live (redis-subscriber.ts's generic
+        # channel:userId -> Socket.io event handler needs no new code beyond
+        # one added pattern string).
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE career_job_discovery_runs
+                   SET phase = $1, passes_completed = $2, passes_total = $3, opportunities_found = $4
+                   WHERE id = $5""",
+                phase, passes_completed, passes_total, opportunities_found, run_id,
+            )
+        await publish_event(f'career.job_discovery.progress:{user_id}', json.dumps({
+            'runId': run_id, 'status': 'running', 'phase': phase,
+            'passesCompleted': passes_completed, 'passesTotal': passes_total,
+            'opportunitiesFound': opportunities_found,
+        }))
+
+    async def _finish_run(
+        self, run_id: str, user_id: str, *, status: str, opportunities_found: int,
+        error_message: str | None = None,
+    ) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE career_job_discovery_runs
+                   SET status = $1, opportunities_found = $2, error_message = $3, finished_at = NOW()
+                   WHERE id = $4""",
+                status, opportunities_found, error_message, run_id,
+            )
+        await publish_event(f'career.job_discovery.progress:{user_id}', json.dumps({
+            'runId': run_id, 'status': status, 'phase': 'done' if status == 'completed' else 'failed',
+            'opportunitiesFound': opportunities_found, 'errorMessage': error_message,
+        }))
+
+    def _group_by_pass(self, plan: dict, budget: int, profile, consulting_signal: bool = False) -> dict[str, list[dict]]:
+        """Same query selection + budget truncation as the original flat-list
+        approach (order: local, regional, remote, freelance, hidden,
+        beyond_jobs; truncated to `budget` across all passes combined) — just
+        grouped back by pass afterward so run_for_user can process (and
+        report progress on) one pass at a time instead of one flat batch."""
         allow_regional = profile['relocation_preference'] != 'not_open'
         allow_remote = profile['remote_preference'] != 'onsite'
         pass_allowed = {
             'local': True, 'regional': allow_regional, 'remote': allow_remote,
             'freelance': True, 'hidden': True, 'beyond_jobs': consulting_signal,
         }
-        queries: list[dict] = []
+        flat: list[dict] = []
         for pass_name, allowed in pass_allowed.items():
             if not allowed:
                 continue
             for q in (plan.get(pass_name) or []):
                 if isinstance(q, str) and q.strip():
-                    queries.append({'pass': pass_name, 'query': q.strip()})
-        return queries[:budget]
+                    flat.append({'pass': pass_name, 'query': q.strip()})
+        flat = flat[:budget]
 
-    async def _search_and_extract(self, user_id: str, queries: list[dict], skills: list[str], profile) -> list[dict]:
+        grouped: dict[str, list[dict]] = {}
+        for q in flat:
+            grouped.setdefault(q['pass'], []).append(q)
+        return grouped
+
+    async def _search_and_extract(
+        self, user_id: str, queries: list[dict], skills: list[str], profile, max_extractions: int,
+    ) -> tuple[list[dict], int]:
         web_search = get_web_search()
         ai = get_ai_client()
         keywords = [k.lower() for k in ((profile['target_roles'] or []) + skills) if k]
@@ -250,7 +392,7 @@ class JobDiscoveryService:
                     continue
                 raw_results.append((q['pass'], r))
 
-        raw_results = raw_results[:_MAX_EXTRACTIONS_PER_RUN]
+        raw_results = raw_results[:max_extractions]
 
         candidates: list[dict] = []
         for pass_name, r in raw_results:
@@ -273,7 +415,7 @@ class JobDiscoveryService:
             extracted['_pass'] = pass_name
             extracted.setdefault('applicationUrl', r.url)
             candidates.append(extracted)
-        return candidates
+        return candidates, len(raw_results)
 
     def _dedup_within_batch(self, candidates: list[dict]) -> list[dict]:
         def completeness(c: dict) -> int:

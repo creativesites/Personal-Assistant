@@ -91,12 +91,17 @@ function formatCategory(category: string) {
 }
 
 export function OpportunityCard({
-  opp, token, onStatusChange, onApplied,
+  opp, token, onStatusChange, onApplied, badges,
 }: {
   opp: CareerOpportunity
   token: string
   onStatusChange: (opp: CareerOpportunity, status: string) => void
   onApplied: (opp: CareerOpportunity, projectId: string) => void
+  // Career OS Living Companion redesign, Phase 3 — job-feed.tsx's source
+  // badges (🇿🇲/🌐/⚡/🌍/🤝), computed once per feed render rather than
+  // recomputed inside this card, since job-feed.tsx already needs the same
+  // freshness/remote/source checks for sorting.
+  badges?: { emoji: string; label: string }[]
 }) {
   const { addToast } = useToast()
   const [applying, setApplying] = useState(false)
@@ -197,6 +202,15 @@ export function OpportunityCard({
             </p>
           )}
           {opp.contactName && <p className="text-xs text-gray-400 mt-0.5">via {opp.contactName}</p>}
+          {!!badges?.length && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {badges.map(b => (
+                <span key={b.label} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-100">
+                  {b.emoji} {b.label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         {opp.matchScore != null && (
           <button
