@@ -501,7 +501,7 @@ function ServiceCard({
             <span className="text-sm font-semibold text-gray-900">
               {service.sellingPrice != null ? formatCurrency(service.sellingPrice, service.currency) : 'Quote'}
             </span>
-            <button onClick={onToggle} className="p-1.5 rounded-lg hover:bg-gray-50 text-gray-400">
+            <button onClick={onToggle} className="min-w-11 min-h-11 flex items-center justify-center rounded-lg hover:bg-gray-50 text-gray-400">
               {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
           </div>
@@ -515,7 +515,7 @@ function ServiceCard({
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                className={`shrink-0 min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                   tab === t ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
                 }`}
               >
@@ -727,7 +727,7 @@ function ServicePackagesTab({ service, token }: { service: Product; token: strin
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-gray-900">{formatCurrency(t.price, t.currency)}</span>
-                <button onClick={() => handleDelete(t.id)} className="p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500">
+                <button onClick={() => handleDelete(t.id)} className="min-w-11 min-h-11 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -738,35 +738,35 @@ function ServicePackagesTab({ service, token }: { service: Product; token: strin
 
       {showAdd ? (
         <form onSubmit={handleAdd} className="rounded-xl border border-indigo-200 p-3 space-y-2 bg-indigo-50/40">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <select
               value={kind}
               onChange={e => setKind(e.target.value as 'package' | 'milestone')}
-              className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+              className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11"
             >
               <option value="package">Package</option>
               <option value="milestone">Milestone</option>
             </select>
             <input
               value={duration} onChange={e => setDuration(e.target.value)} placeholder="Duration (optional)"
-              className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+              className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11"
             />
             <input
               required value={name} onChange={e => setName(e.target.value)} placeholder="Name"
-              className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs col-span-2"
+              className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11 sm:col-span-2"
             />
             <input
               type="number" min="0" step="0.01" value={price} onChange={e => setPrice(e.target.value)} placeholder="Price"
-              className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs col-span-2"
+              className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11 sm:col-span-2"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" size="sm" variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={saving}>Add</Button>
+            <Button type="button" size="sm" className="!h-11" variant="secondary" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button type="submit" size="sm" className="!h-11" disabled={saving}>Add</Button>
           </div>
         </form>
       ) : (
-        <Button size="sm" variant="secondary" onClick={() => setShowAdd(true)}>
+        <Button size="sm" className="!h-11" variant="secondary" onClick={() => setShowAdd(true)}>
           <Plus className="w-3.5 h-3.5 mr-1" /> Add package / milestone
         </Button>
       )}
@@ -826,9 +826,11 @@ function ServiceChecklistsTab({ service, token, onChanged }: { service: Product;
         </p>
         <div className="space-y-1.5 mb-2">
           {deliverables.map((d, i) => (
-            <div key={i} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-2.5 py-1.5">
+            <div key={i} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg pl-2.5 pr-1 py-1">
               <span>{d.label}</span>
-              <button onClick={() => removeDeliverable(i)}><X className="w-3.5 h-3.5 text-gray-400" /></button>
+              <button onClick={() => removeDeliverable(i)} className="min-w-11 min-h-11 flex items-center justify-center">
+                <X className="w-3.5 h-3.5 text-gray-400" />
+              </button>
             </div>
           ))}
         </div>
@@ -838,9 +840,9 @@ function ServiceChecklistsTab({ service, token, onChanged }: { service: Product;
             onChange={e => setNewDeliverable(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDeliverable() } }}
             placeholder="e.g. Source code"
-            className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+            className="flex-1 rounded-lg border border-gray-200 px-2.5 py-2.5 text-xs min-h-11"
           />
-          <Button type="button" size="sm" variant="secondary" onClick={addDeliverable}>Add</Button>
+          <Button type="button" size="sm" className="!h-11" variant="secondary" onClick={addDeliverable}>Add</Button>
         </div>
       </div>
 
@@ -850,9 +852,11 @@ function ServiceChecklistsTab({ service, token, onChanged }: { service: Product;
         </p>
         <div className="space-y-1.5 mb-2">
           {requirements.map((r, i) => (
-            <div key={i} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg px-2.5 py-1.5">
+            <div key={i} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg pl-2.5 pr-1 py-1">
               <span>{r.label}</span>
-              <button onClick={() => removeRequirement(i)}><X className="w-3.5 h-3.5 text-gray-400" /></button>
+              <button onClick={() => removeRequirement(i)} className="min-w-11 min-h-11 flex items-center justify-center">
+                <X className="w-3.5 h-3.5 text-gray-400" />
+              </button>
             </div>
           ))}
         </div>
@@ -862,9 +866,9 @@ function ServiceChecklistsTab({ service, token, onChanged }: { service: Product;
             onChange={e => setNewRequirement(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addRequirement() } }}
             placeholder="e.g. Signed contract"
-            className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+            className="flex-1 rounded-lg border border-gray-200 px-2.5 py-2.5 text-xs min-h-11"
           />
-          <Button type="button" size="sm" variant="secondary" onClick={addRequirement}>Add</Button>
+          <Button type="button" size="sm" className="!h-11" variant="secondary" onClick={addRequirement}>Add</Button>
         </div>
       </div>
     </div>
@@ -927,11 +931,11 @@ function ServiceCapacityTab({ service, token }: { service: Product; token: strin
 
       <form onSubmit={handleSave} className="rounded-xl border border-gray-100 p-3 space-y-2">
         <p className="text-xs font-semibold text-gray-500 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> Set capacity</p>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <select
             value={periodType}
             onChange={e => setPeriodType(e.target.value as 'day' | 'week' | 'month' | 'ongoing')}
-            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+            className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11"
           >
             <option value="day">Per day</option>
             <option value="week">Per week</option>
@@ -941,7 +945,7 @@ function ServiceCapacityTab({ service, token }: { service: Product; token: strin
           <select
             value={capacityUnit}
             onChange={e => setCapacityUnit(e.target.value as 'hours' | 'slots' | 'bays' | 'seats' | 'staff' | 'days')}
-            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+            className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11"
           >
             <option value="slots">Slots</option>
             <option value="hours">Hours</option>
@@ -952,10 +956,10 @@ function ServiceCapacityTab({ service, token }: { service: Product; token: strin
           </select>
           <input
             type="number" min="0" value={total} onChange={e => setTotal(e.target.value)} placeholder="Total"
-            className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs"
+            className="rounded-lg border border-gray-200 px-2 py-2.5 text-xs min-h-11"
           />
         </div>
-        <Button type="submit" size="sm" disabled={saving}>Save</Button>
+        <Button type="submit" size="sm" className="!h-11" disabled={saving}>Save</Button>
       </form>
     </div>
   )
@@ -1016,17 +1020,19 @@ function ServiceWorkflowTab({ service, token }: { service: Product; token: strin
             <span className="text-xs text-gray-400 w-5 shrink-0">{i + 1}.</span>
             <input
               value={s.name} onChange={e => updateStage(i, e.target.value)} placeholder="Stage name"
-              className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm"
+              className="flex-1 rounded-lg border border-gray-200 px-2.5 py-2.5 text-sm min-h-11"
             />
-            <button onClick={() => removeStage(i)}><X className="w-3.5 h-3.5 text-gray-400" /></button>
+            <button onClick={() => removeStage(i)} className="min-w-11 min-h-11 flex items-center justify-center shrink-0">
+              <X className="w-3.5 h-3.5 text-gray-400" />
+            </button>
           </div>
         ))}
       </div>
-      <div className="flex justify-between">
-        <Button type="button" size="sm" variant="secondary" onClick={addStage}>
+      <div className="flex justify-between flex-wrap gap-2">
+        <Button type="button" size="sm" className="!h-11" variant="secondary" onClick={addStage}>
           <Plus className="w-3.5 h-3.5 mr-1" /> Add stage
         </Button>
-        <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
+        <Button type="button" size="sm" className="!h-11" onClick={handleSave} disabled={saving}>
           {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Check className="w-3.5 h-3.5 mr-1" />}
           Save workflow
         </Button>
