@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Brain, CheckSquare, Download, Handshake, Heart, RefreshCw, Search, Sparkles, User, X } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
@@ -45,17 +45,38 @@ async function exportLeads(token: string) {
   })))
 }
 
+interface CommandPaletteProps {
+  // Externally-controlled open state (Nav Redesign — a visible Search
+  // button in the sidebar/mobile bottom tab needs a way to open this from
+  // outside; previously it was only self-toggled via the Cmd+K listener
+  // below, which is why there was no discoverable way to open it at all).
+  // Both are optional so <CommandPalette /> with no props still works
+  // exactly as before, toggled only by its own keyboard shortcut.
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
 // Cmd+K command palette (docs/RELATIONSHIP_OS_PLAN.md §11) — a single
 // global, frontend-only component that only dispatches to routes/endpoints
 // that already exist (navigation, /api/deals, /api/relationships,
 // /api/leads, /api/contacts/:id/recalculate-health).
-export function CommandPalette() {
+export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPaletteProps = {}) {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const router = useRouter()
   const { addToast } = useToast()
 
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
+  const open = isControlled ? controlledOpen : uncontrolledOpen
+  const openRef = useRef(open)
+  useEffect(() => { openRef.current = open }, [open])
+
+  const setOpen = useCallback((next: boolean) => {
+    onOpenChange?.(next)
+    if (!isControlled) setUncontrolledOpen(next)
+  }, [isControlled, onOpenChange])
+
   const [query, setQuery] = useState('')
   const [contacts, setContacts] = useState<ContactLite[]>([])
   const [view, setView] = useState<View>('root')
@@ -103,13 +124,14 @@ export function CommandPalette() {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setOpen(o => !o)
+        setOpen(!openRef.current)
       } else if (e.key === 'Escape') {
         close()
       }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

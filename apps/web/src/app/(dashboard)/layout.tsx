@@ -11,10 +11,10 @@ import { CommandPalette } from '@/components/command-palette'
 import { SubscriptionStatusBanner } from '@/components/subscription-status-banner'
 import {
   LayoutDashboard, MessageSquare, Zap, Users, Flame, TrendingUp,
-  Settings2, Bot, BookOpen, AlertTriangle, Radio, HeartPulse,
+  Bot, BookOpen, AlertTriangle, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
-  Wrench, LogOut, Smartphone, Menu, X, UserCheck,
-  WifiOff, Loader2, ChevronLeft, ChevronRight, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase, Rss
+  Wrench, LogOut, Smartphone, Menu, X, Search,
+  WifiOff, Loader2, ChevronLeft, ChevronRight, ChevronDown, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase, Rss
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -26,10 +26,18 @@ interface NavItem {
   icon: React.FC<{ className?: string }>
   badge?: boolean
   muted?: boolean
+  // Item-level mode override — lets a hub contain a mix of always-visible
+  // items (e.g. AI Advisor, Goals) and mode-restricted ones (e.g.
+  // Relationships, AI Queue) without needing a whole separate group.
+  showForModes?: WorkspaceMode[]
 }
 
 interface NavGroup {
-  label?: string
+  // Stable id for localStorage-persisted collapse state — must never change
+  // once shipped, or every user's collapse preference for that hub resets.
+  key: string
+  label: string
+  icon: React.FC<{ className?: string }>
   showForModes?: WorkspaceMode[]
   // Hidden unless marketingAccess is one of these — Studio's nav group is
   // gated on the entitlement, not on workspace mode. See ZURI_MARKETING_EXPANSION.md §12.
@@ -37,93 +45,111 @@ interface NavGroup {
   items: NavItem[]
 }
 
+// Nav IA — reorganised from ~25 flat items into 7 jobs-to-be-done hubs
+// (Home/Conversations/CRM/AI/Personal/Marketing, plus the Settings hub in
+// FOOTER_NAV below) rather than grouping by how the product was built.
+// Broadcasts and Team Inbox are intentionally not listed anywhere below —
+// the app isn't shipping with that functionality initially; the route
+// files themselves are untouched, only the nav entries are removed.
 const NAV_GROUPS: NavGroup[] = [
   {
+    key: 'home',
+    label: 'Home',
+    icon: LayoutDashboard,
     items: [
-      { href: '/dashboard', label: 'Dashboard',   icon: LayoutDashboard },
-      { href: '/inbox',     label: 'Inbox',        icon: MessageSquare,  badge: true },
+      { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
+      { href: '/notifications', label: 'Notifications', icon: Bell },
     ],
   },
   {
-    label: 'Business',
+    key: 'conversations',
+    label: 'Conversations',
+    icon: MessageSquare,
+    items: [
+      { href: '/inbox',       label: 'Inbox',        icon: MessageSquare, badge: true },
+      { href: '/inbox/queue', label: 'AI Queue',     icon: Zap,           showForModes: ['business', 'hybrid'] },
+      { href: '/escalations', label: 'Escalations',  icon: AlertTriangle, badge: true, showForModes: ['business', 'hybrid'] },
+    ],
+  },
+  {
+    key: 'crm',
+    label: 'CRM',
+    icon: Users,
     showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/inbox/queue', label: 'AI Queue',    icon: Zap },
-      { href: '/contacts',    label: 'Contacts',    icon: Users },
-      { href: '/leads',       label: 'Leads',       icon: Flame },
-      { href: '/business',    label: 'Documents',   icon: FileText },
-      { href: '/feed',        label: 'Business Feed', icon: Rss },
-      { href: '/projects',    label: 'Projects',    icon: FolderKanban },
-      { href: '/analytics',   label: 'Intelligence', icon: TrendingUp },
-      { href: '/broadcasts',  label: 'Broadcasts',  icon: Radio },
+      { href: '/contacts', label: 'Contacts',      icon: Users },
+      { href: '/leads',    label: 'Leads',         icon: Flame },
+      { href: '/projects', label: 'Projects',      icon: FolderKanban },
+      { href: '/business', label: 'Documents',     icon: FileText },
+      { href: '/feed',     label: 'Activity Feed', icon: Rss },
     ],
   },
   {
-    label: 'AI Workforce',
-    showForModes: ['business', 'hybrid'],
+    key: 'ai',
+    label: 'AI',
+    icon: Brain,
     items: [
-      { href: '/automation',     label: 'Agents & Rules',  icon: Bot },
-      { href: '/knowledge-base', label: 'Knowledge Base',  icon: BookOpen },
-      { href: '/escalations',    label: 'Escalations',     icon: AlertTriangle, badge: true },
+      { href: '/advisor',        label: 'AI Advisor',  icon: Brain },
+      { href: '/proactive',      label: 'Proactive',   icon: Sparkles },
+      { href: '/automation',     label: 'Agents',      icon: Bot,        showForModes: ['business', 'hybrid'] },
+      { href: '/knowledge-base', label: 'Knowledge',   icon: BookOpen,   showForModes: ['business', 'hybrid'] },
+      { href: '/analytics',      label: 'Intelligence', icon: TrendingUp, showForModes: ['business', 'hybrid'] },
     ],
   },
   {
-    label: 'Team',
-    showForModes: ['business', 'hybrid'],
-    items: [
-      { href: '/team', label: 'Team Inbox', icon: UserCheck },
-    ],
-  },
-  {
+    key: 'personal',
     label: 'Personal',
-    showForModes: ['personal', 'hybrid'],
+    icon: HeartPulse,
     items: [
-      { href: '/relationships', label: 'Relationships', icon: HeartPulse },
+      { href: '/relationships', label: 'Relationships', icon: HeartPulse, showForModes: ['personal', 'hybrid'] },
+      { href: '/goals',         label: 'Goals',         icon: Target },
+      { href: '/career',        label: 'Career',        icon: Briefcase },
+      { href: '/calendar',      label: 'Calendar',      icon: Calendar },
+      { href: '/timeline',      label: 'Life Timeline', icon: History },
     ],
   },
   {
+    key: 'marketing',
     label: 'Marketing',
+    icon: Send,
+    showForModes: ['business', 'hybrid'],
     items: [
       { href: '/studio', label: 'Studio', icon: Send },
     ],
   },
-  {
-    items: [
-      { href: '/proactive', label: 'Proactive',  icon: Sparkles },
-      { href: '/advisor',   label: 'AI Advisor', icon: Brain },
-      { href: '/career',    label: 'Career',     icon: Briefcase },
-      { href: '/goals',     label: 'Goals',      icon: Target },
-      { href: '/timeline',  label: 'Life Timeline', icon: History },
-      { href: '/calendar',  label: 'Calendar',   icon: Calendar },
-    ],
-  },
 ]
 
+// Settings hub — kept as the existing compact, pinned footer rather than a
+// collapsible group, since it's always exactly 4 items and never mode-gated.
 const FOOTER_NAV: NavItem[] = [
-  { href: '/notifications', label: 'Notifications', icon: Bell },
-  { href: '/billing',       label: 'Billing',       icon: CreditCard },
-  { href: '/settings',      label: 'Settings',      icon: Settings },
-  { href: '/profile',       label: 'Profile',       icon: User },
-  { href: '/diagnostics',   label: 'Diagnostics',   icon: Wrench, muted: true },
+  { href: '/billing',     label: 'Billing',     icon: CreditCard },
+  { href: '/settings',    label: 'Settings',    icon: Settings },
+  { href: '/profile',     label: 'Profile',     icon: User },
+  { href: '/diagnostics', label: 'Diagnostics', icon: Wrench, muted: true },
 ]
 
-const BOTTOM_NAV: Record<WorkspaceMode, (NavItem | { isMenuToggle: true })[]> = {
+type BottomNavEntry = NavItem | { isMenuToggle: true } | { isSearchToggle: true }
+
+const BOTTOM_NAV: Record<WorkspaceMode, BottomNavEntry[]> = {
   business: [
     { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
     { href: '/inbox',       label: 'Inbox',    icon: MessageSquare, badge: true },
     { href: '/contacts',    label: 'Contacts', icon: Users },
+    { isSearchToggle: true },
     { isMenuToggle: true },
   ],
   personal: [
     { href: '/dashboard',     label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',         label: 'Inbox',     icon: MessageSquare, badge: true },
     { href: '/relationships', label: 'People',    icon: HeartPulse },
+    { isSearchToggle: true },
     { isMenuToggle: true },
   ],
   hybrid: [
     { href: '/dashboard',  label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',      label: 'Inbox',     icon: MessageSquare, badge: true },
     { href: '/contacts',   label: 'Contacts',  icon: Users },
+    { isSearchToggle: true },
     { isMenuToggle: true },
   ],
 }
@@ -210,6 +236,8 @@ function WAStatusWidget({ wa, onNav, isMinimized = false }: { wa: WAStatus; onNa
   )
 }
 
+const NAV_COLLAPSE_STORAGE_KEY = 'zuri-nav-collapsed-groups'
+
 function SidebarContents({
   pathname,
   email,
@@ -219,6 +247,7 @@ function SidebarContents({
   onNav,
   onNavStart,
   onSignOut,
+  onOpenSearch,
   isMinimized = false,
 }: {
   pathname: string
@@ -229,12 +258,40 @@ function SidebarContents({
   onNav: () => void
   onNavStart: (href: string) => void
   onSignOut: () => void
+  onOpenSearch: () => void
   isMinimized?: boolean
 }) {
-  const visibleGroups = NAV_GROUPS.filter(g =>
-    (!g.showForModes || g.showForModes.includes(mode)) &&
-    (!g.requiresMarketingAccess || g.requiresMarketingAccess.includes(marketingAccess)),
-  )
+  // Collapsible hub groups (mobile-space polish) — default all-expanded so
+  // nothing appears to silently vanish on first load; a user's collapse
+  // choice per hub persists across sessions via localStorage.
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(NAV_COLLAPSE_STORAGE_KEY)
+      if (raw) setCollapsedGroups(JSON.parse(raw))
+    } catch {
+      // ignore malformed/unavailable storage — falls back to all-expanded
+    }
+  }, [])
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      try { window.localStorage.setItem(NAV_COLLAPSE_STORAGE_KEY, JSON.stringify(next)) } catch {
+        // ignore — collapse state just won't persist this session
+      }
+      return next
+    })
+  }
+
+  const visibleGroups = NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(item => !item.showForModes || item.showForModes.includes(mode)) }))
+    .filter(g =>
+      g.items.length > 0 &&
+      (!g.showForModes || g.showForModes.includes(mode)) &&
+      (!g.requiresMarketingAccess || g.requiresMarketingAccess.includes(marketingAccess)),
+    )
 
   return (
     <>
@@ -251,21 +308,53 @@ function SidebarContents({
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-3 space-y-5 scrollbar-none">
-        {visibleGroups.map((group, gi) => (
-          <div key={gi} className="space-y-1">
-            {group.label && !isMinimized && (
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-2">
-                {group.label}
-              </p>
-            )}
-            <div className="space-y-1">
-              {group.items.map(item => (
-                <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} onNavigate={onNavStart} isMinimized={isMinimized} />
-              ))}
+      <div className={`px-3 pt-3 flex-shrink-0 ${isMinimized ? 'flex justify-center' : ''}`}>
+        <button
+          onClick={onOpenSearch}
+          title="Search"
+          className={`flex items-center rounded-xl bg-gray-800/40 hover:bg-gray-800/70 text-gray-400 hover:text-gray-100 transition-colors ${
+            isMinimized ? 'justify-center p-2.5 w-10 h-10' : 'w-full gap-2.5 px-3 py-2.5'
+          }`}
+        >
+          <Search className="w-4 h-4 flex-shrink-0" />
+          {!isMinimized && (
+            <>
+              <span className="text-sm font-medium flex-1 text-left">Search…</span>
+              <span className="text-[10px] font-semibold text-gray-500 bg-gray-950/60 rounded-md px-1.5 py-0.5">⌘K</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-none">
+        {visibleGroups.map(group => {
+          const collapsed = !isMinimized && collapsedGroups[group.key]
+          const GroupIcon = group.icon
+          return (
+            <div key={group.key} className="space-y-1">
+              {!isMinimized && (
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="w-full flex items-center justify-between px-3 mb-1 group/hdr"
+                >
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest group-hover/hdr:text-gray-300 transition-colors">
+                    <GroupIcon className="w-3 h-3" />
+                    {group.label}
+                  </span>
+                  <ChevronDown className={`w-3 h-3 text-gray-600 transition-transform group-hover/hdr:text-gray-400 ${collapsed ? '-rotate-90' : ''}`} />
+                </button>
+              )}
+              {!collapsed && (
+                <div className="space-y-1">
+                  {group.items.map(item => (
+                    <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} onNavigate={onNavStart} isMinimized={isMinimized} />
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         <div className="border-t border-gray-800/60 pt-4 space-y-1">
           {FOOTER_NAV.map(item => (
@@ -299,6 +388,7 @@ function MobileBottomNav({
   mode,
   pathname,
   onOpenMenu,
+  onOpenSearch,
   onNavStart,
   minimized,
   onMinimize,
@@ -307,6 +397,7 @@ function MobileBottomNav({
   mode: WorkspaceMode
   pathname: string
   onOpenMenu: () => void
+  onOpenSearch: () => void
   onNavStart: (href: string) => void
   minimized: boolean
   onMinimize: () => void
@@ -355,6 +446,19 @@ function MobileBottomNav({
           )
         }
 
+        if ('isSearchToggle' in item) {
+          return (
+            <button
+              key="mobile-search-trigger"
+              onClick={onOpenSearch}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[60px] relative text-gray-500 hover:text-gray-300 active:scale-95 transition-all duration-200"
+            >
+              <Search className="w-5 h-5" />
+              <span className="text-[10px] font-semibold tracking-wide leading-none">Search</span>
+            </button>
+          )
+        }
+
         const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
         const Icon = item.icon
         return (
@@ -396,6 +500,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isMinimized, setIsMinimized] = useState(false)
   const [mobileNavMinimized, setMobileNavMinimized] = useState(false)
   const [isNavigating, setIsNavigating] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const wa = useWAStatus(session.data?.accessToken)
 
   useEffect(() => {
@@ -506,6 +611,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onNav={closeSidebar}
           onNavStart={startNavigation}
           onSignOut={handleSignOut}
+          onOpenSearch={() => setSearchOpen(true)}
           isMinimized={isMinimized}
         />
       </aside>
@@ -525,14 +631,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         mode={mode}
         pathname={pathname}
         onOpenMenu={() => setSidebarOpen(true)}
+        onOpenSearch={() => setSearchOpen(true)}
         onNavStart={startNavigation}
         minimized={mobileNavMinimized}
         onMinimize={() => setMobileNavMinimized(true)}
         onRestore={() => setMobileNavMinimized(false)}
       />
 
-      {/* Cmd+K command palette (docs/RELATIONSHIP_OS_PLAN.md §11) */}
-      <CommandPalette />
+      {/* Cmd+K command palette (docs/RELATIONSHIP_OS_PLAN.md §11) — also
+          openable via the visible Search buttons in the sidebar and mobile
+          bottom tab bar above, since Cmd+K alone had no discoverable trigger. */}
+      <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
   )
 }
