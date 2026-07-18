@@ -6,6 +6,12 @@ import { buildBusinessContext, buildDocumentContext } from './context';
 import type { BusinessProfileRow, ContactRow, DocumentRow } from './context';
 import Minimal from './templates/Minimal';
 import Modern from './templates/Modern';
+import Classic from './templates/Classic';
+import Corporate from './templates/Corporate';
+import Elegant from './templates/Elegant';
+import Compact from './templates/Compact';
+import Creative from './templates/Creative';
+import Executive from './templates/Executive';
 import Resume from './templates/Resume';
 import CoverLetter from './templates/CoverLetter';
 import ReferenceSheet from './templates/ReferenceSheet';
@@ -23,6 +29,12 @@ import { buildCvRenderData } from './cv-context';
 const TEMPLATES: Record<string, (props: any) => ReactElement> = {
   minimal: Minimal,
   modern: Modern,
+  classic: Classic,
+  corporate: Corporate,
+  elegant: Elegant,
+  compact: Compact,
+  creative: Creative,
+  executive: Executive,
 };
 
 export async function renderDocumentPdf(

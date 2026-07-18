@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { uploadBrandLogo } from '@/lib/storage'
+import { TemplatePicker } from '@/app/(dashboard)/documents/_components/template-picker'
 
 // Reusable named Brand Profiles (see plan doc / CLAUDE.md's Business
 // Workspace section) — the default profile card + edit form below is
@@ -45,6 +46,7 @@ export interface BusinessProfile {
   footerText: string | null
   defaultTerms: string | null
   paymentInstructions: string | null
+  defaultTemplateId?: string | null
 }
 
 export type ProfileForm = {
@@ -65,12 +67,13 @@ export type ProfileForm = {
   paymentInstructions: string
   defaultCurrency: string
   defaultTaxRate: number
+  defaultTemplateId: string | null
 }
 
 export const BLANK_FORM: ProfileForm = {
   name: '', companyName: '', tagline: '', industry: '', themeColor: '#4F46E5', accentColor: '#818CF8',
   brandVoice: '', companyValues: '', address: '', phone: '', email: '', website: '', footerText: '',
-  defaultTerms: '', paymentInstructions: '', defaultCurrency: 'ZMW', defaultTaxRate: 0,
+  defaultTerms: '', paymentInstructions: '', defaultCurrency: 'ZMW', defaultTaxRate: 0, defaultTemplateId: null,
 }
 
 export function profileToForm(p: BusinessProfile): ProfileForm {
@@ -92,6 +95,7 @@ export function profileToForm(p: BusinessProfile): ProfileForm {
     paymentInstructions: p.paymentInstructions ?? '',
     defaultCurrency: p.defaultCurrency ?? 'ZMW',
     defaultTaxRate: p.defaultTaxRate ?? 0,
+    defaultTemplateId: p.defaultTemplateId ?? null,
   }
 }
 
@@ -99,8 +103,8 @@ export function profileToForm(p: BusinessProfile): ProfileForm {
 // and the additional-profile create/edit modal, so there's exactly one
 // implementation of "edit a brand profile's fields."
 export function BrandProfileFields({
-  form, setForm, showName,
-}: { form: ProfileForm; setForm: (updater: (f: ProfileForm) => ProfileForm) => void; showName?: boolean }) {
+  form, setForm, showName, token,
+}: { form: ProfileForm; setForm: (updater: (f: ProfileForm) => ProfileForm) => void; showName?: boolean; token?: string }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       {showName && (
@@ -176,6 +180,9 @@ export function BrandProfileFields({
       <div className="sm:col-span-2">
         <label className="block text-xs text-gray-500 mb-1">Default Document Terms</label>
         <textarea value={form.defaultTerms} onChange={e => setForm(f => ({ ...f, defaultTerms: e.target.value }))} placeholder="Payment due within 30 days. Late fees may apply..." rows={2} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" />
+      </div>
+      <div className="sm:col-span-2">
+        <TemplatePicker token={token} value={form.defaultTemplateId} onChange={id => setForm(f => ({ ...f, defaultTemplateId: id }))} />
       </div>
     </div>
   )
@@ -344,7 +351,7 @@ function OtherBrandProfiles({ token }: { token: string | undefined }) {
                 <p className="text-xs text-gray-400">Click logo to change</p>
               </div>
             )}
-            <BrandProfileFields form={form} setForm={setForm} showName />
+            <BrandProfileFields form={form} setForm={setForm} showName token={token} />
             <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
               <Button variant="secondary" type="button" onClick={() => setEditingProfile(null)}>Cancel</Button>
               <Button type="button" onClick={handleSave} disabled={saving}>
@@ -490,7 +497,7 @@ export function BrandModule({ token }: { token: string | undefined }) {
       {editing && (
         <form onSubmit={handleSave} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-6 space-y-5">
           <p className="font-semibold text-gray-900">Edit Brand Profile</p>
-          <BrandProfileFields form={form} setForm={setForm} />
+          <BrandProfileFields form={form} setForm={setForm} token={token} />
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
             <Button variant="secondary" type="button" onClick={() => setEditing(false)}>Cancel</Button>
             <Button type="submit" disabled={saving}>
