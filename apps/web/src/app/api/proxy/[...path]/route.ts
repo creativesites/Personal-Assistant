@@ -19,8 +19,14 @@ async function proxy(req: NextRequest, { params }: { params: Promise<{ path: str
 
   try {
     const res = await fetch(url, { method: req.method, headers, body })
-    const text = await res.text()
-    return new NextResponse(text, {
+    // Read as raw bytes, not .text() — decoding a binary response (a PDF,
+    // an image) as UTF-8 text and re-encoding it corrupts it silently. This
+    // is what made the CV Studio PDF preview iframe render a blank/broken
+    // PDF even once auth was fixed: the bytes reaching the browser were
+    // already mangled by this route. ArrayBuffer forwarding is correct for
+    // JSON/text bodies too, so this isn't a binary-only special case.
+    const bytes = await res.arrayBuffer()
+    return new NextResponse(bytes, {
       status: res.status,
       headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/json' },
     })

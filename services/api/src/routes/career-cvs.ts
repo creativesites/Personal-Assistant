@@ -358,8 +358,30 @@ export async function careerCvsRoutes(fastify: FastifyInstance): Promise<void> {
   // tables on every request ("the real React-PDF render happens on-demand
   // for download" — no persisted documents row for a CV Studio render,
   // unlike the older whole-document Resume Studio flow).
-  fastify.get('/api/career/cvs/:id/pdf', { preHandler: gate }, async (request, reply) => {
-    const { userId } = request.user as { userId: string }
+  // Accepts the JWT via Authorization header OR ?token= query param, same
+  // precedent as /api/documents/:id/pdf and /api/documents/assets/:id/:type —
+  // an <iframe>/window.open() preview can't set custom headers, so relying
+  // on the standard `gate` preHandler (header-only) left every preview 401ing
+  // with {"error":"Unauthorized"} and the "download" link saving that same
+  // JSON error body with a .pdf extension (an unreadable/blank PDF).
+  fastify.get('/api/career/cvs/:id/pdf', async (request, reply) => {
+    const { token: queryToken } = request.query as { token?: string }
+    const authHeader = request.headers.authorization
+    const jwtToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken
+    if (!jwtToken) return reply.code(401).send({ error: 'Unauthorized' })
+    let userId: string
+    try {
+      const decoded = fastify.jwt.verify(jwtToken) as { userId: string }
+      userId = decoded.userId
+      request.user = decoded
+    } catch {
+      return reply.code(401).send({ error: 'Unauthorized' })
+    }
+
+    const featureCheck = requireFeature('cv_studio')
+    await featureCheck(request, reply)
+    if (reply.sent) return
+
     const { id } = request.params as { id: string }
 
     const pdf = await renderCvPdf(id, userId)
