@@ -5,7 +5,9 @@ import {
   renderDocumentPdf, renderResumePdf, renderCoverLetterPdf, renderReferenceSheetPdf, renderPortfolioPdf,
   storagePathFor,
 } from '../lib/pdf/render';
+import { buildBusinessContext, buildDocumentContext } from '../lib/pdf/context';
 import type { BusinessProfileRow, ContactRow, DocumentRow } from '../lib/pdf/context';
+import type { BusinessContext, DocumentContext, ContactContext } from '@zuri/pdf-templates';
 
 // CV Studio Phase 9 (docs/CV_STUDIO_PLAN.md §12, §13) — the four letter-
 // shaped Supporting Document types added this phase reuse cover_letter's
@@ -31,18 +33,17 @@ export interface RenderResult {
 // bytes. That computation stays in Python (it's where the AI client lives)
 // and is triggered here as a fire-and-forget follow-up call so the PDF
 // response doesn't wait on it — same non-blocking feel as before.
-export async function renderAndSaveDocument(documentId: string, userId: string): Promise<RenderResult> {
-  const { rows: [document] } = await db.query<
-    DocumentRow & { id: string; status: string; template_id: string | null; business_profile_id: string | null }
-  >(
-    'SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId],
-  );
-  if (!document) throw new NotFoundError('Document not found');
+type DocumentRowFull = DocumentRow & {
+  id: string; status: string; template_id: string | null; business_profile_id: string | null; contact_id: string | null;
+};
 
-  if (CAREER_DOCUMENT_TYPES.has(document.document_type)) {
-    return renderAndSaveResumeOrCoverLetter(document, documentId, userId);
-  }
-
+// Resolves the exact same {businessProfile, contact, layoutKey} triple
+// renderAndSaveDocument() always has — factored out so both the server
+// render path (headless flows) and getDocumentRenderContext() (the
+// frontend's client-side render path, see docs/PDF_TEMPLATE_GUIDE.md) pick
+// the identical brand profile/contact/template, never two implementations
+// silently drifting on which business profile "wins".
+async function resolveRenderInputs(document: DocumentRowFull, userId: string) {
   // Reusable named Brand Profiles — a document pinned to a specific
   // business_profile_id (e.g. invoicing as a side company) renders with
   // that profile's logo/address/bank details instead of the user's default.
@@ -55,10 +56,10 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
       );
 
   let contact: ContactRow | null = null;
-  if ((document as any).contact_id) {
+  if (document.contact_id) {
     const { rows: [contactRow] } = await db.query<ContactRow>(
       'SELECT custom_name, display_name, phone_number, company, email, whatsapp_jid FROM contacts WHERE id = $1',
-      [(document as any).contact_id],
+      [document.contact_id],
     );
     contact = contactRow ?? null;
   } else {
@@ -87,12 +88,37 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
     if (template) layoutKey = template.layout_key;
   }
 
-  const pdfBuffer = await renderDocumentPdf(document, businessProfile ?? null, contact, layoutKey);
+  return { businessProfile: businessProfile ?? null, contact, layoutKey };
+}
 
+export async function renderAndSaveDocument(documentId: string, userId: string): Promise<RenderResult> {
+  const { rows: [document] } = await db.query<DocumentRowFull>(
+    'SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId],
+  );
+  if (!document) throw new NotFoundError('Document not found');
+
+  if (CAREER_DOCUMENT_TYPES.has(document.document_type)) {
+    return renderAndSaveResumeOrCoverLetter(document, documentId, userId);
+  }
+
+  const { businessProfile, contact, layoutKey } = await resolveRenderInputs(document, userId);
+  const pdfBuffer = await renderDocumentPdf(document, businessProfile, contact, layoutKey);
+  return persistRenderedPdf(documentId, userId, document.status, pdfBuffer);
+}
+
+// The bookkeeping half of renderAndSaveDocument() — write bytes to storage,
+// flip draft->generated, log the document_events row, kick off the
+// fire-and-forget summarize call — extracted so the client-side render path
+// (the browser renders the PDF, then POSTs the resulting bytes here) gets
+// identical bookkeeping to the server-side render path, without a second,
+// drifting copy of this logic.
+export async function persistRenderedPdf(
+  documentId: string, userId: string, currentStatus: string, pdfBuffer: Buffer,
+): Promise<RenderResult> {
   const storagePath = await storagePathFor(userId, documentId);
   await fs.writeFile(storagePath, pdfBuffer);
 
-  const newStatus = document.status === 'draft' ? 'generated' : document.status;
+  const newStatus = currentStatus === 'draft' ? 'generated' : currentStatus;
 
   await db.query(
     `UPDATE documents SET storage_path = $1, status = $2, updated_at = NOW() WHERE id = $3`,
@@ -108,6 +134,37 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
   summarizeDocument(documentId, userId).catch(() => {});
 
   return { id: documentId, status: newStatus, storagePath, aiSummary: null };
+}
+
+export interface DocumentRenderContext {
+  documentType: string;
+  templateKey: string;
+  document: DocumentContext;
+  business: BusinessContext;
+  contact: ContactContext;
+}
+
+// The data-only counterpart to renderAndSaveDocument() — assembles exactly
+// what a business-document template needs (see @zuri/pdf-templates'
+// TemplateProps) without rendering anything, so the frontend can fetch this
+// once and render client-side using the user's actually-chosen template
+// (see docs/PDF_TEMPLATE_GUIDE.md). CAREER_DOCUMENT_TYPES (resume/cover
+// letter/etc.) aren't business/contact-shaped documents — callers should
+// route those through the career-specific endpoints instead.
+export async function getDocumentRenderContext(documentId: string, userId: string): Promise<DocumentRenderContext> {
+  const { rows: [document] } = await db.query<DocumentRowFull>(
+    'SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId],
+  );
+  if (!document) throw new NotFoundError('Document not found');
+  if (CAREER_DOCUMENT_TYPES.has(document.document_type)) {
+    throw new UnsupportedDocumentTypeError(document.document_type);
+  }
+
+  const { businessProfile, contact, layoutKey } = await resolveRenderInputs(document, userId);
+  const business = await buildBusinessContext(businessProfile);
+  const { document: documentContext, contact: contactContext } = buildDocumentContext(document, contact);
+
+  return { documentType: document.document_type, templateKey: layoutKey, document: documentContext, business, contact: contactContext };
 }
 
 // Career & Growth Engine Phase 3 — resume/cover_letter documents have no
@@ -164,3 +221,4 @@ async function summarizeDocument(documentId: string, userId: string): Promise<vo
 }
 
 export class NotFoundError extends Error {}
+export class UnsupportedDocumentTypeError extends Error {}

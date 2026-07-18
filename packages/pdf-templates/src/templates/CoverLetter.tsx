@@ -1,4 +1,5 @@
 // @ts-nocheck — see Minimal.tsx's note on @react-pdf/renderer's JSX typings.
+import React from 'react';
 import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer';
 
 // Career & Growth Engine Phase 3 (docs/CAREER_GROWTH_ENGINE_PLAN.md §8) — a

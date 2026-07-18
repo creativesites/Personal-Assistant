@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify'
 import { db } from '../lib/db'
-import { config } from '../config'
 import { computeTotals, assignDocumentNumber, sendDocumentViaWhatsApp } from '../routes/documents'
+import { renderAndSaveDocument } from '../services/document-render'
 
 const POLL_INTERVAL_MS = 60_000
 
@@ -111,12 +111,15 @@ async function runOne(id: string, log: FastifyBaseLogger): Promise<void> {
       [doc.id, JSON.stringify({ recurringDocumentId: rule.id })],
     )
 
-    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
-    await fetch(`${intelligenceUrl}/internal/documents/${doc.id}/render`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: rule.user_id }),
-    })
+    // This is a genuinely headless trigger — no browser is open to render
+    // client-side (see CLAUDE.md's "PDF Rendering Architecture"), so it
+    // stays on the server-render pipeline. Previously this fetched
+    // `${intelligenceUrl}/internal/documents/:id/render`, a route that has
+    // never existed on the Python service (the real render endpoint has
+    // always lived in services/api) — so scheduled documents silently never
+    // got a PDF. Fixed by calling the renderer directly in-process, since
+    // this worker already runs inside services/api itself.
+    await renderAndSaveDocument(doc.id, rule.user_id)
 
     if (rule.auto_send) {
       await sendDocumentViaWhatsApp(rule.user_id, doc.id)

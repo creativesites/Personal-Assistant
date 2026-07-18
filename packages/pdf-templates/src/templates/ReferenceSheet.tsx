@@ -1,4 +1,5 @@
 // @ts-nocheck — see Minimal.tsx's note on @react-pdf/renderer's JSX typings.
+import React from 'react';
 import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer';
 
 // CV Studio Phase 9 (docs/CV_STUDIO_PLAN.md §13) — a rendered view of

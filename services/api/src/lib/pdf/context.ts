@@ -1,11 +1,18 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import type { BusinessContext, DocumentContext, ContactContext } from '@zuri/pdf-templates';
 
 // Node-side port of services/intelligence/app/services/document_renderer.py's
 // format_money()/_file_to_data_uri()/build_business_context()/
 // build_document_context() — same field names/fallbacks, kept as a direct
 // diff-able port so the two implementations don't silently drift in intent
 // even though the Python originals are being deleted.
+//
+// BusinessContext/DocumentContext/ContactContext themselves now live in
+// @zuri/pdf-templates (the shared template package) — this file only owns
+// the Node-only DB-row shapes and the async builders that assemble those
+// shared shapes from a database row (including embedding logo/signature/
+// stamp images as data: URIs, which only makes sense server-side).
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   ZMW: 'K', USD: '$', GBP: '£', EUR: '€', KES: 'KSh', BWP: 'P', NAD: 'N$',
@@ -53,24 +60,6 @@ export interface BusinessProfileRow {
   logo_storage_path: string | null;
   signature_storage_path: string | null;
   stamp_storage_path: string | null;
-}
-
-export interface BusinessContext {
-  companyName: string | null;
-  address: string | null;
-  phone: string | null;
-  email: string | null;
-  website: string | null;
-  taxId: string | null;
-  themeColor: string;
-  accentColor: string;
-  footerText: string | null;
-  paymentInstructions: string | null;
-  bankDetails: string | null;
-  mobileMoney: string | null;
-  logoDataUri: string | null;
-  signatureDataUri: string | null;
-  stampDataUri: string | null;
 }
 
 export async function buildBusinessContext(businessProfile: BusinessProfileRow | null): Promise<BusinessContext> {
@@ -125,32 +114,6 @@ export interface ContactRow {
   phone_number: string | null;
   company: string | null;
   email: string | null;
-}
-
-export interface DocumentContext {
-  documentType: string;
-  documentNumber: string;
-  title: string;
-  issueDate: string;
-  validUntil: string | null;
-  dueDate: string | null;
-  lineItems: { description: string; quantity: number; unitPrice: string; discountLabel: string; lineTotal: string }[];
-  hasItems: boolean;
-  hasDiscounts: boolean;
-  subtotal: string;
-  discount: string | null;
-  tax: string | null;
-  total: string;
-  notes: string | null;
-  terms: string | null;
-  sections: { heading: string; body: string }[];
-}
-
-export interface ContactContext {
-  name: string;
-  company: string | null;
-  email: string | null;
-  phone: string | null;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

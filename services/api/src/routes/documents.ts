@@ -8,7 +8,9 @@ import { getOrCreateProfile } from './business-profile';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
 import { getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
-import { renderAndSaveDocument, NotFoundError } from '../services/document-render';
+import {
+  renderAndSaveDocument, getDocumentRenderContext, persistRenderedPdf, NotFoundError, UnsupportedDocumentTypeError,
+} from '../services/document-render';
 import { resolveInvoiceGapNudges } from '../lib/reality-engine';
 import { recordBusinessEvent, checkMilestoneCrossing } from '../lib/business-feed';
 
@@ -448,6 +450,63 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       if (err instanceof NotFoundError) return reply.code(404).send({ error: 'Document not found' });
       fastify.log.error({ err }, 'document_render_error');
       return reply.code(500).send({ error: 'Failed to generate document' });
+    }
+  });
+
+  // ── GET /api/documents/:id/render-context — the data-only counterpart to
+  // /generate, per the PDF Rendering Architecture (see CLAUDE.md and
+  // docs/PDF_TEMPLATE_GUIDE.md): everything a user is actively looking at
+  // renders client-side in the browser using the exact same @zuri/pdf-
+  // templates components as the server does. This assembles the same
+  // {document, business, contact} shape renderDocumentPdf() feeds a
+  // template, and tells the caller which template the document actually
+  // uses, so the frontend never has to re-derive money/date formatting or
+  // guess which template to render.
+  fastify.get('/api/documents/:id/render-context', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    try {
+      const context = await getDocumentRenderContext(id, userId);
+      return reply.send(context);
+    } catch (err) {
+      if (err instanceof NotFoundError) return reply.code(404).send({ error: 'Document not found' });
+      if (err instanceof UnsupportedDocumentTypeError) {
+        return reply.code(400).send({ error: `${err.message} documents render via the career endpoints, not this one` });
+      }
+      fastify.log.error({ err }, 'document_render_context_error');
+      return reply.code(500).send({ error: 'Failed to load render context' });
+    }
+  });
+
+  // ── POST /api/documents/:id/render-complete — the frontend, having
+  // rendered the PDF client-side from /render-context's data, uploads the
+  // resulting bytes here so storage_path/status get set exactly the way
+  // the old server-render path used to — this is what keeps WhatsApp send,
+  // the public share link, and status transitions working unchanged. Plain
+  // "application/pdf" body, not multipart — the client already has a Blob.
+  fastify.post('/api/documents/:id/render-complete', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const contentType = request.headers['content-type'] ?? '';
+    if (!contentType.includes('application/pdf')) {
+      return reply.code(400).send({ error: 'Expected a raw application/pdf body' });
+    }
+    const pdfBuffer = request.body as Buffer;
+    if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0) {
+      return reply.code(400).send({ error: 'Empty PDF body' });
+    }
+
+    const { rows: [doc] } = await db.query('SELECT status FROM documents WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    try {
+      const result = await persistRenderedPdf(id, userId, doc.status, pdfBuffer);
+      return reply.send({ ok: true, status: result.status });
+    } catch (err) {
+      fastify.log.error({ err }, 'document_render_complete_error');
+      return reply.code(500).send({ error: 'Failed to save rendered document' });
     }
   });
 

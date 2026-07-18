@@ -11,11 +11,11 @@ import {
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui'
-import type { ZuriDocData } from '@/components/documents/ZuriDocumentPDF'
+import type { TemplateProps } from '@zuri/pdf-templates'
 
 // Client-only PDF component — imported without SSR to avoid browser-API errors
-const ClientPDFDownload = dynamic(
-  () => import('@/components/documents/ClientPDFDownload'),
+const ClientPdfRenderer = dynamic(
+  () => import('@/components/documents/ClientPdfRenderer'),
   { ssr: false, loading: () => (
     <div className="flex items-center justify-center h-32 rounded-2xl bg-gray-50 border border-gray-100">
       <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
@@ -328,38 +328,23 @@ export default function NewDocumentPage() {
     [form.lineItems, form.discountRate]
   )
 
-  // PDF data — maps form state to ZuriDocData for client-side PDF rendering
-  const pdfData: ZuriDocData = useMemo(() => ({
-    docType: form.docType,
-    docNumber: form.docNumber,
-    issueDate: form.issueDate,
-    dueDate: form.dueDate,
-    reference: '',
-    currency: form.currency,
-    companyName: form.companyName,
-    companyAddress: form.companyAddress,
-    companyPhone: form.companyPhone,
-    companyEmail: form.companyEmail,
-    companyWebsite: form.companyWebsite,
-    companyLogoUrl: form.companyLogoUrl
-      ? (form.companyLogoUrl.startsWith('http') ? form.companyLogoUrl : brandAssetUrl(form.companyLogoUrl, token))
-      : '',
-    taxId: form.taxId,
-    clientName: form.clientName,
-    clientCompany: form.clientCompany,
-    clientAddress: '',
-    clientPhone: form.clientPhone,
-    clientEmail: form.clientEmail,
-    lineItems: form.lineItems,
-    discountRate: form.discountRate,
-    notes: form.notes,
-    terms: form.terms,
-    bankName: form.bankName,
-    accountName: form.accountName,
-    accountNumber: form.accountNumber,
-    branchCode: form.branchCode,
-    footerText: form.footerText,
-  }), [form, token])
+  // Render context — once the document is saved (documentId is set), the
+  // preview/download step fetches the same {templateKey, document, business,
+  // contact} shape the server-render path used to build, and renders it
+  // client-side via the real template the document/brand profile actually
+  // resolve to (see docs/PDF_TEMPLATE_GUIDE.md) rather than a single
+  // hardcoded layout derived from raw form state.
+  const [renderContext, setRenderContext] = useState<(TemplateProps & { documentType: string; templateKey: string }) | null>(null)
+  const [renderContextError, setRenderContextError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!documentId || !token) return
+    let isMounted = true
+    apiClient<TemplateProps & { documentType: string; templateKey: string }>(`/api/documents/${documentId}/render-context`, { token })
+      .then(data => { if (isMounted) setRenderContext(data) })
+      .catch((err: any) => { if (isMounted) setRenderContextError(err.message || 'Failed to load PDF preview') })
+    return () => { isMounted = false }
+  }, [documentId, token])
 
   // Save document to backend (persistence only — no PDF generation)
   const saveDocument = useCallback(async () => {
@@ -991,7 +976,24 @@ export default function NewDocumentPage() {
                   <p className="text-xs text-gray-500">Preview and download your branded PDF document</p>
                 </div>
               </div>
-              <ClientPDFDownload data={pdfData} fileName={pdfFileName} docLabel={docLabel} />
+              {renderContextError ? (
+                <div className="flex items-center justify-center h-24 rounded-2xl border border-red-100 bg-red-50">
+                  <p className="text-xs text-red-500 font-semibold">{renderContextError}</p>
+                </div>
+              ) : renderContext ? (
+                <ClientPdfRenderer
+                  documentId={documentId!}
+                  templateKey={renderContext.templateKey}
+                  data={{ document: renderContext.document, business: renderContext.business, contact: renderContext.contact }}
+                  fileName={pdfFileName}
+                  docLabel={docLabel}
+                  token={token}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-32 rounded-2xl bg-gray-50 border border-gray-100">
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                </div>
+              )}
             </div>
 
             {/* Edit shortcuts */}

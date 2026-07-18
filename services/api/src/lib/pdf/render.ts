@@ -4,38 +4,21 @@ import type { ReactElement } from 'react';
 import { config } from '../../config';
 import { buildBusinessContext, buildDocumentContext } from './context';
 import type { BusinessProfileRow, ContactRow, DocumentRow } from './context';
-import Minimal from './templates/Minimal';
-import Modern from './templates/Modern';
-import Classic from './templates/Classic';
-import Corporate from './templates/Corporate';
-import Elegant from './templates/Elegant';
-import Compact from './templates/Compact';
-import Creative from './templates/Creative';
-import Executive from './templates/Executive';
-import Resume from './templates/Resume';
-import CoverLetter from './templates/CoverLetter';
-import ReferenceSheet from './templates/ReferenceSheet';
-import PortfolioPdf from './templates/PortfolioPdf';
-import CvModern from './templates/CvModern';
-import CvExecutive from './templates/CvExecutive';
-import CvCreative from './templates/CvCreative';
+import {
+  BUSINESS_TEMPLATES, Minimal, Resume, CoverLetter, ReferenceSheet, PortfolioPdf,
+  CvModern, CvExecutive, CvCreative,
+} from '@zuri/pdf-templates';
 import { buildCvRenderData } from './cv-context';
 
-// Node/@react-pdf/renderer port of services/intelligence/app/services/
-// document_renderer.py's render_document_pdf()/storage_path_for() — AI/
-// business logic never touches layout, everything visual lives in one of
-// these two components, picked by layout_key exactly like the Jinja
-// templates were before this migration.
-const TEMPLATES: Record<string, (props: any) => ReactElement> = {
-  minimal: Minimal,
-  modern: Modern,
-  classic: Classic,
-  corporate: Corporate,
-  elegant: Elegant,
-  compact: Compact,
-  creative: Creative,
-  executive: Executive,
-};
+// Templates themselves now live in the shared @zuri/pdf-templates package
+// (see docs/PDF_TEMPLATE_GUIDE.md) so the exact same components render
+// server-side here (headless flows: WhatsApp auto-send, scheduled/recurring
+// documents, agent-drafted documents, Business Packs — see CLAUDE.md's "PDF
+// Rendering Architecture" section for why those specifically stay
+// server-rendered) and client-side in apps/web (everything a user is
+// actively looking at). AI/business logic never touches layout — it only
+// ever picks a template by layout_key/template_key.
+const TEMPLATES: Record<string, (props: any) => ReactElement> = BUSINESS_TEMPLATES as any;
 
 export async function renderDocumentPdf(
   document: DocumentRow,

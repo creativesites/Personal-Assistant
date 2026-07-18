@@ -99,6 +99,15 @@ export async function buildApp() {
     },
   });
 
+  // PDF Rendering Architecture (see CLAUDE.md) — the frontend uploads a
+  // client-rendered document PDF as a raw application/pdf body (not
+  // multipart, since it's already a Blob) to POST /api/documents/:id/
+  // render-complete. Fastify only parses json/text by default, so this
+  // content type needs its own raw-buffer parser registered once, globally.
+  fastify.addContentTypeParser('application/pdf', { parseAs: 'buffer' }, (_req, body, done) => {
+    done(null, body);
+  });
+
   // Membership Platform Phase 2 (docs/MEMBERSHIP_PLATFORM_PLAN.md) — global
   // read-only-mode mutation guard, ahead of every route's own preHandlers.
   fastify.addHook('preHandler', readOnlyModeGuard);

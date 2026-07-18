@@ -1,6 +1,7 @@
 // @ts-nocheck — @react-pdf/renderer's JSX typings don't line up cleanly
 // with React 19 (same accommodation apps/web made for ZuriDocumentPDF.tsx);
 // runtime is fine, this only silences a type-checker mismatch.
+import React from 'react';
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import type { TemplateProps } from './types';
 

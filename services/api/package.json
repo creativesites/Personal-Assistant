@@ -17,6 +17,7 @@
     "pdf-parse": "^1.1.1",
     "xlsx": "^0.18.5",
     "@zuri/types": "*",
+    "@zuri/pdf-templates": "*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.38.0",
     "dotenv": "^16.4.0",

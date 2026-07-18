@@ -198,7 +198,6 @@ export default function BusinessPage() {
   const [showRecurring, setShowRecurring] = useState(false)
   const [showPacks, setShowPacks] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
-  const [generatingId, setGeneratingId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [convertingId, setConvertingId] = useState<string | null>(null)
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null)
@@ -228,21 +227,8 @@ export default function BusinessPage() {
     paid: documents.filter(d => d.status === 'paid' || d.status === 'accepted').length,
   }), [documents])
 
-  const generatePdf = async (id: string) => {
-    if (!token) return
-    setGeneratingId(id)
-    try {
-      await apiClient(`/api/documents/${id}/generate`, { method: 'POST', token })
-      addToast({ variant: 'success', title: 'PDF generated' })
-      loadDocuments()
-    } catch (err) {
-      addToast({ variant: 'error', title: 'Failed to generate PDF', description: err instanceof ApiError ? err.message : undefined })
-    } finally {
-      setGeneratingId(null)
-    }
-  }
-
-  // All preview and download now handled client-side via DocumentPreviewModal
+  // All preview, generation, and download now handled client-side via
+  // DocumentPreviewModal — PDF Rendering Architecture, see CLAUDE.md.
   const openPreview = (id: string) => setPreviewDocId(id)
 
   const sendViaWhatsApp = async (id: string) => {
@@ -577,8 +563,8 @@ export default function BusinessPage() {
                         <Link2 className="w-3.5 h-3.5" />Copy Link
                       </button>
                     )}
-                    <button onClick={() => generatePdf(doc.id)} disabled={generatingId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
-                      {generatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}{doc.hasPdf ? 'Regenerate' : 'Sync PDF'}
+                    <button onClick={() => openPreview(doc.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
+                      <RefreshCw className="w-3.5 h-3.5" />{doc.hasPdf ? 'Regenerate' : 'Sync PDF'}
                     </button>
                     <button onClick={() => checkQuality(doc.id)} disabled={checkingQualityId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
                       {checkingQualityId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}Check Quality
@@ -650,6 +636,7 @@ export default function BusinessPage() {
           onClose={() => setPreviewDocId(null)}
           documentId={previewDocId}
           token={token}
+          onPersisted={loadDocuments}
         />
       )}
 
@@ -743,7 +730,11 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
           // receipt: no dueDate or validUntil sent
         }),
       })
-      await apiClient(`/api/documents/${data.document.id}/generate`, { method: 'POST', token })
+      // No eager server-render here — the PDF renders client-side, in the
+      // user's own browser, the first time they open the preview (PDF
+      // Rendering Architecture, see CLAUDE.md). data.document.id is unused
+      // beyond confirming the request succeeded.
+      void data
       addToast({ variant: 'success', title: `${documentType[0].toUpperCase()}${documentType.slice(1)} created` })
       onCreated()
     } catch (err) {
@@ -762,7 +753,8 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
         token,
         body: JSON.stringify({ contactId, documentType: aiDocumentType, instruction: instruction.trim() }),
       })
-      await apiClient(`/api/documents/${data.document.id}/generate`, { method: 'POST', token })
+      // No eager server-render here either — same reasoning as create() above.
+      void data
       addToast({ variant: 'success', title: `${aiDocumentType[0].toUpperCase()}${aiDocumentType.slice(1)} generated` })
       onCreated()
     } catch (err) {
