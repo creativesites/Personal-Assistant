@@ -270,3 +270,51 @@ async def save_career_document(body: SaveCareerDocumentRequest):
         ai_generated=body.ai_generated, title=body.title,
     )
     return {'document': document}
+
+
+# ── Job Scraper internal endpoints ─────────────────────────────────────────
+
+class ScraperRunRequest(BaseModel):
+    sources: list[str] | None = None  # None = all; or ['gozambia', 'jobsearchzm', 'jobberman_zm']
+
+
+@router.post('/job-scraper/run')
+async def run_job_scraper(body: ScraperRunRequest):
+    """On-demand scrape trigger — called by Node's career-job-discovery.ts
+    when a user clicks "Fetch Jobs" and there are manual-run credits left.
+    Runs in the background so the HTTP response is immediate; the discovery
+    run that follows uses whatever is in the pool."""
+    from ..services.job_scraper import run_all_scrapers
+    import asyncio
+    asyncio.create_task(run_all_scrapers())
+    return {'ok': True, 'message': 'Scrape started in background'}
+
+
+@router.get('/job-scraper/status')
+async def scraper_status():
+    """Recent scraper run summary — used by Node's diagnostics endpoint."""
+    from ..database import get_pool
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT source, MAX(started_at) AS last_run, SUM(jobs_found) AS total_found,
+                      SUM(jobs_new) AS total_new,
+                      BOOL_OR(success) AS last_success
+               FROM scraper_runs
+               WHERE started_at > NOW() - INTERVAL '48 hours'
+               GROUP BY source ORDER BY source""",
+        )
+        pool_row = await conn.fetchrow('SELECT COUNT(*) AS total FROM scraped_jobs WHERE expires_at > NOW()')
+    return {
+        'poolSize': pool_row['total'] if pool_row else 0,
+        'sources': [
+            {
+                'source': r['source'],
+                'lastRun': r['last_run'].isoformat() if r['last_run'] else None,
+                'totalFound': r['total_found'],
+                'totalNew': r['total_new'],
+                'lastSuccess': r['last_success'],
+            }
+            for r in rows
+        ],
+    }

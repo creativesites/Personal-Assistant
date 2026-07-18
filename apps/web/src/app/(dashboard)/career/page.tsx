@@ -11,6 +11,7 @@ import { CoverLetterStudio } from './_components/cover-letter-studio'
 import { OpportunityCard, type CareerOpportunity } from './_components/opportunity-card'
 import { CareerRadar } from './_components/career-radar'
 import { CareerProfileEditor } from './_components/career-profile-editor'
+import { ScrapedJobsBrowser } from './_components/scraped-jobs-browser'
 import { useCareerProfile } from './_components/cv-studio/use-career-profile'
 import { FeatureGate } from '@/components/ui'
 
@@ -78,6 +79,7 @@ function CareerPageInner() {
 
   const [jobDiscoveryStatus, setJobDiscoveryStatus] = useState<{ cap: number; usedToday: number; remaining: number } | null>(null)
   const [fetchingJobs, setFetchingJobs] = useState(false)
+  const [scraperRefresh, setScraperRefresh] = useState(0)
 
   const loadActivity = () => {
     if (!token) return
@@ -109,6 +111,7 @@ function CareerPageInner() {
       })
       loadOpportunities()
       loadActivity()
+      setScraperRefresh(prev => prev + 1)
     } catch (err) {
       addToast({ variant: 'error', title: 'Could not fetch jobs', description: err instanceof ApiError ? err.message : undefined })
       loadJobDiscoveryStatus()
@@ -312,6 +315,10 @@ function CareerPageInner() {
             </div>
           )}
         </div>
+
+        {token && (
+          <ScrapedJobsBrowser token={token} refreshSignal={scraperRefresh} />
+        )}
       </div>
 
       {token && (

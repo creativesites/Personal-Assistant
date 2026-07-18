@@ -41,6 +41,7 @@ from .workers.daily_worker import (
     create_reality_engine_daily_worker, run_reality_engine_daily_scheduler,
     create_career_coach_worker, run_career_coach_scheduler,
     create_job_discovery_worker, run_job_discovery_scheduler,
+    run_job_scraper_scheduler,
     create_business_manager_insights_worker, run_business_manager_insights_scheduler,
     create_business_feed_worker, run_business_feed_scheduler,
 )
@@ -113,6 +114,7 @@ async def lifespan(app: FastAPI):
     reality_engine_daily_task = asyncio.create_task(run_reality_engine_daily_scheduler())
     career_coach_task = asyncio.create_task(run_career_coach_scheduler())
     job_discovery_task = asyncio.create_task(run_job_discovery_scheduler())
+    job_scraper_task = asyncio.create_task(run_job_scraper_scheduler())
     business_manager_insights_task = asyncio.create_task(run_business_manager_insights_scheduler())
     business_feed_task = asyncio.create_task(run_business_feed_scheduler())
 
@@ -125,7 +127,7 @@ async def lifespan(app: FastAPI):
         gossip_detection_task, interest_cron_task, spiritual_devotional_task, motivational_nudge_task,
         advisor_memory_learning_task, curiosity_proactive_task, project_progress_task,
         business_manager_task, reality_engine_hourly_task, reality_engine_daily_task, career_coach_task,
-        job_discovery_task, business_manager_insights_task, business_feed_task,
+        job_discovery_task, job_scraper_task, business_manager_insights_task, business_feed_task,
     ):
         task.cancel()
         try:

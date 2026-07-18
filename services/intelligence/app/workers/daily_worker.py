@@ -23,6 +23,7 @@ from ..services.business_feed_detectors import BusinessFeedDetectorService
 from ..services.reality_engine import RealityEngineService
 from ..services.career_coach import get_career_coach
 from ..services.job_discovery import get_job_discovery
+from ..services.job_scraper import get_job_scraper
 
 log = structlog.get_logger()
 
@@ -735,3 +736,32 @@ async def run_consolidation_scheduler() -> None:
             await _consolidation_queue.add('consolidate', {})
         except Exception as exc:
             log.error('consolidation_enqueue_failed', error=str(exc))
+
+
+async def run_job_scraper_scheduler() -> None:
+    """Job Scraper Engine: run all site scrapers daily at 04:30 UTC (before
+    the 05:00 job discovery run so the pool is freshest when discovery
+    scores it) and also every 6 hours for fresh listings throughout the day.
+    The 6-hour re-scrape is lightweight — most jobs won't be new, just
+    scraped_at updated, so it's cheap SQL upserts after the first run."""
+    while True:
+        now = datetime.now(tz=timezone.utc)
+        # Next 04:30 UTC or +6h, whichever is sooner
+        slots = [
+            now.replace(hour=4, minute=30, second=0, microsecond=0),
+            now.replace(hour=10, minute=30, second=0, microsecond=0),
+            now.replace(hour=16, minute=30, second=0, microsecond=0),
+            now.replace(hour=22, minute=30, second=0, microsecond=0),
+        ]
+        upcoming = [t if t > now else t + timedelta(days=1) for t in slots]
+        target = min(upcoming)
+        wait_secs = (target - now).total_seconds()
+        log.info('job_scraper_scheduler_sleeping', next_run=str(target), seconds=int(wait_secs))
+        await asyncio.sleep(wait_secs)
+        try:
+            log.info('job_scraper_run_start')
+            results = await get_job_scraper().run()
+            total_new = sum(results.values())
+            log.info('job_scraper_run_complete', results=results, total_new=total_new)
+        except Exception as exc:
+            log.error('job_scraper_run_failed', error=str(exc))

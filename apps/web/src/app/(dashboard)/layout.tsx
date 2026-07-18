@@ -58,7 +58,17 @@ const NAV_GROUPS: NavGroup[] = [
     icon: LayoutDashboard,
     items: [
       { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
+      // { href: '/studio', label: ' Business Manager ', icon: Send },
       { href: '/notifications', label: 'Notifications', icon: Bell },
+    ],
+  },
+  {
+    key: 'marketing',
+    label: 'Business',
+    icon: Send,
+    showForModes: ['business', 'hybrid'],
+    items: [
+      { href: '/studio', label: ' Business Manager ', icon: Send },
     ],
   },
   {
@@ -108,15 +118,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/timeline',      label: 'Life Timeline', icon: History },
     ],
   },
-  {
-    key: 'marketing',
-    label: 'Marketing',
-    icon: Send,
-    showForModes: ['business', 'hybrid'],
-    items: [
-      { href: '/studio', label: 'Studio', icon: Send },
-    ],
-  },
+  
 ]
 
 // Settings hub — kept as the existing compact, pinned footer rather than a
@@ -134,7 +136,7 @@ const BOTTOM_NAV: Record<WorkspaceMode, BottomNavEntry[]> = {
   business: [
     { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
     { href: '/inbox',       label: 'Inbox',    icon: MessageSquare, badge: true },
-    { href: '/contacts',    label: 'Contacts', icon: Users },
+    { href: '/studio',    label: 'Business Manager', icon: Users },
     { isSearchToggle: true },
     { isMenuToggle: true },
   ],
@@ -148,7 +150,7 @@ const BOTTOM_NAV: Record<WorkspaceMode, BottomNavEntry[]> = {
   hybrid: [
     { href: '/dashboard',  label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',      label: 'Inbox',     icon: MessageSquare, badge: true },
-    { href: '/contacts',   label: 'Contacts',  icon: Users },
+    { href: '/studio',   label: 'Business Manager',  icon: Users },
     { isSearchToggle: true },
     { isMenuToggle: true },
   ],

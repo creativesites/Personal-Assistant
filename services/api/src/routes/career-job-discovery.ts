@@ -50,6 +50,14 @@ export async function careerJobDiscoveryRoutes(fastify: FastifyInstance): Promis
     }
 
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+    // Kick off a background scrape so the pool is as fresh as possible before
+    // the discovery run scores it — fire-and-forget, don't wait for it.
+    fetch(`${intelligenceUrl}/internal/career/job-scraper/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }).catch(() => {})  // never block on scrape failure
+
     try {
       const res = await fetch(`${intelligenceUrl}/internal/career/job-discovery/run`, {
         method: 'POST',
@@ -81,6 +89,83 @@ export async function careerJobDiscoveryRoutes(fastify: FastifyInstance): Promis
         [userId, err instanceof Error ? err.message.slice(0, 500) : 'Unknown error'],
       )
       return reply.code(502).send({ error: 'Job search failed. Please try again shortly.' })
+    }
+  })
+
+  // Browseable pool of scraped jobs — not personalised, just the raw pool
+  // filtered/sorted for the current user's preferred roles/industries.
+  fastify.get('/api/career/scraped-jobs', { preHandler: gate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const query = request.query as { source?: string; search?: string; limit?: string; offset?: string }
+    const limit = Math.min(50, parseInt(query.limit ?? '20', 10))
+    const offset = parseInt(query.offset ?? '0', 10)
+
+    // Fetch user's target roles/industries to surface relevant jobs first
+    const { rows: [profile] } = await db.query<{ target_roles: string[]; target_industries: string[] }>(
+      'SELECT target_roles, target_industries FROM career_profiles WHERE user_id = $1',
+      [userId],
+    )
+    const terms = [
+      ...(profile?.target_roles ?? []),
+      ...(profile?.target_industries ?? []),
+    ].map(t => t.toLowerCase())
+
+    const params: unknown[] = [new Date(Date.now())]
+    const conditions: string[] = ['sj.expires_at > $1']
+
+    if (query.source) {
+      params.push(query.source)
+      conditions.push(`sj.source = $${params.length}`)
+    }
+    if (query.search) {
+      params.push(`%${query.search}%`)
+      const idx = params.length
+      conditions.push(`(sj.title ILIKE $${idx} OR sj.company ILIKE $${idx} OR sj.description ILIKE $${idx})`)
+    }
+
+    const where = conditions.join(' AND ')
+
+    // Sort: jobs that match the user's target roles/industries float to top
+    const relevanceExpr = terms.length > 0
+      ? `CASE WHEN ${terms.map((_, i) => {
+          params.push(`%${terms[i]}%`)
+          const idx = params.length
+          return `(sj.title ILIKE $${idx} OR sj.location ILIKE $${idx})`
+        }).join(' OR ')} THEN 0 ELSE 1 END`
+      : '0'
+
+    params.push(limit, offset)
+    const limitIdx = params.length - 1
+    const offsetIdx = params.length
+
+    const { rows: jobs } = await db.query(
+      `SELECT sj.id, sj.source, sj.source_url, sj.title, sj.company, sj.location,
+              sj.job_type, sj.salary_range, sj.skills, sj.posted_at, sj.scraped_at
+       FROM scraped_jobs sj
+       WHERE ${where}
+       ORDER BY ${relevanceExpr}, sj.scraped_at DESC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params,
+    )
+
+    const { rows: [{ count }] } = await db.query<{ count: string }>(
+      `SELECT COUNT(*) FROM scraped_jobs WHERE ${where}`,
+      params.slice(0, params.length - 2),
+    )
+
+    return reply.send({ jobs, total: parseInt(count, 10), limit, offset })
+  })
+
+  // Scraper health — pool size + last run per source
+  fastify.get('/api/career/scraper-status', { preHandler: gate }, async (request, reply) => {
+    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+    try {
+      const res = await fetch(`${intelligenceUrl}/internal/career/job-scraper/status`)
+      if (!res.ok) return reply.code(502).send({ error: 'Could not reach intelligence service' })
+      const data = await res.json()
+      return reply.send(data)
+    } catch {
+      return reply.code(502).send({ error: 'Could not reach intelligence service' })
     }
   })
 }

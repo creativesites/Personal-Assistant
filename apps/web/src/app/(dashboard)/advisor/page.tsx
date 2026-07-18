@@ -866,9 +866,12 @@ export default function AdvisorPage() {
         )}
 
         {/* FIXED BOTTOM INPUT */}
+        {/* FIXED BOTTOM INPUT */}
         <div className="flex-shrink-0 bg-white/80 border-t border-white px-3 py-3 md:px-6 z-20 backdrop-blur-xl shadow-[0_-16px_40px_rgba(15,23,42,0.05)]">
           <div className="max-w-3xl mx-auto">
             <div className="bg-white border border-white rounded-[1.75rem] p-2 focus-within:border-indigo-200 focus-within:ring-4 focus-within:ring-indigo-100 transition-all relative shadow-xl shadow-indigo-100/40 ring-1 ring-slate-100">
+              
+              {/* Target Chips Context */}
               <div className="mb-1 flex flex-wrap gap-1.5 px-2 pt-1">
                 {['Priority map', 'Draft reply', 'Risk scan'].map(label => (
                   <button
@@ -881,6 +884,8 @@ export default function AdvisorPage() {
                   </button>
                 ))}
               </div>
+
+              {/* Main Input Text Box */}
               <textarea
                 ref={inputRef}
                 value={input}
@@ -891,24 +896,30 @@ export default function AdvisorPage() {
                 className="w-full bg-transparent text-sm text-slate-900 placeholder-slate-400 resize-none focus:outline-none px-2 pt-1.5 pb-10 min-h-[44px]"
                 style={{ maxHeight: '120px' }}
               />
-              <div className="absolute bottom-1 left-3 right-3 flex items-center justify-between pointer-events-none">
-                <div className="flex items-center gap-1 pointer-events-auto">
-                  <button className="px-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Attach file">
+
+              {/* Lower Actions Horizon Bar */}
+              <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between pointer-events-none">
+                {/* Left Side: Media & Input Vectors */}
+                <div className="flex items-center gap-0.5 pointer-events-auto">
+                  <button className="p-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Attach file">
                     <Paperclip className="w-4 h-4" />
                   </button>
-                  <button className="px-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Voice input">
+                  <button className="p-2 text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-50 transition-colors" title="Voice input">
                     <Mic className="w-4 h-4" />
                   </button>
                 </div>
+
+                {/* Right Side: Dispatch Control */}
                 <button
                   onClick={() => sendMessage(input)}
                   disabled={!input.trim() || loading}
-                  className="pointer-events-auto w-10 h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-200"
+                  className="pointer-events-auto w-8 h-8 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-200"
                 >
                   <Send className="w-4 h-4" />
                 </button>
               </div>
             </div>
+            
             <p className="text-[10px] text-slate-500 text-center mt-2">
               AI Advisor has context on all your WhatsApp conversations. <span className="text-slate-600">Always verify important info.</span>
             </p>
