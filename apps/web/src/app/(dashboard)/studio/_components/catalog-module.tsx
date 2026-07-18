@@ -15,6 +15,8 @@ import {
   MessageSquare,
   Upload,
   Image,
+  Archive,
+  Ban,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,6 +59,26 @@ const BLANK_CATALOG_FORM = {
   description: '', sellingPrice: '', currency: 'USD', stock: '',
   minimumStock: '', purchaseCost: '', supplierId: '', warranty: '', tags: '',
   familyId: '',
+}
+
+function productToCatalogForm(p: Product): typeof BLANK_CATALOG_FORM {
+  return {
+    name: p.name ?? '',
+    itemType: p.itemType ?? 'product',
+    sku: p.sku ?? '',
+    category: p.category ?? '',
+    brand: p.brand ?? '',
+    description: p.description ?? '',
+    sellingPrice: p.sellingPrice != null ? String(p.sellingPrice) : '',
+    currency: p.currency ?? 'USD',
+    stock: p.stock != null ? String(p.stock) : '',
+    minimumStock: p.minimumStock != null ? String(p.minimumStock) : '',
+    purchaseCost: p.purchaseCost != null ? String(p.purchaseCost) : '',
+    supplierId: p.supplierId ?? '',
+    warranty: p.warranty ?? '',
+    tags: (p.tags ?? []).join(', '),
+    familyId: p.familyId ?? '',
+  }
 }
 
 // ─── Product Families & Attributes (Business OS Phase A) ──────────────────────
@@ -601,6 +623,7 @@ export function CatalogModule({ token }: { token: string | undefined }) {
 
   const [filter,         setFilter]         = useState<CatalogFilter>('All')
   const [showAdd,        setShowAdd]        = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [showFamilies,   setShowFamilies]   = useState(false)
   const [expandedId,     setExpandedId]     = useState<string | null>(null)
   const [deleteConfirm,  setDeleteConfirm]  = useState<string | null>(null)
@@ -612,6 +635,22 @@ export function CatalogModule({ token }: { token: string | undefined }) {
   const [uploadingImgId, setUploadingImgId] = useState<string | null>(null)
   const imgInputRef                         = useRef<HTMLInputElement>(null)
   const [imgTargetId,    setImgTargetId]    = useState<string | null>(null)
+
+  const formOpen = showAdd || !!editingProduct
+
+  function openEdit(p: Product) {
+    setEditingProduct(p)
+    setForm(productToCatalogForm(p))
+    setAttrValues(p.attributes ?? {})
+    setShowAdd(false)
+  }
+
+  function closeForm() {
+    setShowAdd(false)
+    setEditingProduct(null)
+    setForm({ ...BLANK_CATALOG_FORM })
+    setAttrValues({})
+  }
 
   const { data: effectiveAttrsData } = useApi<{ attributes: AttributeDefinition[] }>(
     token && form.familyId ? `/api/product-families/${form.familyId}/effective-attributes` : null, token,
@@ -631,39 +670,50 @@ export function CatalogModule({ token }: { token: string | undefined }) {
     }
   }
 
+  async function setStatus(p: Product, status: 'active' | 'archived' | 'discontinued', label: string) {
+    try {
+      await apiClient(`/api/products/${p.id}`, { method: 'PATCH', token, body: JSON.stringify({ status }) })
+      addToast({ variant: 'success', title: `${p.name} ${label}` })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? `Failed to ${label}` })
+    }
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) return
     setSaving(true)
     try {
-      await apiClient('/api/products', {
-        method: 'POST', token,
-        body: JSON.stringify({
-          name:         form.name.trim(),
-          itemType:     form.itemType,
-          sku:          form.sku          || null,
-          category:     form.category     || null,
-          brand:        form.brand        || null,
-          description:  form.description  || null,
-          sellingPrice: form.sellingPrice ? parseFloat(form.sellingPrice) : null,
-          currency:     form.currency,
-          stock:        form.stock        ? parseInt(form.stock)          : 0,
-          minimumStock: form.minimumStock ? parseInt(form.minimumStock)   : 0,
-          purchaseCost: form.purchaseCost ? parseFloat(form.purchaseCost) : 0,
-          supplierId:   form.supplierId   || null,
-          warranty:     form.warranty     || null,
-          tags:         form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-          familyId:     form.familyId     || null,
-          attributes:   attrValues,
-        }),
-      })
-      addToast({ variant: 'success', title: 'Item added' })
-      setForm({ ...BLANK_CATALOG_FORM })
-      setAttrValues({})
-      setShowAdd(false)
+      const payload = {
+        name:         form.name.trim(),
+        itemType:     form.itemType,
+        sku:          form.sku          || null,
+        category:     form.category     || null,
+        brand:        form.brand        || null,
+        description:  form.description  || null,
+        sellingPrice: form.sellingPrice ? parseFloat(form.sellingPrice) : null,
+        currency:     form.currency,
+        stock:        form.stock        ? parseInt(form.stock)          : 0,
+        minimumStock: form.minimumStock ? parseInt(form.minimumStock)   : 0,
+        purchaseCost: form.purchaseCost ? parseFloat(form.purchaseCost) : 0,
+        supplierId:   form.supplierId   || null,
+        warranty:     form.warranty     || null,
+        tags:         form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        familyId:     form.familyId     || null,
+        attributes:   attrValues,
+      }
+      if (editingProduct) {
+        await apiClient(`/api/products/${editingProduct.id}`, { method: 'PATCH', token, body: JSON.stringify(payload) })
+        addToast({ variant: 'success', title: 'Item updated' })
+      } else {
+        await apiClient('/api/products', { method: 'POST', token, body: JSON.stringify(payload) })
+        addToast({ variant: 'success', title: 'Item added' })
+      }
+      closeForm()
       refetch()
     } catch (err: any) {
-      addToast({ variant: 'error', title: err.message ?? 'Failed to add item' })
+      addToast({ variant: 'error', title: err.message ?? 'Failed to save item' })
     } finally {
       setSaving(false)
     }
@@ -772,7 +822,7 @@ export function CatalogModule({ token }: { token: string | undefined }) {
             <Layers className="w-4 h-4 mr-1.5" />
             Product Types
           </Button>
-          <Button onClick={() => setShowAdd(v => !v)}>
+          <Button onClick={() => { if (formOpen) { closeForm() } else { setShowAdd(true) } }}>
             <Plus className="w-4 h-4 mr-1.5" />
             Add item
           </Button>
@@ -786,10 +836,10 @@ export function CatalogModule({ token }: { token: string | undefined }) {
         />
       )}
 
-      {/* Add form */}
-      {showAdd && (
+      {/* Add/Edit form */}
+      {formOpen && (
         <form onSubmit={handleAdd} className="bg-white rounded-[1.75rem] border border-indigo-200 shadow-sm shadow-indigo-100/70 p-4 space-y-4">
-          <p className="font-semibold text-gray-900 text-sm">New Catalog Item</p>
+          <p className="font-semibold text-gray-900 text-sm">{editingProduct ? `Edit ${editingProduct.name}` : 'New Catalog Item'}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Name *</label>
@@ -957,12 +1007,12 @@ export function CatalogModule({ token }: { token: string | undefined }) {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" type="button" onClick={() => { setShowAdd(false); setForm({ ...BLANK_CATALOG_FORM }); setAttrValues({}) }}>
+            <Button variant="secondary" type="button" onClick={closeForm}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
-              Save Item
+              {editingProduct ? 'Save Changes' : 'Save Item'}
             </Button>
           </div>
         </form>
@@ -996,6 +1046,8 @@ export function CatalogModule({ token }: { token: string | undefined }) {
                           {p.itemType.replace('_', ' ')}
                         </Badge>
                         {p.status === 'secondary' && <Badge variant="purple">secondary</Badge>}
+                        {p.status === 'archived' && <Badge variant="default">archived</Badge>}
+                        {p.status === 'discontinued' && <Badge variant="error">discontinued</Badge>}
                       </div>
                       {p.category && (
                         <p className="text-xs text-gray-500 mt-0.5">
@@ -1127,11 +1179,27 @@ export function CatalogModule({ token }: { token: string | undefined }) {
                     )}
 
                     <div className="flex gap-2 flex-wrap">
-                      {p.status === 'secondary' && (
+                      <Button size="sm" variant="secondary" onClick={() => openEdit(p)}>
+                        <Edit2 className="w-3.5 h-3.5 mr-1" />
+                        Edit
+                      </Button>
+                      {(p.status === 'secondary' || p.status === 'archived' || p.status === 'discontinued') && (
                         <Button size="sm" variant="secondary" onClick={() => promoteToActive(p)}>
                           <Check className="w-3.5 h-3.5 mr-1" />
                           Promote to active
                         </Button>
+                      )}
+                      {p.status === 'active' && (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => setStatus(p, 'archived', 'archived')}>
+                            <Archive className="w-3.5 h-3.5 mr-1" />
+                            Archive
+                          </Button>
+                          <Button size="sm" variant="secondary" onClick={() => setStatus(p, 'discontinued', 'discontinued')}>
+                            <Ban className="w-3.5 h-3.5 mr-1" />
+                            Discontinue
+                          </Button>
+                        </>
                       )}
                       <Button size="sm" variant="secondary" onClick={() => handleGenerate(p.id)} disabled={generatingId === p.id}>
                         {generatingId === p.id

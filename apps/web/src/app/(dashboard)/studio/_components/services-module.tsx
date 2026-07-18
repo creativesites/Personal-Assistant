@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Edit2,
   FileText,
   GitBranch,
   ListChecks,
@@ -15,10 +16,13 @@ import {
   Users2,
   Wrench,
   X,
+  Archive,
+  Ban,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
+import { Modal } from '@/components/ui/modal'
 import { SkeletonCard } from '@/components/ui/skeleton'
 import { useToast } from '@/components/ui/toast'
 import { useApi } from '@/hooks/use-api'
@@ -80,22 +84,84 @@ interface WorkflowStage {
 }
 
 export function ServicesModule({ token }: { token: string | undefined }) {
+  // Fetch including archived/discontinued/secondary items (same convention
+  // as CatalogModule) so a hidden service can be found again and promoted
+  // back to active, rather than disappearing once archived.
   const { data: productsData, loading, refetch } = useApi<{ products: Product[] }>(
-    token ? '/api/products' : null, token,
+    token ? '/api/products?includeSecondary=true' : null, token,
   )
   const { data: familiesData } = useApi<{ families: ProductFamily[] }>(
     token ? '/api/product-families' : null, token,
   )
   const { addToast } = useToast()
 
-  const services = (productsData?.products ?? []).filter(p => SERVICE_ITEM_TYPES.includes(p.itemType))
+  const allServices = (productsData?.products ?? []).filter(p => SERVICE_ITEM_TYPES.includes(p.itemType))
+  const hiddenCount = allServices.filter(p => p.status !== 'active').length
   const families = buildFamilyTree(familiesData?.families ?? [])
 
   const [showAdd, setShowAdd] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
+  const [editingService, setEditingService] = useState<Product | null>(null)
+  const [editForm, setEditForm] = useState({ ...BLANK_SERVICE_FORM })
+  const [savingEdit, setSavingEdit] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ ...BLANK_SERVICE_FORM })
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  const services = showHidden ? allServices : allServices.filter(p => p.status === 'active')
+
+  function openEdit(svc: Product) {
+    setEditingService(svc)
+    setEditForm({
+      name: svc.name ?? '',
+      itemType: svc.itemType ?? 'service',
+      category: svc.category ?? '',
+      description: svc.description ?? '',
+      sellingPrice: svc.sellingPrice != null ? String(svc.sellingPrice) : '',
+      currency: svc.currency ?? 'USD',
+      pricingModel: svc.pricingModel ?? 'fixed',
+      familyId: svc.familyId ?? '',
+    })
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingService || !editForm.name.trim()) return
+    setSavingEdit(true)
+    try {
+      await apiClient(`/api/products/${editingService.id}`, {
+        method: 'PATCH', token,
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          itemType: editForm.itemType,
+          category: editForm.category || null,
+          description: editForm.description || null,
+          sellingPrice: editForm.sellingPrice ? parseFloat(editForm.sellingPrice) : null,
+          currency: editForm.currency,
+          pricingModel: editForm.pricingModel,
+          familyId: editForm.familyId || null,
+        }),
+      })
+      addToast({ variant: 'success', title: 'Service updated' })
+      setEditingService(null)
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? 'Failed to save service' })
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  async function setServiceStatus(svc: Product, status: 'active' | 'archived' | 'discontinued', label: string) {
+    try {
+      await apiClient(`/api/products/${svc.id}`, { method: 'PATCH', token, body: JSON.stringify({ status }) })
+      addToast({ variant: 'success', title: `${svc.name} ${label}` })
+      refetch()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message ?? `Failed to ${label}` })
+    }
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
@@ -146,11 +212,105 @@ export function ServicesModule({ token }: { token: string | undefined }) {
           <p className="text-sm font-semibold text-gray-900">Services</p>
           <p className="text-xs text-gray-500">Things you deliver, not stock — consulting, development, subscriptions, packages.</p>
         </div>
-        <Button onClick={() => setShowAdd(v => !v)}>
-          <Plus className="w-4 h-4 mr-1.5" />
-          Add service
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          {hiddenCount > 0 && (
+            <Button
+              variant={showHidden ? 'primary' : 'secondary'}
+              onClick={() => setShowHidden(v => !v)}
+              title="Archived or discontinued services are hidden from this list by default."
+            >
+              {showHidden ? 'Hide' : 'Show'} archived ({hiddenCount})
+            </Button>
+          )}
+          <Button onClick={() => setShowAdd(v => !v)}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Add service
+          </Button>
+        </div>
       </div>
+
+      {editingService && (
+        <Modal open={!!editingService} onClose={() => setEditingService(null)} title={`Edit ${editingService.name}`}>
+          <form onSubmit={handleSaveEdit} className="space-y-4 p-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Name *</label>
+                <input
+                  required
+                  value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Type</label>
+                <select
+                  value={editForm.itemType}
+                  onChange={e => setEditForm(f => ({ ...f, itemType: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="service">Service</option>
+                  <option value="subscription">Subscription</option>
+                  <option value="package">Package</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Pricing model</label>
+                <select
+                  value={editForm.pricingModel}
+                  onChange={e => setEditForm(f => ({ ...f, pricingModel: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {PRICING_MODEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Category</label>
+                <input
+                  value={editForm.category}
+                  onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  {editForm.pricingModel === 'hourly' ? 'Hourly rate' : editForm.pricingModel === 'daily' ? 'Daily rate' : 'Base price'}
+                </label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={editForm.sellingPrice}
+                  onChange={e => setEditForm(f => ({ ...f, sellingPrice: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Currency</label>
+                <input
+                  value={editForm.currency}
+                  onChange={e => setEditForm(f => ({ ...f, currency: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">Description</label>
+                <textarea
+                  value={editForm.description}
+                  onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <Button type="button" variant="secondary" onClick={() => setEditingService(null)}>Cancel</Button>
+              <Button type="submit" disabled={savingEdit}>
+                {savingEdit ? <RefreshCw className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {showAdd && (
         <form onSubmit={handleAdd} className="bg-white rounded-[1.75rem] border border-indigo-200 shadow-sm shadow-indigo-100/70 p-4 space-y-4">
@@ -276,6 +436,10 @@ export function ServicesModule({ token }: { token: string | undefined }) {
               onDeleteConfirm={() => setDeleteConfirm(svc.id)}
               onDeleteCancel={() => setDeleteConfirm(null)}
               onDelete={() => handleDelete(svc.id)}
+              onEdit={() => openEdit(svc)}
+              onArchive={() => setServiceStatus(svc, 'archived', 'archived')}
+              onDiscontinue={() => setServiceStatus(svc, 'discontinued', 'discontinued')}
+              onPromote={() => setServiceStatus(svc, 'active', 'promoted to active')}
             />
           ))}
         </div>
@@ -289,6 +453,7 @@ type ServiceTab = 'overview' | 'packages' | 'deliverables' | 'capacity' | 'workf
 function ServiceCard({
   service, token, isExpanded, onToggle, onChanged,
   deleteConfirm, onDeleteConfirm, onDeleteCancel, onDelete,
+  onEdit, onArchive, onDiscontinue, onPromote,
 }: {
   service: Product
   token: string | undefined
@@ -299,6 +464,10 @@ function ServiceCard({
   onDeleteConfirm: () => void
   onDeleteCancel: () => void
   onDelete: () => void
+  onEdit: () => void
+  onArchive: () => void
+  onDiscontinue: () => void
+  onPromote: () => void
 }) {
   const [tab, setTab] = useState<ServiceTab>('overview')
 
@@ -322,6 +491,8 @@ function ServiceCard({
                 {service.pricingModel && (
                   <Badge variant="default">{PRICING_MODEL_LABELS[service.pricingModel] ?? service.pricingModel}</Badge>
                 )}
+                {service.status === 'archived' && <Badge variant="default">archived</Badge>}
+                {service.status === 'discontinued' && <Badge variant="error">discontinued</Badge>}
               </div>
               {service.description && <p className="text-xs text-gray-500 mt-1.5">{service.description}</p>}
             </div>
@@ -359,7 +530,28 @@ function ServiceCard({
             {tab === 'capacity' && <ServiceCapacityTab service={service} token={token} />}
             {tab === 'workflow' && <ServiceWorkflowTab service={service} token={token} />}
           </div>
-          <div className="px-4 pb-4 pt-3 border-t border-gray-50">
+          <div className="px-4 pb-4 pt-3 border-t border-gray-50 flex items-center gap-2 flex-wrap">
+            <Button size="sm" variant="secondary" onClick={onEdit}>
+              <Edit2 className="w-3.5 h-3.5 mr-1" />
+              Edit
+            </Button>
+            {service.status === 'active' ? (
+              <>
+                <Button size="sm" variant="secondary" onClick={onArchive}>
+                  <Archive className="w-3.5 h-3.5 mr-1" />
+                  Archive
+                </Button>
+                <Button size="sm" variant="secondary" onClick={onDiscontinue}>
+                  <Ban className="w-3.5 h-3.5 mr-1" />
+                  Discontinue
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" variant="secondary" onClick={onPromote}>
+                <Check className="w-3.5 h-3.5 mr-1" />
+                Promote to active
+              </Button>
+            )}
             {deleteConfirm ? (
               <div className="flex items-center gap-1.5 text-sm">
                 <span className="text-gray-500">Delete this service?</span>

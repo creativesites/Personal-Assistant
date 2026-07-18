@@ -272,12 +272,13 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
       // Business Events Plan §6 — a 'secondary' product (a one-off item
       // recorded but not meant to clutter the main catalog) is excluded by
-      // default, same as 'archived' already is; ?includeSecondary=true
-      // reveals it (the Catalog tab's "Show secondary items" toggle).
+      // default, same as 'archived'/'discontinued'; ?includeSecondary=true
+      // reveals all three (the Catalog/Services tabs' "Show hidden items"
+      // toggle) so a user can find and promote them back to active.
       const { includeSecondary } = request.query as { includeSecondary?: string }
       const statusFilter = includeSecondary === 'true'
-        ? `p.status != 'archived'`
-        : `p.status NOT IN ('archived', 'secondary')`
+        ? `TRUE`
+        : `p.status NOT IN ('archived', 'secondary', 'discontinued')`
 
       const { rows } = await db.query<ProductRow>(
         `SELECT p.id, p.name, p.description, p.price, p.currency, p.serial_number, p.quantity,
@@ -623,6 +624,44 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       if (!rowCount) return reply.code(404).send({ error: 'Product not found' })
 
       return reply.send({ ok: true })
+    },
+  )
+
+  // Hard-delete only when a product has no real activity yet — every FK
+  // referencing products(id) (stock_movements, contact_products,
+  // supplier_products, product_stock_by_location, inventory_forecasts,
+  // service_* tables) is CASCADE, so a delete is safe at the DB level, but a
+  // product with actual order/stock history should be archived instead so
+  // that history stays queryable (same "hard-delete-for-drafts-only" pattern
+  // as documents.ts's DELETE /api/documents/:id).
+  fastify.delete(
+    '/api/products/:id',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows: [existing] } = await db.query(
+        'SELECT id FROM products WHERE id = $1 AND user_id = $2',
+        [id, userId],
+      )
+      if (!existing) return reply.code(404).send({ error: 'Product not found' })
+
+      const { rows: [activity] } = await db.query(
+        `SELECT
+           EXISTS(SELECT 1 FROM stock_movements WHERE product_id = $1) AS has_stock_movements,
+           EXISTS(SELECT 1 FROM contact_products WHERE product_id = $1) AS has_contact_products
+         `,
+        [id],
+      )
+      if (activity.has_stock_movements || activity.has_contact_products) {
+        return reply.code(400).send({
+          error: 'This product has order/stock history — archive it instead.',
+        })
+      }
+
+      await db.query('DELETE FROM products WHERE id = $1 AND user_id = $2', [id, userId])
+      return reply.send({ ok: true, deleted: true })
     },
   )
 
