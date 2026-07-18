@@ -59,7 +59,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { uploadProductImage } from '@/lib/storage'
-import { businessEventLabel, businessEventDetail } from '@/lib/business-event-labels'
+import { BusinessEventRow } from '@/components/business-event-row'
 import {
   type Product, type Supplier,
   marginColor, stockVariant, itemTypeBadgeVariant, formatCurrency, calcMargin,
@@ -510,38 +510,9 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
             </Link>
           </div>
           <div className="space-y-1">
-            {insights.recentEvents.map(ev => {
-              const label = businessEventLabel(ev.eventType)
-              const detail = businessEventDetail(ev.payload, ev.contactName)
-              return (
-                <div key={ev.id} className="flex items-start gap-3 border-b border-gray-50 py-2.5 last:border-b-0">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-gray-900">
-                      {label}{detail ? `: ${detail}` : ''}
-                    </p>
-                    {ev.evidence.length > 0 && (
-                      <p className="text-[11px] text-gray-500 mt-0.5 truncate">{ev.evidence[0]}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      {ev.confidence != null && (
-                        <span className="text-[10px] font-semibold text-gray-400">
-                          {Math.round(ev.confidence * 100)}% confident
-                        </span>
-                      )}
-                      {ev.status === 'bundled' && (
-                        <Badge variant="purple">In pending bundle</Badge>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-gray-400 shrink-0">
-                    {new Date(ev.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-              )
-            })}
+            {insights.recentEvents.map(ev => (
+              <BusinessEventRow key={ev.id} event={ev} compact />
+            ))}
           </div>
         </div>
       )}

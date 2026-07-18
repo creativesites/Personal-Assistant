@@ -32,7 +32,22 @@ export function businessEventLabel(eventType: string): string {
   return BUSINESS_EVENT_LABELS[eventType] ?? eventType.replace(/_/g, ' ')
 }
 
-export function businessEventDetail(payload: Record<string, unknown> | null | undefined, contactName?: string | null): string | null {
+function formatMoney(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100)
+  } catch {
+    return `${currency} ${(cents / 100).toFixed(2)}`
+  }
+}
+
+export function businessEventDetail(
+  eventType: string,
+  payload: Record<string, unknown> | null | undefined,
+  contactName?: string | null,
+): string | null {
   const p = payload ?? {}
+  if (eventType === 'payment_posted' && typeof p.totalCents === 'number') {
+    return `${formatMoney(p.totalCents, (p.currency as string) ?? 'USD')}${contactName ? ` from ${contactName}` : ''}`
+  }
   return (p.name as string) ?? (p.company as string) ?? (p.title as string) ?? contactName ?? null
 }
