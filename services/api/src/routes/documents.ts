@@ -73,6 +73,12 @@ const createBody = z.object({
   validUntil: z.string().optional(),
   dueDate: z.string().optional(),
   templateId: z.string().uuid().optional(),
+  // Reusable named Brand Profiles — which business_profiles row's
+  // logo/address/bank details/numbering sequence this document uses. Null/
+  // omitted means "the user's default profile" (business-profile.ts's
+  // getOrCreateProfile), so every pre-existing document keeps rendering
+  // exactly as it did before this field existed.
+  businessProfileId: z.string().uuid().optional(),
   dealId: z.string().uuid().optional(),
   opportunityId: z.string().uuid().optional(),
   conversationId: z.string().uuid().optional(),
@@ -81,6 +87,12 @@ const createBody = z.object({
 
 const updateBody = createBody.partial().extend({
   documentType: z.enum(PHASE_0_TYPES).optional(),
+  // Widened to nullable (unlike createBody) so the full-detail edit form can
+  // explicitly clear a linked contact to switch to a manual one, and clear
+  // an overridden brand profile back to "use my default" — createBody has
+  // no such "explicitly clear" case since a document starts with neither set.
+  contactId: z.string().uuid().nullable().optional(),
+  businessProfileId: z.string().uuid().nullable().optional(),
 });
 
 export function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
@@ -105,14 +117,22 @@ export function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
   return { computedItems, subtotalCents, discountCents, taxCents, totalCents: subtotalCents - discountCents + taxCents };
 }
 
-export async function assignDocumentNumber(userId: string, documentType: string): Promise<string> {
-  await getOrCreateProfile(userId);
+// businessProfileId (Reusable named Brand Profiles) scopes the numbering
+// sequence to that specific profile instead of the user's default — each
+// named brand profile gets its own independent INV-/QT- counter, so a
+// "side company"'s invoices never collide with the main business's numbers.
+export async function assignDocumentNumber(
+  userId: string, documentType: string, businessProfileId?: string | null,
+): Promise<string> {
+  const profileFilter = businessProfileId ? 'id = $2 AND user_id = $3' : 'user_id = $2 AND is_default = true';
+  const params = businessProfileId ? [documentType, businessProfileId, userId] : [documentType, userId];
+  if (!businessProfileId) await getOrCreateProfile(userId);
 
   const { rows: [row] } = await db.query(
     `WITH current AS (
        SELECT COALESCE((numbering->$1->>'next')::int, 1) AS n,
               COALESCE(numbering->$1->>'prefix', upper($1) || '-') AS prefix
-       FROM business_profiles WHERE user_id = $2
+       FROM business_profiles WHERE ${profileFilter}
        FOR UPDATE
      )
      UPDATE business_profiles
@@ -120,11 +140,12 @@ export async function assignDocumentNumber(userId: string, documentType: string)
            numbering, ARRAY[$1, 'next'], to_jsonb((SELECT n FROM current) + 1), true
          ),
          updated_at = NOW()
-     WHERE user_id = $2
+     WHERE ${profileFilter}
      RETURNING (SELECT prefix FROM current) AS prefix, (SELECT n FROM current) AS assigned`,
-    [documentType, userId],
+    params,
   );
 
+  if (!row) throw new Error('Brand profile not found for numbering');
   return `${row.prefix}${row.assigned}`;
 }
 
@@ -151,6 +172,7 @@ export function formatDocument(r: any) {
     hasPdf: !!r.storage_path,
     shareToken: r.share_token,
     viewCount: r.view_count,
+    businessProfileId: r.business_profile_id,
     contactId: r.contact_id,
     dealId: r.deal_id,
     opportunityId: r.opportunity_id,
@@ -311,7 +333,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     const body = createBody.parse(request.body);
 
     const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(body.items);
-    const documentNumber = await assignDocumentNumber(userId, body.documentType);
+    const documentNumber = await assignDocumentNumber(userId, body.documentType, body.businessProfileId);
     const title = body.title ?? `${body.documentType[0].toUpperCase()}${body.documentType.slice(1)} ${documentNumber}`;
 
     const structuredData = {
@@ -327,14 +349,16 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       `INSERT INTO documents
          (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id, project_id,
           document_type, document_category, document_number, title, status, structured_data,
-          currency, subtotal_cents, discount_cents, tax_cents, total_cents, requested_by, ai_generated)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sales',$9,$10,'draft',$11,$12,$13,$14,$15,$16,'user',false)
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents, requested_by, ai_generated,
+          business_profile_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sales',$9,$10,'draft',$11,$12,$13,$14,$15,$16,'user',false,$17)
        RETURNING *`,
       [
         userId, body.contactId ?? null, body.dealId ?? null, body.opportunityId ?? null,
         body.conversationId ?? null, body.templateId ?? null, body.projectId ?? null,
         body.documentType, documentNumber, title,
         JSON.stringify(structuredData), body.currency ?? 'ZMW', subtotalCents, discountCents, taxCents, totalCents,
+        body.businessProfileId ?? null,
       ],
     );
 
@@ -362,28 +386,42 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     const items = body.items ?? existing.structured_data?.items ?? [];
     const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(items);
 
+    // A full-detail edit always resubmits "who this is for" as a whole —
+    // either contactId or manualContact, never both — so whichever key is
+    // present wins outright rather than being merged field-by-field.
+    const hasContactUpdate = 'contactId' in body || 'manualContact' in body;
+    const nextContactId = hasContactUpdate ? (body.contactId ?? null) : existing.contact_id;
+    const nextManualContact = hasContactUpdate
+      ? (nextContactId ? null : (body.manualContact ?? null))
+      : (existing.structured_data?.manualContact ?? null);
+
     const structuredData = {
       items: computedItems,
       notes: body.notes ?? existing.structured_data?.notes ?? null,
       terms: body.terms ?? existing.structured_data?.terms ?? null,
       validUntil: body.validUntil ?? existing.structured_data?.validUntil ?? null,
       dueDate: body.dueDate ?? existing.structured_data?.dueDate ?? null,
+      manualContact: nextManualContact,
     };
+
+    const hasBusinessProfileUpdate = 'businessProfileId' in body;
 
     const { rows: [updated] } = await db.query(
       `UPDATE documents SET
-         contact_id = COALESCE($1, contact_id),
+         contact_id = $1,
          title = COALESCE($2, title),
          structured_data = $3,
          currency = COALESCE($4, currency),
          subtotal_cents = $5, discount_cents = $6, tax_cents = $7, total_cents = $8,
          template_id = COALESCE($9, template_id),
+         business_profile_id = CASE WHEN $10::boolean THEN $11::uuid ELSE business_profile_id END,
          updated_at = NOW()
-       WHERE id = $10
+       WHERE id = $12
        RETURNING *`,
       [
-        body.contactId ?? null, body.title ?? null, JSON.stringify(structuredData), body.currency ?? null,
-        subtotalCents, discountCents, taxCents, totalCents, body.templateId ?? null, id,
+        nextContactId, body.title ?? null, JSON.stringify(structuredData), body.currency ?? null,
+        subtotalCents, discountCents, taxCents, totalCents, body.templateId ?? null,
+        hasBusinessProfileUpdate, body.businessProfileId ?? null, id,
       ],
     );
 
@@ -685,7 +723,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: `Cannot convert a ${source.document_type}` });
     }
 
-    const documentNumber = await assignDocumentNumber(userId, targetType);
+    const documentNumber = await assignDocumentNumber(userId, targetType, source.business_profile_id);
     const title = `${targetType[0].toUpperCase()}${targetType.slice(1)} ${documentNumber}`;
 
     const { rows: [created] } = await db.query(
@@ -693,14 +731,14 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
          (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
           document_type, document_category, document_number, title, status, structured_data,
           currency, subtotal_cents, discount_cents, tax_cents, total_cents,
-          source_document_id, requested_by, ai_generated)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,$17,'user',false)
+          source_document_id, requested_by, ai_generated, business_profile_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,$17,'user',false,$18)
        RETURNING *`,
       [
         userId, source.contact_id, source.deal_id, source.opportunity_id, source.conversation_id,
         source.template_id, targetType, source.document_category, documentNumber, title,
         JSON.stringify(source.structured_data), source.currency, source.subtotal_cents,
-        source.discount_cents, source.tax_cents, source.total_cents, source.id,
+        source.discount_cents, source.tax_cents, source.total_cents, source.id, source.business_profile_id,
       ],
     );
 
@@ -746,14 +784,14 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
          (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
           document_type, document_category, document_number, title, status, structured_data,
           currency, subtotal_cents, discount_cents, tax_cents, total_cents,
-          version, source_document_id, requested_by, ai_generated)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,$17,$18,'user',false)
+          version, source_document_id, requested_by, ai_generated, business_profile_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,$17,$18,'user',false,$19)
        RETURNING *`,
       [
         userId, existing.contact_id, existing.deal_id, existing.opportunity_id, existing.conversation_id,
         existing.template_id, existing.document_type, existing.document_category, documentNumber, existing.title,
         JSON.stringify(structuredData), body.currency ?? existing.currency, subtotalCents, discountCents,
-        taxCents, totalCents, newVersion, existing.id,
+        taxCents, totalCents, newVersion, existing.id, existing.business_profile_id,
       ],
     );
 
@@ -872,16 +910,30 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
+  // A never-sent draft has no external side effects (no customer has seen
+  // it, no WhatsApp message was sent), so it's safe to permanently remove —
+  // every FK referencing documents(id) is CASCADE/SET NULL (confirmed via
+  // migration grep), so nothing else needs manual cleanup beyond the PDF
+  // file on disk. Anything already generated/sent/paid is a real record —
+  // keep the existing soft-archive behavior for those, same as before.
   fastify.delete('/api/documents/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
     const { rows: [existing] } = await db.query(
-      'SELECT id FROM documents WHERE id = $1 AND user_id = $2', [id, userId],
+      'SELECT id, status, storage_path FROM documents WHERE id = $1 AND user_id = $2', [id, userId],
     );
     if (!existing) return reply.code(404).send({ error: 'Document not found' });
 
+    if (existing.status === 'draft') {
+      await db.query('DELETE FROM documents WHERE id = $1', [id]);
+      if (existing.storage_path) {
+        await fs.unlink(existing.storage_path).catch(() => { /* already missing — fine */ });
+      }
+      return reply.send({ ok: true, deleted: true });
+    }
+
     await db.query(`UPDATE documents SET status = 'archived', updated_at = NOW() WHERE id = $1`, [id]);
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, deleted: false });
   });
 
   // ── GET /api/documents/shared/:token — view tracking (plan §15 Phase 4).

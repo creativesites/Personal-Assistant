@@ -36,6 +36,7 @@ import { relationshipsRoutes } from './routes/relationships';
 import { goalsRoutes } from './routes/goals';
 import { diagnosticsRoutes } from './routes/diagnostics';
 import { businessProfileRoutes } from './routes/business-profile';
+import { businessProfilesRoutes } from './routes/business-profiles';
 import { documentsRoutes } from './routes/documents';
 import { recurringDocumentsRoutes } from './routes/recurring-documents';
 import { suppliersRoutes } from './routes/suppliers';
@@ -135,6 +136,7 @@ export async function buildApp() {
   await fastify.register(goalsRoutes);
   await fastify.register(diagnosticsRoutes);
   await fastify.register(businessProfileRoutes);
+  await fastify.register(businessProfilesRoutes);
   await fastify.register(documentsRoutes);
   await fastify.register(recurringDocumentsRoutes);
   await fastify.register(suppliersRoutes);

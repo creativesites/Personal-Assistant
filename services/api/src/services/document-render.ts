@@ -32,7 +32,9 @@ export interface RenderResult {
 // and is triggered here as a fire-and-forget follow-up call so the PDF
 // response doesn't wait on it — same non-blocking feel as before.
 export async function renderAndSaveDocument(documentId: string, userId: string): Promise<RenderResult> {
-  const { rows: [document] } = await db.query<DocumentRow & { id: string; status: string; template_id: string | null }>(
+  const { rows: [document] } = await db.query<
+    DocumentRow & { id: string; status: string; template_id: string | null; business_profile_id: string | null }
+  >(
     'SELECT * FROM documents WHERE id = $1 AND user_id = $2', [documentId, userId],
   );
   if (!document) throw new NotFoundError('Document not found');
@@ -41,9 +43,16 @@ export async function renderAndSaveDocument(documentId: string, userId: string):
     return renderAndSaveResumeOrCoverLetter(document, documentId, userId);
   }
 
-  const { rows: [businessProfile] } = await db.query<BusinessProfileRow & { default_template_id: string | null }>(
-    'SELECT * FROM business_profiles WHERE user_id = $1', [userId],
-  );
+  // Reusable named Brand Profiles — a document pinned to a specific
+  // business_profile_id (e.g. invoicing as a side company) renders with
+  // that profile's logo/address/bank details instead of the user's default.
+  const { rows: [businessProfile] } = document.business_profile_id
+    ? await db.query<BusinessProfileRow & { default_template_id: string | null }>(
+        'SELECT * FROM business_profiles WHERE id = $1 AND user_id = $2', [document.business_profile_id, userId],
+      )
+    : await db.query<BusinessProfileRow & { default_template_id: string | null }>(
+        'SELECT * FROM business_profiles WHERE user_id = $1 AND is_default = true', [userId],
+      );
 
   let contact: ContactRow | null = null;
   if ((document as any).contact_id) {

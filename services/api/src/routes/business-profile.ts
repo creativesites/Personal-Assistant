@@ -7,7 +7,7 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { config } from '../config';
 
-const updateBody = z.object({
+export const businessProfileUpdateBody = z.object({
   companyName: z.string().max(255).optional(),
   tagline: z.string().max(500).optional().nullable(),
   industry: z.string().max(100).optional().nullable(),
@@ -40,7 +40,7 @@ const updateBody = z.object({
   defaultTemplateId: z.string().uuid().nullable().optional(),
 });
 
-function formatProfile(r: any) {
+export function formatProfile(r: any) {
   const logoUrl = r.logo_url
     ? r.logo_url
     : r.logo_storage_path
@@ -76,20 +76,28 @@ function formatProfile(r: any) {
   };
 }
 
+// Resolves the user's DEFAULT profile — see business-profiles.ts (plural)
+// for the reusable named-profiles CRUD. Every existing caller of this
+// function (assignDocumentNumber, document-render.ts, this file's own
+// singular /api/business-profile GET/PATCH used by the /business Brand Kit
+// page) keeps operating on "the default profile" with no behavior change
+// for a user who never creates a second one.
 export async function getOrCreateProfile(userId: string) {
-  const { rows: [existing] } = await db.query('SELECT * FROM business_profiles WHERE user_id = $1', [userId]);
+  const { rows: [existing] } = await db.query(
+    'SELECT * FROM business_profiles WHERE user_id = $1 AND is_default = true', [userId],
+  );
   if (existing) return existing;
 
   const { rows: [created] } = await db.query(
-    'INSERT INTO business_profiles (user_id) VALUES ($1) RETURNING *',
+    'INSERT INTO business_profiles (user_id, is_default) VALUES ($1, true) RETURNING *',
     [userId],
   );
   return created;
 }
 
-const ASSET_TYPES = ['logo', 'signature', 'stamp'] as const;
-type AssetType = (typeof ASSET_TYPES)[number];
-const ASSET_COLUMN: Record<AssetType, string> = {
+export const ASSET_TYPES = ['logo', 'signature', 'stamp'] as const;
+export type AssetType = (typeof ASSET_TYPES)[number];
+export const ASSET_COLUMN: Record<AssetType, string> = {
   logo: 'logo_storage_path',
   signature: 'signature_storage_path',
   stamp: 'stamp_storage_path',
@@ -105,7 +113,7 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
   // Also register PATCH as an alias so the frontend can use either method
   const putHandler = async (request: any, reply: any) => {
     const { userId } = request.user as { userId: string };
-    const body = updateBody.parse(request.body);
+    const body = businessProfileUpdateBody.parse(request.body);
     await getOrCreateProfile(userId);
 
     const { rows: [updated] } = await db.query(
@@ -133,7 +141,7 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
          default_tax_rate     = COALESCE($21, default_tax_rate),
          default_template_id  = CASE WHEN $22::boolean THEN $23::uuid ELSE default_template_id END,
          updated_at           = NOW()
-       WHERE user_id = $24
+       WHERE user_id = $24 AND is_default = true
        RETURNING *`,
       [
         body.companyName ?? null,
