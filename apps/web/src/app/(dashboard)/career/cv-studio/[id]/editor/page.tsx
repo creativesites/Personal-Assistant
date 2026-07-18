@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { ArrowLeft, Loader2, Eye } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { useCareerProfile } from '../../../_components/cv-studio/use-career-profile'
@@ -11,6 +12,8 @@ import { WebEditorPanel } from '../../../_components/cv-studio/web-editor-panel'
 import { VersionHistoryPanel } from '../../../_components/cv-studio/version-history-panel'
 import { CvPreview } from '../../../_components/cv-studio/cv-preview'
 import type { ProjectLink } from '../../../_components/cv-studio/projects-step'
+
+const CvPdfPreviewModal = dynamic(() => import('@/components/documents/CvPdfPreviewModal'), { ssr: false })
 
 // CV Studio Phase 7 — Web Editor (docs/CV_STUDIO_PLAN.md §9, §18 Phase 7).
 // A distinct post-wizard page rather than a 15th wizard step, per the
@@ -31,6 +34,7 @@ export default function CvStudioEditorPage() {
   const { profile } = useCareerProfile(token ?? '')
   const [detail, setDetail] = useState<CvDetailResponse | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
 
   useEffect(() => {
     if (!token || !params.id) return
@@ -54,7 +58,16 @@ export default function CvStudioEditorPage() {
           <Link href={`/career/cv-studio/${params.id}`} className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-gray-700">
             <ArrowLeft className="w-4 h-4" />Back to wizard
           </Link>
-          <h1 className="text-sm font-bold text-gray-900">{detail.cv.title} — Web Editor</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold text-gray-900">{detail.cv.title} — Web Editor</h1>
+            <button
+              onClick={() => setShowPdfPreview(true)}
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-3 py-1.5 text-xs font-bold shadow-sm hover:bg-indigo-700 transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              Preview PDF
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -74,6 +87,14 @@ export default function CvStudioEditorPage() {
           </div>
         </div>
       </div>
+
+      <CvPdfPreviewModal
+        open={showPdfPreview}
+        onClose={() => setShowPdfPreview(false)}
+        cvId={params.id}
+        cvTitle={detail.cv.title}
+        token={token}
+      />
     </div>
   )
 }

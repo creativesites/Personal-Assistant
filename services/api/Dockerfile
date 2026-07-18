@@ -18,6 +18,8 @@ RUN npm run build --workspace=services/api
 FROM node:22-alpine AS runner
 WORKDIR /app
 
+RUN apk add --no-cache fontconfig ttf-dejavu
+
 COPY package.json .npmrc ./
 COPY packages/shared-types/package.json ./packages/shared-types/
 COPY services/api/package.json ./services/api/

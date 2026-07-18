@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, Eye, EyeOff, ArrowLeft, Download, Loader2, Settings2 } from 'lucide-react'
 import { apiClient, ApiError } from '@/lib/api'
@@ -14,6 +15,8 @@ import { ReferencesStep } from './references-step'
 import { AdditionalInfoStep } from './additional-info-step'
 import { CvPreview } from './cv-preview'
 import { CvHealthPanel } from './cv-health-panel'
+
+const CvPdfPreviewModal = dynamic(() => import('@/components/documents/CvPdfPreviewModal'), { ssr: false })
 
 // CV Studio Phase 4 — The Wizard (docs/CV_STUDIO_PLAN.md §4, §18 Phase 4).
 // Autosave on every field blur, one section per step, live preview beside
@@ -53,6 +56,7 @@ export function WizardShell({
   const { profile, updateField } = useCareerProfile(token)
   const [step, setStep] = useState(0)
   const [showPreview, setShowPreview] = useState(false)
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [projectLinks, setProjectLinks] = useState<ProjectLink[]>(initialProjectLinks)
   const [templateKey, setTemplateKey] = useState(initialTemplateKey)
@@ -243,6 +247,13 @@ export function WizardShell({
             PDF
           </button>
           <button
+            onClick={() => setShowPdfPreview(true)}
+            className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-3 py-1.5 text-xs font-bold shadow-sm hover:bg-indigo-700 transition-colors"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            Preview PDF
+          </button>
+          <button
             onClick={() => setShowPreview(v => !v)}
             className="lg:hidden inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
           >
@@ -309,6 +320,14 @@ export function WizardShell({
           <CvHealthPanel cvId={cvId} token={token} refreshKey={refreshKey} />
         </div>
       </div>
+
+      <CvPdfPreviewModal
+        open={showPdfPreview}
+        onClose={() => setShowPdfPreview(false)}
+        cvId={cvId}
+        cvTitle={profile?.fullName || 'CV'}
+        token={token}
+      />
     </div>
   )
 }

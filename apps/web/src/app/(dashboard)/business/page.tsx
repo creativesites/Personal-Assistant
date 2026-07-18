@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
   Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
@@ -10,6 +11,8 @@ import {
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, Dropdown, EmptyState, SkeletonCard, useToast } from '@/components/ui'
+
+const DocumentPreviewModal = dynamic(() => import('@/components/documents/DocumentPreviewModal'), { ssr: false })
 
 interface BrandKitSummary {
   companyName?: string | null
@@ -205,6 +208,8 @@ export default function BusinessPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  // Client-side PDF preview modal state — replaces window.open backend PDF fetches
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null)
 
   const loadDocuments = () => {
     if (!token) return
@@ -237,23 +242,8 @@ export default function BusinessPage() {
     }
   }
 
-  const downloadPdf = async (doc: DocumentSummary) => {
-    if (!token) return
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-      const res = await fetch(`${apiUrl}/api/documents/${doc.id}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
-      if (!res.ok) throw new Error('Download failed')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${doc.documentNumber}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      addToast({ variant: 'error', title: 'Failed to download PDF' })
-    }
-  }
+  // All preview and download now handled client-side via DocumentPreviewModal
+  const openPreview = (id: string) => setPreviewDocId(id)
 
   const sendViaWhatsApp = async (id: string) => {
     if (!token) return
@@ -511,19 +501,12 @@ export default function BusinessPage() {
                   )}
                   <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
                   <button
-                    onClick={() => {
-                      if (doc.hasPdf) {
-                        // Use the Next.js proxy with token in query so window.open can auth without headers
-                        window.open(`/api/proxy/api/documents/${doc.id}/pdf?token=${encodeURIComponent(token ?? '')}`, '_blank')
-                      } else {
-                        setViewDataDoc(doc)
-                      }
-                    }}
+                    onClick={() => openPreview(doc.id)}
                     className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-indigo-600 transition-colors"
-                    title={doc.hasPdf ? 'View PDF' : 'View data'}
+                    title="View / Download PDF"
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    {doc.hasPdf ? 'View' : 'Data'}
+                    View
                   </button>
                   <Link
                     href={`/documents/${doc.id}/edit`}
@@ -573,42 +556,36 @@ export default function BusinessPage() {
                 <div className="flex items-center justify-between mt-3">
                   <span className="text-sm font-semibold text-gray-900">{formatMoney(doc.totalCents, doc.currency)}</span>
                   <div className="flex items-center gap-2">
-                    {doc.hasPdf ? (
-                      <>
-                        {doc.contact && (
-                          <button
-                            onClick={() => sendViaWhatsApp(doc.id)}
-                            disabled={sendingId === doc.id}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-3 py-1.5"
-                          >
-                            {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send
-                          </button>
-                        )}
-                        <button onClick={() => downloadPdf(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800">
-                          <Download className="w-3.5 h-3.5" />Download
-                        </button>
-                        <button onClick={() => copyShareLink(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
-                          <Link2 className="w-3.5 h-3.5" />Copy Link
-                        </button>
-                        <button onClick={() => generatePdf(doc.id)} disabled={generatingId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
-                          {generatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}Regenerate
-                        </button>
-                        <button onClick={() => checkQuality(doc.id)} disabled={checkingQualityId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
-                          {checkingQualityId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}Check Quality
-                        </button>
-                        <button onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
-                          <MessageSquare className="w-3.5 h-3.5" />AI Assistant
-                        </button>
-                      </>
-                    ) : (
+                    {/* Always show preview/download via client-side modal */}
+                    <button
+                      onClick={() => openPreview(doc.id)}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                    >
+                      <Download className="w-3.5 h-3.5" />Preview & Download
+                    </button>
+                    {doc.contact && (
                       <button
-                        onClick={() => generatePdf(doc.id)}
-                        disabled={generatingId === doc.id}
+                        onClick={() => sendViaWhatsApp(doc.id)}
+                        disabled={sendingId === doc.id}
                         className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-3 py-1.5"
                       >
-                        {generatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Generate PDF'}
+                        {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send
                       </button>
                     )}
+                    {doc.shareToken && (
+                      <button onClick={() => copyShareLink(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
+                        <Link2 className="w-3.5 h-3.5" />Copy Link
+                      </button>
+                    )}
+                    <button onClick={() => generatePdf(doc.id)} disabled={generatingId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
+                      {generatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}{doc.hasPdf ? 'Regenerate' : 'Sync PDF'}
+                    </button>
+                    <button onClick={() => checkQuality(doc.id)} disabled={checkingQualityId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
+                      {checkingQualityId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}Check Quality
+                    </button>
+                    <button onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
+                      <MessageSquare className="w-3.5 h-3.5" />AI Assistant
+                    </button>
                   </div>
                 </div>
 
@@ -665,6 +642,15 @@ export default function BusinessPage() {
 
       {viewDataDoc && (
         <ViewDataModal doc={viewDataDoc} onClose={() => setViewDataDoc(null)} />
+      )}
+
+      {previewDocId && (
+        <DocumentPreviewModal
+          open={!!previewDocId}
+          onClose={() => setPreviewDocId(null)}
+          documentId={previewDocId}
+          token={token}
+        />
       )}
 
 
