@@ -47,7 +47,7 @@ export interface BusinessProfile {
   paymentInstructions: string | null
 }
 
-type ProfileForm = {
+export type ProfileForm = {
   name: string
   companyName: string
   tagline: string
@@ -67,13 +67,13 @@ type ProfileForm = {
   defaultTaxRate: number
 }
 
-const BLANK_FORM: ProfileForm = {
+export const BLANK_FORM: ProfileForm = {
   name: '', companyName: '', tagline: '', industry: '', themeColor: '#4F46E5', accentColor: '#818CF8',
   brandVoice: '', companyValues: '', address: '', phone: '', email: '', website: '', footerText: '',
   defaultTerms: '', paymentInstructions: '', defaultCurrency: 'ZMW', defaultTaxRate: 0,
 }
 
-function profileToForm(p: BusinessProfile): ProfileForm {
+export function profileToForm(p: BusinessProfile): ProfileForm {
   return {
     name: p.name ?? '',
     companyName: p.companyName ?? '',
@@ -98,7 +98,7 @@ function profileToForm(p: BusinessProfile): ProfileForm {
 // Shared field grid — used both by the default profile's inline edit form
 // and the additional-profile create/edit modal, so there's exactly one
 // implementation of "edit a brand profile's fields."
-function BrandProfileFields({
+export function BrandProfileFields({
   form, setForm, showName,
 }: { form: ProfileForm; setForm: (updater: (f: ProfileForm) => ProfileForm) => void; showName?: boolean }) {
   return (
