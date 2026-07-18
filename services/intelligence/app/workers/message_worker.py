@@ -192,11 +192,11 @@ async def _process(job, token: str):
                            VALUES ($1, 'assistant', $2, $3::jsonb)
                            RETURNING id, created_at""",
                         watch['session_id'], narration['narration'],
-                        json.dumps({
+                        {
                             'type': 'narration', 'conversationId': conversation_id,
                             'contactId': contact_id, 'contactName': narration['contactName'],
                             'suggestedReplies': narration['suggestedReplies'],
-                        }),
+                        },
                     )
                     await conn.execute(
                         """UPDATE advisor_sessions SET message_count = message_count + 1, updated_at = NOW()

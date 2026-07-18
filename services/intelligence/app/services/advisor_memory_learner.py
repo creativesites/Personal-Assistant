@@ -13,7 +13,6 @@ completed/cancelled outcomes) and deactivating weak/stale memories —
 mirroring `neural/emotion.py`'s reconsolidation job for `advisor_memories`
 instead of `emotional_signals`.
 """
-import json
 import structlog
 from ..database import get_pool
 
@@ -87,10 +86,10 @@ class AdvisorMemoryLearnerService:
                    ON CONFLICT (user_id) DO UPDATE
                      SET tone_preferences = advisor_user_profiles.tone_preferences || $2::jsonb,
                          updated_at = NOW()""",
-                user_id, json.dumps({
+                user_id, {
                     'preferredReplyTone': best_tone,
                     'preferredReplyToneConfidence': round(best_score, 2),
-                }),
+                },
             )
             await self._upsert_memory(
                 conn, user_id, 'preference', 'preferred_reply_tone',

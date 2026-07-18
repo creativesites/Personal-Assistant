@@ -6,7 +6,6 @@ session to write a proactively-initiated message into" and bump the same
 counters a normal turn does — this is that shared piece, not new Advisor
 business logic.
 """
-import json
 import structlog
 
 from ..database import get_pool
@@ -75,7 +74,7 @@ async def deliver_initiated_message(user_id: str, content: str, metadata: dict) 
         await conn.execute(
             """INSERT INTO advisor_messages (session_id, role, content, metadata, initiated)
                VALUES ($1, 'assistant', $2, $3::jsonb, true)""",
-            session_id, content, json.dumps(metadata),
+            session_id, content, metadata,
         )
         await conn.execute(
             """UPDATE advisor_sessions SET message_count = message_count + 1, updated_at = NOW()

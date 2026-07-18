@@ -227,7 +227,7 @@ async def create_document_row(
         )
         await conn.execute(
             "INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2::jsonb)",
-            row['id'], json.dumps({'aiGenerated': True, 'requestedBy': requested_by}),
+            row['id'], {'aiGenerated': True, 'requestedBy': requested_by},
         )
 
         for insight in generated.get('insights') or []:
@@ -511,11 +511,11 @@ async def chat_about_document(document_id: str, user_id: str, instruction: str, 
         await conn.execute(
             """UPDATE documents SET structured_data = $1::jsonb, subtotal_cents = $2, discount_cents = $3,
                  tax_cents = $4, total_cents = $5, updated_at = NOW() WHERE id = $6""",
-            json.dumps(new_structured), subtotal_cents, discount_cents, tax_cents, total_cents, document_id,
+            new_structured, subtotal_cents, discount_cents, tax_cents, total_cents, document_id,
         )
         await conn.execute(
             "INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'edited', $2::jsonb)",
-            document_id, json.dumps({'viaChat': True}),
+            document_id, {'viaChat': True},
         )
 
     return {'reply': raw.get('reply') or 'Updated.', 'structuredData': new_structured, 'totalCents': total_cents}

@@ -19,7 +19,6 @@ dedicated tier signal exists yet. Cost is bounded further by a keyword
 pre-filter before any extraction AI call is spent, and a hard cap on total
 candidates extracted per run.
 """
-import json
 import re
 from datetime import date, datetime, timedelta, timezone
 
@@ -367,10 +366,10 @@ class JobDiscoveryService:
                 category = c.get('category') if c.get('category') in _VALID_CATEGORIES else 'job'
                 salary_range = None
                 if c.get('salaryMin') or c.get('salaryMax'):
-                    salary_range = json.dumps({
+                    salary_range = {
                         'min': c.get('salaryMin'), 'max': c.get('salaryMax'),
                         'currency': c.get('salaryCurrency') or 'USD',
-                    })
+                    }
                 row = await conn.fetchrow(
                     """INSERT INTO career_opportunities
                          (user_id, category, title, company_or_org, description, location,
@@ -381,7 +380,7 @@ class JobDiscoveryService:
                     user_id, category, (c.get('title') or 'Untitled opportunity')[:255],
                     c.get('companyOrOrg'), c.get('summary'), c.get('location'), c.get('isRemote'),
                     salary_range, c.get('applicationUrl'), c.get('_match_score'),
-                    json.dumps(c.get('_match_breakdown') or {}), _DEFAULT_CONFIDENCE,
+                    c.get('_match_breakdown') or {}, _DEFAULT_CONFIDENCE,
                 )
                 inserted.append(dict(row))
         return inserted

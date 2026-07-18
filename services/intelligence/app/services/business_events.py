@@ -9,7 +9,6 @@ concrete to show.
 Deliberately a pure insert with no side effects — callers (action_bundles.py
 today) decide what, if anything, to do with the returned id.
 """
-import json
 import structlog
 
 from ..database import get_pool
@@ -26,6 +25,13 @@ class BusinessEventService:
     ) -> str:
         pool = await get_pool()
         async with pool.acquire() as conn:
+            # NOTE: pass the native list/dict, not json.dumps(...) — the pool's
+            # jsonb type codec (database.py's _init_conn) already does its own
+            # json.dumps on the way in. Double-encoding here previously stored
+            # evidence/payload as a JSON *string scalar* instead of a real
+            # jsonb array/object, which made every reader that did
+            # evidence[0] or payload.someField silently read the wrong thing
+            # (e.g. evidence[0] on a string returns just its first character).
             row = await conn.fetchrow(
                 """INSERT INTO business_events
                      (user_id, event_type, contact_id, conversation_id, message_id,
@@ -33,7 +39,7 @@ class BusinessEventService:
                    VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb)
                    RETURNING id""",
                 user_id, event_type, contact_id, conversation_id, message_id,
-                confidence, json.dumps(evidence or []), json.dumps(payload or {}),
+                confidence, evidence or [], payload or {},
             )
         event_id = str(row['id'])
         log.info('business_event_recorded', user_id=user_id, event_type=event_type, event_id=event_id)

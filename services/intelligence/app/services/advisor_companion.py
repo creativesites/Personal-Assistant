@@ -697,7 +697,7 @@ class AdvisorCompanionService:
                 """INSERT INTO advisor_action_requests
                      (user_id, session_id, action_type, status, payload, risk_level, approved_at, expires_at)
                    VALUES ($1, $2, 'watch_conversation', 'approved', $3::jsonb, 'low', NOW(), NOW() + make_interval(mins => $4))""",
-                user_id, session_id, json.dumps({'conversationId': conversation_id, 'contactId': contact_id}), minutes,
+                user_id, session_id, {'conversationId': conversation_id, 'contactId': contact_id}, minutes,
             )
 
     async def generate_reply_narration(self, user_id: str, conversation_id: str, contact_id: str,

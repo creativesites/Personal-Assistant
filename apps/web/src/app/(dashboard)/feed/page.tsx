@@ -40,7 +40,7 @@ const FILTERS = [
 
 export default function BusinessFeedPage() {
   const session = useZuriSession()
-  const token = session.data?.accessToken
+  const token = session.data?.accessToken ?? undefined
 
   const [events, setEvents] = useState<BusinessEvent[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
@@ -78,7 +78,7 @@ export default function BusinessFeedPage() {
   async function handleDismiss(id: string) {
     setEvents(prev => prev.map(e => (e.id === id ? { ...e, status: 'dismissed' } : e)))
     try {
-      await apiClient(`/api/business-feed/${id}/dismiss`, { method: 'POST', token: token ?? undefined })
+      await apiClient(`/api/business-feed/${id}/dismiss`, { method: 'POST', token })
     } catch {
       // best-effort — a failed dismiss just leaves the row visible on next load
     }
@@ -88,6 +88,7 @@ export default function BusinessFeedPage() {
   const filteredEvents = activeFilter.eventTypes
     ? events.filter(e => activeFilter.eventTypes!.includes(e.eventType))
     : events
+  const actionableCount = events.filter(e => e.action && e.status !== 'dismissed').length
 
   if (session.status === 'loading' || loading) {
     return (
@@ -114,6 +115,12 @@ export default function BusinessFeedPage() {
               Zuri Noticed {events.length > 0 ? `${events.length} thing${events.length !== 1 ? 's' : ''}` : 'Something'}
             </h1>
             <p className="mt-1 text-sm text-gray-600">Everything Zuri has detected about your business — products, payments, milestones, and things worth a second look.</p>
+            {actionableCount > 0 && (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg shadow-indigo-500/25">
+                <Sparkles className="w-3.5 h-3.5" />
+                {actionableCount} item{actionableCount !== 1 ? 's' : ''} ready for a one-tap action
+              </div>
+            )}
           </div>
         </section>
 
@@ -150,20 +157,24 @@ export default function BusinessFeedPage() {
             description={showDismissed ? "No dismissed events." : "As Zuri detects new products, invoices paid, milestones crossed, and more, they'll show up here."}
           />
         ) : (
-          <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
+          <div className="space-y-2.5">
             {filteredEvents.map(ev => (
-              <BusinessEventRow key={ev.id} event={ev} onDismiss={showDismissed ? undefined : handleDismiss} />
+              <BusinessEventRow
+                key={ev.id}
+                event={ev}
+                token={token}
+                onDismiss={showDismissed ? undefined : handleDismiss}
+                onActionComplete={() => load(undefined, { dismissed: showDismissed })}
+              />
             ))}
             {cursor && (
-              <div className="p-3">
-                <button
-                  onClick={() => { setLoadingMore(true); load(cursor, { dismissed: showDismissed }) }}
-                  disabled={loadingMore}
-                  className="w-full min-h-11 rounded-2xl bg-slate-50 text-slate-600 text-xs font-semibold hover:bg-slate-100 transition-colors disabled:opacity-50"
-                >
-                  {loadingMore ? 'Loading…' : 'Load more'}
-                </button>
-              </div>
+              <button
+                onClick={() => { setLoadingMore(true); load(cursor, { dismissed: showDismissed }) }}
+                disabled={loadingMore}
+                className="w-full min-h-11 rounded-2xl bg-white text-slate-600 text-xs font-semibold ring-1 ring-slate-200 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
             )}
           </div>
         )}

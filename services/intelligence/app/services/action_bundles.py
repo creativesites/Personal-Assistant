@@ -330,8 +330,8 @@ class ActionBundleService:
             row = await conn.fetchrow(
                 """INSERT INTO action_bundles (user_id, contact_id, conversation_id, summary, actions, confidence, evidence, status, resolved_at)
                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8, $9) RETURNING id""",
-                user_id, contact_id, conversation_id, summary, json.dumps(actions),
-                bundle_confidence, json.dumps(evidence), bundle_status,
+                user_id, contact_id, conversation_id, summary, actions,
+                bundle_confidence, evidence, bundle_status,
                 datetime.now(timezone.utc) if can_auto_execute else None,
             )
             bundle_id = str(row['id'])

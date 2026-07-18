@@ -12,7 +12,6 @@ a personality/companion feature, so it isn't gated on
 `companion_features_paused` (§7.8's honest kill switch), same as every
 other unsolicited Advisor message.
 """
-import json
 import random
 import structlog
 from ..ai.client import get_ai_client
@@ -263,14 +262,14 @@ class CuriosityEngine:
                     """INSERT INTO advisor_user_profiles (user_id, interests) VALUES ($1, $2::jsonb)
                        ON CONFLICT (user_id) DO UPDATE
                          SET interests = advisor_user_profiles.interests || $2::jsonb, updated_at = NOW()""",
-                    user_id, json.dumps([value]),
+                    user_id, [value],
                 )
             elif target_type == 'user' and gap_type == 'motivational_style':
                 await conn.execute(
                     """INSERT INTO advisor_user_profiles (user_id, motivational_style) VALUES ($1, $2::jsonb)
                        ON CONFLICT (user_id) DO UPDATE
                          SET motivational_style = advisor_user_profiles.motivational_style || $2::jsonb, updated_at = NOW()""",
-                    user_id, json.dumps({'summary': value}),
+                    user_id, {'summary': value},
                 )
 
             await conn.execute(

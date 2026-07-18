@@ -194,13 +194,13 @@ async def create_resume_document(
                   status, structured_data, version, source_document_id, requested_by, ai_generated, embedding)
                VALUES ($1, NULL, $2, 'hr', $3, $4, 'draft', $5::jsonb, $6, $7, 'user', $8, $9)
                RETURNING *""",
-            user_id, document_type, document_number, resolved_title, json.dumps(structured_data),
+            user_id, document_type, document_number, resolved_title, structured_data,
             version, source_document_id, ai_generated,
             np.array(embedding, dtype=np.float32) if embedding is not None else None,
         )
         await conn.execute(
             "INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2::jsonb)",
-            row['id'], json.dumps({'aiGenerated': ai_generated}),
+            row['id'], {'aiGenerated': ai_generated},
         )
     return dict(row)
 
@@ -287,7 +287,7 @@ async def score_existing_resume(user_id: str, document_id: str) -> dict:
 
         row = await conn.fetchrow(
             "UPDATE documents SET structured_data = $1::jsonb, updated_at = NOW() WHERE id = $2 RETURNING *",
-            json.dumps(structured_data), document_id,
+            structured_data, document_id,
         )
     return {'document': dict(row), 'score': score}
 

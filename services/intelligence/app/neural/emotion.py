@@ -144,7 +144,7 @@ class EmotionEngine:
                    VALUES ($1, $2::jsonb)
                    ON CONFLICT (user_id) DO UPDATE
                      SET current_emotional_state = $2::jsonb, updated_at = NOW()""",
-                user_id, json.dumps(state),
+                user_id, state,
             )
 
     async def get_current_emotional_state(self, user_id: str) -> dict:
@@ -227,7 +227,7 @@ class EmotionEngine:
                        VALUES ($1, $2::jsonb)
                        ON CONFLICT (user_id) DO UPDATE
                          SET emotional_baseline = $2::jsonb, updated_at = NOW()""",
-                    row['user_id'], json.dumps(baseline),
+                    row['user_id'], baseline,
                 )
 
         log.info('emotion_reconsolidation_complete', adjusted=adjusted, users=len(user_ids))

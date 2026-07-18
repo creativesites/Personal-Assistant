@@ -112,8 +112,8 @@ class RealityEngineService:
                     """INSERT INTO action_bundles (user_id, contact_id, summary, actions, confidence, evidence)
                        VALUES ($1, $2, $3, $4::jsonb, 1.0, $5::jsonb) RETURNING id""",
                     row['user_id'], row['contact_id'], summary,
-                    json.dumps([{'type': 'advance_deal_stage', 'params': [str(row['deal_id']), 'closed_won']}]),
-                    json.dumps(evidence),
+                    [{'type': 'advance_deal_stage', 'params': [str(row['deal_id']), 'closed_won']}],
+                    evidence,
                 )
                 await publish_event(
                     f"bundle:ready:{row['user_id']}",

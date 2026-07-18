@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, Suspense } from 'react'
 import Link from 'next/link'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import {
   Home,
   Package,
@@ -502,16 +503,16 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
           of whether it produced an action bundle, independent of the
           Financial Overview above. See docs/BUSINESS_EVENTS_PLAN.md Part F. */}
       {insights && insights.recentEvents.length > 0 && (
-        <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
-          <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="flex items-center justify-between mb-3 px-1">
             <p className="text-sm font-semibold text-gray-900">Zuri Noticed</p>
             <Link href="/feed" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
               View all <ChevronDown className="w-3 h-3 -rotate-90" />
             </Link>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {insights.recentEvents.map(ev => (
-              <BusinessEventRow key={ev.id} event={ev} compact />
+              <BusinessEventRow key={ev.id} event={ev} token={token} compact />
             ))}
           </div>
         </div>
@@ -2629,6 +2630,28 @@ function StudioPageInner() {
   const [askPrompt, setAskPrompt] = useState<string | null>(null)
   const onAskAI = (prompt: string) => { setAskPrompt(prompt); setActiveModule('overview') }
 
+  // Deep-link support (Business Documents Overhaul "actionable feed" pass)
+  // — /feed's ask_ai action links here as /studio?tab=overview&prompt=...,
+  // same one-tap "Ask AI" pattern the in-page insight cards already use,
+  // just reachable from outside Studio. Consumed once on mount, then
+  // stripped from the URL so a refresh doesn't re-fill the chat input.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const consumedDeepLink = useRef(false)
+  useEffect(() => {
+    if (consumedDeepLink.current) return
+    consumedDeepLink.current = true
+    const tab = searchParams.get('tab')
+    const prompt = searchParams.get('prompt')
+    if (tab && MODULES.some(m => m.id === tab)) setActiveModule(tab as Module)
+    if (prompt) {
+      setAskPrompt(prompt)
+      setActiveModule('overview')
+    }
+    if (tab || prompt) router.replace(pathname)
+  }, [searchParams, router, pathname])
+
   function renderModule() {
     switch (activeModule) {
       case 'overview':  return <OverviewModule  token={token} initialPrompt={askPrompt} onConsumedPrompt={() => setAskPrompt(null)} />
@@ -2688,7 +2711,9 @@ function StudioPageInner() {
 export default function StudioPage() {
   return (
     <FeatureGate requiredFamily="professional" featureLabel="Business OS">
-      <StudioPageInner />
+      <Suspense fallback={null}>
+        <StudioPageInner />
+      </Suspense>
     </FeatureGate>
   )
 }

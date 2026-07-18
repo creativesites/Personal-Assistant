@@ -100,7 +100,7 @@ async def _run_renewal_pack(user_id: str, contact_id: str) -> dict:
         )
         await conn.execute(
             "INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2::jsonb)",
-            row['id'], json.dumps({'renewalOf': str(prior['id'])}),
+            row['id'], {'renewalOf': str(prior['id'])},
         )
 
     await render_document(row['id'], user_id)
@@ -131,7 +131,7 @@ async def _record_pack_run(user_id: str, contact_id: str, pack_key: str, documen
     async with pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO document_pack_runs (user_id, contact_id, pack_key, document_ids) VALUES ($1, $2, $3, $4::jsonb)",
-            user_id, contact_id, pack_key, json.dumps(document_ids),
+            user_id, contact_id, pack_key, document_ids,
         )
 
 
