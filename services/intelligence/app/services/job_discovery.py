@@ -1,24 +1,3 @@
-"""Job Search OS — Core Discovery Loop (see docs/CV_STUDIO_PLAN.md §15.1-
-§15.10, §18 Phase 2). Not a scraper, not a job board — an AI Search Planner
-generates a profile-specific set of search queries per user per day, each
-run through the existing `web_search.py` (Tavily/SERP) infrastructure, each
-promising result going through one extraction+fit-summary AI call, then a
-deterministic (non-AI) scoring pass writes the already-existing-but-unused
-`career_opportunities.match_score`/`match_breakdown` columns for the first
-time (Career & Growth Engine Phase 1, migration 0078).
-
-Deliberately reuses `web_search.py` rather than any native provider search-
-grounding — the same judgment already made and documented for
-`interest_companion.py` (docs/ADVISOR_COMPANION_PLAN.md): no provider has
-grounding/tool-calling wired in `ai/client.py` today.
-
-Query volume is scaled by the AI Usage Tiers principle (CLAUDE.md) — a
-simple proxy off the user's subscription plan's `ai_replies_per_day` limit
-stands in for a real per-user Light/Normal/Heavy classification, since no
-dedicated tier signal exists yet. Cost is bounded further by a keyword
-pre-filter before any extraction AI call is spent, and a hard cap on total
-candidates extracted per run.
-"""
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -125,16 +104,6 @@ class JobDiscoveryService:
         return total_found
 
     async def _archive_stale_opportunities(self) -> None:
-        """Career OS Living Companion redesign, Phase 6 (§6) — the daily
-        05:00 UTC cron already re-runs discovery once a day per user (a
-        genuine "daily refresh"); the one real gap was that nothing ever
-        expired a stale career_opportunities row. Mirrors Reality Engine's
-        own "cognitive garbage collection" convention (reality_engine.py's
-        run_daily_sweep) rather than inventing a new sweep pattern — a
-        `detected` row (never even looked at — shortlisted/applied/etc. all
-        mean the user acted on it) older than 30 days is archived, not
-        deleted, so it stays available for the "Detected" status filter's
-        history but stops cluttering the live feed."""
         pool = await get_pool()
         async with pool.acquire() as conn:
             archived = await conn.fetchval(
@@ -152,21 +121,6 @@ class JobDiscoveryService:
             log.info('job_discovery_stale_opportunities_archived', count=archived)
 
     async def run_for_user(self, user_id: str, run_id: str | None = None, is_manual: bool = True) -> int:
-        """Career OS Living Companion redesign — restructured from a single
-        flat query list processed all-at-once into a per-pass loop
-        (local -> regional -> remote -> freelance -> hidden -> beyond_jobs),
-        inserting each pass's scored results immediately rather than
-        batching everything until the very end. This is what makes the
-        frontend's job feed genuinely fill in progressively during a run,
-        not just what makes the progress bar move. Every pass boundary
-        updates career_job_discovery_runs and publishes
-        career.job_discovery.progress:{user_id} (same dual DB-row +
-        Redis/Socket.io pattern history-sync.ts's history:progress channel
-        already established) so a connected client sees live progress and a
-        reloading client can recover state via a plain GET.
-        run_id is created here when absent (the daily cron path, §run_for_all_users,
-        never passes one — Node's manual-trigger route creates it up front
-        instead, since Node owns the daily-cap bookkeeping)."""
         pool = await get_pool()
         async with pool.acquire() as conn:
             profile = await conn.fetchrow(
@@ -250,9 +204,13 @@ class JobDiscoveryService:
                 ),
             }], service='career', feature='job_search_planner', user_id=user_id)
         except Exception as exc:
-            log.warning('job_search_planner_failed', user_id=user_id, error=str(exc))
-            await self._finish_run(run_id, user_id, status='failed', opportunities_found=0, error_message=str(exc)[:500])
-            return 0
+            log.warning('job_search_planner_failed_using_deterministic_fallback', user_id=user_id, error=str(exc))
+            # Fallback Plan Generation: Derive queries purely from target roles and location preferences
+            fallback_loc = profile['country'] or 'Zambia'
+            plan = {
+                'local': [f"{role} jobs in {fallback_loc}" for role in (profile['target_roles'] or [])][:3],
+                'remote': [f"{role} remote jobs" for role in (profile['target_roles'] or [])][:2] if profile['remote_preference'] != 'onsite' else []
+            }
 
         grouped = self._group_by_pass(plan, query_budget, profile, consulting_signal)
         if not grouped:
@@ -310,11 +268,6 @@ class JobDiscoveryService:
         self, run_id: str, user_id: str, *, phase: str, passes_completed: int,
         passes_total: int, opportunities_found: int,
     ) -> None:
-        # Dual-write, mirroring history-sync.ts's history:progress precedent —
-        # a DB row for anyone polling/reloading mid-run, Redis/Socket.io for
-        # anyone connected live (redis-subscriber.ts's generic
-        # channel:userId -> Socket.io event handler needs no new code beyond
-        # one added pattern string).
         pool = await get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -347,11 +300,6 @@ class JobDiscoveryService:
         }))
 
     def _group_by_pass(self, plan: dict, budget: int, profile, consulting_signal: bool = False) -> dict[str, list[dict]]:
-        """Same query selection + budget truncation as the original flat-list
-        approach (order: local, regional, remote, freelance, hidden,
-        beyond_jobs; truncated to `budget` across all passes combined) — just
-        grouped back by pass afterward so run_for_user can process (and
-        report progress on) one pass at a time instead of one flat batch."""
         allow_regional = profile['relocation_preference'] != 'not_open'
         allow_remote = profile['remote_preference'] != 'onsite'
         pass_allowed = {
@@ -408,8 +356,23 @@ class JobDiscoveryService:
                     ),
                 }], service='career', feature='job_listing_extraction', user_id=user_id)
             except Exception as exc:
-                log.warning('job_listing_extraction_failed', url=r.url[:80], error=str(exc))
-                continue
+                log.warning('job_listing_extraction_failed_using_scraper_fallback', url=r.url[:80], error=str(exc))
+                # Fallback implementation: construct candidate dictionary straight from the search result mapping
+                extracted = {
+                    'isJobRelated': True,
+                    'title': r.title,
+                    'companyOrOrg': 'Unknown Company',
+                    'summary': r.snippet,
+                    'location': profile['country'] or 'Remote',
+                    'isRemote': True if 'remote' in f"{r.title} {r.snippet}".lower() else None,
+                    'category': 'job',
+                    'requiredSkills': [],
+                    'postedAt': None,
+                    'salaryMin': None,
+                    'salaryMax': None,
+                    'salaryCurrency': None
+                }
+            
             if not extracted.get('isJobRelated'):
                 continue
             extracted['_pass'] = pass_name
@@ -520,7 +483,7 @@ class JobDiscoveryService:
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'web_search', $9, $10, $11::jsonb, $12)
                        RETURNING id, title, company_or_org, match_score, is_remote""",
                     user_id, category, (c.get('title') or 'Untitled opportunity')[:255],
-                    c.get('companyOrOrg'), c.get('summary'), c.get('location'), c.get('isRemote'),
+                    c.get('companyOrOrg') or 'Unknown Company', c.get('summary'), c.get('location'), c.get('isRemote'),
                     salary_range, c.get('applicationUrl'), c.get('_match_score'),
                     c.get('_match_breakdown') or {}, _DEFAULT_CONFIDENCE,
                 )
