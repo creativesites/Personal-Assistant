@@ -15,7 +15,7 @@ const gate = [authenticate, requireFeature('job_search')]
 // spend unbounded AI/search-tool budget by mashing the button. A run that
 // errors (search planner failure, intelligence service unreachable) doesn't
 // count against the cap, since it found nothing and cost the user nothing.
-const DAILY_MANUAL_RUN_CAP = 3
+const DAILY_MANUAL_RUN_CAP = 20
 
 async function countTodaysSuccessfulRuns(userId: string): Promise<number> {
   const { rows: [row] } = await db.query<{ count: string }>(
@@ -228,7 +228,7 @@ export async function careerJobDiscoveryRoutes(fastify: FastifyInstance): Promis
     )
 
     const { rows: [{ count }] } = await db.query<{ count: string }>(
-      `SELECT COUNT(*) FROM scraped_jobs WHERE ${where}`,
+      `SELECT COUNT(*) FROM scraped_jobs sj WHERE ${where}`,
       params.slice(0, params.length - 2),
     )
 
