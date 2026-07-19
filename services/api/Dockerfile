@@ -16,6 +16,8 @@ RUN npm run build --workspace=services/api
 
 # Runtime image
 FROM node:22-alpine AS runner
+# In runner stage, after FROM node:22-alpine
+COPY --from=builder /app/packages/pdf-templates /app/packages/pdf-templates
 WORKDIR /app
 
 RUN apk add --no-cache fontconfig ttf-dejavu
