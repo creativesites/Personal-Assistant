@@ -324,6 +324,53 @@ class RelationshipHealthService:
                 )],
             )
 
+        # Write health score drop notification
+        if new_score < old_score:
+            try:
+                import uuid
+                import json
+                from ..queue import publish_event
+
+                async with pool.acquire() as conn:
+                    contact_name = await conn.fetchval(
+                        """SELECT COALESCE(custom_name, display_name, phone_number, 'Contact')
+                           FROM contacts WHERE id = $1""",
+                        contact_id,
+                    )
+                title = "Relationship Health Dropped"
+                body = f"Health score with {contact_name} dropped from {old_score} to {new_score}. Reason: {change_reason}"
+
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """INSERT INTO notifications (user_id, type, title, body, data)
+                           VALUES ($1, 'health_score_change', $2, $3, $4)""",
+                        uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+                        title,
+                        body,
+                        json.dumps({
+                            "contactId": contact_id,
+                            "oldScore": old_score,
+                            "newScore": new_score,
+                            "reason": change_reason,
+                        }),
+                    )
+
+                await publish_event(
+                    f"notification:new:{user_id}",
+                    json.dumps({
+                        "type": "health_score_change",
+                        "title": title,
+                        "body": body,
+                        "data": {
+                            "contactId": contact_id,
+                            "oldScore": old_score,
+                            "newScore": new_score,
+                        }
+                    })
+                )
+            except Exception as exc:
+                log.error('failed_to_write_health_notification', error=str(exc))
+
         # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2/§4.3) —
         # refresh the relationship's emotional_signals_summary alongside
         # health, same cadence, no new scheduler.

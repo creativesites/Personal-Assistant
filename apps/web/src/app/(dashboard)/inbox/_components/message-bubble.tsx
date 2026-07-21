@@ -115,13 +115,17 @@ export function MessageBubble({
               <MessageContent msg={msg} token={token} isUser={isUser} />
             )}
 
-            <div className="flex items-center justify-end gap-1 mt-1 text-right ml-auto select-none">
-              {isApproved && <span className="text-[10px] font-semibold text-sky-600 mr-1">approved</span>}
-              <span className="text-[11px] text-[#5f6368]">{formatTime(msg.timestamp)}</span>
+            <div className="flex items-center justify-end gap-1 mt-0.5 text-right ml-auto select-none pointer-events-none float-right">
+              {isApproved && <span className="text-[9px] font-bold text-sky-600 mr-1 uppercase bg-sky-50 px-1 py-0.5 rounded border border-sky-100/60">approved</span>}
+              <span className="text-[10px] text-[#8696a0] font-medium">{formatTime(msg.timestamp)}</span>
               {isUser && (
                 <span
                   title={msg.deliveryStatus ?? 'sent'}
-                  className={`text-[13px] leading-none ${msg.deliveryStatus === 'read' ? 'text-[#34b7f1]' : 'text-[#8696A0]'}`}
+                  className={`text-[12px] leading-none tracking-[-0.1em] font-semibold -ml-0.5 ${
+                    msg.deliveryStatus === 'read'
+                      ? 'text-[#53bdeb]'
+                      : 'text-[#8696a0]'
+                  }`}
                 >
                   {msg.deliveryStatus === 'sent' ? '✓' : '✓✓'}
                 </span>

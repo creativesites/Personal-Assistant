@@ -19,6 +19,9 @@ export function startRedisSubscriber(io: Server): void {
     'suggestion:ready:*',
     'history:progress:*',
     'history:sync:trigger:*',
+    'presence:update:*',
+    'message:status:update:*',
+    'notification:new:*',
     // docs/AUTO_REPLY_AGENTS_PLAN.md §5 — Settings, the Inbox widget, and the
     // agent detail page all edit the same Default Assistant row; this keeps
     // them in sync without a manual refresh.

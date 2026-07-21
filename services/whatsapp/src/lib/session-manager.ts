@@ -95,6 +95,21 @@ export class SessionManager {
           JSON.stringify({ userId, instanceId, phoneNumber }),
         );
 
+        await this.db.query(
+          `INSERT INTO notifications (user_id, type, title, body)
+           VALUES ($1, 'whatsapp_connected', 'WhatsApp Connected', 'Your WhatsApp account has been successfully connected to Zuri.')`,
+          [userId],
+        ).catch(err => console.error('[session] failed to insert connect notification:', err));
+
+        await this.redis.publish(
+          `notification:new:${userId}`,
+          JSON.stringify({
+            type: 'whatsapp_connected',
+            title: 'WhatsApp Connected',
+            body: 'Your WhatsApp account has been successfully connected to Zuri.',
+          })
+        ).catch(() => {});
+
         // On reconnect (no phone_chats event): trigger sync if never done before.
         // phone_chats-based triggers handle the normal first-connect case via checkAndTriggerSync.
         const { rows: [anyJob] } = await this.db.query<{ id: string }>(
@@ -141,6 +156,21 @@ export class SessionManager {
           [dbStatus, instanceId],
         );
         await this.redis.publish(`whatsapp:disconnected:${userId}`, userId);
+
+        await this.db.query(
+          `INSERT INTO notifications (user_id, type, title, body)
+           VALUES ($1, 'whatsapp_disconnected', 'WhatsApp Disconnected', 'Your WhatsApp account was disconnected. Please scan the QR code to reconnect.')`,
+          [userId],
+        ).catch(err => console.error('[session] failed to insert disconnect notification:', err));
+
+        await this.redis.publish(
+          `notification:new:${userId}`,
+          JSON.stringify({
+            type: 'whatsapp_disconnected',
+            title: 'WhatsApp Disconnected',
+            body: 'Your WhatsApp account was disconnected. Please scan the QR code to reconnect.',
+          })
+        ).catch(() => {});
       } catch (err) {
         console.error(`[session] disconnected DB update failed userId=${userId}:`, err);
       }
@@ -151,6 +181,67 @@ export class SessionManager {
         await this.handler.handleMessage(userId, msg);
       } catch (err) {
         console.error(`[session] handleMessage failed userId=${userId}:`, err);
+      }
+    });
+
+    transport.on('presence_update', async (data: { jid: string; participantJid: string; presence: string; lastSeen?: number }) => {
+      try {
+        if (data.presence === 'available' || data.presence === 'composing' || data.presence === 'recording') {
+          await this.db.query(
+            `UPDATE contacts SET last_seen_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND whatsapp_jid = $2`,
+            [userId, data.jid],
+          );
+        } else if (data.lastSeen) {
+          const lastSeenDate = new Date(data.lastSeen * 1000);
+          await this.db.query(
+            `UPDATE contacts SET last_seen_at = $1, updated_at = NOW() WHERE user_id = $2 AND whatsapp_jid = $3`,
+            [lastSeenDate, userId, data.jid],
+          );
+        }
+
+        await this.redis.publish(
+          `presence:update:${userId}`,
+          JSON.stringify({
+            jid: data.jid,
+            participantJid: data.participantJid,
+            presence: data.presence,
+            lastSeenAt: data.lastSeen ? new Date(data.lastSeen * 1000).toISOString() : new Date().toISOString(),
+          }),
+        ).catch(() => { /* ignore */ });
+      } catch (err) {
+        console.error(`[session] presence_update failed userId=${userId}:`, err);
+      }
+    });
+
+    transport.on('message_status_update', async (data: { waMessageId: string; jid: string; status: number }) => {
+      try {
+        let deliveryStatus = 'sent';
+        if (data.status === 3) deliveryStatus = 'delivered';
+        else if (data.status === 4 || data.status === 5) deliveryStatus = 'read';
+
+        const { rows } = await this.db.query(
+          `UPDATE messages m
+           SET delivery_status = $1
+           FROM conversations c
+           WHERE m.conversation_id = c.id
+             AND c.user_id = $2
+             AND m.whatsapp_message_id = $3
+           RETURNING m.id, m.conversation_id`,
+          [deliveryStatus, userId, data.waMessageId],
+        );
+
+        if (rows[0]) {
+          await this.redis.publish(
+            `message:status:update:${userId}`,
+            JSON.stringify({
+              messageId: rows[0].id,
+              conversationId: rows[0].conversation_id,
+              deliveryStatus,
+            }),
+          ).catch(() => { /* ignore */ });
+        }
+      } catch (err) {
+        console.error(`[session] message_status_update failed userId=${userId}:`, err);
       }
     });
 

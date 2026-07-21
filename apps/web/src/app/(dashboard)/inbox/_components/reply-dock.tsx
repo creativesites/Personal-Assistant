@@ -58,6 +58,7 @@ interface ReplyDockProps {
   onRegenerate: () => void
   onAnalyzeLatest: () => void
   onAnalyzeRecent: () => void
+  isGroup?: boolean
 }
 
 export function ReplyDock({
@@ -82,8 +83,10 @@ export function ReplyDock({
   onRegenerate,
   onAnalyzeLatest,
   onAnalyzeRecent,
+  isGroup = false,
 }: ReplyDockProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false)
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   // Close picker on outside click
@@ -210,31 +213,47 @@ export function ReplyDock({
         </div>
       )}
 
-      {suggestions.length > 0 && (
-        <div className="px-4 pt-4 pb-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {suggestions.slice(0, 3).map(s => (
-            <button
-              key={s.id}
-              onClick={() => {
-                onDraftChange(s.text)
-                draftRef.current?.focus()
-              }}
-              className={`group relative rounded-2xl p-3 text-left transition-all duration-300 ease-out border border-neutral-200/70 bg-gradient-to-b from-white to-neutral-50/50 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_20px_-8px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-neutral-300 active:translate-y-0 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${TONE_STYLE[s.tone] ?? ''}`}
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium tracking-wide uppercase text-[9px] bg-neutral-100 text-neutral-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors duration-300">
-                  <span className="h-1 w-1 rounded-full bg-neutral-400 group-hover:bg-indigo-500 transition-colors" />
-                  {s.tone}
-                </span>
-                {s.confidence != null && (
-                  <span className="text-[10px] font-medium font-mono text-neutral-400 group-hover:text-neutral-600 transition-colors">
-                    {s.confidence}%
-                  </span>
-                )}
-              </div>
-              <p className="line-clamp-2 leading-relaxed text-[11px] font-bold text-neutral-900 transition-colors duration-300">{s.text}</p>
-            </button>
-          ))}
+      {!isGroup && suggestions.length > 0 && (
+        <div className="border-b border-gray-100/60 bg-neutral-50/20">
+          <button
+            onClick={() => setSuggestionsCollapsed(prev => !prev)}
+            className="w-full flex items-center justify-between px-4 py-2 hover:bg-neutral-50 text-[10px] font-bold uppercase tracking-wider text-neutral-400 border-b border-neutral-100 transition-colors"
+          >
+            <span className="flex items-center gap-1.5">
+              <Sparkles size={11} className="text-indigo-500 fill-indigo-500/10" />
+              Suggested Replies ({suggestions.length})
+            </span>
+            <span className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors">
+              {suggestionsCollapsed ? 'Show' : 'Hide'}
+            </span>
+          </button>
+          {!suggestionsCollapsed && (
+            <div className="px-4 pt-4 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white">
+              {suggestions.slice(0, 3).map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    onDraftChange(s.text)
+                    draftRef.current?.focus()
+                  }}
+                  className={`group relative rounded-2xl p-3 text-left transition-all duration-300 ease-out border border-neutral-200/70 bg-gradient-to-b from-white to-neutral-50/50 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_20px_-8px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-neutral-300 active:translate-y-0 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${TONE_STYLE[s.tone] ?? ''}`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md font-medium tracking-wide uppercase text-[9px] bg-neutral-100 text-neutral-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors duration-300">
+                      <span className="h-1 w-1 rounded-full bg-neutral-400 group-hover:bg-indigo-500 transition-colors" />
+                      {s.tone}
+                    </span>
+                    {s.confidence != null && (
+                      <span className="text-[10px] font-medium font-mono text-neutral-400 group-hover:text-neutral-600 transition-colors">
+                        {s.confidence}%
+                      </span>
+                    )}
+                  </div>
+                  <p className="line-clamp-2 leading-relaxed text-[11px] font-bold text-neutral-900 transition-colors duration-300">{s.text}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -306,33 +325,40 @@ export function ReplyDock({
               </button>
             </div>
 
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-3">
-              {selectedMsgId && (
+          {!isGroup ? (
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-3">
+                {selectedMsgId && (
+                  <button
+                    onClick={onRegenerate}
+                    disabled={regenerating}
+                    className="flex items-center gap-1.5 text-xs text-indigo-600 hover:opacity-80 font-semibold disabled:opacity-50 transition-opacity"
+                  >
+                    <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
+                    {regenerating ? 'Generating...' : 'Regenerate'}
+                  </button>
+                )}
                 <button
-                  onClick={onRegenerate}
-                  disabled={regenerating}
-                  className="flex items-center gap-1.5 text-xs text-indigo-600 hover:opacity-80 font-semibold disabled:opacity-50 transition-opacity"
+                  onClick={onToggleAIActions}
+                  className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-all ${
+                    showAIActions
+                      ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-500/20'
+                      : 'text-neutral-500 bg-neutral-100 hover:bg-neutral-200'
+                  }`}
                 >
-                  <RefreshCw size={12} className={regenerating ? 'animate-spin' : ''} />
-                  {regenerating ? 'Generating...' : 'Regenerate'}
+                  <Sparkles size={12} className={showAIActions ? 'fill-indigo-500/20' : ''} />
+                  <span>AI Actions</span>
+                  <ChevronDown size={11} className={`transition-transform duration-300 ${showAIActions ? 'rotate-180' : ''}`} />
                 </button>
-              )}
-              <button
-                onClick={onToggleAIActions}
-                className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-all ${
-                  showAIActions
-                    ? 'bg-indigo-50 text-indigo-600 ring-1 ring-indigo-500/20'
-                    : 'text-neutral-500 bg-neutral-100 hover:bg-neutral-200'
-                }`}
-              >
-                <Sparkles size={12} className={showAIActions ? 'fill-indigo-500/20' : ''} />
-                <span>AI Actions</span>
-                <ChevronDown size={11} className={`transition-transform duration-300 ${showAIActions ? 'rotate-180' : ''}`} />
-              </button>
+              </div>
+              <span className="hidden sm:inline-block text-[10px] font-medium font-mono text-neutral-400 tracking-wider">Cmd + Enter</span>
             </div>
-            <span className="hidden sm:inline-block text-[10px] font-medium font-mono text-neutral-400 tracking-wider">Cmd + Enter</span>
-          </div>
+          ) : (
+            <div className="flex items-center justify-between px-1 text-neutral-400 text-[10px] font-semibold tracking-wide uppercase">
+              <span>Group Chat Mode</span>
+              <span>Manual replies only</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -49,7 +49,7 @@ class AutoResponseService:
                   ars.timezone, ars.active_days, ars.send_delay_seconds,
                   ars.approval_mode, ars.respond_to_leads, ars.respond_to_customers,
                   ars.respond_to_new_contacts, ars.skip_groups, ars.skip_broadcasts,
-                  ars.escalation_keywords,
+                  ars.escalation_keywords, ars.inclusion_mode,
                   c.whatsapp_chat_id,
                   co.whatsapp_jid, co.customer_status AS contact_status,
                   (
@@ -62,6 +62,10 @@ class AutoResponseService:
                     SELECT 1 FROM auto_reply_exclusions e
                     WHERE e.user_id = $2 AND e.contact_id = $3
                   ) AS contact_excluded,
+                  EXISTS(
+                    SELECT 1 FROM auto_reply_inclusions i
+                    WHERE i.user_id = $2 AND i.contact_id = $3
+                  ) AS contact_included,
                   EXISTS(
                     SELECT 1 FROM auto_reply_exclusion_rules r
                     WHERE r.user_id = $2 AND (
@@ -94,6 +98,9 @@ class AutoResponseService:
             return AutoResponseDecision(False, 'auto_response_disabled')
 
         approval_mode = row['approval_mode'] or 'preview'
+
+        if row['inclusion_mode'] and not row['contact_included']:
+            return AutoResponseDecision(False, 'contact_not_in_inclusions', approval_mode)
 
         if row['contact_excluded']:
             return AutoResponseDecision(False, 'contact_excluded', approval_mode)

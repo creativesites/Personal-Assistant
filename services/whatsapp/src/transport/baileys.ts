@@ -359,6 +359,32 @@ export class BaileysTransport extends WhatsAppTransport {
       }
     });
 
+    sock.ev.on('presence-update', ({ id, presences }) => {
+      if (sock !== this.sock) return;
+      const participantJid = Object.keys(presences)[0];
+      if (!participantJid) return;
+      const data = presences[participantJid];
+      this.emit('presence_update', {
+        jid: id,
+        participantJid,
+        presence: data.lastKnownPresence,
+        lastSeen: data.lastSeen,
+      });
+    });
+
+    sock.ev.on('messages.update', async (updates) => {
+      if (sock !== this.sock) return;
+      for (const update of updates) {
+        if (update.update.status) {
+          this.emit('message_status_update', {
+            waMessageId: update.key.id,
+            jid: update.key.remoteJid,
+            status: update.update.status,
+          });
+        }
+      }
+    });
+
     // Historical messages delivered on first connect — normalise then emit as a single batch
     // so the session manager can process them sequentially (avoid DB pool exhaustion).
     sock.ev.on('messaging-history.set', async ({ chats, contacts, messages }) => {
@@ -500,12 +526,11 @@ export class BaileysTransport extends WhatsAppTransport {
         if (supabaseUrl) {
           mediaUrl = supabaseUrl;
         } else {
-          const filePath = path.join(this.mediaDir, fileName);
-          await fs.writeFile(filePath, buffer);
-          mediaUrl = `/api/media/${fileName}`;
+          console.warn(`[baileys:${this.userId}] Supabase storage not configured or available. Skipping local write fallback.`);
+          mediaUrl = null;
         }
       } catch (err) {
-        console.error(`[baileys:${this.userId}] media download failed for ${msg.key.id}:`, err);
+        console.error(`[baileys:${this.userId}] media download/upload failed for ${msg.key.id}:`, err);
       }
     }
 

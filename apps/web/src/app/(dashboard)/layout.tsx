@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useClerk } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
@@ -496,6 +496,7 @@ function MobileBottomNav({
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = useZuriSession()
   const pathname = usePathname()
+  const router = useRouter()
   const { signOut } = useClerk()
   
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -504,6 +505,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [isNavigating, setIsNavigating] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const wa = useWAStatus(session.data?.accessToken)
+
+  useEffect(() => {
+    // Only redirect if session is authenticated, wa status has been loaded (not 'unknown'),
+    // and they are not connected.
+    if (session.status === 'authenticated' && wa.status !== 'unknown' && !wa.connected) {
+      // Don't redirect if we are on pages where they might need to go (e.g., /onboarding, /profile, /settings, /billing, /diagnostics)
+      const allowedPathsWithoutWA = [
+        '/onboarding',
+        '/profile',
+        '/settings',
+        '/billing',
+        '/diagnostics',
+      ]
+      const isAllowed = allowedPathsWithoutWA.some(p => pathname === p || pathname.startsWith(p))
+      if (!isAllowed) {
+        router.push('/onboarding')
+      }
+    }
+  }, [session.status, wa.status, wa.connected, pathname, router])
 
   useEffect(() => {
     setIsNavigating(false)

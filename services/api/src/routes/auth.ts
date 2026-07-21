@@ -404,8 +404,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
            (SELECT COUNT(*) FROM messages m
             JOIN conversations c ON m.conversation_id = c.id
             WHERE c.user_id = $1) AS total_messages,
-           (SELECT COUNT(*) FROM reply_suggestions rs
-            JOIN conversations c ON rs.conversation_id = c.id
+           (SELECT COUNT(*) FROM suggested_replies sr
+            JOIN conversations c ON sr.conversation_id = c.id
             WHERE c.user_id = $1) AS total_suggestions`,
         [userId],
       )

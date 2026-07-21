@@ -21,7 +21,8 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          skip_groups, skip_broadcasts,
          escalation_keywords, escalation_notify_email,
          greeting_message, away_message,
-         smart_followup_enabled, learn_from_corrections
+         smart_followup_enabled, learn_from_corrections,
+         inclusion_mode
        FROM auto_response_settings WHERE user_id = $1`,
       [userId],
     );
@@ -46,6 +47,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         awayMessage: null,
         smartFollowupEnabled: false,
         learnFromCorrections: true,
+        inclusionMode: false,
       });
     }
 
@@ -68,6 +70,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       awayMessage: row.away_message,
       smartFollowupEnabled: row.smart_followup_enabled,
       learnFromCorrections: row.learn_from_corrections,
+      inclusionMode: row.inclusion_mode,
     });
   });
 
@@ -94,12 +97,13 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          skip_groups, skip_broadcasts,
          escalation_keywords, escalation_notify_email,
          greeting_message, away_message,
-         smart_followup_enabled, learn_from_corrections
+         smart_followup_enabled, learn_from_corrections,
+         inclusion_mode
        ) VALUES (
          $1,
          COALESCE($2, false),
-         COALESCE($3, '09:00'),
-         COALESCE($4, '18:00'),
+         COALESCE($3::time, '09:00'::time),
+         COALESCE($4::time, '18:00'::time),
          COALESCE($5, 'UTC'),
          COALESCE($6, ARRAY[1,2,3,4,5]),
          COALESCE($7, 30),
@@ -114,12 +118,13 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          $16,
          $17,
          COALESCE($18, false),
-         COALESCE($19, true)
+         COALESCE($19, true),
+         COALESCE($20, false)
        )
        ON CONFLICT (user_id) DO UPDATE SET
          enabled                 = COALESCE($2, auto_response_settings.enabled),
-         business_hours_start    = COALESCE($3, auto_response_settings.business_hours_start),
-         business_hours_end      = COALESCE($4, auto_response_settings.business_hours_end),
+         business_hours_start    = COALESCE($3::time, auto_response_settings.business_hours_start),
+         business_hours_end      = COALESCE($4::time, auto_response_settings.business_hours_end),
          timezone                = COALESCE($5, auto_response_settings.timezone),
          active_days             = COALESCE($6, auto_response_settings.active_days),
          send_delay_seconds      = COALESCE($7, auto_response_settings.send_delay_seconds),
@@ -135,6 +140,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          away_message            = COALESCE($17, auto_response_settings.away_message),
          smart_followup_enabled  = COALESCE($18, auto_response_settings.smart_followup_enabled),
          learn_from_corrections  = COALESCE($19, auto_response_settings.learn_from_corrections),
+         inclusion_mode          = COALESCE($20, auto_response_settings.inclusion_mode),
          updated_at              = NOW()`,
       [
         userId,
@@ -156,6 +162,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         body.awayMessage ?? null,
         body.smartFollowupEnabled ?? null,
         body.learnFromCorrections ?? null,
+        body.inclusionMode ?? null,
       ],
     );
 
@@ -215,30 +222,170 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post('/api/settings/auto-response/exclusions', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const body = z.object({
-      contactId: z.string().uuid(),
+      contactId: z.string().uuid().optional(),
+      contactIds: z.array(z.string().uuid()).optional(),
       reason: z.string().max(500).optional(),
     }).parse(request.body);
 
-    const { rows: [contact] } = await db.query(
-      'SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [body.contactId, userId],
-    );
-    if (!contact) return reply.code(404).send({ error: 'Contact not found' });
+    const contactIds = body.contactIds || (body.contactId ? [body.contactId] : []);
+    if (contactIds.length === 0) {
+      return reply.code(400).send({ error: 'No contactId or contactIds provided' });
+    }
 
-    const { rows: [row] } = await db.query(
-      `INSERT INTO auto_reply_exclusions (user_id, contact_id, reason)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, contact_id) DO UPDATE SET reason = EXCLUDED.reason
-       RETURNING id`,
-      [userId, body.contactId, body.reason ?? null],
-    );
+    const ids: string[] = [];
+    for (const cId of contactIds) {
+      const { rows: [contact] } = await db.query(
+        'SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [cId, userId],
+      );
+      if (!contact) continue;
 
-    return reply.code(201).send({ id: row.id });
+      const { rows: [row] } = await db.query(
+        `INSERT INTO auto_reply_exclusions (user_id, contact_id, reason)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, contact_id) DO UPDATE SET reason = EXCLUDED.reason
+         RETURNING id`,
+        [userId, cId, body.reason ?? null],
+      );
+      ids.push(row.id);
+    }
+
+    return reply.code(201).send({ ids, id: ids[0] });
   });
 
   fastify.delete('/api/settings/auto-response/exclusions/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
     await db.query('DELETE FROM auto_reply_exclusions WHERE id = $1 AND user_id = $2', [id, userId]);
+    return reply.send({ ok: true });
+  });
+
+  // ── Auto-reply inclusions ───────────────────────────
+  fastify.get('/api/settings/auto-response/inclusions', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const { rows: contacts } = await db.query(
+      `SELECT i.id, i.contact_id, i.created_at,
+              COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+              c.avatar_url
+       FROM auto_reply_inclusions i
+       JOIN contacts c ON c.id = i.contact_id
+       WHERE i.user_id = $1
+       ORDER BY i.created_at DESC`,
+      [userId],
+    );
+
+    return reply.send({
+      contacts: contacts.map((r: any) => ({
+        id: r.id,
+        contactId: r.contact_id,
+        contactName: r.contact_name,
+        avatarUrl: r.avatar_url,
+        createdAt: r.created_at,
+      })),
+    });
+  });
+
+  fastify.post('/api/settings/auto-response/inclusions', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const body = z.object({
+      contactId: z.string().uuid().optional(),
+      contactIds: z.array(z.string().uuid()).optional(),
+    }).parse(request.body);
+
+    const contactIds = body.contactIds || (body.contactId ? [body.contactId] : []);
+    if (contactIds.length === 0) {
+      return reply.code(400).send({ error: 'No contactId or contactIds provided' });
+    }
+
+    const ids: string[] = [];
+    for (const cId of contactIds) {
+      const { rows: [contact] } = await db.query(
+        'SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [cId, userId],
+      );
+      if (!contact) continue;
+
+      const { rows: [row] } = await db.query(
+        `INSERT INTO auto_reply_inclusions (user_id, contact_id)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, contact_id) DO NOTHING
+         RETURNING id`,
+        [userId, cId],
+      );
+      if (row) ids.push(row.id);
+    }
+
+    return reply.code(201).send({ ids, id: ids[0] });
+  });
+
+  fastify.delete('/api/settings/auto-response/inclusions/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    await db.query('DELETE FROM auto_reply_inclusions WHERE id = $1 AND user_id = $2', [id, userId]);
+    return reply.send({ ok: true });
+  });
+
+  // ── Privacy exclusions ──────────────────────────────
+  fastify.get('/api/settings/privacy/exclusions', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const { rows: contacts } = await db.query(
+      `SELECT p.id, p.contact_id, p.created_at,
+              COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name,
+              c.avatar_url
+       FROM privacy_exclusions p
+       JOIN contacts c ON c.id = p.contact_id
+       WHERE p.user_id = $1
+       ORDER BY p.created_at DESC`,
+      [userId],
+    );
+
+    return reply.send({
+      contacts: contacts.map((r: any) => ({
+        id: r.id,
+        contactId: r.contact_id,
+        contactName: r.contact_name,
+        avatarUrl: r.avatar_url,
+        createdAt: r.created_at,
+      })),
+    });
+  });
+
+  fastify.post('/api/settings/privacy/exclusions', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const body = z.object({
+      contactId: z.string().uuid().optional(),
+      contactIds: z.array(z.string().uuid()).optional(),
+    }).parse(request.body);
+
+    const contactIds = body.contactIds || (body.contactId ? [body.contactId] : []);
+    if (contactIds.length === 0) {
+      return reply.code(400).send({ error: 'No contactId or contactIds provided' });
+    }
+
+    const ids: string[] = [];
+    for (const cId of contactIds) {
+      const { rows: [contact] } = await db.query(
+        'SELECT id FROM contacts WHERE id = $1 AND user_id = $2', [cId, userId],
+      );
+      if (!contact) continue;
+
+      const { rows: [row] } = await db.query(
+        `INSERT INTO privacy_exclusions (user_id, contact_id)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, contact_id) DO NOTHING
+         RETURNING id`,
+        [userId, cId],
+      );
+      if (row) ids.push(row.id);
+    }
+
+    return reply.code(201).send({ ids, id: ids[0] });
+  });
+
+  fastify.delete('/api/settings/privacy/exclusions/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    await db.query('DELETE FROM privacy_exclusions WHERE id = $1 AND user_id = $2', [id, userId]);
     return reply.send({ ok: true });
   });
 

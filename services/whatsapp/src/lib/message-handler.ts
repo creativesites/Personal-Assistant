@@ -63,10 +63,14 @@ export class MessageHandler {
   }
 
   async handleMessage(userId: string, msg: NormalisedMessage, isHistorical = false): Promise<void> {
+    if (msg.jid === 'status@broadcast' || msg.jid.endsWith('@broadcast')) {
+      return;
+    }
+
     const senderType = msg.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
     const timestamp = new Date(msg.timestampMs);
 
-    const contactId = await this.upsertContact(userId, msg.jid, msg.displayName);
+    const contactId = await this.upsertContact(userId, msg.jid, msg.fromMe ? null : msg.displayName);
 
     const previewText =
       msg.body?.slice(0, 200) ??
@@ -142,11 +146,15 @@ export class MessageHandler {
     userId: string,
     msg: NormalisedMessage,
   ): Promise<{ conversationId: string; contactId: string; isGroup: boolean } | null> {
+    if (msg.jid === 'status@broadcast' || msg.jid.endsWith('@broadcast')) {
+      return null;
+    }
+
     const senderType = msg.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
     const timestamp = new Date(msg.timestampMs);
     const isGroup = msg.jid.endsWith('@g.us');
 
-    const contactId = await this.upsertContact(userId, msg.jid, msg.displayName);
+    const contactId = await this.upsertContact(userId, msg.jid, msg.fromMe ? null : msg.displayName);
 
     const previewText =
       msg.body?.slice(0, 200) ??
@@ -302,8 +310,8 @@ export class MessageHandler {
     jid: string,
     displayName: string | null,
   ): Promise<string> {
-    const phoneNumber = jid.split('@')[0];
     const isGroup = jid.endsWith('@g.us');
+    const phoneNumber = isGroup ? null : jid.split('@')[0];
 
     const { rows: [existing] } = await this.db.query<{ id: string }>(
       `SELECT id FROM contacts WHERE user_id = $1 AND whatsapp_jid = $2`,

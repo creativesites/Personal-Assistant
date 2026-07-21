@@ -141,6 +141,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           m.media_mime_type,
           m.transcription,
           m.quoted_message_id,
+          m.sender_display_name,
+          m.sender_jid,
+          m.delivery_status,
           ma.sentiment,
           ma.sentiment_score,
           ma.requires_response,
@@ -195,6 +198,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         mediaMimeType: m.media_mime_type,
         transcription: m.transcription,
         quotedMessageId: m.quoted_message_id,
+        senderDisplayName: m.sender_display_name,
+        senderJid: m.sender_jid,
+        deliveryStatus: m.delivery_status,
         analysis: m.sentiment
           ? {
               sentiment: m.sentiment,
@@ -351,8 +357,8 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           SELECT hl.health_score
           FROM relationship_health_logs hl
           WHERE hl.relationship_id = r.id
-            AND hl.recorded_at >= NOW() - INTERVAL '7 days'
-          ORDER BY hl.recorded_at ASC
+            AND hl.logged_at >= NOW() - INTERVAL '7 days'
+          ORDER BY hl.logged_at ASC
           LIMIT 1
         ) log_old ON true
         WHERE r.user_id = $1

@@ -508,11 +508,47 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     const values: unknown[] = [id, userId];
     let idx = 3;
 
+    let newJid: string | null = null;
+    if ('phoneNumber' in body) {
+      const { rows } = await db.query(
+        `SELECT is_group, whatsapp_jid FROM contacts WHERE id = $1 AND user_id = $2`,
+        [id, userId]
+      );
+      if (rows[0] && !rows[0].is_group && body.phoneNumber) {
+        const cleanPhone = String(body.phoneNumber).replace(/\D/g, '');
+        if (cleanPhone) {
+          newJid = `${cleanPhone}@c.us`;
+          if (newJid !== rows[0].whatsapp_jid) {
+            const { rows: conflicts } = await db.query(
+              `SELECT id FROM contacts WHERE user_id = $1 AND whatsapp_jid = $2 AND id != $3`,
+              [userId, newJid, id]
+            );
+            if (conflicts.length > 0) {
+              return reply.code(400).send({ error: 'A contact with this phone number already exists' });
+            }
+          }
+        }
+      }
+    }
+
     for (const [jsKey, sqlCol] of Object.entries(fieldMap)) {
       if (jsKey in body) {
         sets.push(`${sqlCol} = $${idx++}`);
-        values.push(body[jsKey] ?? null);
+        // Handle customName fallback to name
+        if (jsKey === 'customName' || jsKey === 'name') {
+          values.push(body.customName ?? body.name ?? null);
+        } else if (jsKey === 'phoneNumber' && body.phoneNumber) {
+          // Store clean digit string
+          values.push(String(body.phoneNumber).replace(/\D/g, ''));
+        } else {
+          values.push(body[jsKey] ?? null);
+        }
       }
+    }
+
+    if (newJid) {
+      sets.push(`whatsapp_jid = $${idx++}`);
+      values.push(newJid);
     }
 
     if (sets.length === 0) {

@@ -69,6 +69,15 @@ async def _process(job, token: str):
     pool = await get_pool()
     async with pool.acquire() as conn:
         contact_row = await conn.fetchrow('SELECT is_group FROM contacts WHERE id = $1', contact_id)
+        privacy_excluded = await conn.fetchval(
+            'SELECT EXISTS(SELECT 1 FROM privacy_exclusions WHERE contact_id = $1 AND user_id = $2)',
+            contact_id,
+            user_id,
+        )
+    if privacy_excluded:
+        log.info('privacy_exclusion_skipped', message_id=message_id, contact_id=contact_id, user_id=user_id)
+        return {'ok': True, 'skipped': 'privacy_excluded'}
+
     if contact_row and contact_row['is_group']:
         log.info('group_message_skipped', message_id=message_id, contact_id=contact_id)
         return {'ok': True, 'skipped': 'group_chat'}

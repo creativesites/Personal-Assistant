@@ -120,6 +120,130 @@ function Toggle({ enabled }: { enabled: boolean }) {
   )
 }
 
+function MultiContactSelect({
+  label,
+  buttonText,
+  contactOptions,
+  onAdd,
+  disabled
+}: {
+  label: string
+  buttonText: string
+  contactOptions: { id: string; name: string }[]
+  onAdd: (ids: string[]) => void
+  disabled?: boolean
+}) {
+  const [query, setQuery] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [isOpen, setIsOpen] = useState(false)
+
+  const filtered = contactOptions.filter(c =>
+    c.name.toLowerCase().includes(query.toLowerCase())
+  )
+
+  const toggleId = (id: string) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    )
+  }
+
+  return (
+    <div className="space-y-2 border border-gray-100 rounded-xl p-4 bg-gray-50/50">
+      <label className="block text-xs font-semibold text-gray-700">{label}</label>
+      <div className="relative">
+        <div
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm cursor-pointer min-h-[38px] flex flex-wrap gap-1.5 items-center pr-8"
+        >
+          {selectedIds.length === 0 ? (
+            <span className="text-gray-400">Search & select contacts...</span>
+          ) : (
+            selectedIds.map(id => {
+              const name = contactOptions.find(c => c.id === id)?.name || id
+              return (
+                <span key={id} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 text-xs px-2 py-0.5 rounded-md font-medium">
+                  {name}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleId(id) }}
+                    className="hover:text-indigo-900 font-bold"
+                  >
+                    ×
+                  </button>
+                </span>
+              )
+            })
+          )}
+          <span className="absolute right-3 top-3 text-gray-400 pointer-events-none">
+            ▼
+          </span>
+        </div>
+
+        {isOpen && (
+          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto p-2 space-y-2">
+            <input
+              type="text"
+              placeholder="Filter contacts..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+              onClick={e => e.stopPropagation()}
+            />
+            <div className="space-y-1">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-gray-400 p-1">No contacts found</p>
+              ) : (
+                filtered.map(c => {
+                  const isChecked = selectedIds.includes(c.id)
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={(e) => { e.stopPropagation(); toggleId(c.id) }}
+                      className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        readOnly
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                      />
+                      <span className="text-gray-700">{c.name}</span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            <div className="border-t border-gray-100 pt-1.5 flex justify-end">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setIsOpen(false) }}
+                className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end pt-1">
+        <button
+          type="button"
+          disabled={selectedIds.length === 0 || disabled}
+          onClick={() => {
+            onAdd(selectedIds)
+            setSelectedIds([])
+            setQuery('')
+            setIsOpen(false)
+          }}
+          className="px-4 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold rounded-lg disabled:opacity-50 transition-all shadow-sm"
+        >
+          {buttonText} ({selectedIds.length})
+        </button>
+      </div>
+    </div>
+  )
+}
+
 const TAB_ICONS: Record<string, React.ElementType> = {
   account: UserCircle,
   workspace: SlidersHorizontal,
@@ -475,6 +599,7 @@ export default function SettingsPage() {
     awayMessage: string | null
     smartFollowupEnabled: boolean
     learnFromCorrections: boolean
+    inclusionMode: boolean
   }
 
   const DEFAULT_AUTO_RESPONSE: AutoResponseSettings = {
@@ -484,6 +609,7 @@ export default function SettingsPage() {
     respondToNewContacts: false, skipGroups: true, skipBroadcasts: true,
     escalationKeywords: [], escalationNotifyEmail: null, greetingMessage: null,
     awayMessage: null, smartFollowupEnabled: false, learnFromCorrections: true,
+    inclusionMode: false,
   }
 
   const [autoResponse, setAutoResponse] = useState<AutoResponseSettings>(DEFAULT_AUTO_RESPONSE)
@@ -610,6 +736,11 @@ export default function SettingsPage() {
     | null
   >(null)
 
+  const [inclusionContacts, setInclusionContacts] = useState<ExclusionContact[]>([])
+  const [privacyContacts, setPrivacyContacts] = useState<ExclusionContact[]>([])
+  const [inclusionsLoaded, setInclusionsLoaded] = useState(false)
+  const [privacyLoaded, setPrivacyLoaded] = useState(false)
+
   const loadExclusions = async () => {
     if (!token || exclusionsLoaded) return
     setExclusionsLoaded(true)
@@ -626,18 +757,46 @@ export default function SettingsPage() {
     } catch { /* ignore */ }
   }
 
-  const addContactExclusion = async () => {
-    if (!token || !pickContactId) return
+  const loadInclusions = async () => {
+    if (!token || inclusionsLoaded) return
+    setInclusionsLoaded(true)
+    try {
+      const data = await apiClient<{ contacts: ExclusionContact[] }>(
+        '/api/settings/auto-response/inclusions', { token },
+      )
+      setInclusionContacts(data.contacts)
+    } catch { /* ignore */ }
+  }
+
+  const loadPrivacyExclusions = async () => {
+    if (!token || privacyLoaded) return
+    setPrivacyLoaded(true)
+    try {
+      const data = await apiClient<{ contacts: ExclusionContact[] }>(
+        '/api/settings/privacy/exclusions', { token },
+      )
+      setPrivacyContacts(data.contacts)
+    } catch { /* ignore */ }
+  }
+
+  const addContactExclusions = async (contactIds: string[]) => {
+    if (!token || contactIds.length === 0) return
     try {
       await apiClient('/api/settings/auto-response/exclusions', {
-        method: 'POST', token, body: JSON.stringify({ contactId: pickContactId }),
+        method: 'POST', token, body: JSON.stringify({ contactIds }),
       })
-      setPickContactId('')
+      addToast({ variant: 'success', title: `Excluded ${contactIds.length} contact(s)` })
       setExclusionsLoaded(false)
       loadExclusions()
     } catch {
-      addToast({ variant: 'error', title: 'Failed to add exclusion' })
+      addToast({ variant: 'error', title: 'Failed to add exclusions' })
     }
+  }
+
+  const addContactExclusion = async () => {
+    if (!token || !pickContactId) return
+    await addContactExclusions([pickContactId])
+    setPickContactId('')
   }
 
   const removeContactExclusion = async (id: string) => {
@@ -647,6 +806,54 @@ export default function SettingsPage() {
       await apiClient(`/api/settings/auto-response/exclusions/${id}`, { method: 'DELETE', token })
     } catch {
       addToast({ variant: 'error', title: 'Failed to remove exclusion' })
+    }
+  }
+
+  const addInclusions = async (contactIds: string[]) => {
+    if (!token || contactIds.length === 0) return
+    try {
+      await apiClient('/api/settings/auto-response/inclusions', {
+        method: 'POST', token, body: JSON.stringify({ contactIds }),
+      })
+      addToast({ variant: 'success', title: `Added ${contactIds.length} contact(s) to inclusions` })
+      setInclusionsLoaded(false)
+      loadInclusions()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to add inclusions' })
+    }
+  }
+
+  const removeInclusion = async (id: string) => {
+    if (!token) return
+    setInclusionContacts(prev => prev.filter(c => c.id !== id))
+    try {
+      await apiClient(`/api/settings/auto-response/inclusions/${id}`, { method: 'DELETE', token })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to remove inclusion' })
+    }
+  }
+
+  const addPrivacyExclusions = async (contactIds: string[]) => {
+    if (!token || contactIds.length === 0) return
+    try {
+      await apiClient('/api/settings/privacy/exclusions', {
+        method: 'POST', token, body: JSON.stringify({ contactIds }),
+      })
+      addToast({ variant: 'success', title: `Privacy-excluded ${contactIds.length} contact(s)` })
+      setPrivacyLoaded(false)
+      loadPrivacyExclusions()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to add privacy exclusions' })
+    }
+  }
+
+  const removePrivacyExclusion = async (id: string) => {
+    if (!token) return
+    setPrivacyContacts(prev => prev.filter(c => c.id !== id))
+    try {
+      await apiClient(`/api/settings/privacy/exclusions/${id}`, { method: 'DELETE', token })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to remove privacy exclusion' })
     }
   }
 
@@ -1008,10 +1215,12 @@ export default function SettingsPage() {
     } else if (activeTab === 'auto_responses' && !autoResponseLoaded) {
       loadAutoResponse()
       loadExclusions()
+      loadInclusions()
     } else if (activeTab === 'memory' && !memoryTabLoaded) {
       loadMemoryTab()
     } else if (activeTab === 'privacy' && !retentionLoaded) {
       loadRetention()
+      loadPrivacyExclusions()
     } else if (activeTab === 'connected_accounts' && !socialLoaded) {
       loadSocialAccounts()
     } else if (activeTab === 'brand_kit' && !brandKitLoaded) {
@@ -1812,6 +2021,49 @@ export default function SettingsPage() {
                       })}
                     </Section>
 
+                    <Section title="Inclusion-Only Mode">
+                      <div className="px-5 py-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">Enable Inclusion-Only Mode</p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              Only auto-respond to contacts explicitly added to the inclusion list below. All other contacts will be ignored by auto-response.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setAutoResponse(s => ({ ...s, inclusionMode: !s.inclusionMode }))}
+                            role="switch"
+                            aria-checked={autoResponse.inclusionMode}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${autoResponse.inclusionMode ? 'bg-indigo-600' : 'bg-gray-200'}`}
+                          >
+                            <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${autoResponse.inclusionMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
+                        </div>
+
+                        {autoResponse.inclusionMode && (
+                          <div className="space-y-4 pt-2">
+                            {inclusionContacts.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
+                                {inclusionContacts.map(c => (
+                                  <span key={c.id} className="inline-flex items-center gap-1 text-xs bg-indigo-100/50 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                                    {c.contactName}
+                                    <button onClick={() => removeInclusion(c.id)} className="hover:text-indigo-900 font-bold">×</button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <MultiContactSelect
+                              label="Add contacts to auto-reply inclusions list"
+                              buttonText="Include"
+                              contactOptions={contactOptions}
+                              onAdd={addInclusions}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </Section>
+
                     {/* Exceptions — granular per-contact/rule exclusions (plan §4).
                         Additive on top of "Who to respond to": respond to
                         these types of contacts, EXCEPT these people/rules. */}
@@ -1826,38 +2078,24 @@ export default function SettingsPage() {
                             {exclusionContacts.map(c => (
                               <span key={c.id} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
                                 {c.contactName}
-                                <button onClick={() => removeContactExclusion(c.id)} className="hover:text-red-600">×</button>
+                                <button onClick={() => removeContactExclusion(c.id)} className="hover:text-red-600 font-bold">×</button>
                               </span>
                             ))}
                             {exclusionRules.map(r => (
                               <span key={r.id} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
                                 {r.ruleType.replace('_', ' ')} = {r.ruleValue}
-                                <button onClick={() => removeExclusionRule(r.id)} className="hover:text-red-600">×</button>
+                                <button onClick={() => removeExclusionRule(r.id)} className="hover:text-red-600 font-bold">×</button>
                               </span>
                             ))}
                           </div>
                         )}
 
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Add a specific contact</label>
-                          <div className="flex gap-2">
-                            <select
-                              value={pickContactId}
-                              onChange={e => setPickContactId(e.target.value)}
-                              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            >
-                              <option value="">Select a contact…</option>
-                              {contactOptions.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                            <button
-                              onClick={addContactExclusion}
-                              disabled={!pickContactId}
-                              className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50"
-                            >
-                              Exclude
-                            </button>
-                          </div>
-                        </div>
+                        <MultiContactSelect
+                          label="Add contacts to auto-reply exclusion list"
+                          buttonText="Exclude"
+                          contactOptions={contactOptions}
+                          onAdd={addContactExclusions}
+                        />
 
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Or describe who to exclude</label>
@@ -2440,6 +2678,32 @@ export default function SettingsPage() {
                             {savingRetention ? 'Saving…' : 'Save retention settings'}
                           </button>
                         </div>
+                      </div>
+                    </Section>
+
+                    <Section title="System-wide Privacy Exclusions">
+                      <div className="px-5 py-4 space-y-4">
+                        <p className="text-xs text-gray-400">
+                          Add contacts to completely exclude them from all of Zuri. When their messages are received, Zuri will completely bypass all intelligence ingestion pipelines (no logging, profiling, vector context snapshotting, or AI analysis).
+                        </p>
+
+                        {privacyContacts.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 p-3 bg-red-50/50 rounded-xl border border-red-100/50">
+                            {privacyContacts.map(c => (
+                              <span key={c.id} className="inline-flex items-center gap-1 text-xs bg-red-100/50 text-red-700 px-2 py-0.5 rounded-full font-medium">
+                                {c.contactName}
+                                <button onClick={() => removePrivacyExclusion(c.id)} className="hover:text-red-900 font-bold">×</button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <MultiContactSelect
+                          label="Exclude contacts from all Zuri processing"
+                          buttonText="Privacy Exclude"
+                          contactOptions={contactOptions}
+                          onAdd={addPrivacyExclusions}
+                        />
                       </div>
                     </Section>
 

@@ -1,15 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
   Flame, Activity, Brain, WifiOff, UserX, ChevronDown, Users,
+  Pencil,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { Avatar, EmptyState, SkeletonListItem, useToast } from '@/components/ui'
+import { Avatar, EmptyState, SkeletonListItem, useToast, Modal, Input, Button } from '@/components/ui'
 import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import type { AIInsight } from './_components/inline-ai-card'
@@ -105,6 +106,20 @@ export default function InboxPage() {
   const [editedText, setEditedText] = useState('')
   const [isOnline, setIsOnline] = useState(true)
   const [promises, setPromises] = useState<ContactPromise[]>([])
+
+  // Presence map state
+  const [presenceMap, setPresenceMap] = useState<Record<string, { status: string; lastSeenAt: string | null }>>({})
+
+  // Edit contact modal states
+  const [showEditContact, setShowEditContact] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [editLoading, setEditLoading] = useState(false)
+
+  // In-thread search states
+  const [threadSearchOpen, setThreadSearchOpen] = useState(false)
+  const [threadSearchQuery, setThreadSearchQuery] = useState('')
+  const [threadActiveSearchIndex, setThreadActiveSearchIndex] = useState(0)
 
   // AI Actions
   const [showAIActions, setShowAIActions] = useState(false)
@@ -481,6 +496,45 @@ export default function InboxPage() {
       setBundleRefreshTick(t => t + 1)
     })
 
+    const handlePresenceUpdate = (payload: string) => {
+      try {
+        const data = parseSocketPayload<{
+          jid: string
+          presence: 'available' | 'unavailable' | 'composing' | 'recording'
+          lastSeenAt: string
+        }>(payload)
+        setPresenceMap(prev => ({
+          ...prev,
+          [data.jid]: {
+            status: data.presence,
+            lastSeenAt: data.lastSeenAt
+          }
+        }))
+      } catch (err) {
+        console.error('[inbox] error handling presence update:', err)
+      }
+    }
+
+    const handleMessageStatusUpdate = (payload: string) => {
+      try {
+        const data = parseSocketPayload<{
+          messageId: string
+          conversationId: string
+          deliveryStatus: 'sent' | 'delivered' | 'read'
+        }>(payload)
+        if (selectedIdRef.current === data.conversationId) {
+          setMessages(prev => prev.map(m => (
+            m.id === data.messageId ? { ...m, deliveryStatus: data.deliveryStatus } : m
+          )))
+        }
+      } catch (err) {
+        console.error('[inbox] error handling message status update:', err)
+      }
+    }
+
+    socket.on('presence:update', handlePresenceUpdate)
+    socket.on('message:status:update', handleMessageStatusUpdate)
+
     const reconcile = () => {
       loadConversations()
       loadSyncStatus()
@@ -513,6 +567,8 @@ export default function InboxPage() {
       socket.off('history:progress', handleSyncProgress)
       socket.off('suggestion:ready')
       socket.off('bundle:ready')
+      socket.off('presence:update', handlePresenceUpdate)
+      socket.off('message:status:update', handleMessageStatusUpdate)
       socket.off('authenticated', reconcile)
       socket.off('reconnect', reconcile)
       socket.io.off('reconnect', reconcile)
@@ -535,7 +591,13 @@ export default function InboxPage() {
       const tag = (document.activeElement as HTMLElement)?.tagName
       const inField = tag === 'INPUT' || tag === 'TEXTAREA'
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setShowSearch(v => !v) }
-      if (e.key === 'Escape') { setShowSearch(false) }
+      if (e.key === 'Escape') { setShowSearch(false); setThreadSearchOpen(false) }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        if (selectedIdRef.current) {
+          e.preventDefault()
+          setThreadSearchOpen(v => !v)
+        }
+      }
       if (e.key === 'r' && !inField && !e.metaKey && !e.ctrlKey) {
         if (selectedIdRef.current && selectedMsgIdRef.current && token) {
           setRegenerating(true); setSuggestions([])
@@ -558,6 +620,9 @@ export default function InboxPage() {
     selectedIdRef.current = convId
     selectedMsgIdRef.current = null
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
+    setThreadSearchOpen(false)
+    setThreadSearchQuery('')
+    setThreadActiveSearchIndex(0)
     // Reset contact (not just contactDetail) on every switch — the sticky
     // header renders a skeleton while contact is null, so a stale contact
     // lingering from the previous conversation would otherwise flash the
@@ -765,6 +830,94 @@ export default function InboxPage() {
     } catch {
       setAIActionResult({ label: 'Analysis Failed', text: 'Could not queue analysis. Check that Redis and the intelligence worker are running.' })
     } finally { setAIActionLoading(null) }
+  }
+
+  const openEditContactModal = () => {
+    if (!contact) return
+    setEditName(contact.name || '')
+    setEditPhone(contact.phone || '')
+    setShowEditContact(true)
+  }
+
+  const saveContact = async () => {
+    if (!contact || !token) return
+    setEditLoading(true)
+    try {
+      await apiClient(`/api/contacts/${contact.id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          name: editName,
+          phoneNumber: editPhone,
+        }),
+      })
+      addToast({ variant: 'success', title: 'Contact updated successfully' })
+      setContact(prev => prev ? { ...prev, name: editName, phone: editPhone } : null)
+      setContactDetail(prev => prev ? { ...prev, name: editName } : null)
+      setConversations(prev => prev.map(c => {
+        if (c.contact.id === contact.id) {
+          return {
+            ...c,
+            contact: { ...c.contact, name: editName, phone: editPhone }
+          }
+        }
+        return c
+      }))
+      setShowEditContact(false)
+      loadConversations()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err?.message || 'Failed to update contact' })
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  // presence helper
+  const contactJid = contact?.phone ? `${contact.phone.replace(/[^0-9]/g, '')}@c.us` : null
+  const contactPresence = contactJid ? presenceMap[contactJid] : null
+
+  const getPresenceText = () => {
+    if (contact?.isGroup) return 'Group chat'
+    if (!contactPresence) {
+      if (contactDetail?.relationship?.lastInteractionAt) {
+        const date = new Date(contactDetail.relationship.lastInteractionAt)
+        return `Last seen ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      }
+      return 'Offline'
+    }
+    if (contactPresence.status === 'composing') {
+      return 'typing...'
+    }
+    if (contactPresence.status === 'recording') {
+      return 'recording audio...'
+    }
+    if (contactPresence.status === 'available') {
+      return 'online'
+    }
+    if (contactPresence.lastSeenAt) {
+      const date = new Date(contactPresence.lastSeenAt)
+      return `Last seen ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    }
+    return 'Offline'
+  }
+
+  // thread search helper
+  const threadSearchMatches = useMemo(() => {
+    if (!threadSearchQuery.trim()) return []
+    const q = threadSearchQuery.toLowerCase()
+    return messages
+      .filter(m => m.body && m.body.toLowerCase().includes(q))
+      .map(m => m.id)
+  }, [messages, threadSearchQuery])
+
+  const handleThreadSearchPrev = () => {
+    if (threadSearchMatches.length === 0) return
+    setThreadActiveSearchIndex(prev => (prev - 1 + threadSearchMatches.length) % threadSearchMatches.length)
+  }
+
+  const handleThreadSearchNext = () => {
+    if (threadSearchMatches.length === 0) return
+    setThreadActiveSearchIndex(prev => (prev + 1) % threadSearchMatches.length)
   }
 
 
@@ -1044,37 +1197,83 @@ export default function InboxPage() {
               </button>
               {contact ? (
                 <>
-                  <div className="relative group cursor-pointer">
+                  <div className="relative group cursor-pointer" onClick={openEditContactModal}>
                     <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
                     {!contact.isGroup && (
-                      <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
+                      <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-white transition-colors duration-300 ${
+                        contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
+                          ? 'bg-emerald-500 animate-pulse'
+                          : 'bg-neutral-300'
+                      }`} />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                       {contact.isGroup && <Users size={13} className="text-neutral-400 flex-shrink-0" />}
-                      <p className="text-sm font-bold text-neutral-900 tracking-tight truncate">{contact.name}</p>
+                      <div className="flex items-center gap-1 group/name cursor-pointer" onClick={openEditContactModal}>
+                        <p className="text-sm font-bold text-neutral-900 tracking-tight truncate max-w-[140px] sm:max-w-[200px]">{contact.name}</p>
+                        <Pencil size={10} className="text-neutral-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
+                      </div>
                       {currentPriority && CurrentPIcon && (
-                        <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
+                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
                           <CurrentPIcon size={9} />
                           {currentPriority.label}
                         </span>
                       )}
+                      {selectedConv && selectedConv.healthScore !== undefined && (
+                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shadow-sm transition-all ${
+                          selectedConv.healthScore >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60 ring-1 ring-emerald-500/10' :
+                          selectedConv.healthScore >= 50 ? 'bg-amber-50 text-amber-700 border-amber-200/60 ring-1 ring-amber-500/10' :
+                          'bg-rose-50 text-rose-700 border-rose-200/60 ring-1 ring-rose-500/10'
+                        }`} title={`Relationship Health Score: ${selectedConv.healthScore}/100`}>
+                          <Activity size={9} />
+                          {selectedConv.healthScore}% Health
+                        </span>
+                      )}
+                      {mode !== 'personal' && contactDetail?.leadScore !== undefined && contactDetail.leadScore !== null && (
+                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shadow-sm transition-all ${
+                          contactDetail.leadScore >= 80 ? 'bg-rose-50 text-rose-700 border-rose-200/60 ring-1 ring-rose-500/10' :
+                          contactDetail.leadScore >= 50 ? 'bg-orange-50 text-orange-700 border-orange-200/60 ring-1 ring-orange-500/10' :
+                          'bg-blue-50 text-blue-700 border-blue-200/60 ring-1 ring-blue-500/10'
+                        }`} title={`Lead Score: ${contactDetail.leadScore}/100`}>
+                          <Flame size={9} className={contactDetail.leadScore >= 80 ? 'animate-pulse' : ''} />
+                          {contactDetail.leadScore} Lead
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
-                        {contact.isGroup ? 'Group chat' : contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap mt-0.5">
+                      <div className="flex items-center gap-1 group/phone cursor-pointer" onClick={contact.isGroup ? undefined : openEditContactModal}>
+                        <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
+                          {contact.isGroup ? 'Group chat' : contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
+                        </p>
+                        {!contact.isGroup && (
+                          <Pencil size={9} className="text-neutral-400 opacity-0 group-hover/phone:opacity-100 transition-opacity" />
+                        )}
+                      </div>
+                      <span className="text-neutral-300 text-[10px] hidden sm:inline">•</span>
+                      <p className={`text-xs font-semibold tracking-wide truncate ${
+                        contactPresence?.status === 'composing' || contactPresence?.status === 'recording' || contactPresence?.status === 'available'
+                          ? 'text-emerald-600 font-bold animate-pulse'
+                          : 'text-neutral-400 font-medium'
+                      }`}>
+                        {getPresenceText()}
                       </p>
                       {syncState.active && (syncState.conversationId === selectedId || syncState.currentChatName === contact.name) && (
-                        <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">
+                        <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-1.5 py-0.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                          {syncState.phase === 'analysing' ? 'Analysing chat' : 'Syncing chat'}
+                          {syncState.phase === 'analysing' ? 'Analysing' : 'Syncing'}
                         </span>
                       )}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    {/* Run Analysis button */}
+                    <button
+                      onClick={() => setThreadSearchOpen(v => !v)}
+                      className={`p-2 rounded-xl transition-all active:scale-95 ${threadSearchOpen ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
+                      title="Search in this chat (Cmd+F)"
+                    >
+                      <Search size={17} strokeWidth={2} />
+                    </button>
                     <button
                       onClick={runHeaderAnalysis}
                       disabled={analysing || aiActionLoading === 'analyze-recent'}
@@ -1091,10 +1290,6 @@ export default function InboxPage() {
                       )}
                       Analyse
                     </button>
-                    {/* Per-contact exclusion (plan §4/§7) — the natural place to
-                        act on "don't auto-reply to this specific person" is
-                        right here, looking at their conversation. The global
-                        switch lives in the list header (always visible). */}
                     <button
                       onClick={toggleContactExclusion}
                       title={excludedContacts.has(contact.id) ? 'Excluded from auto-reply — click to re-include' : 'Exclude this contact from auto-reply'}
@@ -1197,16 +1392,23 @@ export default function InboxPage() {
                     loading={loadingMsgs}
                     token={token}
                     selectedMsgId={selectedMsgId}
-                    searchOpen={false}
-                    searchQuery=""
-                    searchMatches={[]}
-                    activeSearchIndex={0}
+                    searchOpen={threadSearchOpen}
+                    searchQuery={threadSearchQuery}
+                    searchMatches={threadSearchMatches}
+                    activeSearchIndex={threadActiveSearchIndex}
                     messagesEndRef={messagesEndRef}
                     timelineInsights={timelineInsights}
-                    onSearchChange={() => {}}
-                    onCloseSearch={() => {}}
-                    onPrevSearch={() => {}}
-                    onNextSearch={() => {}}
+                    onSearchChange={(val) => {
+                      setThreadSearchQuery(val)
+                      setThreadActiveSearchIndex(0)
+                    }}
+                    onCloseSearch={() => {
+                      setThreadSearchOpen(false)
+                      setThreadSearchQuery('')
+                      setThreadActiveSearchIndex(0)
+                    }}
+                    onPrevSearch={handleThreadSearchPrev}
+                    onNextSearch={handleThreadSearchNext}
                     onSelectMessage={selectMessage}
                   />
                 )}
@@ -1233,6 +1435,7 @@ export default function InboxPage() {
                   onRegenerate={regenerate}
                   onAnalyzeLatest={() => runManualAnalysis('latest')}
                   onAnalyzeRecent={() => runManualAnalysis('recent')}
+                  isGroup={contact.isGroup}
                 />
               </div>
 
@@ -1286,6 +1489,41 @@ export default function InboxPage() {
           </div>
         </div>
       )}
+
+      {/* Edit Contact Modal */}
+      <Modal
+        open={showEditContact}
+        onClose={() => setShowEditContact(false)}
+        title="Edit Contact"
+        description="Update the contact's name and phone number. This changes how they appear across the platform."
+        size="md"
+        footer={
+          <div className="flex justify-end gap-2 px-6 py-4 bg-gray-50 border-t border-gray-100 rounded-b-2xl">
+            <Button variant="secondary" onClick={() => setShowEditContact(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={editLoading} onClick={saveContact}>
+              Save Changes
+            </Button>
+          </div>
+        }
+      >
+        <div className="px-6 py-4 space-y-4">
+          <Input
+            label="Name"
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            placeholder="Contact Name"
+          />
+          <Input
+            label="Phone Number"
+            value={editPhone}
+            onChange={e => setEditPhone(e.target.value)}
+            placeholder="Phone Number (e.g. 27712345678)"
+            helper="Use digits only. Updating this will automatically regenerate their JID."
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

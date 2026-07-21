@@ -397,6 +397,39 @@ class ReplyGenerator:
                         scope_reason,
                     )
 
+        # Write notification to database
+        try:
+            import uuid
+            title = "New Reply Suggestion"
+            body_text = f"Suggested replies are ready for your conversation with {contact_name}."
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """INSERT INTO notifications (user_id, type, title, body, data)
+                       VALUES ($1, 'reply_suggestion', $2, $3, $4)""",
+                    uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+                    title,
+                    body_text,
+                    json.dumps({
+                        "messageId": message_id,
+                        "conversationId": conversation_id,
+                        "contactName": contact_name,
+                    }),
+                )
+            await publish_event(
+                f"notification:new:{user_id}",
+                json.dumps({
+                    "type": "reply_suggestion",
+                    "title": title,
+                    "body": body_text,
+                    "data": {
+                        "messageId": message_id,
+                        "conversationId": conversation_id,
+                    }
+                })
+            )
+        except Exception as exc:
+            log.error('failed_to_write_reply_notification', error=str(exc))
+
         await publish_event(
             f'suggestion:ready:{user_id}',
             json.dumps({'messageId': message_id, 'count': len(suggestions_model.suggestions)}),

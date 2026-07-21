@@ -133,6 +133,7 @@ class ProactiveService:
                     continue
 
                 pool3 = await get_pool()
+                nudge_title = raw.get('title', 'Check in')
                 async with pool3.acquire() as conn:
                     await conn.execute(
                         """INSERT INTO proactive_queue (
@@ -141,11 +142,47 @@ class ProactiveService:
                                priority, suggested_for_date
                            ) VALUES ($1, $2, $3::suggestion_type, $4, $5, $6, $7, CURRENT_DATE)""",
                         user_id, contact_id, stype,
-                        raw.get('title', 'Check in'),
+                        nudge_title,
                         raw.get('body', ''),
                         raw.get('draft_message'),
                         priority,
                     )
+
+                # Write notification to database and publish to Redis
+                try:
+                    import uuid
+                    import json
+                    from ..queue import publish_event
+
+                    notif_title = "New Relationship Nudge"
+                    notif_body = f"A proactive check-in is suggested with {c['contact_name']}: \"{nudge_title}\""
+                    async with pool3.acquire() as conn:
+                        await conn.execute(
+                            """INSERT INTO notifications (user_id, type, title, body, data)
+                               VALUES ($1, 'proactive_suggestion', $2, $3, $4)""",
+                            uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+                            notif_title,
+                            notif_body,
+                            json.dumps({
+                                "contactId": contact_id,
+                                "contactName": c['contact_name'],
+                                "nudgeTitle": nudge_title,
+                            }),
+                        )
+                    await publish_event(
+                        f"notification:new:{user_id}",
+                        json.dumps({
+                            "type": "proactive_suggestion",
+                            "title": notif_title,
+                            "body": notif_body,
+                            "data": {
+                                "contactId": contact_id,
+                            }
+                        })
+                    )
+                except Exception as exc:
+                    log.error('failed_to_write_proactive_notification', error=str(exc))
+
                 created += 1
 
             except Exception as exc:
