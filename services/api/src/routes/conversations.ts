@@ -178,14 +178,12 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     await db.query('UPDATE conversations SET unread_count = 0, updated_at = NOW() WHERE id = $1', [id]);
     await publishInboxEvent(userId, 'conversation:read', { conversationId: id, unreadCount: 0 });
 
-    // Trigger background gap detection and self-repair loop
-    fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/${userId}/check-gaps`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationId: id, contactId: conv.contact_id }),
-    }).catch(err => {
-      console.error(`[gap-check] Failed to trigger background check-gaps for user ${userId}:`, err);
-    });
+    // Trigger background chat verification and repair loop (debounced by Job ID)
+    await addToQueue(
+      QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT,
+      { userId, conversationId: id, contactId: conv.contact_id },
+      { jobId: `recon:${id}`, removeOnComplete: true, removeOnFail: false }
+    );
 
     return reply.send({
       messages: messagesResult.rows.map((m: any) => ({

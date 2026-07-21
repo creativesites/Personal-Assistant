@@ -104,19 +104,6 @@ export function sessionRoutes(sessionManager: SessionManager) {
       }
     });
 
-    fastify.post('/internal/sessions/:userId/check-gaps', async (request, reply) => {
-      const { userId } = userIdParam.parse(request.params);
-      const { conversationId, contactId } = z.object({
-        conversationId: z.string().uuid(),
-        contactId: z.string().uuid(),
-      }).parse(request.body);
 
-      // Trigger gap check in the background non-blocking
-      sessionManager.runGapCheckAndRepair(userId, contactId, conversationId).catch(err => {
-        console.error(`[sessions-route] error running runGapCheckAndRepair for ${userId}:`, err);
-      });
-
-      return reply.send({ accepted: true });
-    });
   };
 }
