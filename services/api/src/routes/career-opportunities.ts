@@ -46,7 +46,9 @@ const createBody = z.object({
   salaryRangeCents: salaryRangeSchema.optional(),
   source: z.enum(SOURCES).optional(),
   contactId: z.string().uuid().optional(),
-  applicationUrl: z.string().url().optional(),
+  applicationUrl: z.string().optional(),
+  contactEmail: z.string().optional(),
+  contactPhone: z.string().optional(),
   deadline: z.string().optional(),
   confidence: z.number().min(0).max(1).optional(),
 })
@@ -61,7 +63,9 @@ const patchBody = z.object({
   isRemote: z.boolean().nullable().optional(),
   salaryRangeCents: salaryRangeSchema.nullable().optional(),
   contactId: z.string().uuid().nullable().optional(),
-  applicationUrl: z.string().url().nullable().optional(),
+  applicationUrl: z.string().nullable().optional(),
+  contactEmail: z.string().nullable().optional(),
+  contactPhone: z.string().nullable().optional(),
   deadline: z.string().nullable().optional(),
   status: z.enum(STATUSES).optional(),
 })
@@ -81,6 +85,8 @@ function opportunityApiShape(r: any) {
     contactId: r.contact_id,
     contactName: r.contact_name ?? undefined,
     applicationUrl: r.application_url,
+    contactEmail: r.contact_email ?? null,
+    contactPhone: r.contact_phone ?? null,
     deadline: r.deadline,
     matchScore: r.match_score,
     matchBreakdown: r.match_breakdown ?? {},
@@ -165,14 +171,14 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     const { rows: [created] } = await db.query(
       `INSERT INTO career_opportunities
          (user_id, contact_id, category, title, company_or_org, description, location, country,
-          is_remote, salary_range_cents, source, application_url, deadline, confidence)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14)
+          is_remote, salary_range_cents, source, application_url, contact_email, contact_phone, deadline, confidence)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
         userId, body.contactId ?? null, body.category, body.title, body.companyOrOrg ?? null,
         body.description ?? null, body.location ?? null, body.country ?? null, body.isRemote ?? null,
         body.salaryRangeCents ? JSON.stringify(body.salaryRangeCents) : null,
-        body.source ?? 'manual', body.applicationUrl ?? null, body.deadline ?? null,
+        body.source ?? 'manual', body.applicationUrl ?? null, body.contactEmail ?? null, body.contactPhone ?? null, body.deadline ?? null,
         body.confidence ?? null,
       ],
     )
@@ -193,6 +199,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
       category: body.category, title: body.title, company_or_org: body.companyOrOrg,
       description: body.description, location: body.location, country: body.country,
       is_remote: body.isRemote, contact_id: body.contactId, application_url: body.applicationUrl,
+      contact_email: body.contactEmail, contact_phone: body.contactPhone,
       deadline: body.deadline, status: body.status,
     }
 

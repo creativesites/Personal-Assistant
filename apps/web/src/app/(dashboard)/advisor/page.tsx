@@ -685,9 +685,9 @@ export default function AdvisorPage() {
 
         {/* "Zuri Noticed Something" — Advisor Companion Plan Phase 4.5 (§3.7/§6.9/§7.7) */}
         {companionFeed.length > 0 && (
-          <div className="px-3 pt-3 md:px-6 md:pt-4">
+          <div className="px-3 pt-3 md:px-6 md:pt-4 animate-message-entry">
             <div className="mx-auto max-w-3xl space-y-2">
-              {companionFeed.map(item => (
+              {companionFeed.slice(0, 1).map(item => (
                 <div key={item.id}
                   className="flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50/80 px-3.5 py-3 shadow-sm shadow-violet-100/60">
                   <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">

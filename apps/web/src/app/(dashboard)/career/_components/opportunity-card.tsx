@@ -24,6 +24,8 @@ export interface CareerOpportunity {
   source: string
   status: string
   contactName?: string
+  contactEmail?: string | null
+  contactPhone?: string | null
   matchScore: number | null
   matchBreakdown?: {
     skills?: number
@@ -201,7 +203,40 @@ export function OpportunityCard({
               {opp.location && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{opp.location}</span>}
             </p>
           )}
-          {opp.contactName && <p className="text-xs text-gray-400 mt-0.5">via {opp.contactName}</p>}
+          {opp.applicationUrl && (
+            <p className="text-xs mt-1">
+              <a
+                href={opp.applicationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-700 hover:underline font-semibold"
+              >
+                <span>🔗 Direct Apply / Listing</span>
+                <ExternalLink className="w-3 h-3 text-indigo-600 animate-pulse" />
+              </a>
+            </p>
+          )}
+          {(opp.contactEmail || opp.contactPhone || opp.contactName) && (
+            <div className="text-xs text-gray-500 mt-1.5 bg-slate-50 border border-slate-100/50 rounded-xl p-2 flex flex-col gap-1 max-w-sm">
+              {opp.contactName && <p className="text-gray-700 font-semibold">Contact: {opp.contactName}</p>}
+              {opp.contactEmail && (
+                <p className="inline-flex items-center gap-1 text-gray-600">
+                  <span>📧</span>
+                  <a href={`mailto:${opp.contactEmail}`} className="text-indigo-600 hover:underline font-medium break-all">
+                    {opp.contactEmail}
+                  </a>
+                </p>
+              )}
+              {opp.contactPhone && (
+                <p className="inline-flex items-center gap-1 text-gray-600">
+                  <span>📞</span>
+                  <a href={`tel:${opp.contactPhone}`} className="text-indigo-600 hover:underline font-medium">
+                    {opp.contactPhone}
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
           {!!badges?.length && (
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               {badges.map(b => (

@@ -117,6 +117,56 @@ def _normalise_date(raw: str) -> Optional[datetime]:
     return None
 
 
+def _extract_email(text: str) -> Optional[str]:
+    """Extract first valid email from job text, excluding common placeholder/template emails."""
+    if not text:
+        return None
+    emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
+    for email in emails:
+        # Filter out common framework / asset domains
+        if not any(x in email.lower() for x in ['example.com', 'domain.com', 'yourcompany', 'w3.org', 'bootstrap', 'jquery', 'sentry.io', 'github.com']):
+            return email
+    return None
+
+
+def _extract_phone(text: str) -> Optional[str]:
+    """Extract Zambian phone number from text if present, formatted cleanly."""
+    if not text:
+        return None
+    # Zambian phone format standardisation
+    clean = re.sub(r'[\s\-\(\)]', '', text)
+    m = re.search(r'(?:\+260|260|0)[79]\d{8}\b', clean)
+    if m:
+        phone = m.group(0)
+        # Standardise to 07... or 09... for local, or +260... if preferred.
+        if phone.startswith('260'):
+            return '+' + phone
+        if phone.startswith('0'):
+            return phone
+        return phone
+    return None
+
+
+def _extract_apply_url(soup, source_url: str) -> Optional[str]:
+    """Look for explicit 'Apply' / 'How to Apply' links or mailto: links in the HTML."""
+    if not soup:
+        return None
+    # Prioritise mailto links
+    for a in soup.find_all('a', href=True):
+        href = a['href'].strip()
+        if href.lower().startswith('mailto:'):
+            return href
+            
+    # Look for button/link text that implies applying
+    for a in soup.find_all('a', href=True):
+        href = a['href'].strip()
+        text = a.get_text(separator=' ', strip=True).lower()
+        if any(kw in text for kw in ['apply', 'application', 'submit cv', 'submit resume', 'register to apply', 'how to apply']):
+            if href.startswith('http') and not any(x in href.lower() for x in ['facebook.com', 'twitter.com', 'linkedin.com', 'share', 'login', 'register']):
+                return href
+    return None
+
+
 # ── Base scraper ───────────────────────────────────────────────────────────
 
 class BaseScraper:
@@ -145,6 +195,63 @@ class BaseScraper:
         if href.startswith('http'):
             return href
         return urljoin(self.base_url, href)
+
+    async def _fetch_and_enrich_details(self, client: httpx.AsyncClient, jobs: list[dict], existing_urls: set[str]) -> None:
+        """For any jobs not yet in existing_urls, fetch their detail page to get full details."""
+        from bs4 import BeautifulSoup
+        
+        # We only deep-fetch details for NEW jobs to prevent unnecessary HTTP requests and slow downs.
+        new_jobs = [j for j in jobs if j['source_url'] not in existing_urls]
+        if not new_jobs:
+            # All jobs are already in database, no deep fetching needed.
+            # We still ensure basic fields are initialized
+            for job in jobs:
+                job.setdefault('contact_email', None)
+                job.setdefault('contact_phone', None)
+                job.setdefault('application_url', job['source_url'])
+            return
+
+        log.info('scraper_deep_fetching_details', source=self.source, total_new=len(new_jobs))
+        
+        # Concurrently deep fetch details (with concurrency limit to avoid rate limits)
+        sem = asyncio.Semaphore(5) # max 5 concurrent requests
+        
+        async def enrich_one(job: dict):
+            async with sem:
+                url = job['source_url']
+                html = await self._get(client, url)
+                if not html:
+                    job.setdefault('contact_email', None)
+                    job.setdefault('contact_phone', None)
+                    job.setdefault('application_url', url)
+                    return
+                    
+                soup = BeautifulSoup(html, 'lxml')
+                
+                # Find main description container
+                desc_el = _first(soup, 
+                                 '.job-description', '.job_description', '.entry-content', 
+                                 '.description', '.vacancy-details', '.job-details',
+                                 'article', '[data-testid="job-description"]')
+                
+                full_desc = _text(desc_el) if desc_el else _text(soup.body)
+                
+                # Update description to the fuller version if found
+                if full_desc and len(full_desc) > len(job.get('description') or ''):
+                    job['description'] = full_desc[:5000] # Full description up to 5k chars
+                    
+                # Extract contacts
+                job['contact_email'] = _extract_email(full_desc)
+                job['contact_phone'] = _extract_phone(full_desc)
+                job['application_url'] = _extract_apply_url(soup, url) or url
+                
+                # Improve company extraction from detail page if index didn't capture it
+                if not job.get('company') or job.get('company').lower() in ('unknown', 'none'):
+                    comp_el = _first(soup, '.company', '.employer', '.company-name', '[data-testid="company"]', '.job-company', 'h4')
+                    if comp_el:
+                        job['company'] = _text(comp_el)[:255]
+                        
+        await asyncio.gather(*[enrich_one(job) for job in jobs])
 
 
 # ── GoZambiaJobs.com scraper ───────────────────────────────────────────────
@@ -431,8 +538,9 @@ async def _upsert_jobs(pool, source: str, jobs: list[dict]) -> int:
                 """
                 INSERT INTO scraped_jobs
                   (source, source_url, title, company, location, job_type,
-                   salary_range, description, skills, posted_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                   salary_range, description, skills, posted_at,
+                   contact_email, contact_phone, application_url)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                 ON CONFLICT (source, source_url) DO UPDATE
                   SET scraped_at = NOW(),
                       title      = EXCLUDED.title,
@@ -441,6 +549,9 @@ async def _upsert_jobs(pool, source: str, jobs: list[dict]) -> int:
                       salary_range = EXCLUDED.salary_range,
                       description  = EXCLUDED.description,
                       skills       = EXCLUDED.skills,
+                      contact_email = EXCLUDED.contact_email,
+                      contact_phone = EXCLUDED.contact_phone,
+                      application_url = EXCLUDED.application_url,
                       expires_at   = NOW() + INTERVAL '30 days'
                 RETURNING (xmax = 0) AS is_new
                 """,
@@ -454,6 +565,9 @@ async def _upsert_jobs(pool, source: str, jobs: list[dict]) -> int:
                 job.get('description'),
                 job.get('skills') or [],
                 job.get('posted_at'),
+                job.get('contact_email'),
+                job.get('contact_phone'),
+                job.get('application_url') or job['source_url'],
             )
             if row and row['is_new']:
                 new_count += 1
@@ -474,7 +588,22 @@ async def run_all_scrapers() -> dict[str, int]:
                     "INSERT INTO scraper_runs (source) VALUES ($1) RETURNING id",
                     scraper.source,
                 )
+                
+            # Pre-fetch existing URLs for this scraper source to prevent duplicate deep fetches
+            existing_urls = set()
+            try:
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch("SELECT source_url FROM scraped_jobs WHERE source = $1", scraper.source)
+                    existing_urls = {r['source_url'] for r in rows}
+            except Exception as e:
+                log.warning('scraper_failed_to_fetch_existing_urls', source=scraper.source, error=str(e))
+                
             jobs = await scraper.scrape()
+            
+            # Deep fetch detail pages and enrich contact/application fields
+            async with httpx.AsyncClient() as client:
+                await scraper._fetch_and_enrich_details(client, jobs, existing_urls)
+                
             new_count = await _upsert_jobs(pool, scraper.source, jobs)
             results[scraper.source] = new_count
             async with pool.acquire() as conn:

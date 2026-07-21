@@ -230,8 +230,8 @@ class RealityEngineService:
         async with pool.acquire() as conn:
             nudge_rows = await conn.fetch(
                 """UPDATE proactive_queue SET status = 'auto_resolved',
-                     resolved_reason = 'No longer relevant after 14 days', updated_at = NOW()
-                   WHERE status = 'pending' AND created_at < NOW() - INTERVAL '14 days'
+                     resolved_reason = 'No longer relevant after 3 days', updated_at = NOW()
+                   WHERE status = 'pending' AND created_at < NOW() - INTERVAL '3 days'
                    RETURNING id, user_id"""
             )
             expired += len(nudge_rows)
@@ -245,14 +245,14 @@ class RealityEngineService:
 
             event_rows = await conn.fetch(
                 """UPDATE business_events SET status = 'expired'
-                   WHERE status = 'pending' AND created_at < NOW() - INTERVAL '14 days'
+                   WHERE status = 'pending' AND created_at < NOW() - INTERVAL '3 days'
                    RETURNING id, user_id"""
             )
             expired += len(event_rows)
 
             gossip_rows = await conn.fetch(
                 """UPDATE gossip_worthy_events SET status = 'expired'
-                   WHERE status = 'pending' AND created_at < NOW() - INTERVAL '14 days'
+                   WHERE status = 'pending' AND created_at < NOW() - INTERVAL '3 days'
                    RETURNING id, user_id"""
             )
             expired += len(gossip_rows)

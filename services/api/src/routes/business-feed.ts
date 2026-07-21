@@ -108,9 +108,11 @@ export async function businessFeedRoutes(fastify: FastifyInstance): Promise<void
          LEFT JOIN contacts c ON c.id = be.contact_id
          LEFT JOIN proactive_queue pq
            ON pq.business_event_id = be.id AND pq.status = 'pending' AND pq.draft_message IS NOT NULL
-         WHERE be.user_id = $1 AND ($2::timestamptz IS NULL OR be.created_at < $2)
-           AND ($3::text IS NULL OR be.event_type = $3)
-           AND ${statusFilter}
+          WHERE be.user_id = $1 AND ($2::timestamptz IS NULL OR be.created_at < $2)
+            AND ($3::text IS NULL OR be.event_type = $3)
+            AND be.created_at > NOW() - INTERVAL '3 days'
+            AND (be.confidence IS NULL OR be.confidence >= 0.8)
+            AND ${statusFilter}
          ORDER BY be.created_at DESC
          LIMIT $${status ? 5 : 4}`,
         status

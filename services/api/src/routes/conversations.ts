@@ -403,47 +403,52 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const slaBreachCount = parseInt(slaResult.rows[0]?.count ?? '0', 10);
     const vipCount = parseInt(healthResult.rows[0]?.count ?? '0', 10);
 
-    const insights: any[] = [];
-    const items: string[] = [];
+    const allInsights: { insight: any; itemText: string }[] = [];
 
     // Map longest_wait
     if (longestWaitResult.rows.length > 0) {
       const row = longestWaitResult.rows[0];
       const hours = parseFloat(row.hours_waiting);
-      insights.push({
-        type: 'longest_wait',
-        urgency: hours > 4 ? 'critical' : 'high',
-        label: `${row.contact_name} is waiting`,
-        detail: `${Math.round(hours)}h without a reply`,
-        conversationId: row.conversation_id,
+      allInsights.push({
+        insight: {
+          type: 'longest_wait',
+          urgency: hours > 4 ? 'critical' : 'high',
+          label: `${row.contact_name} is waiting`,
+          detail: `${Math.round(hours)}h without a reply`,
+          conversationId: row.conversation_id,
+        },
+        itemText: `${row.contact_name} has been waiting for ${Math.round(hours)} hours`,
       });
-      items.push(`${row.contact_name} has been waiting for ${Math.round(hours)} hours`);
     }
 
     // Map frustrated_contact
     if (frustratedResult.rows.length > 0) {
       const row = frustratedResult.rows[0];
-      insights.push({
-        type: 'frustrated_contact',
-        urgency: 'high',
-        label: `${row.contact_name} seems frustrated`,
-        detail: `Latest message shows ${row.sentiment} sentiment`,
-        conversationId: row.conversation_id,
+      allInsights.push({
+        insight: {
+          type: 'frustrated_contact',
+          urgency: 'high',
+          label: `${row.contact_name} seems frustrated`,
+          detail: `Latest message shows ${row.sentiment} sentiment`,
+          conversationId: row.conversation_id,
+        },
+        itemText: `${row.contact_name} seems frustrated or dissatisfied`,
       });
-      items.push(`${row.contact_name} seems frustrated or dissatisfied`);
     }
 
     // Map hot_lead
     if (hotLeadResult.rows.length > 0) {
       const row = hotLeadResult.rows[0];
-      insights.push({
-        type: 'hot_lead',
-        urgency: 'high',
-        label: `${row.contact_name} shows buying intent`,
-        detail: `Lead score ${row.lead_score} · recent purchase signal`,
-        conversationId: row.conversation_id,
+      allInsights.push({
+        insight: {
+          type: 'hot_lead',
+          urgency: 'high',
+          label: `${row.contact_name} shows buying intent`,
+          detail: `Lead score ${row.lead_score} · recent purchase signal`,
+          conversationId: row.conversation_id,
+        },
+        itemText: `${row.contact_name} shows high buying intent (Lead Score: ${row.lead_score})`,
       });
-      items.push(`${row.contact_name} shows high buying intent (Lead Score: ${row.lead_score})`);
     }
 
     // Map upcoming_event
@@ -451,56 +456,83 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       const row = upcomingEventResult.rows[0];
       const days = parseInt(row.days_until, 10);
       const daysStr = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `in ${days} days`;
-      insights.push({
-        type: 'upcoming_event',
-        urgency: 'high',
-        label: row.title,
-        detail: `${daysStr} · ${row.contact_name}`,
-        contactId: row.contact_id,
+      allInsights.push({
+        insight: {
+          type: 'upcoming_event',
+          urgency: 'high',
+          label: row.title,
+          detail: `${daysStr} · ${row.contact_name}`,
+          contactId: row.contact_id,
+        },
+        itemText: `Upcoming event "${row.title}" with ${row.contact_name} ${daysStr}`,
       });
-      items.push(`Upcoming event "${row.title}" with ${row.contact_name} ${daysStr}`);
     }
 
     // Map dormant_vip
     if (dormantVipResult.rows.length > 0) {
       const row = dormantVipResult.rows[0];
       const days = parseInt(row.days_silent, 10);
-      insights.push({
-        type: 'dormant_vip',
-        urgency: 'medium',
-        label: `${row.contact_name} has gone quiet`,
-        detail: `${days} days without contact — tier ${row.importance_tier} relationship`,
-        conversationId: row.conversation_id,
+      allInsights.push({
+        insight: {
+          type: 'dormant_vip',
+          urgency: 'medium',
+          label: `${row.contact_name} has gone quiet`,
+          detail: `${days} days without contact — tier ${row.importance_tier} relationship`,
+          conversationId: row.conversation_id,
+        },
+        itemText: `VIP contact ${row.contact_name} has been quiet for ${days} days`,
       });
-      items.push(`VIP contact ${row.contact_name} has been quiet for ${days} days`);
     }
 
     // Map health_drop
     if (healthDropResult.rows.length > 0) {
       const row = healthDropResult.rows[0];
       const drop = Math.round(parseFloat(row.drop_amount));
-      insights.push({
-        type: 'health_drop',
-        urgency: 'medium',
-        label: `${row.contact_name}'s relationship health dropped`,
-        detail: `Down ${drop} pts this week (${row.current_score}/100)`,
-        contactId: row.contact_id,
-        conversationId: row.conversation_id,
+      allInsights.push({
+        insight: {
+          type: 'health_drop',
+          urgency: 'medium',
+          label: `${row.contact_name}'s relationship health dropped`,
+          detail: `Down ${drop} pts this week (${row.current_score}/100)`,
+          contactId: row.contact_id,
+          conversationId: row.conversation_id,
+        },
+        itemText: `${row.contact_name}'s relationship health dropped by ${drop} points`,
       });
-      items.push(`${row.contact_name}'s relationship health dropped by ${drop} points`);
     }
 
     // Map proactive_queue
     const proactiveCount = parseInt(proactiveResult.rows[0]?.count ?? '0', 10);
     if (proactiveCount > 0) {
-      insights.push({
-        type: 'proactive_queue',
-        urgency: 'low',
-        label: `${proactiveCount} relationship nudge${proactiveCount !== 1 ? 's' : ''} ready`,
-        detail: `AI-drafted outreach actions waiting for review`,
+      allInsights.push({
+        insight: {
+          type: 'proactive_queue',
+          urgency: 'low',
+          label: `${proactiveCount} relationship nudge${proactiveCount !== 1 ? 's' : ''} ready`,
+          detail: `AI-drafted outreach actions waiting for review`,
+        },
+        itemText: `${proactiveCount} proactive outreach suggestions ready`,
       });
-      items.push(`${proactiveCount} proactive outreach suggestions ready`);
     }
+
+    // Sort by urgency: critical > high > medium > low
+    const urgencyWeight: Record<string, number> = {
+      critical: 4,
+      high: 3,
+      medium: 2,
+      low: 1,
+    };
+
+    allInsights.sort((a, b) => {
+      const weightA = urgencyWeight[a.insight.urgency] ?? 0;
+      const weightB = urgencyWeight[b.insight.urgency] ?? 0;
+      return weightB - weightA;
+    });
+
+    // Slice to at most 2 high-value insights/items
+    const selectedInsights = allInsights.slice(0, 2);
+    const insights = selectedInsights.map(x => x.insight);
+    const items = selectedInsights.map(x => x.itemText);
 
     // Default if no insights
     if (items.length === 0) {
@@ -512,6 +544,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       highIntentCount,
       slaBreachCount,
       vipCount,
+      insights,
       items,
     });
   });

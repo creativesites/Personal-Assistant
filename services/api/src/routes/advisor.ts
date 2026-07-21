@@ -591,22 +591,25 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
         `UPDATE gossip_worthy_events SET status = 'delivered', delivered_at = NOW()
          WHERE id = (
            SELECT id FROM gossip_worthy_events
-           WHERE user_id = $1 AND status = 'pending'
+           WHERE user_id = $1 AND status = 'pending' AND confidence >= 0.8
            ORDER BY confidence DESC, created_at ASC LIMIT 1
          )`,
         [userId],
       );
     }
 
-    const gossipStatuses = status === 'pending' ? ['pending'] : ['pending', 'delivered'];
+    const gossipStatuses = status === 'pending' ? ['delivered'] : ['pending', 'delivered'];
     const { rows: gossip } = await db.query(
       `SELECT g.id, g.contact_id, g.signal_type, g.summary, g.confidence, g.in_close_circle,
               g.status, g.delivered_at, g.created_at,
               COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name
        FROM gossip_worthy_events g
        JOIN contacts c ON c.id = g.contact_id
-       WHERE g.user_id = $1 AND g.status = ANY($2::text[]) AND g.created_at > NOW() - INTERVAL '7 days'
-       ORDER BY g.created_at DESC LIMIT 20`,
+       WHERE g.user_id = $1 
+         AND g.status = ANY($2::text[]) 
+         AND g.confidence >= 0.8 
+         AND g.created_at > NOW() - INTERVAL '3 days'
+       ORDER BY g.created_at DESC LIMIT 2`,
       [userId, gossipStatuses],
     );
     const { rows: interestChats } = await db.query(
