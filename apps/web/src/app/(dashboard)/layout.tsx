@@ -539,6 +539,50 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [searchOpen, setSearchOpen] = useState(false)
   const wa = useWAStatus(session.data?.accessToken)
 
+  const { addToast } = useToast()
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
+
+  useEffect(() => {
+    if (!session.data?.accessToken) return
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/notifications`, {
+      headers: { Authorization: `Bearer ${session.data.accessToken}` }
+    })
+      .then(res => res.json())
+      .then((resData: any) => {
+        if (resData?.notifications) {
+          const unread = resData.notifications.filter((n: any) => !n.read).length
+          setUnreadNotifications(unread)
+        }
+      })
+      .catch(() => {})
+  }, [session.data?.accessToken, pathname])
+
+  useEffect(() => {
+    const token = session.data?.accessToken
+    if (!token) return
+    const socket = getSocket(token)
+    if (!socket) return
+
+    const handleNewNotification = (payloadStr: string) => {
+      try {
+        const payload = JSON.parse(payloadStr)
+        setUnreadNotifications(prev => prev + 1)
+        addToast({
+          variant: 'info',
+          title: payload.title || 'New Notification',
+          description: payload.body || 'You have a new update from Zuri.',
+        })
+      } catch (err) {
+        console.error('Failed to parse socket notification payload:', err)
+      }
+    }
+
+    socket.on('notification:new', handleNewNotification)
+    return () => {
+      socket.off('notification:new', handleNewNotification)
+    }
+  }, [session.data?.accessToken, addToast])
+
   useEffect(() => {
     // Only redirect if session is authenticated, wa status has been loaded (not 'unknown'),
     // and they are not connected.
@@ -668,6 +712,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onSignOut={handleSignOut}
           onOpenSearch={() => setSearchOpen(true)}
           isMinimized={isMinimized}
+          unreadNotificationsCount={unreadNotifications}
         />
       </aside>
 

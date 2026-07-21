@@ -636,10 +636,11 @@ export class BaileysTransport extends WhatsAppTransport {
     }
   }
 
-  async fetchRecentMessages(jid: string, limit: number): Promise<NormalisedMessage[]> {
+  async fetchRecentMessages(jid: string, limit: number, cursor?: any): Promise<NormalisedMessage[]> {
     if (!this.sock) throw new Error('Transport not connected');
     console.log(`[baileys:${this.userId}] Fetching up to ${limit} messages from WA for JID ${jid}...`);
-    const result = await this.sock.fetchMessagesFromWA(jid, limit, undefined);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (this.sock as any).fetchMessagesFromWA(jid, limit, cursor);
     if (!result || result.length === 0) return [];
     
     const normalised: NormalisedMessage[] = [];

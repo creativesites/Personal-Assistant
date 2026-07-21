@@ -3,40 +3,69 @@
 @tailwind utilities;
 
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 
 @keyframes slideInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .animate-message-entry {
-  animation: slideInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: slideInUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes pulseOpacity {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
 }
 
 .animate-pulse-slow {
-  animation: pulseOpacity 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: pulseOpacity 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* Skeleton shimmer sweep — pair with a `bg-gradient-to-r ... bg-[length:200%_100%]`
    utility class on the element; the animation just slides that gradient. */
 @keyframes shimmerSweep {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .animate-shimmer {
-  animation: shimmerSweep 1.8s ease-in-out infinite;
+    animation: shimmerSweep 1.8s ease-in-out infinite;
+}
+
+@keyframes message-entry {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.animate-message-entry {
+    animation: message-entry 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

@@ -50,6 +50,12 @@ export interface GenerateContextSnapshotJob {
   snapshotType: string;
 }
 
+export interface ReconciliationVerifyChatJob {
+  userId: string;
+  contactId: string;
+  conversationId: string;
+}
+
 export const QUEUE_NAMES = {
   MESSAGES_INCOMING: 'messages.incoming',
   ANALYSIS_MESSAGE: 'analysis.message',
@@ -58,6 +64,7 @@ export const QUEUE_NAMES = {
   PROACTIVE_GENERATE_DAILY: 'proactive.generate_daily',
   CONTEXT_SNAPSHOT: 'context.snapshot',
   SEND_REPLY: 'send.reply',
+  RECONCILIATION_VERIFY_CHAT: 'reconciliation.verify_chat',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

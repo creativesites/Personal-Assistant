@@ -129,19 +129,24 @@ function MergeAction({
 
   if (confirming) {
     return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className={`${compact ? 'text-[11px]' : 'text-xs'} text-gray-500`}>
-          Merge <strong className="text-gray-700">{action.contactBName}</strong> into <strong className="text-gray-700">{action.contactAName}</strong>?
+      <div className="flex items-center gap-2 flex-wrap bg-slate-50 border border-slate-150 p-2.5 rounded-xl mt-1 animate-fadeIn">
+        <span className={`${compact ? 'text-[11px]' : 'text-xs'} text-slate-600 font-medium`}>
+          Merge <strong className="text-slate-900 font-bold">{action.contactBName}</strong> into <strong className="text-slate-900 font-bold">{action.contactAName}</strong>?
         </span>
         <button
           onClick={handleMerge}
           disabled={merging}
-          className="min-h-7 px-2.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-50 inline-flex items-center gap-1"
+          className="min-h-8 px-3 rounded-lg bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 active:scale-98 transition-all disabled:opacity-50 inline-flex items-center gap-1 shadow-sm shadow-violet-600/10"
         >
-          {merging ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+          {merging ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
           Confirm
         </button>
-        <button onClick={() => setConfirming(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+        <button 
+          onClick={() => setConfirming(false)} 
+          className="text-xs text-slate-400 hover:text-slate-600 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+        >
+          Cancel
+        </button>
       </div>
     )
   }
@@ -149,9 +154,9 @@ function MergeAction({
   return (
     <button
       onClick={() => setConfirming(true)}
-      className="min-h-7 px-2.5 rounded-lg bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 inline-flex items-center gap-1 ring-1 ring-violet-100"
+      className="min-h-8 px-3 rounded-xl bg-violet-50 text-violet-700 text-xs font-bold hover:bg-violet-100 active:scale-98 transition-all inline-flex items-center gap-1.5 border border-violet-150 shadow-sm hover:shadow"
     >
-      <Users2 className="w-3 h-3" />
+      <Users2 className="w-3.5 h-3.5" />
       Review & Merge
     </button>
   )
@@ -182,9 +187,9 @@ function SendProactiveAction({
   if (sent) return <Badge variant="success">Sent</Badge>
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2 mt-1">
       {expanded && (
-        <p className={`${compact ? 'text-[11px]' : 'text-xs'} text-gray-600 bg-gray-50 rounded-lg px-2.5 py-2 italic`}>
+        <p className={`${compact ? 'text-[11px]' : 'text-xs'} text-gray-700 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 italic relative before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:bg-emerald-500 rounded-l-none animate-slideDown`}>
           "{action.draftMessage}"
         </p>
       )}
@@ -192,14 +197,17 @@ function SendProactiveAction({
         <button
           onClick={handleSend}
           disabled={sending}
-          className="min-h-7 px-2.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1"
+          className="min-h-8 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 active:scale-98 transition-all disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm shadow-emerald-600/10"
         >
-          {sending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+          {sending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
           Send Now
         </button>
         {!expanded && (
-          <button onClick={() => setExpanded(true)} className="text-xs text-gray-400 hover:text-gray-600 inline-flex items-center gap-0.5">
-            Preview <ChevronRight className="w-3 h-3" />
+          <button 
+            onClick={() => setExpanded(true)} 
+            className="text-xs text-slate-500 hover:text-indigo-600 font-semibold px-2.5 py-1.5 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all inline-flex items-center gap-0.5"
+          >
+            Preview Suggestion <ChevronRight className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
@@ -210,11 +218,11 @@ function SendProactiveAction({
 function AskAiAction({ action, compact }: { action: Extract<BusinessEventAction, { type: 'ask_ai' }>; compact?: boolean }) {
   return (
     <Link
-      href={`/studio?tab=overview&prompt=${encodeURIComponent(action.prompt)}`}
-      className="min-h-7 px-2.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 inline-flex items-center gap-1 ring-1 ring-indigo-100"
+      href={`/advisor?prompt=${encodeURIComponent(action.prompt)}`}
+      className="min-h-8 px-3 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 active:scale-98 transition-all inline-flex items-center gap-1.5 border border-indigo-150 shadow-sm hover:shadow"
     >
-      <Sparkles className="w-3 h-3" />
-      Ask AI
+      <Sparkles className="w-3.5 h-3.5" />
+      Ask AI Advisor
     </Link>
   )
 }
@@ -235,51 +243,51 @@ export function BusinessEventRow({
 
   return (
     <div
-      className={`relative bg-white ${compact ? 'rounded-xl py-2.5 px-2.5' : 'rounded-2xl py-3.5 px-4'} border border-gray-100 shadow-sm shadow-gray-200/40 hover:shadow-md transition-shadow`}
-      style={{ borderLeft: `3px solid ${accent}` }}
+      className={`relative bg-white/95 backdrop-blur-sm ${compact ? 'rounded-2xl py-3 px-3.5' : 'rounded-[1.75rem] p-5'} border border-slate-200/50 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-3 relative group/row overflow-hidden`}
+      style={{ borderLeft: `4px solid ${accent}` }}
     >
-      <div className="flex items-start gap-3">
-        <div className={`${compact ? 'w-8 h-8 rounded-xl' : 'w-9 h-9 rounded-2xl'} ${bg} ${fg} flex items-center justify-center shrink-0`}>
-          <Icon className="w-4 h-4" />
+      <div className="flex items-start gap-4">
+        <div className={`${compact ? 'w-8 h-8 rounded-xl' : 'w-10 h-10 rounded-2xl'} ${bg} ${fg} flex items-center justify-center shrink-0 ring-4 ring-slate-100/40 group-hover/row:scale-105 transition-all duration-300 shadow-inner`}>
+          <Icon className="w-4.5 h-4.5" />
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className={`${compact ? 'text-xs' : 'text-sm'} font-semibold text-gray-900`}>
+          <div className="flex items-start justify-between gap-3">
+            <p className={`${compact ? 'text-xs' : 'text-sm'} font-bold text-slate-900 leading-snug`}>
               {href ? (
-                <Link href={href} className="hover:text-indigo-600 hover:underline">
+                <Link href={href} className="hover:text-indigo-600 transition-colors">
                   {label}{detail ? `: ${detail}` : ''}
                 </Link>
               ) : (
                 <>{label}{detail ? `: ${detail}` : ''}</>
               )}
             </p>
-            <div className="flex items-center gap-1 shrink-0">
-              <span className="text-[10px] text-gray-400 whitespace-nowrap">{relativeTime(event.createdAt)}</span>
+            <div className="flex items-center gap-1 shrink-0 -mt-1">
+              <span className="text-[10px] text-slate-400 font-semibold bg-slate-50 border border-slate-100 rounded-md px-1.5 py-0.5 whitespace-nowrap">{relativeTime(event.createdAt)}</span>
               {onDismiss && event.status !== 'dismissed' && (
                 <button
                   onClick={() => onDismiss(event.id)}
-                  title="Dismiss"
-                  className="min-w-7 min-h-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-gray-500 hover:bg-gray-100"
+                  title="Dismiss Activity"
+                  className="w-8 h-8 flex items-center justify-center rounded-xl text-slate-300 hover:text-rose-500 hover:bg-rose-50 active:scale-90 transition-all duration-200 shrink-0"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
             </div>
           </div>
 
           {event.evidence.length > 0 && (
-            <p className={`${compact ? 'text-[11px]' : 'text-xs'} text-gray-500 mt-0.5 ${compact ? 'truncate' : ''}`}>{event.evidence[0]}</p>
+            <p className={`${compact ? 'text-[11px]' : 'text-xs'} text-slate-500 mt-1 ${compact ? 'truncate' : ''} leading-relaxed`}>{event.evidence[0]}</p>
           )}
 
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
             {event.confidence != null && <ConfidenceMeter value={event.confidence} compact={compact} />}
             {event.status === 'bundled' && <Badge variant="purple">In pending bundle</Badge>}
             {event.status === 'dismissed' && <Badge variant="default">Dismissed</Badge>}
           </div>
 
           {event.action && event.status !== 'dismissed' && (
-            <div className="mt-2">
+            <div className="mt-3.5 pt-3 border-t border-slate-100">
               {event.action.type === 'merge_contacts' && (
                 <MergeAction action={event.action} token={token} compact={compact} onDone={onActionComplete} />
               )}
