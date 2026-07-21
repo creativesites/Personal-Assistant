@@ -212,7 +212,7 @@ class AIClient:
                 return m, response
             except Exception as exc:
                 log.error('ai_completion_failed', model=m, error=str(exc))
-                if _is_hard_error(exc) and m.startswith('dashscope/'):
+                if _is_hard_error(exc):
                     consecutive_hard_failures += 1
                     next_m = await force_advance(pool, m, reason=str(exc)[:120])
                     model = None  # let _resolve_model pick next active model
