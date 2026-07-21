@@ -1388,7 +1388,7 @@ export default function InboxPage() {
                   </div>
                 ) : (
                   <MessageThread
-                    messages={messages}
+                    messages={messages as any}
                     loading={loadingMsgs}
                     token={token}
                     selectedMsgId={selectedMsgId}

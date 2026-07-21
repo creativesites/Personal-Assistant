@@ -52,7 +52,7 @@ export interface Citation {
 
 export interface InboxMessage {
   id: string
-  senderType: 'user' | 'assistant' | 'system'
+  senderType: 'user' | 'contact' | 'assistant' | 'system'
   messageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'mixed' | 'thinking' | 'error'
   body: string | null
   timestamp: string
