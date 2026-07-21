@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState, useRef, useEffect } from 'react'
+import { use, useState, useRef, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
@@ -1385,9 +1385,17 @@ function MessagesTab({ contactId, token }: { contactId: string; token: string })
     `/api/contacts/${contactId}/messages`, token,
   )
   const messages = data?.messages ?? []
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const t1 = new Date(a.timestamp).getTime()
+      const t2 = new Date(b.timestamp).getTime()
+      if (t1 !== t2) return t1 - t2
+      return a.id.localeCompare(b.id)
+    })
+  }, [messages])
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [sortedMessages.length])
 
   if (loading) return (
     <div className="space-y-3">
@@ -1399,7 +1407,7 @@ function MessagesTab({ contactId, token }: { contactId: string; token: string })
     </div>
   )
 
-  if (messages.length === 0) return (
+  if (sortedMessages.length === 0) return (
     <div className="bg-white rounded-xl border border-dashed border-gray-200 p-8 text-center">
       <MessageSquare size={28} className="text-gray-300 mx-auto mb-3" />
       <p className="text-sm font-medium text-gray-700">No messages yet</p>
@@ -1413,7 +1421,7 @@ function MessagesTab({ contactId, token }: { contactId: string; token: string })
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{messages.length} messages</p>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{sortedMessages.length} messages</p>
         {data?.conversationId && (
           <Link href="/inbox" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
             Open in inbox <ChevronRight size={11} />
@@ -1421,9 +1429,9 @@ function MessagesTab({ contactId, token }: { contactId: string; token: string })
         )}
       </div>
       <div className="p-4 space-y-2 max-h-[65vh] overflow-y-auto">
-        {messages.map((msg, idx) => {
+        {sortedMessages.map((msg, idx) => {
           const isUser   = msg.senderType === 'user'
-          const prevMsg  = idx > 0 ? messages[idx - 1] : null
+          const prevMsg  = idx > 0 ? sortedMessages[idx - 1] : null
           const showDate = !prevMsg || new Date(msg.timestamp).toDateString() !== new Date(prevMsg.timestamp).toDateString()
           return (
             <div key={msg.id}>

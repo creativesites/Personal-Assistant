@@ -1081,21 +1081,24 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     if (!conv) return reply.send({ messages: [], conversationId: null });
 
     const { rows } = await db.query(
-      `SELECT
-        m.id,
-        m.sender_type,
-        m.message_type,
-        m.body,
-        m.whatsapp_timestamp,
-        m.media_url,
-        m.media_mime_type,
-        m.transcription,
-        m.quoted_message_id,
-        (SELECT COUNT(*) FROM suggested_replies sr WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
-       FROM messages m
-       WHERE m.conversation_id = $1 AND m.is_deleted = false
-       ORDER BY m.whatsapp_timestamp ASC
-       LIMIT 100`,
+      `SELECT * FROM (
+        SELECT
+          m.id,
+          m.sender_type,
+          m.message_type,
+          m.body,
+          m.whatsapp_timestamp,
+          m.media_url,
+          m.media_mime_type,
+          m.transcription,
+          m.quoted_message_id,
+          (SELECT COUNT(*) FROM suggested_replies sr WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
+        FROM messages m
+        WHERE m.conversation_id = $1 AND m.is_deleted = false
+        ORDER BY m.whatsapp_timestamp DESC
+        LIMIT 100
+      ) sub
+      ORDER BY whatsapp_timestamp ASC`,
       [conv.id],
     );
 

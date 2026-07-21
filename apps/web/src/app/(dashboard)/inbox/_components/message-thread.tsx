@@ -103,11 +103,20 @@ export function MessageThread({
     rowRefs.current[activeMatchId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [activeMatchId])
 
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const t1 = new Date(a.timestamp).getTime()
+      const t2 = new Date(b.timestamp).getTime()
+      if (t1 !== t2) return t1 - t2
+      return a.id.localeCompare(b.id)
+    })
+  }, [messages])
+
   const insightAfterId = useMemo(() => {
-    if (!timelineInsights.length || messages.length < 2) return null
-    const target = [...messages].reverse().find(m => m.senderType === 'contact')
+    if (!timelineInsights.length || sortedMessages.length < 2) return null
+    const target = [...sortedMessages].reverse().find(m => m.senderType === 'contact')
     return target?.id ?? null
-  }, [messages, timelineInsights.length])
+  }, [sortedMessages, timelineInsights.length])
 
   return (
     <div className="relative flex-1 min-h-0">
@@ -143,8 +152,8 @@ export function MessageThread({
           <ThreadLoadingSkeleton />
         ) : (
           <>
-            {messages.map((msg, idx) => {
-              const prev = messages[idx - 1]
+            {sortedMessages.map((msg, idx) => {
+              const prev = sortedMessages[idx - 1]
               const showDate = !prev || dayKey(prev.timestamp) !== dayKey(msg.timestamp)
               const showInsight = msg.id === insightAfterId && timelineInsights[0]
 

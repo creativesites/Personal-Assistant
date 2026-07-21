@@ -130,32 +130,35 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
     const [messagesResult, contactResult] = await Promise.all([
       db.query(
-        `SELECT
-          m.id,
-          m.sender_type,
-          m.message_type,
-          m.body,
-          m.whatsapp_timestamp,
-          m.is_deleted,
-          m.media_url,
-          m.media_mime_type,
-          m.transcription,
-          m.quoted_message_id,
-          m.sender_display_name,
-          m.sender_jid,
-          m.delivery_status,
-          ma.sentiment,
-          ma.sentiment_score,
-          ma.requires_response,
-          ma.response_urgency,
-          ma.importance_score,
-          (SELECT COUNT(*) FROM suggested_replies sr
-            WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
-        FROM messages m
-        LEFT JOIN message_analyses ma ON ma.message_id = m.id
-        WHERE m.conversation_id = $1 AND m.is_deleted = false
-        ORDER BY m.whatsapp_timestamp ASC
-        LIMIT 150`,
+        `SELECT * FROM (
+          SELECT
+            m.id,
+            m.sender_type,
+            m.message_type,
+            m.body,
+            m.whatsapp_timestamp,
+            m.is_deleted,
+            m.media_url,
+            m.media_mime_type,
+            m.transcription,
+            m.quoted_message_id,
+            m.sender_display_name,
+            m.sender_jid,
+            m.delivery_status,
+            ma.sentiment,
+            ma.sentiment_score,
+            ma.requires_response,
+            ma.response_urgency,
+            ma.importance_score,
+            (SELECT COUNT(*) FROM suggested_replies sr
+              WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
+          FROM messages m
+          LEFT JOIN message_analyses ma ON ma.message_id = m.id
+          WHERE m.conversation_id = $1 AND m.is_deleted = false
+          ORDER BY m.whatsapp_timestamp DESC
+          LIMIT 150
+        ) sub
+        ORDER BY whatsapp_timestamp ASC`,
         [id],
       ),
       db.query(
