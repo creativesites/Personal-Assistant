@@ -1660,21 +1660,92 @@ export function IntelPanel({
 
         {/* ── Files ───────────────────────────────────────────────────────── */}
         {aiTab === 'files' && (
-          <div className="p-4 space-y-2">
+          <div className="p-4 space-y-2 overflow-y-auto max-h-[calc(100vh-180px)]">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Shared Files</p>
-            {mockFiles.map((f, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer">
-                <div className="w-8 h-8 bg-white rounded-lg border border-gray-200 flex items-center justify-center flex-shrink-0"><FileText size={14} className="text-indigo-500" /></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-gray-800 truncate">{f.name}</p>
-                  <p className="text-[10px] text-gray-400">{f.size} · {f.date}</p>
+            {filesList.length > 0 ? (
+              filesList.map((f, i) => (
+                <div
+                  key={i}
+                  onClick={() => setPreviewFile({ name: f.name, url: f.url, type: f.type })}
+                  className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100/80 hover:bg-indigo-50/50 hover:border-indigo-100 transition-all cursor-pointer group active:scale-[0.98]"
+                >
+                  <div className="w-8 h-8 bg-white rounded-lg border border-gray-200 flex items-center justify-center flex-shrink-0 group-hover:border-indigo-200 transition-colors">
+                    <FileText size={14} className="text-indigo-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-gray-800 truncate group-hover:text-indigo-950 transition-colors">{f.name}</p>
+                    <p className="text-[10px] text-gray-400">{f.size} · {f.date}</p>
+                  </div>
+                  <Eye size={13} className="text-gray-400 group-hover:text-indigo-500 transition-colors flex-shrink-0" />
                 </div>
-                <Download size={13} className="text-gray-400 flex-shrink-0" />
+              ))
+            ) : (
+              <div className="py-12 px-4 text-center flex flex-col items-center justify-center gap-3 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                <FileText className="w-8 h-8 text-gray-300" />
+                <div>
+                  <p className="text-xs font-bold text-gray-500">No Shared Files</p>
+                  <p className="text-[10px] text-gray-400 max-w-[200px] mx-auto mt-0.5">Documents, images, or media shared in this chat will appear here.</p>
+                </div>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
+
+      {/* File Preview Modal */}
+      <Modal
+        open={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        title={previewFile?.name ?? 'File Preview'}
+        size="lg"
+      >
+        <div className="p-4 flex flex-col items-center justify-center bg-gray-50/50 min-h-[50vh]">
+          {previewFile?.url ? (
+            previewFile.name.toLowerCase().endsWith('.pdf') || previewFile.type === 'document' ? (
+              <iframe
+                src={previewFile.url}
+                className="w-full h-[70vh] rounded-xl border border-gray-200/60 shadow-inner bg-white"
+                title={previewFile.name}
+              />
+            ) : previewFile.type === 'image' || previewFile.name.toLowerCase().match(/\.(png|jpe?g|gif|webp)$/) ? (
+              <img
+                src={previewFile.url}
+                alt={previewFile.name}
+                className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-md bg-white"
+              />
+            ) : previewFile.type === 'video' || previewFile.name.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/) ? (
+              <video
+                src={previewFile.url}
+                controls
+                className="w-full max-h-[70vh] rounded-xl shadow-md bg-black"
+              />
+            ) : previewFile.type === 'audio' || previewFile.name.toLowerCase().match(/\.(mp3|wav|ogg|m4a)$/) ? (
+              <div className="p-8 bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center gap-4 w-full max-w-sm">
+                <Brain className="w-12 h-12 text-indigo-500 animate-pulse" />
+                <p className="text-sm font-semibold text-gray-800 text-center">{previewFile.name}</p>
+                <audio src={previewFile.url} controls className="w-full" />
+              </div>
+            ) : (
+              <div className="p-12 text-center flex flex-col items-center justify-center gap-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <FileText className="w-12 h-12 text-neutral-400" />
+                <div>
+                  <p className="text-sm font-bold text-gray-800">Preview Unavailable</p>
+                  <p className="text-xs text-gray-500 mt-0.5">This file format cannot be previewed in browser.</p>
+                </div>
+                <a
+                  href={previewFile.url}
+                  download
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
+                >
+                  Download File
+                </a>
+              </div>
+            )
+          ) : (
+            <div className="p-12 text-center text-gray-400">Loading file content...</div>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

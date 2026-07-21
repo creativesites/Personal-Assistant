@@ -9,6 +9,8 @@ import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
 import { CommandPalette } from '@/components/command-palette'
 import { SubscriptionStatusBanner } from '@/components/subscription-status-banner'
+import { useToast } from '@/components/ui/toast'
+import { getSocket } from '@/lib/socket'
 import {
   LayoutDashboard, MessageSquare, Zap, Users, Flame, TrendingUp,
   Bot, BookOpen, AlertTriangle, HeartPulse,
@@ -163,6 +165,7 @@ function NavLink({
   onNavigate,
   compact = false,
   isMinimized = false,
+  badgeValue,
 }: {
   item: NavItem
   pathname: string
@@ -170,6 +173,7 @@ function NavLink({
   onNavigate?: (href: string) => void
   compact?: boolean
   isMinimized?: boolean
+  badgeValue?: number
 }) {
   const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
   const Icon = item.icon
@@ -194,6 +198,16 @@ function NavLink({
       <Icon className={`flex-shrink-0 transition-transform duration-200 group-hover:scale-105 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
       
       {!isMinimized && <span className="truncate">{item.label}</span>}
+
+      {!isMinimized && badgeValue !== undefined && badgeValue > 0 && (
+        <span className="ml-auto rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold px-2 py-0.5 min-w-5 text-center leading-none">
+          {badgeValue}
+        </span>
+      )}
+
+      {isMinimized && badgeValue !== undefined && badgeValue > 0 && (
+        <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-indigo-500 border-2 border-gray-900 rounded-full animate-pulse" />
+      )}
 
       {isMinimized && (
         <div className="absolute left-14 invisible group-hover:visible bg-gray-950 text-white text-xs px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-xl border border-gray-800/80 pointer-events-none z-50 transform translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150">
@@ -251,6 +265,7 @@ function SidebarContents({
   onSignOut,
   onOpenSearch,
   isMinimized = false,
+  unreadNotificationsCount = 0,
 }: {
   pathname: string
   email: string | undefined
@@ -262,6 +277,7 @@ function SidebarContents({
   onSignOut: () => void
   onOpenSearch: () => void
   isMinimized?: boolean
+  unreadNotificationsCount?: number
 }) {
   // Collapsible hub groups (mobile-space polish) — default all-expanded so
   // nothing appears to silently vanish on first load; a user's collapse
@@ -350,7 +366,15 @@ function SidebarContents({
               {!collapsed && (
                 <div className="space-y-1">
                   {group.items.map(item => (
-                    <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} onNavigate={onNavStart} isMinimized={isMinimized} />
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      pathname={pathname}
+                      onClick={onNav}
+                      onNavigate={onNavStart}
+                      isMinimized={isMinimized}
+                      badgeValue={item.href === '/notifications' ? unreadNotificationsCount : undefined}
+                    />
                   ))}
                 </div>
               )}
@@ -360,7 +384,16 @@ function SidebarContents({
 
         <div className="border-t border-gray-800/60 pt-4 space-y-1">
           {FOOTER_NAV.map(item => (
-            <NavLink key={item.href} item={item} pathname={pathname} onClick={onNav} onNavigate={onNavStart} compact isMinimized={isMinimized} />
+            <NavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              onClick={onNav}
+              onNavigate={onNavStart}
+              compact
+              isMinimized={isMinimized}
+              badgeValue={item.href === '/notifications' ? unreadNotificationsCount : undefined}
+            />
           ))}
         </div>
       </nav>
