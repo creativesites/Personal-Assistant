@@ -489,6 +489,17 @@ class AdvisorCompanionService:
             )
         congruence_by_contact = {str(r['contact_id']): (float(r['avg_valence']), float(r['avg_arousal'])) for r in signal_rows}
 
+        if isinstance(emotional_state, str):
+            try:
+                import json
+                emotional_state = json.loads(emotional_state)
+                while isinstance(emotional_state, str):
+                    emotional_state = json.loads(emotional_state)
+            except Exception:
+                emotional_state = {}
+        if not isinstance(emotional_state, dict):
+            emotional_state = {}
+
         current_valence = emotional_state.get('valence', 0.0)
         current_arousal = emotional_state.get('arousal', 0.3)
         n = len(rows)

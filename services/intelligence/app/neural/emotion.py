@@ -158,6 +158,15 @@ class EmotionEngine:
         state = row['current_emotional_state'] if row else None
         if not state:
             return {'valence': 0.0, 'arousal': 0.3, 'dominantEmotion': 'neutral'}
+        if isinstance(state, str):
+            try:
+                state = json.loads(state)
+                while isinstance(state, str):
+                    state = json.loads(state)
+            except Exception:
+                pass
+        if not isinstance(state, dict):
+            return {'valence': 0.0, 'arousal': 0.3, 'dominantEmotion': 'neutral'}
         return state
 
     async def reconsolidate(self) -> int:
