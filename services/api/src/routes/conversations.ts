@@ -182,7 +182,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     await addToQueue(
       QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT,
       { userId, conversationId: id, contactId: conv.contact_id },
-      { jobId: `recon:${id}`, removeOnComplete: true, removeOnFail: false }
+      { jobId: `recon-${id}`, removeOnComplete: true, removeOnFail: false }
     );
 
     return reply.send({
@@ -379,7 +379,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           JOIN message_analyses ma ON ma.message_id = m.id
           WHERE c.user_id = $1
             AND m.sender_type = 'contact'
-            AND ma.sentiment IN ('negative', 'angry')
+            AND ma.sentiment = 'negative'
             AND m.whatsapp_timestamp > NOW() - INTERVAL '72 hours'
           ORDER BY c.id, m.whatsapp_timestamp DESC
         ) q
