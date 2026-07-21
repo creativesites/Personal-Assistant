@@ -39,7 +39,7 @@ export async function notificationsRoutes(fastify: FastifyInstance): Promise<voi
 
     const { rows } = await db.query<NotificationRow>(
       `SELECT n.id, n.type, n.title, n.body, n.is_read, n.created_at,
-              c.id AS contact_id, c.name AS contact_name, c.avatar_url AS contact_avatar_url
+              c.id AS contact_id, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url AS contact_avatar_url
        FROM notifications n
        LEFT JOIN contacts c ON c.id = (n.data->>'contactId')::uuid
        WHERE n.user_id = $1

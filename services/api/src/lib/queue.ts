@@ -1,4 +1,4 @@
-import { Queue } from 'bullmq';
+import { Queue, type JobsOptions } from 'bullmq';
 import { QUEUE_NAMES, type QueueName } from '@zuri/types';
 import { config } from '../config';
 
@@ -20,14 +20,15 @@ export const queues = {
   analysisContactProfile: new Queue(QUEUE_NAMES.ANALYSIS_CONTACT_PROFILE, { connection }),
   proactiveGenerateDaily: new Queue(QUEUE_NAMES.PROACTIVE_GENERATE_DAILY, { connection }),
   sendReply: new Queue(QUEUE_NAMES.SEND_REPLY, { connection }),
+  reconciliationVerifyChat: new Queue(QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT, { connection }),
 };
 
 const queueByName = new Map<string, Queue>(
   Object.values(queues).map((q) => [q.name, q]),
 );
 
-export async function addToQueue(name: QueueName, data: unknown): Promise<void> {
+export async function addToQueue(name: QueueName, data: unknown, opts?: JobsOptions): Promise<void> {
   const queue = queueByName.get(name);
   if (!queue) throw new Error(`Unknown queue: ${name}`);
-  await queue.add(name, data);
+  await queue.add(name, data, opts);
 }
