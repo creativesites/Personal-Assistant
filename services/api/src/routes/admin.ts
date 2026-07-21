@@ -473,14 +473,15 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { rows: [job] } = await db.query<{
-        id: string; status: string;
+        id: string; status: string; sync_phase: string | null;
         total_conversations: number; processed_conversations: number;
         total_messages: number; processed_messages: number;
         contacts_created: number; leads_generated: number; insights_extracted: number;
         current_chat_name: string | null; error_message: string | null;
         started_at: string | null; completed_at: string | null;
       }>(
-        `SELECT id, status, total_conversations, processed_conversations,
+        `SELECT id, status, COALESCE(sync_phase, 'indexing') AS sync_phase,
+                total_conversations, processed_conversations,
                 total_messages, processed_messages,
                 contacts_created, leads_generated, insights_extracted,
                 current_chat_name, error_message, started_at, completed_at
@@ -500,6 +501,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({
         id: job.id,
         status: job.status,
+        phase: job.sync_phase,
         progress: {
           conversations: { done: job.processed_conversations, total: job.total_conversations },
           messages: { done: job.processed_messages, total: job.total_messages },

@@ -84,6 +84,9 @@ export abstract class WhatsAppTransport extends EventEmitter {
 
   abstract getStatus(): TransportStatus;
 
+  /** Fetch recent messages for a JID from WA servers (for gap detection / self-healing). */
+  abstract fetchRecentMessages(jid: string, limit: number): Promise<NormalisedMessage[]>;
+
   // Typed emit helpers so subclasses never pass the wrong shape.
   protected emitQr(dataUrl: string): void { this.emit('qr', dataUrl); }
   protected emitConnected(phoneNumber: string): void { this.emit('connected', phoneNumber); }

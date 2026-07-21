@@ -100,6 +100,7 @@ interface SyncProgress {
 interface SyncStatus {
   id?: string
   status: 'never_run' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  phase?: 'indexing' | 'downloading' | 'analysing' | 'complete' | 'cancelled' | 'failed' | string
   progress?: SyncProgress
   stats?: { contactsCreated: number; leadsGenerated: number; insightsExtracted: number }
   currentChatName?: string | null
@@ -882,16 +883,24 @@ export default function DiagnosticsPage() {
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                         </svg>
                       )}
-                      {{
-                        running: 'Analysing…',
-                        completed: 'Complete',
-                        failed: 'Failed',
-                        cancelled: 'Cancelled',
-                        pending: 'Queued',
-                      }[syncStatus.status] ?? syncStatus.status}
+                      {syncStatus.status === 'running' ? (
+                        syncStatus.phase === 'indexing' ? 'Indexing conversations…' :
+                        syncStatus.phase === 'downloading' ? 'Downloading messages…' :
+                        syncStatus.phase === 'analysing' ? 'Analysing relationship…' :
+                        'Analysing…'
+                      ) : (
+                        {
+                          completed: 'Complete',
+                          failed: 'Failed',
+                          cancelled: 'Cancelled',
+                          pending: 'Queued',
+                        }[syncStatus.status] ?? syncStatus.status
+                      )}
                     </span>
                     {syncStatus.currentChatName && syncStatus.status === 'running' && (
-                      <span className="text-xs text-gray-400 truncate">— {syncStatus.currentChatName}</span>
+                      <span className="text-xs text-gray-400 truncate">
+                        — {syncStatus.phase === 'downloading' ? 'Downloading' : 'Analysing'} {syncStatus.currentChatName}
+                      </span>
                     )}
                   </div>
 
@@ -909,7 +918,7 @@ export default function DiagnosticsPage() {
                         />
                       </div>
                       <p className="text-xs text-gray-400 tabular-nums">
-                        {syncStatus.progress.messages.done.toLocaleString()} / {syncStatus.progress.messages.total.toLocaleString()} messages queued
+                        {syncStatus.progress.messages.done.toLocaleString()} messages analysed
                       </p>
                     </div>
                   )}

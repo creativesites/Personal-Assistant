@@ -610,4 +610,22 @@ export class BaileysTransport extends WhatsAppTransport {
       this._reconnectTimer = null;
     }
   }
-        }
+
+  async fetchRecentMessages(jid: string, limit: number): Promise<NormalisedMessage[]> {
+    if (!this.sock) throw new Error('Transport not connected');
+    console.log(`[baileys:${this.userId}] Fetching up to ${limit} messages from WA for JID ${jid}...`);
+    const result = await this.sock.fetchMessagesFromWA(jid, limit, undefined);
+    if (!result || result.length === 0) return [];
+    
+    const normalised: NormalisedMessage[] = [];
+    for (const msg of result) {
+      try {
+        const norm = await this._normaliseHistorical(msg);
+        if (norm) normalised.push(norm);
+      } catch (err) {
+        console.error(`[baileys:${this.userId}] Error normalising fetched message:`, err);
+      }
+    }
+    return normalised;
+  }
+}

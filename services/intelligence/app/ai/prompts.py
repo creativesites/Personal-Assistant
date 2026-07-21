@@ -1155,3 +1155,52 @@ Return ONLY valid JSON in exactly this shape:
   "sort": {{"field": "leadScore", "direction": "desc"}} or null
 }}
 """
+
+UNIFIED_SINGLE_PASS_COGNITION = """\
+You are the advanced cognition layer of Zuri, an AI Relationship OS. Your task is to process a WhatsApp message and extract deep intelligence. If reply suggestions are requested, you must also generate 3 voice-matched replies using the provided context.
+
+Today's date: {today}
+Sender: {sender_type} ({sender_name})
+Relationship type: {relationship_type}
+
+Recent conversation (last few messages for context):
+{recent_context}
+
+Message to analyze:
+"{body}"
+
+{reply_generation_section}
+
+Output Format:
+You MUST wrap your output in XML tags:
+- Put the structured message analysis in `<intelligence>`...`</intelligence>` tags as a JSON object matching this schema:
+{{
+  "sentiment": "positive|negative|neutral|mixed",
+  "sentiment_score": 0.0,
+  "emotions": {{"joy": 0.0, "sadness": 0.0, "anger": 0.0, "fear": 0.0, "surprise": 0.0, "love": 0.0}},
+  "intent": {{"primary": "question|request|statement|expression|acknowledgment|farewell|greeting", "details": ""}},
+  "topics": [],
+  "entities": [{{"text": "", "type": "person|date|time|place|organization|product|event"}}],
+  "importance_score": 0.0,
+  "requires_response": false,
+  "response_urgency": "low|medium|high|urgent",
+  "promises_detected": [{{"text": "", "type": "commitment|deadline|offer|plan"}}],
+  "events_detected": [{{"title": "", "type": "birthday|anniversary|meeting|deadline|celebration|other", "date": null, "is_recurring": false}}],
+  "business_facts_mentioned": [{{"key": "snake_case_fact_name", "value": "the stated fact", "category": "product|pricing|shipping|refund_policy|faq|hours|inventory|promotion|supplier|tax|bank_details|wa_template|brand_voice|objection|other"}}],
+  "opportunities_mentioned": [{{"opportunity_type": "buying_signal|expansion|referral_moment|renewal_due|life_event|reconnect_window|churn_risk|support_needed", "title": "brief title", "description": "1 sentence of context", "estimated_value_cents": null, "confidence": 0.0}}],
+  "connections_mentioned": [{{"other_person_name": "the other person's name as stated", "connection_type": "works_with|introduced_by|owns|refers_to|family_of|friend_of|married_to", "confidence": 0.0, "supporting_text": "exact quote"}}],
+  "products_mentioned": [{{"product_name": "the product/service name as stated", "relation_type": "purchased|interested|quoted|recommended|mentioned", "quantity": 1, "replacement_interval_days": null, "confidence": 0.0}}],
+  "order_intent_mentioned": [{{"product_name": "the product/service name as stated", "quantity": 1, "confidence": 0.0}}],
+  "life_events_mentioned": [{{"event_type": "new_job|moved|had_child|got_married|health_issue|loss|achievement|started_business", "title": "brief title", "date": null}}],
+  "new_products_mentioned": [{{"name": "the product/service name as stated", "category": null, "estimated_price": null, "currency": null, "is_one_off": false, "confidence": 0.0, "evidence": "exact quote"}}],
+  "suppliers_mentioned": [{{"company": "the supplier/company name as stated", "confidence": 0.0, "evidence": "exact quote"}}],
+  "career_opportunities_mentioned": [{{"title": "role/opportunity title as stated", "company_or_org": null, "category": "job|contract|consulting|freelance|speaking|grant|scholarship|partnership|other", "is_remote": null, "confidence": 0.0, "evidence": "exact quote"}}]
+}}
+
+- {response_tag_instruction}
+
+Guidelines:
+1. XML Tags MUST be exactly `<intelligence>` and `<response>` and they must contain ONLY valid JSON inside them. Do NOT wrap XML tags or JSON in any extra markdown or conversational text.
+2. For events_detected: Be aggressive in extracting events. Resolve all relative dates using today's date ({today}).
+3. For reply suggestions (if requested): Ensure suggestions match {user_name}'s style, vary across suggestions, and are context-aware. Do not use generic placeholders.
+"""

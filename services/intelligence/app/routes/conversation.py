@@ -181,6 +181,32 @@ async def analyse_history(conversation_id: str, body: AnalyseHistoryRequest):
     return {'queued': True, 'conversationId': conversation_id}
 
 
+@router.post('/{conversation_id}/analyse-history-sync')
+async def analyse_history_sync(conversation_id: str, body: AnalyseHistoryRequest):
+    """
+    Called by the history sync process. Runs the contact profiling synchronously
+    to avoid queue backlog and CPU thrashing, ensuring order and safety.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        contact_row = await conn.fetchrow('SELECT is_group FROM contacts WHERE id = $1', body.contact_id)
+    if contact_row and contact_row['is_group']:
+        return {'completed': False, 'skipped': 'group_chat', 'conversationId': conversation_id}
+
+    from ..services.profiler import ContactProfiler
+    _profiler = ContactProfiler()
+    await _profiler.profile(contact_id=body.contact_id, user_id=body.user_id)
+
+    temporal_queue = Queue('temporal.clock_check', {'connection': redis_conn_opts()})
+    await temporal_queue.add('cadence', {
+        'contactId': body.contact_id,
+        'userId': body.user_id,
+    })
+
+    return {'completed': True, 'conversationId': conversation_id}
+
+
+
 class AdvisorAskRequest(BaseModel):
     user_id: str
     question: str

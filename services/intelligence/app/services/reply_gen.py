@@ -18,6 +18,119 @@ class ReplyGenerator:
     def __init__(self) -> None:
         self._auto_response = AutoResponseService()
 
+    async def save_and_process_suggestions(
+        self,
+        message_id: str,
+        user_id: str,
+        contact_id: str,
+        conversation_id: str,
+        body: str,
+        suggestions: dict,
+    ) -> list[dict]:
+        from ..models import ReplySuggestions
+        suggestions_model = ReplySuggestions(**suggestions)
+
+        pool = await get_pool()
+        inserted_suggestions = []
+        async with pool.acquire() as conn:
+            for s in suggestions_model.suggestions:
+                suggestion_id = await conn.fetchval(
+                    'INSERT INTO suggested_replies (message_id, suggestion_text, tone, reasoning)'
+                    ' VALUES ($1, $2, $3, $4) RETURNING id',
+                    message_id,
+                    s.text,
+                    s.tone,
+                    s.reasoning,
+                )
+                inserted_suggestions.append({
+                    'id': str(suggestion_id),
+                    'text': s.text,
+                    'tone': s.tone,
+                    'reasoning': s.reasoning,
+                })
+
+        log.info('replies_saved_from_single_pass', message_id=message_id, count=len(suggestions_model.suggestions))
+
+        if inserted_suggestions:
+            eligibility = await self._auto_response.check_eligibility(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                contact_id=contact_id,
+                message_body=body,
+            )
+
+            selected = inserted_suggestions[0]
+            should_auto_send = False
+            grant = None
+            scope_reason = None
+            if eligibility.should_send:
+                if eligibility.approval_mode == 'auto':
+                    should_auto_send = True
+                else:
+                    grant = await get_scoped_automation().find_active_grant(conversation_id)
+                    if grant:
+                        in_scope, scope_reason = await get_scoped_automation().check_reply_in_scope(
+                            grant, body, selected['text'],
+                        )
+                        should_auto_send = in_scope
+
+            if should_auto_send and eligibility.recipient_jid:
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE suggested_replies
+                        SET status = CASE
+                              WHEN id = $2::uuid THEN 'approved'::reply_status
+                              ELSE 'dismissed'::reply_status
+                            END,
+                            updated_at = NOW()
+                        WHERE message_id = $1 AND status = 'pending'
+                        """,
+                        message_id,
+                        selected['id'],
+                    )
+
+                await self._auto_response.enqueue_send(
+                    user_id=user_id,
+                    message_id=message_id,
+                    suggested_reply_id=selected['id'],
+                    recipient_jid=eligibility.recipient_jid,
+                    text=selected['text'],
+                    delay_seconds=eligibility.delay_seconds,
+                )
+                log.info(
+                    'auto_response_send_enqueued',
+                    message_id=message_id,
+                    suggestion_id=selected['id'],
+                    delay_seconds=eligibility.delay_seconds,
+                    via_scoped_grant=bool(grant),
+                )
+                if grant:
+                    await get_scoped_automation().log_audit(
+                        grant['id'], user_id, conversation_id, message_id,
+                        'auto_sent', scope_reason or 'in_scope', selected['text'],
+                    )
+            else:
+                log.info(
+                    'auto_response_not_sent',
+                    message_id=message_id,
+                    reason=eligibility.reason,
+                    approval_mode=eligibility.approval_mode,
+                )
+                if grant and scope_reason:
+                    await get_scoped_automation().log_audit(
+                        grant['id'], user_id, conversation_id, message_id,
+                        'skipped_high_risk' if scope_reason == 'high_risk' else 'skipped_out_of_scope',
+                        scope_reason,
+                    )
+
+        await publish_event(
+            f'suggestion:ready:{user_id}',
+            json.dumps({'messageId': message_id, 'count': len(suggestions_model.suggestions)}),
+        )
+
+        return inserted_suggestions
+
     async def generate(
         self,
         message_id: str,

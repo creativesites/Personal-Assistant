@@ -450,6 +450,123 @@ export class SessionManager {
     }
   }
 
+  async runGapCheckAndRepair(userId: string, contactId: string, conversationId: string): Promise<void> {
+    try {
+      console.log(`[gap-check] Starting background gap check for userId=${userId}, contactId=${contactId}, conversationId=${conversationId}`);
+      
+      const entry = this.sessions.get(userId);
+      if (!entry || entry.transport.getStatus() !== 'connected') {
+        console.log(`[gap-check] User ${userId} session is not active or connected. Skipping gap check.`);
+        return;
+      }
+
+      // Query contact to find the correct phone number / JID
+      const { rows: [contact] } = await this.db.query<{ phone_number: string; is_group: boolean }>(
+        `SELECT phone_number, is_group FROM contacts WHERE id = $1`,
+        [contactId],
+      );
+
+      if (!contact) {
+        console.error(`[gap-check] Contact ${contactId} not found in DB`);
+        return;
+      }
+
+      const jid = contact.is_group 
+        ? contact.phone_number 
+        : (contact.phone_number.includes('@') ? contact.phone_number : `${contact.phone_number}@s.whatsapp.net`);
+
+      // Fetch up to 50 latest messages from WhatsApp server
+      const recentMsgs = await entry.transport.fetchRecentMessages(jid, 50);
+      if (recentMsgs.length === 0) {
+        console.log(`[gap-check] No messages fetched from WA for JID ${jid}`);
+        return;
+      }
+
+      // Fetch existing messages in this conversation
+      const { rows: existingMsgs } = await this.db.query<{ whatsapp_message_id: string }>(
+        `SELECT whatsapp_message_id FROM messages WHERE conversation_id = $1`,
+        [conversationId],
+      );
+      const existingIds = new Set(existingMsgs.map(m => m.whatsapp_message_id));
+
+      const missingMsgs = recentMsgs.filter(m => !existingIds.has(m.waMessageId));
+      console.log(`[gap-check] Fetched ${recentMsgs.length} messages, found ${missingMsgs.length} missing messages`);
+
+      if (missingMsgs.length === 0) {
+        return;
+      }
+
+      // Insert and trigger analysis for missing messages
+      for (const msg of missingMsgs) {
+        const senderType = msg.fromMe ? 'user' : 'contact';
+        const timestamp = new Date(msg.timestampMs);
+
+        const { rows: [inserted] } = await this.db.query<{ id: string }>(
+          `INSERT INTO messages
+             (conversation_id, whatsapp_message_id, sender_type, message_type, body,
+              media_url, media_mime_type, quoted_message_id, whatsapp_timestamp,
+              sender_display_name, sender_jid)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ON CONFLICT (conversation_id, whatsapp_message_id) DO NOTHING
+           RETURNING id`,
+          [conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
+           msg.mediaUrl, msg.mediaMimeType, msg.quotedWaMessageId, timestamp,
+           msg.groupSenderName ?? msg.displayName ?? null, msg.groupSenderJid ?? null],
+        );
+
+        if (inserted) {
+          console.log(`[gap-check] Repairing gap: inserted missing message ID ${inserted.id} (WA key ${msg.waMessageId})`);
+          await this.redis.publish(
+            `message:new:${userId}`,
+            JSON.stringify({
+              messageId: inserted.id,
+              conversationId,
+              contactId,
+              senderType,
+              messageType: msg.messageType,
+              body: msg.body,
+              mediaUrl: msg.mediaUrl,
+              mediaMimeType: msg.mediaMimeType,
+              transcription: null,
+              quotedMessageId: msg.quotedWaMessageId,
+              senderDisplayName: msg.groupSenderName ?? msg.displayName ?? null,
+              timestamp: timestamp.toISOString(),
+            }),
+          ).catch(() => {});
+        }
+      }
+
+      // Update conversation last_message preview and last_message_at
+      const { rows: [latestDbMsg] } = await this.db.query<{ body: string | null; whatsapp_timestamp: Date }>(
+        `SELECT body, whatsapp_timestamp FROM messages WHERE conversation_id = $1 ORDER BY whatsapp_timestamp DESC LIMIT 1`,
+        [conversationId],
+      );
+
+      if (latestDbMsg) {
+        await this.db.query(
+          `UPDATE conversations
+           SET last_message_preview = $1, last_message_at = $2, updated_at = NOW()
+           WHERE id = $3`,
+          [latestDbMsg.body ? latestDbMsg.body.substring(0, 100) : 'Media message', latestDbMsg.whatsapp_timestamp, conversationId],
+        );
+
+        const { rows: [conversation] } = await this.db.query(
+          `SELECT * FROM conversations WHERE id = $1`,
+          [conversationId],
+        );
+
+        if (conversation) {
+          await this.redis.publish(
+            `conversation:upsert:${userId}`,
+            JSON.stringify({ conversation }),
+          ).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error(`[gap-check] runGapCheckAndRepair failed for userId=${userId}, conversationId=${conversationId}:`, err);
+    }
+  }
+
   private async upsertInstance(userId: string, status: string): Promise<string> {
     const { rows: [existing] } = await this.db.query<{ id: string }>(
       `SELECT id FROM whatsapp_instances WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,

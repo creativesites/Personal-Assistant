@@ -80,11 +80,12 @@ async def _process(job, token: str):
         log.info('message_analysis_skipped_no_credits', message_id=message_id, user_id=user_id)
         return {'ok': True, 'skipped': 'no_credits'}
 
-    analysis = await _analyser.analyse(
+    analysis, suggestions = await _analyser.analyse(
         message_id=message_id,
         user_id=user_id,
         conversation_id=conversation_id,
         contact_id=contact_id,
+        generate_reply=(not is_historical),
     )
 
     await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
@@ -237,14 +238,24 @@ async def _process(job, token: str):
                 # AI-drafted reply; the raw message still surfaces in the
                 # Inbox for the user to answer manually.
                 if await try_consume_credit(user_id, 'ai_reply'):
-                    await _reply_gen.generate(
-                        message_id=message_id,
-                        user_id=user_id,
-                        contact_id=contact_id,
-                        conversation_id=conversation_id,
-                        body=body,
-                        analysis=analysis,
-                    )
+                    if suggestions:
+                        await _reply_gen.save_and_process_suggestions(
+                            message_id=message_id,
+                            user_id=user_id,
+                            contact_id=contact_id,
+                            conversation_id=conversation_id,
+                            body=body,
+                            suggestions=suggestions,
+                        )
+                    else:
+                        await _reply_gen.generate(
+                            message_id=message_id,
+                            user_id=user_id,
+                            contact_id=contact_id,
+                            conversation_id=conversation_id,
+                            body=body,
+                            analysis=analysis,
+                        )
                 else:
                     log.info('reply_generation_skipped_no_credits', message_id=message_id, user_id=user_id)
 
