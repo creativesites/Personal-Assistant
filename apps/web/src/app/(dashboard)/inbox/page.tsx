@@ -1435,7 +1435,7 @@ export default function InboxPage() {
                   onRegenerate={regenerate}
                   onAnalyzeLatest={() => runManualAnalysis('latest')}
                   onAnalyzeRecent={() => runManualAnalysis('recent')}
-                  isGroup={contact.isGroup}
+                  isGroup={contact?.isGroup ?? false}
                 />
               </div>
 

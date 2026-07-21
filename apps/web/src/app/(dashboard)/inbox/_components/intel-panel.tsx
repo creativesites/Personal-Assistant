@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { Modal } from '@/components/ui/modal'
 import type { RefObject } from 'react'
 import {
   Brain, X, RefreshCw, Edit3, Copy, ChevronRight, Calendar,
@@ -223,10 +224,30 @@ export function IntelPanel({
     insights.push({ type: 'entity', text: `Detected intent: ${contextData.intents.slice(0,2).join(', ').replace(/_/g, ' ')}` })
   }
 
-  const mockFiles = [
-    { name: 'Invoice_March.pdf', size: '142 KB', date: '2 months ago' },
-    { name: 'Product_Catalogue.pdf', size: '3.2 MB', date: '3 weeks ago' },
-  ]
+  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: string } | null>(null)
+
+  const filesList = (messages || [])
+    .filter(m => m.mediaUrl || m.messageType === 'document' || m.messageType === 'image' || m.messageType === 'video' || m.messageType === 'audio')
+    .map(m => {
+      let name = m.body || 'attachment'
+      if (m.messageType === 'image') name = name.startsWith('Image') || name.toLowerCase().match(/\.(png|jpe?g|gif|webp)$/) ? name : `Image_${new Date(m.timestamp).toLocaleDateString().replace(/\//g, '-')}.png`
+      if (m.messageType === 'video') name = name.startsWith('Video') || name.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/) ? name : `Video_${new Date(m.timestamp).toLocaleDateString().replace(/\//g, '-')}.mp4`
+      if (m.messageType === 'audio') name = name.startsWith('Audio') || name.toLowerCase().match(/\.(mp3|wav|ogg|m4a)$/) ? name : `Audio_${new Date(m.timestamp).toLocaleDateString().replace(/\//g, '-')}.mp3`
+      if (m.messageType === 'document' && !name.includes('.')) {
+        name = `${name}.pdf`
+      }
+      const sizeStr = 'In-chat'
+      const dateStr = new Date(m.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      return {
+        id: m.id,
+        name,
+        type: m.messageType ?? 'document',
+        url: m.mediaUrl || '',
+        mimeType: m.mediaMimeType,
+        date: dateStr,
+        size: sizeStr
+      }
+    })
 
   // ── Chat tab state ──────────────────────────────────────────────────────────
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
