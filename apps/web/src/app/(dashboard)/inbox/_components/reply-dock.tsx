@@ -1,6 +1,7 @@
 'use client'
 
-import { RefObject } from 'react'
+import { RefObject, useState, useRef, useEffect } from 'react'
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react'
 import {
   Activity,
   Brain,
@@ -82,6 +83,43 @@ export function ReplyDock({
   onAnalyzeLatest,
   onAnalyzeRecent,
 }: ReplyDockProps) {
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const emojiButtonRef = useRef<HTMLButtonElement>(null)
+  const pickerRef = useRef<HTMLDivElement>(null)
+  // Close picker on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        showEmojiPicker &&
+        pickerRef.current &&
+        !pickerRef.current.contains(e.target as Node) &&
+        emojiButtonRef.current &&
+        !emojiButtonRef.current.contains(e.target as Node)
+      ) {
+        setShowEmojiPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showEmojiPicker])
+
+  // Insert emoji at cursor position in the textarea
+  const handleEmojiSelect = (emojiData: EmojiClickData) => {
+    const textarea = draftRef.current
+    if (!textarea) return
+
+    const start = textarea.selectionStart ?? draft.length
+    const end = textarea.selectionEnd ?? start
+    const newText = draft.slice(0, start) + emojiData.emoji + draft.slice(end)
+
+    onDraftChange(newText)
+    // Restore cursor after React re‑render
+    requestAnimationFrame(() => {
+      const pos = start + emojiData.emoji.length
+      textarea.focus()
+      textarea.setSelectionRange(pos, pos)
+    })
+  }
   return (
     <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
       {aiActionResult && (
@@ -223,21 +261,50 @@ export function ReplyDock({
                 style={{ minHeight: '24px', maxHeight: '140px' }}
               />
             </div>
-            <button className="p-2 text-neutral-400 hover:text-neutral-600 active:scale-95 rounded-xl hover:bg-neutral-100 transition-all flex-shrink-0 mb-0.5">
-              <Smile size={18} strokeWidth={2.2} />
-            </button>
-            <button
-              onClick={onSendDraft}
-              disabled={!draft.trim()}
-              className={`p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm ${
-                draft.trim()
-                  ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110'
-                  : 'bg-neutral-200 text-neutral-400 cursor-not-allowed opacity-70'
-              }`}
-            >
-              <Send size={15} strokeWidth={2.5} />
-            </button>
-          </div>
+             {/* --- Emoji button + picker --- */}
+            <div className="relative flex-shrink-0 mb-0.5">
+              <button
+                ref={emojiButtonRef}
+                onClick={() => setShowEmojiPicker(prev => !prev)}
+                className={`p-2 rounded-xl transition-all ${
+                  showEmojiPicker
+                    ? 'text-indigo-600 bg-indigo-50'
+                    : 'text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100'
+                }`}
+                aria-label="Choose emoji"
+              >
+                <Smile size={18} strokeWidth={2.2} />
+              </button>
+
+              {showEmojiPicker && (
+                <div
+                  ref={pickerRef}
+                  className="absolute bottom-full right-0 mb-2 z-50 animate-in slide-in-from-bottom-2 fade-in duration-200"
+                >
+                  <EmojiPicker
+                    onEmojiClick={handleEmojiSelect}
+                    width={300}
+                    height={400}
+                    searchPlaceholder="Search emoji..."
+                    skinTonesDisabled
+                    previewConfig={{ showPreview: false }}
+                  />
+                </div>
+              )}
+            </div>
+
+              <button
+                onClick={onSendDraft}
+                disabled={!draft.trim()}
+                className={`p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm ${
+                  draft.trim()
+                    ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110'
+                    : 'bg-neutral-200 text-neutral-400 cursor-not-allowed opacity-70'
+                }`}
+              >
+                <Send size={15} strokeWidth={2.5} />
+              </button>
+            </div>
 
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-3">
