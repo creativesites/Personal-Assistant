@@ -25,7 +25,11 @@ const ClientPdfRenderer = dynamic(
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type DocType = 'invoice' | 'quotation' | 'proposal' | 'contract'
+type DocType =
+  | 'invoice' | 'quotation' | 'receipt' | 'purchase_order' | 'credit_note'
+  | 'debit_note' | 'delivery_note' | 'catalog' | 'proposal' | 'contract'
+  | 'statement_of_work' | 'service_agreement' | 'nda' | 'msa'
+  | 'account_statement' | 'expense_report'
 
 interface LineItem {
   id: string
@@ -77,13 +81,36 @@ interface Contact {
   jobTitle?: string
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+interface DocTypeConfig {
+  id: DocType
+  label: string
+  category: 'commercial' | 'legal' | 'finance'
+  icon: React.FC<{ className?: string }>
+  desc: string
+}
 
-const DOC_TYPES: { id: DocType; label: string; icon: React.FC<{ className?: string }>; desc: string }[] = [
-  { id: 'invoice',   label: 'Invoice',    icon: FileText,   desc: 'Bill a client for completed work' },
-  { id: 'quotation', label: 'Quotation',  icon: FileCheck,  desc: 'Send a price estimate before work starts' },
-  { id: 'proposal',  label: 'Proposal',   icon: BookOpen,   desc: 'Pitch a project or service' },
-  { id: 'contract',  label: 'Contract',   icon: File,       desc: 'Formal agreement with terms' },
+const DOC_TYPES: DocTypeConfig[] = [
+  // Commercial & Sales
+  { id: 'quotation', label: 'Quotation', category: 'commercial', icon: FileCheck, desc: 'Send a price estimate before work starts' },
+  { id: 'invoice', label: 'Invoice', category: 'commercial', icon: FileText, desc: 'Bill a client for completed work or products' },
+  { id: 'receipt', label: 'Receipt', category: 'commercial', icon: CreditCard, desc: 'Payment confirmation receipt for records' },
+  { id: 'purchase_order', label: 'Purchase Order', category: 'commercial', icon: Building2, desc: 'Vendor & procurement request with authorization' },
+  { id: 'delivery_note', label: 'Delivery Note', category: 'commercial', icon: File, desc: 'Fulfillment & packing slip with recipient signature line' },
+  { id: 'credit_note', label: 'Credit Note', category: 'commercial', icon: FileText, desc: 'Financial adjustment or billing credit' },
+  { id: 'debit_note', label: 'Debit Note', category: 'commercial', icon: FileText, desc: 'Billing correction or supplemental charge' },
+  { id: 'catalog', label: 'Wholesale Catalog', category: 'commercial', icon: BookOpen, desc: 'Product showcase with tiered volume pricing' },
+
+  // Legal & Compliance
+  { id: 'proposal', label: 'Proposal', category: 'legal', icon: BookOpen, desc: 'Pitch a project, scope, and deliverables' },
+  { id: 'contract', label: 'Contract', category: 'legal', icon: File, desc: 'Formal agreement with terms and signature blocks' },
+  { id: 'statement_of_work', label: 'Statement of Work', category: 'legal', icon: FileText, desc: 'Detailed project scope, milestones, and SOW' },
+  { id: 'service_agreement', label: 'Service Agreement', category: 'legal', icon: FileCheck, desc: 'Framework agreement governing ongoing services' },
+  { id: 'nda', label: 'NDA', category: 'legal', icon: FileText, desc: 'Non-disclosure agreement (Bilateral / Unilateral)' },
+  { id: 'msa', label: 'MSA', category: 'legal', icon: File, desc: 'Master Services Agreement for long-term engagements' },
+
+  // Finance & Operations
+  { id: 'account_statement', label: 'Account Statement', category: 'finance', icon: FileText, desc: 'Client account ledger & 30/60/90-day aging summary' },
+  { id: 'expense_report', label: 'Expense Report', category: 'finance', icon: CreditCard, desc: 'Internal/contractor expense reimbursement claim' },
 ]
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'KES', 'ZAR', 'NGN', 'GHS', 'TZS', 'UGX', 'XOF', 'MAD', 'EGP', 'ZMW']
@@ -296,7 +323,24 @@ export default function NewDocumentPage() {
   // Update doc number prefix when doc type changes
   useEffect(() => {
     if (documentId) return
-    const prefixes: Record<DocType, string> = { invoice: 'INV', quotation: 'QT', proposal: 'PROP', contract: 'CON' }
+    const prefixes: Record<DocType, string> = {
+      invoice: 'INV',
+      quotation: 'QT',
+      receipt: 'RC',
+      purchase_order: 'PO',
+      credit_note: 'CN',
+      debit_note: 'DN',
+      delivery_note: 'DEL',
+      catalog: 'CAT',
+      proposal: 'PROP',
+      contract: 'CON',
+      statement_of_work: 'SOW',
+      service_agreement: 'SA',
+      nda: 'NDA',
+      msa: 'MSA',
+      account_statement: 'STMT',
+      expense_report: 'EXP',
+    }
     setForm(f => ({ ...f, docNumber: `${prefixes[f.docType]}-${String(Date.now()).slice(-6)}` }))
   }, [form.docType, documentId])
 
@@ -352,7 +396,7 @@ export default function NewDocumentPage() {
     setSaving(true)
     setSaveError(null)
 
-    const items = form.lineItems
+    let items = form.lineItems
       .filter(li => li.description.trim())
       .map(li => ({
         description: li.description,
@@ -363,9 +407,19 @@ export default function NewDocumentPage() {
       }))
 
     if (items.length === 0) {
-      setSaveError('Add at least one line item before generating.')
-      setSaving(false)
-      return
+      if (['nda', 'msa', 'contract', 'proposal', 'statement_of_work', 'service_agreement'].includes(form.docType)) {
+        items = [{
+          description: 'Execution of Agreement Terms & Scope of Work',
+          quantity: 1,
+          unitPriceCents: 0,
+          taxPct: 0,
+          discountPct: undefined,
+        }]
+      } else {
+        setSaveError('Add at least one line item before generating.')
+        setSaving(false)
+        return
+      }
     }
 
     const body: Record<string, unknown> = {
@@ -553,32 +607,49 @@ export default function NewDocumentPage() {
 
             {/* Doc type */}
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
-              <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
-                Document Type
+              <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
+                  Document Type
+                </span>
               </h2>
-              <div className="grid grid-cols-2 gap-2.5">
-                {DOC_TYPES.map(({ id, label, icon: Icon, desc }) => (
-                  <button
-                    key={id}
-                    onClick={() => set('docType', id)}
-                    className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 text-left transition-all ${
-                      form.docType === id
-                        ? 'border-indigo-600 bg-indigo-50 shadow-sm shadow-indigo-100'
-                        : 'border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/40'
-                    }`}
-                  >
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      form.docType === id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      <Icon className="w-4 h-4" />
+
+              <div className="space-y-4">
+                {[
+                  { cat: 'commercial', name: 'Commercial & Sales' },
+                  { cat: 'legal', name: 'Legal & Compliance' },
+                  { cat: 'finance', name: 'Finance & Operations' },
+                ].map(group => {
+                  const items = DOC_TYPES.filter(d => d.category === group.cat)
+                  return (
+                    <div key={group.cat} className="space-y-2">
+                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-1">{group.name}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {items.map(({ id, label, icon: Icon, desc }) => (
+                          <button
+                            key={id}
+                            onClick={() => set('docType', id)}
+                            className={`flex items-start gap-3 p-3 rounded-2xl border-2 text-left transition-all ${
+                              form.docType === id
+                                ? 'border-indigo-600 bg-indigo-50 shadow-sm shadow-indigo-100'
+                                : 'border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/40'
+                            }`}
+                          >
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                              form.docType === id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className={`text-xs font-bold ${form.docType === id ? 'text-indigo-700' : 'text-gray-900'}`}>{label}</p>
+                              <p className="text-[10px] text-gray-500 leading-snug truncate mt-0.5">{desc}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div>
-                      <p className={`text-sm font-bold ${form.docType === id ? 'text-indigo-700' : 'text-gray-900'}`}>{label}</p>
-                      <p className="text-[11px] text-gray-500 leading-snug mt-0.5">{desc}</p>
-                    </div>
-                  </button>
-                ))}
+                  )
+                })}
               </div>
             </div>
 

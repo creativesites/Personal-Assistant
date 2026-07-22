@@ -17,28 +17,30 @@ import { recordBusinessEvent, checkMilestoneCrossing } from '../lib/business-fee
 // quotation -> invoice -> receipt. Each target renders fine with the Phase 0
 // templates (they're generic line-item layouts, not quotation/invoice-
 // specific) even though only quotation/invoice are offered at creation time.
-const CONVERSION_MAP: Record<string, string> = { quotation: 'invoice', invoice: 'receipt' };
+const CONVERSION_MAP: Record<string, string> = {
+  quotation: 'invoice',
+  invoice: 'receipt',
+  purchase_order: 'delivery_note',
+  proposal: 'contract',
+  msa: 'statement_of_work',
+};
 
 const MANUAL_STATUSES = ['sent', 'accepted', 'rejected', 'paid', 'archived'] as const;
 
-// Widened from the original Phase 0 quotation/invoice-only list — the
-// minimal/modern templates already render narrative "sections" generically
-// for proposals/contracts (same reasoning AI_GENERATE_TYPES below already
-// used), and the documents.document_type CHECK constraint (migration 0043)
-// already allows both, so the plain createBody path should too rather than
-// forcing every proposal/contract through the separate ai-generate path.
-export const PHASE_0_TYPES = ['quotation', 'invoice', 'proposal', 'contract', 'statement_of_work', 'service_agreement'] as const;
+export const PHASE_0_TYPES = [
+  'quotation', 'invoice', 'receipt',
+  'purchase_order', 'delivery_note', 'credit_note', 'debit_note', 'catalog', 'price_sheet',
+  'proposal', 'contract', 'statement_of_work', 'service_agreement', 'nda', 'msa',
+  'account_statement', 'expense_report', 'expense_claim'
+] as const;
 
-// Phase 2 (AI generation) additionally supports proposals/contracts — the
-// minimal/modern templates render narrative "sections" generically, so no
-// new template file was needed, just a wider type list. See plan §7/§11.
-// statement_of_work/service_agreement (Services Management System, see
-// docs/SERVICES_PROJECTS_PLAN.md §B9) reuse the same generic template —
-// no new template needed there either.
-const AI_GENERATE_TYPES = ['quotation', 'invoice', 'proposal', 'contract', 'statement_of_work', 'service_agreement'] as const;
+const AI_GENERATE_TYPES = PHASE_0_TYPES;
+
 const DOCUMENT_CATEGORY: Record<string, string> = {
-  quotation: 'sales', invoice: 'sales', proposal: 'sales', contract: 'legal',
-  statement_of_work: 'legal', service_agreement: 'legal',
+  quotation: 'sales', invoice: 'sales', receipt: 'sales',
+  purchase_order: 'sales', delivery_note: 'sales', credit_note: 'sales', debit_note: 'sales', catalog: 'sales', price_sheet: 'sales',
+  proposal: 'legal', contract: 'legal', statement_of_work: 'legal', service_agreement: 'legal', nda: 'legal', msa: 'legal',
+  account_statement: 'finance', expense_report: 'operations', expense_claim: 'operations'
 };
 
 export const lineItemSchema = z.object({
@@ -50,17 +52,16 @@ export const lineItemSchema = z.object({
   taxPct: z.number().min(0).max(100).optional(),
 });
 
-// A document without a linked contact (e.g. /documents/new's "enter client
-// details manually" path) has nowhere else to keep who it's for — stored
-// inside structured_data and read back out by the renderer's contact
-// resolution (services/api/src/services/document-render.ts) only when
-// contactId isn't set, same as every other structured_data field that's
-// document-specific rather than business-profile-specific.
 const manualContactSchema = z.object({
   name: z.string().min(1).max(255),
   company: z.string().max(255).optional(),
   email: z.string().email().max(255).optional().or(z.literal('')),
   phone: z.string().max(50).optional(),
+});
+
+const sectionSchema = z.object({
+  heading: z.string().min(1).max(255),
+  body: z.string().min(1),
 });
 
 const createBody = z.object({
@@ -69,17 +70,14 @@ const createBody = z.object({
   documentType: z.enum(PHASE_0_TYPES),
   title: z.string().max(255).optional(),
   currency: z.string().length(3).optional(),
-  items: z.array(lineItemSchema).min(1),
+  items: z.array(lineItemSchema).optional().default([]),
+  sections: z.array(sectionSchema).optional().default([]),
+  structuredData: z.record(z.any()).optional(),
   notes: z.string().max(2000).optional(),
   terms: z.string().max(4000).optional(),
   validUntil: z.string().optional(),
   dueDate: z.string().optional(),
   templateId: z.string().uuid().optional(),
-  // Reusable named Brand Profiles — which business_profiles row's
-  // logo/address/bank details/numbering sequence this document uses. Null/
-  // omitted means "the user's default profile" (business-profile.ts's
-  // getOrCreateProfile), so every pre-existing document keeps rendering
-  // exactly as it did before this field existed.
   businessProfileId: z.string().uuid().optional(),
   dealId: z.string().uuid().optional(),
   opportunityId: z.string().uuid().optional(),
