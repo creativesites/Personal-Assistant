@@ -189,7 +189,9 @@ export function OpportunityCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-gray-900 text-sm truncate">{opp.title}</p>
+            <Link href={`/career/jobs/${opp.id}`} className="font-semibold text-indigo-700 hover:underline text-sm truncate block">
+              {opp.title}
+            </Link>
             <Badge variant="purple">{formatCategory(opp.category)}</Badge>
             {opp.source === 'whatsapp_detected' && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600">
