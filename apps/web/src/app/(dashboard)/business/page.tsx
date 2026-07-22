@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
   Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
-  MoreHorizontal, ChevronDown, ChevronUp, Wand2,
+  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -306,9 +306,9 @@ export default function BusinessPage() {
   // into email or other channels.
   const copyShareLink = (doc: DocumentSummary) => {
     if (!doc.shareToken) return
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-    navigator.clipboard.writeText(`${apiUrl}/api/documents/shared/${doc.shareToken}`)
-    addToast({ variant: 'success', title: 'Share link copied' })
+    const publicUrl = `${window.location.origin}/shared/${doc.shareToken}`
+    navigator.clipboard.writeText(publicUrl)
+    addToast({ variant: 'success', title: 'Interactive Sign & View link copied' })
   }
 
   const runSearch = async (query: string) => {
@@ -383,6 +383,8 @@ export default function BusinessPage() {
                   </button>
                 }
                 items={[
+                  { label: 'Brand Studio & Customizer', icon: <Palette className="w-3.5 h-3.5 text-indigo-500" />, href: '/business/brand-studio' },
+                  { label: 'Document & Financial Analytics', icon: <BarChart3 className="w-3.5 h-3.5 text-emerald-500" />, href: '/business/analytics' },
                   { label: 'Insights', icon: <Lightbulb className="w-3.5 h-3.5 text-amber-500" />, onClick: () => setShowInsights(true) },
                   { label: 'Business Packs', icon: <Package className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowPacks(true) },
                   { label: 'Recurring Documents', icon: <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowRecurring(true) },

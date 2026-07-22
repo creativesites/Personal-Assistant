@@ -38,6 +38,12 @@ export const businessProfileUpdateBody = z.object({
   defaultCurrency: z.string().length(3).optional(),
   defaultTaxRate: z.number().min(0).max(100).optional(),
   defaultTemplateId: z.string().uuid().nullable().optional(),
+  fontFamily: z.string().max(50).optional().nullable(),
+  themeTemplateKey: z.string().max(50).optional().nullable(),
+  watermarkText: z.string().max(255).optional().nullable(),
+  watermarkImageUrl: z.string().max(2048).optional().nullable(),
+  headerBannerUrl: z.string().max(2048).optional().nullable(),
+  footerBannerUrl: z.string().max(2048).optional().nullable(),
 });
 
 export function formatProfile(r: any) {
@@ -67,6 +73,12 @@ export function formatProfile(r: any) {
     themeColor: r.theme_color,
     accentColor: r.accent_color,
     defaultTemplateId: r.default_template_id,
+    fontFamily: r.font_family ?? 'Inter',
+    themeTemplateKey: r.theme_template_key ?? 'modern_minimalist',
+    watermarkText: r.watermark_text ?? null,
+    watermarkImageUrl: r.watermark_image_url ?? null,
+    headerBannerUrl: r.header_banner_url ?? null,
+    footerBannerUrl: r.footer_banner_url ?? null,
     footerText: r.footer_text,
     defaultTerms: r.default_terms,
     paymentInstructions: r.payment_instructions,
@@ -140,8 +152,14 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
          default_currency     = COALESCE($20, default_currency),
          default_tax_rate     = COALESCE($21, default_tax_rate),
          default_template_id  = CASE WHEN $22::boolean THEN $23::uuid ELSE default_template_id END,
+         font_family          = COALESCE($24, font_family),
+         theme_template_key   = COALESCE($25, theme_template_key),
+         watermark_text       = COALESCE($26, watermark_text),
+         watermark_image_url  = COALESCE($27, watermark_image_url),
+         header_banner_url    = COALESCE($28, header_banner_url),
+         footer_banner_url    = COALESCE($29, footer_banner_url),
          updated_at           = NOW()
-       WHERE user_id = $24 AND is_default = true
+       WHERE user_id = $30 AND is_default = true
        RETURNING *`,
       [
         body.companyName ?? null,
@@ -167,6 +185,12 @@ export async function businessProfileRoutes(fastify: FastifyInstance): Promise<v
         body.defaultTaxRate ?? null,
         'defaultTemplateId' in body,
         body.defaultTemplateId ?? null,
+        body.fontFamily ?? null,
+        body.themeTemplateKey ?? null,
+        body.watermarkText ?? null,
+        body.watermarkImageUrl ?? null,
+        body.headerBannerUrl ?? null,
+        body.footerBannerUrl ?? null,
         userId,
       ],
     );

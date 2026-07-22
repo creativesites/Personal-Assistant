@@ -126,7 +126,7 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
                 type="text"
                 value={targetTitle}
                 onChange={(e) => setTargetTitle(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                className="w-full px-3 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                 placeholder="e.g. Senior Full Stack Engineer"
               />
             </div>
@@ -140,18 +140,18 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
                 <select
                   value={currency}
                   onChange={(e) => setCurrency(e.target.value)}
-                  className="px-2.5 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  className="px-2.5 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                 >
-                  <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
-                  <option value="CAD">CAD ($)</option>
+                  <option value="USD" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">USD ($)</option>
+                  <option value="EUR" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">EUR (€)</option>
+                  <option value="GBP" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">GBP (£)</option>
+                  <option value="CAD" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">CAD ($)</option>
                 </select>
                 <input
                   type="number"
                   value={targetSalary}
                   onChange={(e) => setTargetSalary(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  className="w-full px-3 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                 />
               </div>
             </div>
@@ -166,18 +166,18 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
                   type="text"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  className="w-full px-3 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                   placeholder="e.g. London / Remote"
                 />
                 <select
                   value={remotePreference}
                   onChange={(e) => setRemotePreference(e.target.value)}
-                  className="px-2.5 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  className="px-2.5 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                 >
-                  <option value="remote_first">Remote First</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="on_site">On-site</option>
-                  <option value="any">Any Setup</option>
+                  <option value="remote_first" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Remote First</option>
+                  <option value="hybrid" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Hybrid</option>
+                  <option value="on_site" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">On-site</option>
+                  <option value="any" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Any Setup</option>
                 </select>
               </div>
             </div>
@@ -188,12 +188,12 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
               <select
                 value={employmentType}
                 onChange={(e) => setEmploymentType(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                className="w-full px-3 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
               >
-                <option value="full_time">Full-Time Permanent</option>
-                <option value="contract">Contract / Consulting</option>
-                <option value="freelance">Freelance</option>
-                <option value="part_time">Part-Time</option>
+                <option value="full_time" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Full-Time Permanent</option>
+                <option value="contract" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Contract / Consulting</option>
+                <option value="freelance" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Freelance</option>
+                <option value="part_time" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Part-Time</option>
               </select>
             </div>
 
@@ -203,13 +203,13 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
               <select
                 value={seniorityLevel}
                 onChange={(e) => setSeniorityLevel(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                className="w-full px-3 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
               >
-                <option value="junior">Junior (0-2 yrs)</option>
-                <option value="mid">Mid-Level (3-5 yrs)</option>
-                <option value="senior">Senior (5-8 yrs)</option>
-                <option value="lead">Lead / Principal (8+ yrs)</option>
-                <option value="executive">Executive / VP</option>
+                <option value="junior" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Junior (0-2 yrs)</option>
+                <option value="mid" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Mid-Level (3-5 yrs)</option>
+                <option value="senior" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Senior (5-8 yrs)</option>
+                <option value="lead" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Lead / Principal (8+ yrs)</option>
+                <option value="executive" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Executive / VP</option>
               </select>
             </div>
 
@@ -219,12 +219,12 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
               <select
                 value={availability}
                 onChange={(e) => setAvailability(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                className="w-full px-3 py-2 text-sm text-gray-900 dark:text-white bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
               >
-                <option value="immediate">Immediate Start</option>
-                <option value="2_weeks">2 Weeks Notice</option>
-                <option value="1_month">1 Month Notice</option>
-                <option value="exploring">Just Exploring</option>
+                <option value="immediate" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Immediate Start</option>
+                <option value="2_weeks" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">2 Weeks Notice</option>
+                <option value="1_month" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">1 Month Notice</option>
+                <option value="exploring" className="text-gray-900 dark:text-white bg-white dark:bg-gray-800">Just Exploring</option>
               </select>
             </div>
           </div>
@@ -258,7 +258,7 @@ export function CareerPreferencesBar({ initialProfile, onSave }: CareerPreferenc
                   value={newSkill}
                   onChange={(e) => setNewSkill(e.target.value)}
                   placeholder="+ Add skill..."
-                  className="text-xs bg-transparent border-none focus:outline-hidden px-2 py-0.5 text-gray-700 dark:text-gray-300 placeholder-gray-400"
+                  className="text-xs bg-transparent border-none focus:outline-hidden px-2 py-0.5 text-gray-900 dark:text-white placeholder-gray-400"
                 />
               </form>
             </div>

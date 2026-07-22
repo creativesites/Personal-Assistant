@@ -1168,4 +1168,221 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(502).send({ error: 'Failed to run pack' });
     }
   });
+
+  // ── GET /api/documents/public/:token/details — Interactive web page data
+  fastify.get('/api/documents/public/:token/details', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { rows: [doc] } = await db.query(
+      `SELECT d.*, c.display_name as contact_name, c.company as contact_company, c.email as contact_email, c.phone_number as contact_phone
+       FROM documents d
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE d.share_token = $1`,
+      [token]
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows: [bp] } = await db.query(
+      `SELECT company_name, logo_storage_path, address, phone, email, website, tax_id, bank_details, theme_color
+       FROM business_profiles WHERE user_id = $1 LIMIT 1`,
+      [doc.user_id]
+    );
+
+    const { rows: signatures } = await db.query(
+      `SELECT id, signer_name, signer_email, signer_role, signature_type, signature_data, verification_code, document_hash, signed_at
+       FROM document_signatures WHERE document_id = $1 ORDER BY signed_at ASC`,
+      [doc.id]
+    );
+
+    await db.query(
+      `UPDATE documents SET view_count = view_count + 1, viewed_at = COALESCE(viewed_at, NOW()), updated_at = NOW() WHERE id = $1`,
+      [doc.id]
+    );
+
+    return reply.send({
+      id: doc.id,
+      title: doc.title,
+      documentNumber: doc.document_number,
+      documentType: doc.document_type,
+      status: doc.status,
+      currency: doc.currency,
+      subtotalCents: doc.subtotal_cents,
+      discountCents: doc.discount_cents,
+      taxCents: doc.tax_cents,
+      totalCents: doc.total_cents,
+      structuredData: doc.structured_data,
+      expiresAt: doc.expires_at,
+      createdAt: doc.created_at,
+      business: bp || null,
+      contact: {
+        name: doc.contact_name || doc.structured_data?.manualContact?.name || null,
+        company: doc.contact_company || doc.structured_data?.manualContact?.company || null,
+        email: doc.contact_email || doc.structured_data?.manualContact?.email || null,
+        phone: doc.contact_phone || doc.structured_data?.manualContact?.phone || null,
+      },
+      signatures,
+    });
+  });
+
+  // ── POST /api/documents/public/:token/sign — E-Signature Submission
+  fastify.post('/api/documents/public/:token/sign', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const bodySchema = z.object({
+      signerName: z.string().min(1).max(255),
+      signerEmail: z.string().email().optional().or(z.literal('')),
+      signatureType: z.enum(['draw', 'type', 'upload']),
+      signatureData: z.string().min(1),
+    });
+
+    const parsed = bodySchema.parse(request.body);
+
+    const { rows: [doc] } = await db.query(
+      `SELECT id, user_id, document_number, total_cents, created_at, status FROM documents WHERE share_token = $1`,
+      [token]
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const crypto = await import('crypto');
+    const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const verificationCode = `VER-${randomHex}`;
+
+    const hashInput = `${doc.id}:${doc.document_number}:${doc.total_cents}:${doc.created_at}`;
+    const documentHash = crypto.createHash('sha256').update(hashInput).digest('hex');
+
+    const ipAddress = (request.headers['x-forwarded-for'] as string) || request.ip || '127.0.0.1';
+    const userAgent = (request.headers['user-agent'] as string) || 'Browser';
+
+    const { rows: [sig] } = await db.query(
+      `INSERT INTO document_signatures
+         (document_id, signer_name, signer_email, signature_type, signature_data, ip_address, user_agent, verification_code, document_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [doc.id, parsed.signerName, parsed.signerEmail || null, parsed.signatureType, parsed.signatureData, ipAddress, userAgent, verificationCode, documentHash]
+    );
+
+    await db.query(
+      `UPDATE documents SET status = 'accepted', updated_at = NOW() WHERE id = $1`,
+      [doc.id]
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'signed', $2)`,
+      [doc.id, JSON.stringify({ signerName: parsed.signerName, verificationCode, signatureId: sig.id })]
+    );
+
+    try {
+      await renderAndSaveDocument(doc.id, doc.user_id);
+    } catch (err) {
+      fastify.log.error({ err }, 'failed_rerender_pdf_after_signature');
+    }
+
+    return reply.send({
+      success: true,
+      verificationCode,
+      documentHash,
+      signedAt: sig.signed_at,
+    });
+  });
+
+  // ── GET /api/documents/analytics/summary — Financial & Engagement Analytics
+  fastify.get('/api/documents/analytics/summary', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    const { rows: [quoteStats] } = await db.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE document_type IN ('quotation', 'proposal', 'estimate')) as total_quotes,
+         COUNT(*) FILTER (WHERE document_type IN ('quotation', 'proposal', 'estimate') AND status IN ('accepted', 'paid')) as closed_quotes
+       FROM documents
+       WHERE user_id = $1`,
+      [userId]
+    );
+
+    const totalQuotes = parseInt(quoteStats?.total_quotes || '0', 10);
+    const closedQuotes = parseInt(quoteStats?.closed_quotes || '0', 10);
+    const conversionRate = totalQuotes > 0 ? Math.round((closedQuotes / totalQuotes) * 100) : 0;
+
+    const { rows: unpaidDocs } = await db.query(
+      `SELECT total_cents, due_date, status, created_at
+       FROM documents
+       WHERE user_id = $1 AND document_type = 'invoice' AND status NOT IN ('paid', 'cancelled', 'draft')`,
+      [userId]
+    );
+
+    const now = new Date();
+    let currentCents = 0;
+    let days1To30Cents = 0;
+    let days31To60Cents = 0;
+    let days60PlusCents = 0;
+
+    for (const doc of unpaidDocs) {
+      const cents = doc.total_cents || 0;
+      const dueDate = doc.due_date ? new Date(doc.due_date) : new Date(doc.created_at);
+      const diffTime = now.getTime() - dueDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 3600 * 24));
+
+      if (diffDays <= 0) {
+        currentCents += cents;
+      } else if (diffDays <= 30) {
+        days1To30Cents += cents;
+      } else if (diffDays <= 60) {
+        days31To60Cents += cents;
+      } else {
+        days60PlusCents += cents;
+      }
+    }
+
+    const { rows: [paymentStats] } = await db.query(
+      `SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/86400) as avg_days
+       FROM documents
+       WHERE user_id = $1 AND document_type = 'invoice' AND status = 'paid'`,
+      [userId]
+    );
+    const avgDaysToPayment = paymentStats?.avg_days ? Math.round(parseFloat(paymentStats.avg_days) * 10) / 10 : 0;
+
+    const { rows: engagementFeed } = await db.query(
+      `SELECT e.id, e.event_type, e.occurred_at, e.metadata, d.title, d.document_number, d.share_token, c.display_name as contact_name
+       FROM document_events e
+       JOIN documents d ON d.id = e.document_id
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE d.user_id = $1
+       ORDER BY e.occurred_at DESC LIMIT 30`,
+      [userId]
+    );
+
+    return reply.send({
+      conversionRate,
+      totalQuotes,
+      closedQuotes,
+      receivablesAging: {
+        currentCents,
+        days1To30Cents,
+        days31To60Cents,
+        days60PlusCents,
+        totalOutstandingCents: currentCents + days1To30Cents + days31To60Cents + days60PlusCents,
+      },
+      avgDaysToPayment,
+      engagementFeed,
+    });
+  });
+
+  // ── GET /api/documents/:id/analytics — Single Document Engagement
+  fastify.get('/api/documents/:id/analytics', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query(
+      `SELECT id, title, document_number, view_count, viewed_at, status, created_at FROM documents WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows: events } = await db.query(
+      `SELECT id, event_type, occurred_at, metadata FROM document_events WHERE document_id = $1 ORDER BY occurred_at DESC`,
+      [id]
+    );
+
+    return reply.send({
+      document: doc,
+      events,
+    });
+  });
 }
