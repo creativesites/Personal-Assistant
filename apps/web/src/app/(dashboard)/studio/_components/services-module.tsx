@@ -12,6 +12,7 @@ import {
   ListChecks,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
   Users2,
   Wrench,
@@ -108,8 +109,16 @@ export function ServicesModule({ token }: { token: string | undefined }) {
   const [form, setForm] = useState({ ...BLANK_SERVICE_FORM })
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const services = showHidden ? allServices : allServices.filter(p => p.status === 'active')
+  const filteredServices = services.filter(s => {
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase()
+    return (s.name || '').toLowerCase().includes(q) ||
+      (s.category || '').toLowerCase().includes(q) ||
+      (s.description || '').toLowerCase().includes(q)
+  })
 
   function openEdit(svc: Product) {
     setEditingService(svc)
