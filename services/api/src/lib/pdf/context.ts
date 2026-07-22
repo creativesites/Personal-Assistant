@@ -158,6 +158,7 @@ export function buildDocumentContext(
     notes: structured.notes ?? null,
     terms: structured.terms ?? null,
     sections: structured.sections ?? [],
+    structuredData: structured,
   };
 
   const contactContext: ContactContext = contact

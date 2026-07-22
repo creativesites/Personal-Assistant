@@ -40,6 +40,7 @@ export interface DocumentContext {
   notes: string | null;
   terms: string | null;
   sections: { heading: string; body: string }[];
+  structuredData?: Record<string, any>;
 }
 
 export interface ContactContext {

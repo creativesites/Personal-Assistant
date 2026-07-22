@@ -23,6 +23,8 @@ const ClientPdfRenderer = dynamic(
   ) }
 )
 
+import { DynamicDocFields } from '../_components/dynamic-doc-fields'
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type DocType =
@@ -70,6 +72,7 @@ interface FormData {
   // Extras
   notes: string
   terms: string
+  structuredData: Record<string, any>
 }
 
 interface Contact {
@@ -285,10 +288,21 @@ export default function NewDocumentPage() {
     discountRate: 0,
     notes: '',
     terms: 'Payment is due within 30 days of the invoice date.',
+    structuredData: {},
   })
 
   const set = useCallback(<K extends keyof FormData>(key: K, val: FormData[K]) => {
     setForm(f => ({ ...f, [key]: val }))
+  }, [])
+
+  const setStructuredDataField = useCallback((key: string, val: any) => {
+    setForm(f => ({
+      ...f,
+      structuredData: {
+        ...(f.structuredData || {}),
+        [key]: val,
+      },
+    }))
   }, [])
 
   // Load brand profile
@@ -426,6 +440,7 @@ export default function NewDocumentPage() {
       documentType: form.docType,
       currency: form.currency,
       items,
+      structuredData: form.structuredData,
       notes: form.notes || undefined,
       terms: form.terms || undefined,
       dueDate: form.dueDate || undefined,
@@ -886,6 +901,13 @@ export default function NewDocumentPage() {
         {/* ── STEP 3: Details ─────────────────────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-5">
+            {/* Dynamic Type-Specific Fields */}
+            <DynamicDocFields
+              docType={form.docType}
+              values={form.structuredData || {}}
+              onChange={setStructuredDataField}
+            />
+
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
                 <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
