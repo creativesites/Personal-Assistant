@@ -41,7 +41,7 @@ export function DocumentSuggestionCard({
     if (!documentId) return
     setStatus('busy')
     try {
-      await apiClient(`/api/documents/${documentId}/send`, { method: 'POST', token })
+      await apiClient(`/api/documents/${documentId}/send-whatsapp`, { method: 'POST', token })
       setStatus('sent')
     } catch {
       setStatus('generated')

@@ -2839,13 +2839,101 @@ function StudioPageInner() {
     }
   }
 
+  const { addToast } = useToast()
+  const [currentPreset, setCurrentPreset] = useState<string>('retail_ecommerce')
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false)
+  const [isAutoExtractOpen, setIsAutoExtractOpen] = useState(false)
+  const [extractText, setExtractText] = useState('')
+  const [isExtracting, setIsExtracting] = useState(false)
+
+  useEffect(() => {
+    if (!token) return
+    apiClient<{ preset: string }>('/api/studio/preset', { token })
+      .then((data) => {
+        if (data?.preset) setCurrentPreset(data.preset)
+      })
+      .catch(() => {})
+  }, [token])
+
+  const handleSavePreset = async (presetKey: string) => {
+    try {
+      await apiClient('/api/studio/preset', {
+        method: 'PATCH',
+        body: JSON.stringify({ preset: presetKey }),
+        token,
+      })
+      setCurrentPreset(presetKey)
+      setIsPresetModalOpen(false)
+      addToast({ title: 'Industry Preset Updated', description: `Switched business archetype.`, variant: 'success' })
+    } catch (e) {
+      addToast({ title: 'Error', description: 'Failed to update preset', variant: 'error' })
+    }
+  }
+
+  const handleAutoExtract = async () => {
+    if (!extractText.trim()) return
+    setIsExtracting(true)
+    try {
+      const res = await apiClient<{
+        extractedProductsCount: number
+        extractedSuppliersCount: number
+        extractedRulesCount: number
+      }>('/api/studio/auto-extract', {
+        method: 'POST',
+        body: JSON.stringify({ text: extractText }),
+        token,
+      })
+      addToast({
+        title: 'Auto-Extraction Complete',
+        description: `Imported ${res.extractedProductsCount || 0} products, ${res.extractedSuppliersCount || 0} suppliers, and ${res.extractedRulesCount || 0} rules.`,
+        variant: 'success',
+      })
+      setIsAutoExtractOpen(false)
+      setExtractText('')
+    } catch (err) {
+      addToast({ title: 'Extraction Failed', description: 'Could not extract items from text.', variant: 'error' })
+    } finally {
+      setIsExtracting(false)
+    }
+  }
+
+  const PRESETS: Record<string, { label: string; icon: string; desc: string }> = {
+    retail_ecommerce: { label: 'Retail & E-commerce', icon: '🛍️', desc: 'Physical products, SKUs, inventory & POs' },
+    service_agency: { label: 'Service & B2B Agency', icon: '💼', desc: 'Retainers, hourly rates, SLAs & milestones' },
+    hospitality_booking: { label: 'Hospitality & Booking', icon: '🛎️', desc: 'Time slots, availability, deposits & terms' },
+    digital_education: { label: 'Digital & Education', icon: '🎓', desc: 'Courses, digital downloads & access keys' },
+    manufacturing_craft: { label: 'Manufacturing & Crafting', icon: '🛠️', desc: 'Bill of Materials (BOM) & component stock' },
+  }
+
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)] pt-14 pb-14 md:pt-0 md:pb-0">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        <PageHeader
-          title="Business Knowledge Hub"
-          description="Single source of truth for your business data — feeds Zuri's AI intelligence engines."
-        />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <PageHeader
+            title="Business Knowledge Hub"
+            description="Single source of truth for your business data — feeds Zuri's AI intelligence engines."
+          />
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsAutoExtractOpen(true)}
+              className="gap-1.5 text-xs font-semibold"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+              Auto-Extract Data
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsPresetModalOpen(true)}
+              className="gap-1.5 text-xs font-semibold"
+            >
+              <span>{PRESETS[currentPreset]?.icon || '🏢'}</span>
+              <span>{PRESETS[currentPreset]?.label || 'Retail & E-commerce'}</span>
+            </Button>
+          </div>
+        </div>
 
         {/* Module Tab Bar */}
         <div className="sticky top-0 z-10 overflow-x-auto rounded-2xl border border-slate-100 bg-white/90 backdrop-blur-xl p-2 shadow-sm">
@@ -2873,9 +2961,57 @@ function StudioPageInner() {
         {/* Active Module */}
         <div>{renderModule()}</div>
       </div>
+
+      {/* Preset Modal */}
+      <Modal open={isPresetModalOpen} onClose={() => setIsPresetModalOpen(false)} title="Select Industry Preset">
+        <div className="space-y-3 p-1">
+          <p className="text-xs text-gray-500 mb-2">
+            Choose your primary business model archetype to tailor Studio's configuration and AI context.
+          </p>
+          {Object.entries(PRESETS).map(([key, info]) => (
+            <button
+              key={key}
+              onClick={() => handleSavePreset(key)}
+              className={`w-full text-left p-3 rounded-xl border transition-all flex items-start gap-3 ${
+                currentPreset === key ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600' : 'border-gray-200 hover:border-gray-300 bg-white'
+              }`}
+            >
+              <span className="text-2xl">{info.icon}</span>
+              <div>
+                <p className="text-sm font-bold text-gray-900">{info.label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{info.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </Modal>
+
+      {/* Auto-Extract Modal */}
+      <Modal open={isAutoExtractOpen} onClose={() => setIsAutoExtractOpen(false)} title="Auto-Extract Business Data">
+        <div className="space-y-4 p-1">
+          <p className="text-xs text-gray-600">
+            Paste price lists, service descriptions, supplier policies, or operational notes. AI will extract structured products, suppliers, and business rules automatically.
+          </p>
+          <textarea
+            value={extractText}
+            onChange={(e) => setExtractText(e.target.value)}
+            placeholder="e.g. Standard iPhone 15 is $999. Supplier TechDistro delivers in 3 days. Refund rule: 14 days max with receipt..."
+            className="w-full h-36 p-3 text-xs border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setIsAutoExtractOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleAutoExtract} disabled={isExtracting || !extractText.trim()}>
+              {isExtracting ? 'Extracting...' : 'Extract & Import'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
+
 
 export default function StudioPage() {
   return (

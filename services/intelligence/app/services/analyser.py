@@ -321,6 +321,61 @@ About {contact_name} ({relationship_type}):
 
         log.info('message_analysed', message_id=message_id, sentiment=sentiment)
 
+        # ── Auto-Quote Detection Engine ──────────────────────────────────────────
+        body_lower = body.lower()
+        if sender_type == 'contact' and any(kw in body_lower for kw in ['quote', 'quotation', 'pricing', 'how much', 'price', 'cost']):
+            try:
+                from .document_generator import assign_document_number, compute_totals
+                async with pool.acquire() as conn:
+                    cat_items = await conn.fetch(
+                        "SELECT id, name, description, price, selling_price, currency FROM products WHERE user_id = $1 AND status != 'deleted' ORDER BY updated_at DESC LIMIT 5",
+                        user_id,
+                    )
+                    if cat_items:
+                        items = [{
+                            'productId': str(item['id']),
+                            'description': item['name'] + (f" — {item['description']}" if item['description'] else ''),
+                            'quantity': 1,
+                            'unitPriceCents': round(float(item['selling_price'] or item['price'] or 0) * 100),
+                            'discountPct': 0,
+                            'taxPct': 0,
+                        } for item in cat_items[:3]]
+                        
+                        comp_items, subtotal_c, disc_c, tax_c, total_c = compute_totals(items)
+                        doc_num = await assign_document_number(user_id, 'quotation')
+                        doc_title = f"Quotation {doc_num}"
+                        struct_data = {
+                            'items': comp_items,
+                            'sections': [],
+                            'notes': 'Prepared automatically from your product catalog.',
+                            'terms': 'Standard terms apply.',
+                            'validUntil': None,
+                            'dueDate': None,
+                        }
+                        
+                        doc_row = await conn.fetchrow(
+                            """INSERT INTO documents
+                                 (user_id, contact_id, document_type, document_category, document_number, title,
+                                  status, structured_data, subtotal_cents, discount_cents, tax_cents, total_cents,
+                                  requested_by, ai_generated, ai_reasoning)
+                               VALUES ($1,$2,'quotation','sales',$3,$4,'draft',$5,$6,$7,$8,$9,'ai',true,'Auto-detected quotation request in WhatsApp message')
+                               RETURNING id""",
+                            user_id, contact_id, doc_num, doc_title, json.dumps(struct_data),
+                            subtotal_c, disc_c, tax_c, total_c,
+                        )
+                        
+                        await conn.execute(
+                            """INSERT INTO proactive_queue
+                                 (user_id, contact_id, suggestion_type, priority, suggested_action, rationale, status, metadata)
+                               VALUES ($1, $2, 'quote_draft_ready', 1, $3, $4, 'pending', $5::jsonb)""",
+                            user_id, contact_id,
+                            f"Approve & Send Quotation {doc_num}",
+                            f"Contact requested pricing. Auto-prepared quote from catalog.",
+                            json.dumps({'documentId': str(doc_row['id']), 'documentNumber': doc_num, 'totalCents': total_c}),
+                        )
+            except Exception as exc:
+                log.warning('auto_quote_generation_failed', error=str(exc))
+
         suggestions_dict = None
         if generate_reply:
             response_json = self._parse_xml_tag(raw_response, 'response')

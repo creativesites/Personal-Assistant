@@ -997,4 +997,77 @@ export async function productsRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(201).send({ ok: true })
     },
   )
+
+  // Bill of Materials (BOM) Endpoints — Phase 3
+  fastify.get(
+    '/api/products/:id/bom',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const res = await db.query(
+        `SELECT bom.id, bom.component_product_id, p.name AS component_name, p.selling_price, p.purchase_cost,
+                bom.quantity_required, bom.wastage_pct, bom.notes
+         FROM product_bom_components bom
+         JOIN products p ON p.id = bom.component_product_id
+         WHERE bom.parent_product_id = $1 AND bom.user_id = $2
+         ORDER BY p.name ASC`,
+        [id, userId],
+      )
+
+      return reply.send({ components: res.rows })
+    },
+  )
+
+  fastify.post(
+    '/api/products/:id/bom',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const { componentProductId, quantityRequired, wastagePct, notes } = request.body as {
+        componentProductId: string
+        quantityRequired?: number
+        wastagePct?: number
+        notes?: string
+      }
+
+      if (!componentProductId) {
+        return reply.status(400).send({ error: 'componentProductId is required' })
+      }
+
+      const res = await db.query(
+        `INSERT INTO product_bom_components (user_id, parent_product_id, component_product_id, quantity_required, wastage_pct, notes)
+         VALUES ($1, $2, $3, COALESCE($4, 1.0), COALESCE($5, 0.0), $6)
+         ON CONFLICT (parent_product_id, component_product_id) DO UPDATE SET
+           quantity_required = EXCLUDED.quantity_required,
+           wastage_pct = EXCLUDED.wastage_pct,
+           notes = EXCLUDED.notes,
+           updated_at = NOW()
+         RETURNING *`,
+        [userId, id, componentProductId, quantityRequired, wastagePct, notes || null],
+      )
+
+      return reply.status(201).send({ component: res.rows[0] })
+    },
+  )
+
+  fastify.delete(
+    '/api/products/:id/bom/:componentId',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, componentId } = request.params as { id: string; componentId: string }
+
+      await db.query(
+        `DELETE FROM product_bom_components
+         WHERE id = $1 AND parent_product_id = $2 AND user_id = $3`,
+        [componentId, id, userId],
+      )
+
+      return reply.send({ success: true })
+    },
+  )
 }
+

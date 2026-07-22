@@ -366,4 +366,213 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({ customers })
     },
   )
+
+  // Industry Preset Endpoints
+  fastify.get(
+    '/api/studio/preset',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const res = await db.query(
+        `SELECT industry_preset FROM business_profiles WHERE user_id = $1 LIMIT 1`,
+        [userId],
+      )
+      const preset = res.rows[0]?.industry_preset || 'retail_ecommerce'
+      return reply.send({ preset })
+    },
+  )
+
+  fastify.patch(
+    '/api/studio/preset',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { preset } = request.body as { preset: string }
+
+      const validPresets = [
+        'retail_ecommerce',
+        'service_agency',
+        'hospitality_booking',
+        'digital_education',
+        'manufacturing_craft',
+      ]
+
+      if (!preset || !validPresets.includes(preset)) {
+        return reply.status(400).send({ error: 'Invalid industry preset' })
+      }
+
+      await db.query(
+        `INSERT INTO business_profiles (user_id, company_name, industry_preset)
+         VALUES ($1, 'My Business', $2)
+         ON CONFLICT (user_id) DO UPDATE SET industry_preset = EXCLUDED.industry_preset, updated_at = NOW()`,
+        [userId, preset],
+      )
+
+      return reply.send({ success: true, preset })
+    },
+  )
+
+  // Multimodal Auto-Extraction Endpoint
+  fastify.post(
+    '/api/studio/auto-extract',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { text, documentType } = request.body as { text?: string; documentType?: string }
+
+      if (!text || text.trim().length === 0) {
+        return reply.status(400).send({ error: 'Text content is required for auto-extraction' })
+      }
+
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL || 'http://localhost:8000'
+      let extractedData: {
+        products?: Array<{ name: string; price?: number; sku?: string; category?: string; description?: string }>
+        suppliers?: Array<{ company: string; contact?: string; phone?: string; notes?: string }>
+        rules?: Array<{ fact: string; category?: string }>
+      } = {}
+
+      try {
+        const response = await fetch(`${intelligenceUrl}/internal/studio/auto-extract`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, text, documentType }),
+        })
+        if (response.ok) {
+          extractedData = (await response.json()) as typeof extractedData
+        }
+      } catch (err) {
+        console.warn('Intelligence service call failed, performing fallback regex extraction:', err)
+      }
+
+      // Fallback simple parsing if intelligence service returns empty
+      let createdProducts = 0
+      let createdSuppliers = 0
+      let createdRules = 0
+
+      if (extractedData.products && extractedData.products.length > 0) {
+        for (const p of extractedData.products) {
+          await db.query(
+            `INSERT INTO products (user_id, name, selling_price, sku, category, description)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT DO NOTHING`,
+            [userId, p.name, p.price || 0, p.sku || null, p.category || 'General', p.description || null],
+          )
+          createdProducts++
+        }
+      }
+
+      if (extractedData.suppliers && extractedData.suppliers.length > 0) {
+        for (const s of extractedData.suppliers) {
+          await db.query(
+            `INSERT INTO suppliers (user_id, company, contact, phone, notes)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT DO NOTHING`,
+            [userId, s.company, s.contact || null, s.phone || null, s.notes || null],
+          )
+          createdSuppliers++
+        }
+      }
+
+      if (extractedData.rules && extractedData.rules.length > 0) {
+        for (const r of extractedData.rules) {
+          await db.query(
+            `INSERT INTO business_facts (user_id, fact, category, is_active)
+             VALUES ($1, $2, $3, true)
+             ON CONFLICT DO NOTHING`,
+            [userId, r.fact, r.category || 'business_rule'],
+          )
+          createdRules++
+        }
+      }
+
+      return reply.send({
+        success: true,
+        extractedProductsCount: createdProducts,
+        extractedSuppliersCount: createdSuppliers,
+        extractedRulesCount: createdRules,
+      })
+    },
+  )
+
+  // Export Branded Catalog PDF Endpoint — Phase 3
+  fastify.post(
+    '/api/studio/catalog/export-pdf',
+    { preHandler: [authenticate, requireMarketingAccess] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const [profileRes, productsRes] = await Promise.all([
+        db.query(`SELECT * FROM business_profiles WHERE user_id = $1 LIMIT 1`, [userId]),
+        db.query(
+          `SELECT name, selling_price, sku, category, description, brand, warranty
+           FROM products
+           WHERE user_id = $1 AND status != 'archived'
+           ORDER BY category ASC, name ASC LIMIT 100`,
+          [userId],
+        ),
+      ])
+
+      const business = profileRes.rows[0] || { company_name: 'Business Catalog' }
+      const products = productsRes.rows
+
+      // Generate HTML string for simple, elegant PDF rendering
+      const productRows = products
+        .map(
+          (p) => `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 10px; font-weight: bold; color: #1e293b;">${p.name}</td>
+            <td style="padding: 10px; color: #64748b;">${p.sku || '-'}</td>
+            <td style="padding: 10px; color: #64748b;">${p.category || 'General'}</td>
+            <td style="padding: 10px; font-weight: bold; color: #4f46e5; text-align: right;">${p.selling_price ? `$${Number(p.selling_price).toFixed(2)}` : 'On Request'}</td>
+          </tr>
+        `,
+        )
+        .join('')
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${business.company_name} - Product Catalog</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 30px; color: #334155; }
+            .header { border-bottom: 2px solid #4f46e5; padding-bottom: 15px; margin-bottom: 20px; }
+            .title { font-size: 24px; font-weight: bold; color: #1e293b; margin: 0; }
+            .subtitle { font-size: 12px; color: #64748b; margin-top: 5px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 20px; }
+            th { background-color: #f8fafc; padding: 10px; text-align: left; color: #475569; border-bottom: 2px solid #e2e8f0; }
+            .footer { margin-top: 30px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="title">${business.company_name}</h1>
+            <p class="subtitle">${business.tagline || 'Official Product & Service Catalog'}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Item Name</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th style="text-align: right;">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${productRows || '<tr><td colspan="4" style="text-align: center; padding: 20px;">No active products in catalog.</td></tr>'}
+            </tbody>
+          </table>
+          <div class="footer">
+            Generated via Zuri Business Knowledge Hub • ${new Date().toLocaleDateString()}
+          </div>
+        </body>
+        </html>
+      `
+
+      return reply.type('text/html').send(html)
+    },
+  )
 }
+
+

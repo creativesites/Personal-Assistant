@@ -1458,6 +1458,14 @@ export function IntelPanel({
                           <textarea autoFocus rows={3} value={editedText} onChange={e => onEditedTextChange(e.target.value)}
                             className="w-full text-xs leading-relaxed bg-white/60 border border-current/20 rounded-lg p-2 resize-none focus:outline-none mb-2" />
                         ) : <p className="text-xs leading-relaxed mb-1">{s.text}</p>}
+                        {(s as any).policyViolations && (s as any).policyViolations.length > 0 && (
+                          <div className="my-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-1.5 text-amber-800 text-[10px]">
+                            <AlertTriangle size={12} className="shrink-0 mt-0.5 text-amber-600" />
+                            <div>
+                              <span className="font-bold">Rule Alert:</span> {(s as any).policyViolations.join(', ')}
+                            </div>
+                          </div>
+                        )}
                         {editingSuggId !== s.id && s.reasoning && <p className="text-[10px] opacity-50 leading-relaxed mb-2">{s.reasoning}</p>}
                         <div className="flex gap-1.5 mt-2">
                           <button onClick={() => onApprove(s.id, editingSuggId === s.id ? editedText : undefined)}

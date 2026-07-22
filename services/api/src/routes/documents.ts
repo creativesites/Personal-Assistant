@@ -679,6 +679,98 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.code(201).send({ document: formatDocument(doc) });
   });
 
+  // ── POST /api/documents/:id/send-whatsapp — 1-click WhatsApp dispatch.
+  // Renders PDF, creates or reuses public share token, and dispatches the link.
+  fastify.post('/api/documents/:id/send-whatsapp', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [doc] } = await db.query(
+      `SELECT d.*, c.phone_number, c.custom_name, c.display_name, c.whatsapp_jid
+       FROM documents d
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE d.id = $1 AND d.user_id = $2`,
+      [id, userId],
+    );
+
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    // 1. Render PDF if needed
+    try {
+      await renderAndSaveDocument(id, userId);
+    } catch (err) {
+      fastify.log.warn({ err }, 'send_whatsapp_render_warning');
+    }
+
+    // 2. Find or create public share token
+    let shareToken = '';
+    const { rows: [existingShare] } = await db.query(
+      `SELECT share_token FROM document_shares WHERE document_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
+      [id],
+    );
+
+    if (existingShare) {
+      shareToken = existingShare.share_token;
+    } else {
+      const { rows: [newShare] } = await db.query(
+        `INSERT INTO document_shares (document_id, created_by, is_active)
+         VALUES ($1, $2, true) RETURNING share_token`,
+        [id, userId],
+      );
+      shareToken = newShare?.share_token || '';
+    }
+
+    const baseUrl = process.env.CORS_ORIGIN || 'https://zuri-personal-assistant-delta.vercel.app';
+    const shareUrl = `${baseUrl}/shared/${shareToken}`;
+    const totalFmt = `${doc.currency || 'USD'} ${(Number(doc.total_cents || 0) / 100).toFixed(2)}`;
+    const docLabel = (doc.document_type || 'document').toUpperCase();
+
+    const recipientName = doc.custom_name || doc.display_name || 'there';
+    const messageText = `Hi ${recipientName},\n\nHere is your *${docLabel}* (${doc.document_number || ''}) for *${totalFmt}*:\n\n📄 View, accept, or download here:\n${shareUrl}\n\nPlease let us know if you have any questions!`;
+
+    // 3. Dispatch WhatsApp message
+    const waServiceUrl = process.env.WHATSAPP_SERVICE_URL || config.WHATSAPP_SERVICE_URL;
+    const recipient = doc.whatsapp_jid || doc.phone_number || '';
+
+    if (recipient) {
+      try {
+        await fetch(`${waServiceUrl}/api/whatsapp/send-message`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': config.INTERNAL_API_SECRET || '',
+          },
+          body: JSON.stringify({
+            userId,
+            recipient,
+            message: messageText,
+          }),
+        });
+      } catch (err) {
+        fastify.log.error({ err }, 'whatsapp_dispatch_error');
+      }
+    }
+
+    // 4. Update document status to 'sent'
+    await db.query(
+      `UPDATE documents SET status = 'sent', updated_at = NOW() WHERE id = $1`,
+      [id],
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'sent_whatsapp', $2)`,
+      [id, JSON.stringify({ recipient, shareToken, shareUrl })],
+    );
+
+    return reply.send({
+      ok: true,
+      documentId: id,
+      shareToken,
+      shareUrl,
+      messageText,
+    });
+  });
+
   // ── POST /api/documents/:id/quality-check — advisory only, never blocks
   // sending. See plan §15 Phase 2.
   fastify.post('/api/documents/:id/quality-check', { preHandler: authenticate }, async (request, reply) => {

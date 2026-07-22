@@ -124,9 +124,20 @@ class ReplyGenerator:
                         scope_reason,
                     )
 
+        # Neural Layer Phase 2: Policy Compliance Check
+        from ..neural.policy_enforcer import PolicyEnforcer
+        enforcer = PolicyEnforcer()
+        policy_eval = await enforcer.evaluate_reply(
+            user_id, selected['text'] if inserted_suggestions else '', contact_id
+        )
+
         await publish_event(
             f'suggestion:ready:{user_id}',
-            json.dumps({'messageId': message_id, 'count': len(suggestions_model.suggestions)}),
+            json.dumps({
+                'messageId': message_id,
+                'count': len(suggestions_model.suggestions),
+                'policyViolations': policy_eval.get('violations', [])
+            }),
         )
 
         return inserted_suggestions

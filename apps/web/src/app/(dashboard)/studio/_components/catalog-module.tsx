@@ -17,6 +17,7 @@ import {
   Image,
   Archive,
   Ban,
+  FileText,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -818,6 +819,25 @@ export function CatalogModule({ token }: { token: string | undefined }) {
               {showSecondary ? 'Hide' : 'Show'} secondary ({secondaryCount})
             </Button>
           )}
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/studio/catalog/export-pdf', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                })
+                const html = await res.text()
+                const win = window.open('', '_blank')
+                if (win) win.document.write(html)
+              } catch (e) {
+                addToast({ variant: 'error', title: 'Failed to export catalog PDF' })
+              }
+            }}
+          >
+            <FileText className="w-4 h-4 mr-1.5" />
+            PDF Catalog
+          </Button>
           <Button variant="secondary" onClick={() => setShowFamilies(true)}>
             <Layers className="w-4 h-4 mr-1.5" />
             Product Types

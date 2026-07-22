@@ -311,3 +311,47 @@ async def studio_ask(body: StudioAskRequest):
         system_suffix=ZURI_ACTION_INSTRUCTIONS,
     )
     return {'answer': result}
+
+
+class AutoExtractRequest(BaseModel):
+    user_id: str
+    text: str
+    documentType: Optional[str] = None
+
+
+@studio_router.post('/auto-extract')
+async def studio_auto_extract(body: AutoExtractRequest):
+    import json
+    ai = get_ai_client()
+    prompt = (
+        f"You are an ERP document parser. Extract catalog items (products/services), suppliers, and operational business rules "
+        f"from the following text into valid JSON only (no markdown, no backticks).\n\n"
+        f"Schema:\n"
+        f"{{\n"
+        f'  "products": [{{"name": "string", "price": 0.0, "sku": "string", "category": "string", "description": "string"}}],\n'
+        f'  "suppliers": [{{"company": "string", "contact": "string", "phone": "string", "notes": "string"}}],\n'
+        f'  "rules": [{{"fact": "string", "category": "business_rule"}}]\n'
+        f"}}\n\n"
+        f"Text to parse:\n{body.text[:4000]}"
+    )
+
+    try:
+        raw_resp = await ai.complete_text([
+            {'role': 'system', 'content': 'Extract structured JSON only.'},
+            {'role': 'user', 'content': prompt}
+        ], service='intelligence', feature='auto_extract', user_id=body.user_id)
+
+        clean_resp = raw_resp.strip()
+        if clean_resp.startswith('```'):
+            lines = clean_resp.splitlines()
+            clean_resp = '\n'.join([l for l in lines if not l.startswith('```')])
+
+        data = json.loads(clean_resp)
+        return {
+            'products': data.get('products', []),
+            'suppliers': data.get('suppliers', []),
+            'rules': data.get('rules', [])
+        }
+    except Exception as e:
+        return {'products': [], 'suppliers': [], 'rules': []}
+
