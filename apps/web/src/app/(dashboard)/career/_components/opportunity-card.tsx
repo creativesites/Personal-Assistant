@@ -38,6 +38,7 @@ export interface CareerOpportunity {
   } | null
   applicationUrl?: string | null
   projectId: string | null
+  confidence?: number | null
   createdAt: string
 }
 
