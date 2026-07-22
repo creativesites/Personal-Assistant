@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, FolderKanban, Plus, Trash2, Loader2, FileText, Check, Circle, Ban, Target, X,
-  Flag, Clock, Play, Square, Wallet,
+  Flag, Clock, Play, Square, Wallet, Briefcase,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
