@@ -128,6 +128,7 @@ function projectApiShape(r: any) {
     pendingQuotationCount: r.pending_quotation_count !== undefined ? Number(r.pending_quotation_count) : undefined,
     estimatedBudgetCents: r.estimated_budget_cents !== null && r.estimated_budget_cents !== undefined ? Number(r.estimated_budget_cents) : null,
     budgetCurrency: r.budget_currency ?? null,
+    careerOpportunityId: r.career_opportunity_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
