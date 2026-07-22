@@ -90,7 +90,7 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
               )}
               {activeTab === 'intelligence' && token && (
                 <div className="space-y-6">
-                  {opp.matchBreakdown && <ResumeMatchPanel breakdown={opp.matchBreakdown} />}
+                  {opp.matchBreakdown && <ResumeMatchPanel opportunityId={opp.id} token={token} />}
                   <CompanyIntelligencePanel opp={opp} token={token} />
                 </div>
               )}
