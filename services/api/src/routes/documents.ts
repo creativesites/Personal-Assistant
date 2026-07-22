@@ -566,7 +566,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     const instLower = body.instruction.toLowerCase();
     const matchingProducts = catalogProducts.filter((p) => {
       const name = (p.name || '').toLowerCase();
-      return instLower.includes(name) || name.split(' ').some((word) => word.length > 3 && instLower.includes(word));
+      return instLower.includes(name) || name.split(' ').some((word: string) => word.length > 3 && instLower.includes(word));
     });
 
     const productsToUse = matchingProducts.length > 0 ? matchingProducts : (catalogProducts.length > 0 && (instLower.includes('quotation') || instLower.includes('invoice') || instLower.includes('order') || instLower.includes('catalog')) ? catalogProducts.slice(0, 3) : []);
