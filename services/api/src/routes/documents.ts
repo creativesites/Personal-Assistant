@@ -554,45 +554,80 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       projectId: z.string().uuid().optional(),
     }).parse(request.body);
 
-    // Membership Platform Phase 1 — same atomic try_consume_credit primitive
-    // credits.py uses for message analysis/reply generation, mirrored here in
-    // Node since this route already owns the Postgres connection and the
-    // synchronous HTTP call to intelligence happens right below (no need for
-    // a new Python round-trip just to check a counter).
-    const { rows: [creditRow] } = await db.query(
-      `UPDATE subscriptions SET documents_remaining_today = documents_remaining_today - 1
-       WHERE user_id = $1 AND status IN ('active', 'trialing') AND documents_remaining_today > 0
-       RETURNING id`,
+    // 1. Data-first check: if catalog products exist in user's database, use them directly
+    const { rows: catalogProducts } = await db.query(
+      `SELECT id, name, description, price, selling_price, currency
+       FROM products
+       WHERE user_id = $1 AND status != 'deleted'
+       ORDER BY updated_at DESC LIMIT 50`,
       [userId],
     );
-    if (!creditRow) {
-      return reply.code(402).send({ error: 'Daily document generation limit reached. Upgrade for unlimited documents.' });
-    }
 
-    const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+    const instLower = body.instruction.toLowerCase();
+    const matchingProducts = catalogProducts.filter((p) => {
+      const name = (p.name || '').toLowerCase();
+      return instLower.includes(name) || name.split(' ').some((word) => word.length > 3 && instLower.includes(word));
+    });
+
+    const productsToUse = matchingProducts.length > 0 ? matchingProducts : (catalogProducts.length > 0 && (instLower.includes('quotation') || instLower.includes('invoice') || instLower.includes('order') || instLower.includes('catalog')) ? catalogProducts.slice(0, 3) : []);
+
     let generated: {
       items: z.infer<typeof lineItemSchema>[]; sections: { heading: string; body: string }[];
       notes: string; terms: string; validUntil: string | null; dueDate: string | null;
       reasoning: string; insights: { key: string; value: string; confidence?: number }[];
     };
-    try {
-      const res = await fetch(`${intelligenceUrl}/internal/documents/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId, contact_id: body.contactId,
-          document_type: body.documentType, instruction: body.instruction,
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text();
-        fastify.log.error({ errText }, 'document_ai_generate_failed');
+
+    if (productsToUse.length > 0) {
+      // Deterministic data generation from catalog
+      generated = {
+        items: productsToUse.map((p) => ({
+          productId: p.id,
+          description: p.name + (p.description ? ` — ${p.description}` : ''),
+          quantity: 1,
+          unitPriceCents: Math.round(Number(p.selling_price ?? p.price ?? 0) * 100),
+          taxPct: 0,
+          discountPct: 0,
+        })),
+        sections: [],
+        notes: 'Generated from catalog products.',
+        terms: 'Standard terms apply.',
+        validUntil: null,
+        dueDate: null,
+        reasoning: 'Data-driven deterministic document generation from catalog.',
+        insights: [],
+      };
+    } else {
+      // Membership Platform Phase 1 — consume credit when calling AI
+      const { rows: [creditRow] } = await db.query(
+        `UPDATE subscriptions SET documents_remaining_today = documents_remaining_today - 1
+         WHERE user_id = $1 AND status IN ('active', 'trialing') AND documents_remaining_today > 0
+         RETURNING id`,
+        [userId],
+      );
+      if (!creditRow) {
+        return reply.code(402).send({ error: 'Daily document generation limit reached. Upgrade for unlimited documents.' });
+      }
+
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL;
+      try {
+        const res = await fetch(`${intelligenceUrl}/internal/documents/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: userId, contact_id: body.contactId,
+            document_type: body.documentType, instruction: body.instruction,
+          }),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          fastify.log.error({ errText }, 'document_ai_generate_failed');
+          return reply.code(502).send({ error: 'Failed to generate document data' });
+        }
+        generated = await res.json() as typeof generated;
+      } catch (err) {
+        fastify.log.error({ err }, 'document_ai_generate_error');
         return reply.code(502).send({ error: 'Failed to generate document data' });
       }
-      generated = await res.json() as typeof generated;
-    } catch (err) {
-      fastify.log.error({ err }, 'document_ai_generate_error');
-      return reply.code(502).send({ error: 'Failed to generate document data' });
     }
 
     const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(generated.items);
