@@ -111,6 +111,7 @@ export default function InboxPage() {
   const [editedText, setEditedText] = useState('')
   const [isOnline, setIsOnline] = useState(true)
   const [promises, setPromises] = useState<ContactPromise[]>([])
+  const [dismissedCardIds, setDismissedCardIds] = useState<string[]>([])
 
   // Presence map state
   const [presenceMap, setPresenceMap] = useState<Record<string, { status: string; lastSeenAt: string | null }>>({})
@@ -634,7 +635,7 @@ export default function InboxPage() {
     // wrong name/avatar before the new one loads.
     setContact(null); setContactDetail(null); setMessages([])
     setLoadingMsgs(true); setThreadError(false); setMobileView('thread')
-    setDraft(''); setAiTab('overview'); setContextData(null); setPromises([])
+    setDraft(''); setAiTab('overview'); setContextData(null); setPromises([]); setDismissedCardIds([])
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: 0 } : c))
     if (!token) return
     try {
@@ -1008,13 +1009,154 @@ export default function InboxPage() {
   const currentPriority = selectedConv?.aiPriority ? AI_PRIORITY[selectedConv.aiPriority] : null
   const CurrentPIcon = currentPriority?.icon ?? null
 
-  const timelineInsights: AIInsight[] = []
-  if (contextData?.buyingSignals?.length) {
-    timelineInsights.push({ type: 'opportunity', text: contextData.buyingSignals[0] })
-  }
-  if (contextData?.dominantSentiment === 'frustrated' || contextData?.dominantSentiment === 'angry') {
-    timelineInsights.push({ type: 'alert', text: `Sentiment shift detected — consider a more empathetic tone` })
-  }
+  const timelineInsights = useMemo(() => {
+    const cards: AIInsight[] = []
+    const insights = contactDetail?.insights || []
+
+    const OBSERVATION_KEYS = ['location', 'life', 'job', 'work', 'career', 'city', 'moved', 'relocat', 'home', 'family', 'live', 'living', 'address', 'kitwe', 'lusaka', 'ndola', 'town', 'country']
+    const OPPORTUNITY_KEYS = ['price', 'product', 'wholesale', 'quote', 'catalogue', 'catalog', 'buy', 'order', 'cost', 'discount', 'bulk', 'pricing', 'inventory', 'stock', 'rate']
+    const ALERT_KEYS = ['sentiment', 'frustration', 'dissatisfied', 'angry', 'complaint', 'upset', 'friction', 'issue', 'delay', 'risk', 'churn', 'late', 'bad']
+
+    // 1. Observation cards (location/life/job keys)
+    const obsInsights = insights.filter(i =>
+      OBSERVATION_KEYS.some(k => i.key.toLowerCase().includes(k) || i.value.toLowerCase().includes(k))
+    )
+    obsInsights.forEach((ins, idx) => {
+      const cardId = `obs-${ins.key}-${idx}`
+      if (dismissedCardIds.includes(cardId)) return
+
+      const text = ins.value.toLowerCase().includes('mov') || ins.key.toLowerCase().includes('location')
+        ? `Customer mentioned moving to ${ins.value}. Save to contact?`
+        : `Customer mentioned ${ins.value}. Save to contact?`
+
+      cards.push({
+        id: cardId,
+        type: 'observation',
+        title: 'Observation',
+        text,
+        confidence: ins.confidence || 0.85,
+        supportingText: ins.supportingText,
+        actionLabel: 'Save to Contact',
+        actionType: 'save_contact',
+      })
+    })
+
+    // 2. Opportunity cards (price/product/wholesale keys)
+    const oppInsights = insights.filter(i =>
+      OPPORTUNITY_KEYS.some(k => i.key.toLowerCase().includes(k) || i.value.toLowerCase().includes(k))
+    )
+    oppInsights.forEach((ins, idx) => {
+      const cardId = `opp-${ins.key}-${idx}`
+      if (dismissedCardIds.includes(cardId)) return
+
+      const isWholesale = ins.key.toLowerCase().includes('wholesale') || ins.value.toLowerCase().includes('wholesale') || ins.value.toLowerCase().includes('pric')
+      const text = isWholesale
+        ? `Asked about wholesale pricing. You've never sent your catalogue.`
+        : ins.value
+
+      cards.push({
+        id: cardId,
+        type: 'opportunity',
+        title: 'Opportunity Detected',
+        text,
+        confidence: ins.confidence || 0.88,
+        supportingText: ins.supportingText,
+        actionLabel: 'Send Catalogue',
+        actionType: 'send_catalogue',
+        actionDraftText: `Hi ${contactDetail?.name?.split(' ')[0] || 'there'}! Here is our product catalogue and wholesale pricing details: https://catalogue.zuri.app/wholesale. Let me know if you have any questions!`,
+      })
+    })
+
+    // Fallback Opportunity from contextData buyingSignals if no insight matched
+    if (oppInsights.length === 0 && contextData?.buyingSignals?.length) {
+      const cardId = `opp-buying-signal`
+      if (!dismissedCardIds.includes(cardId)) {
+        cards.push({
+          id: cardId,
+          type: 'opportunity',
+          title: 'Opportunity Detected',
+          text: contextData.buyingSignals[0],
+          confidence: 0.85,
+          actionLabel: 'Send Catalogue',
+          actionType: 'send_catalogue',
+          actionDraftText: `Hi! Thank you for asking about our products and pricing. Here is our full catalogue: https://catalogue.zuri.app/latest`,
+        })
+      }
+    }
+
+    // 3. Alert cards (confidence > 0.8, sentiment keys)
+    const alertInsights = insights.filter(i =>
+      (i.confidence > 0.8 || i.confidence === undefined) &&
+      ALERT_KEYS.some(k => i.key.toLowerCase().includes(k) || i.value.toLowerCase().includes(k))
+    )
+    alertInsights.forEach((ins, idx) => {
+      const cardId = `alert-${ins.key}-${idx}`
+      if (dismissedCardIds.includes(cardId)) return
+
+      const reasons = ins.supportingText
+        ? ins.supportingText.split(/[\n;.]+/).map(r => r.trim()).filter(Boolean)
+        : ['Customer tone indicates frustration or dissatisfaction', 'Sentiment confidence > 80%']
+
+      cards.push({
+        id: cardId,
+        type: 'alert',
+        title: 'Frustration Alert',
+        text: ins.value.length > 5 ? ins.value : `Customer frustration detected in recent messages (${Math.round((ins.confidence || 0.85) * 100)}% confidence).`,
+        confidence: ins.confidence || 0.85,
+        reasons,
+        actionLabel: 'Draft Apology',
+        actionType: 'draft_apology',
+        actionDraftText: `I completely understand your frustration and apologize for the inconvenience. Let me review your request immediately and resolve this for you.`,
+      })
+    })
+
+    // Fallback Alert if dominantSentiment is frustrated/angry
+    if (alertInsights.length === 0 && (contextData?.dominantSentiment === 'frustrated' || contextData?.dominantSentiment === 'angry')) {
+      const cardId = `alert-sentiment-shift`
+      if (!dismissedCardIds.includes(cardId)) {
+        cards.push({
+          id: cardId,
+          type: 'alert',
+          title: 'Frustration Alert',
+          text: 'Customer tone indicates frustration in recent exchange. Immediate empathetic response recommended.',
+          confidence: 0.87,
+          reasons: [
+            `Dominant sentiment classified as ${contextData.dominantSentiment}`,
+            'Customer awaiting resolution or update',
+          ],
+          actionLabel: 'Draft Apology',
+          actionType: 'draft_apology',
+          actionDraftText: `I sincerely apologize for the friction here. I'm prioritizing your issue right now and will update you in just a moment.`,
+        })
+      }
+    }
+
+    return cards
+  }, [contactDetail, contextData, dismissedCardIds])
+
+  const handleCardAction = useCallback((insight: AIInsight) => {
+    if (insight.actionType === 'send_catalogue' || insight.actionType === 'draft_apology') {
+      const text = insight.actionDraftText || (insight.actionType === 'send_catalogue'
+        ? `Hi! Here is our product catalogue and wholesale price list: https://catalogue.zuri.app.`
+        : `I apologize for any inconvenience caused. Let me look into this right away for you.`)
+      setDraft(text)
+      setTimeout(() => draftRef.current?.focus(), 100)
+    } else if (insight.actionType === 'save_contact') {
+      if (token && contact?.id) {
+        apiClient(`/api/contacts/${contact.id}`, {
+          token,
+          method: 'PATCH',
+          body: JSON.stringify({ notes: `${contactDetail?.notes || ''}\n[AI Observation]: ${insight.text}`.trim() })
+        }).catch(() => {})
+      }
+    }
+  }, [token, contact?.id, contactDetail?.notes])
+
+  const handleCardDismiss = useCallback((insight: AIInsight) => {
+    if (insight.id) {
+      setDismissedCardIds(prev => [...prev, insight.id!])
+    }
+  }, [])
 
   const intelPanelProps = {
     contact, contactDetail, selectedConv, contextData, contextLoading: loadingContext,
@@ -1462,6 +1604,8 @@ export default function InboxPage() {
                     activeSearchIndex={threadActiveSearchIndex}
                     messagesEndRef={messagesEndRef}
                     timelineInsights={timelineInsights}
+                    onCardAction={handleCardAction}
+                    onCardDismiss={handleCardDismiss}
                     onSearchChange={(val) => {
                       setThreadSearchQuery(val)
                       setThreadActiveSearchIndex(0)

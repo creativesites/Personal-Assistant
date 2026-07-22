@@ -312,6 +312,22 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
         [id],
       )
 
+      // Application Workspace 3: Interviews, Communications, Lessons Learned
+      const { rows: interviews } = await db.query(
+        `SELECT * FROM project_interviews WHERE project_id = $1 ORDER BY scheduled_at ASC NULLS LAST, created_at ASC`,
+        [id],
+      ).catch(() => ({ rows: [] }))
+
+      const { rows: communications } = await db.query(
+        `SELECT * FROM project_communications WHERE project_id = $1 ORDER BY occurred_at DESC, created_at DESC`,
+        [id],
+      ).catch(() => ({ rows: [] }))
+
+      const { rows: [lessonsLearned] } = await db.query(
+        `SELECT * FROM project_lessons_learned WHERE project_id = $1`,
+        [id],
+      ).catch(() => ({ rows: [null] }))
+
       return reply.send({
         project: projectApiShape(project),
         tasks: tasks.map(taskApiShape),
@@ -334,6 +350,22 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
         linkedGoal: linkedGoal
           ? { id: linkedGoal.id, title: linkedGoal.title, goalType: linkedGoal.goal_type, status: linkedGoal.status }
           : null,
+        interviews: (interviews || []).map((i: any) => ({
+          id: i.id, projectId: i.project_id, roundName: i.round_name, scheduledAt: i.scheduled_at,
+          interviewerInfo: i.interviewer_info, preparationNotes: i.preparation_notes,
+          starStories: i.star_stories ?? [], companyFacts: i.company_facts ?? [],
+          feedback: i.feedback, reflection: i.reflection, confidenceScore: i.confidence_score,
+          status: i.status, createdAt: i.created_at,
+        })),
+        communications: (communications || []).map((c: any) => ({
+          id: c.id, projectId: c.project_id, channel: c.channel, contactPerson: c.contact_person,
+          summary: c.summary, occurredAt: c.occurred_at, followUpDueAt: c.follow_up_due_at, createdAt: c.created_at,
+        })),
+        lessonsLearned: lessonsLearned ? {
+          id: lessonsLearned.id, projectId: lessonsLearned.project_id,
+          whatWentWell: lessonsLearned.what_went_well, whatWentWrong: lessonsLearned.what_went_wrong,
+          takeaways: lessonsLearned.takeaways, createdAt: lessonsLearned.created_at,
+        } : null,
       })
     },
   )
@@ -778,4 +810,194 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({ ok: true })
     },
   )
+
+  // ── Smart Task Templates ─────────────────────────────────────────
+
+  fastify.post(
+    '/api/projects/:id/apply-template',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows: [project] } = await db.query('SELECT id FROM projects WHERE id = $1 AND user_id = $2', [id, userId])
+      if (!project) return reply.code(404).send({ error: 'Project not found' })
+
+      const DEFAULT_APPLICATION_TASKS = [
+        { title: 'Tailor resume & highlight matching skills', category: 'Resume', priority: 'high', sortOrder: 10 },
+        { title: 'Write tailored cover letter', category: 'Cover Letter', priority: 'high', sortOrder: 20 },
+        { title: 'Review LinkedIn profile & portfolio links', category: 'Portfolio', priority: 'medium', sortOrder: 30 },
+        { title: 'Submit online job application', category: 'Application', priority: 'high', sortOrder: 40 },
+        { title: 'Research company culture, key leadership & news', category: 'Research', priority: 'medium', sortOrder: 50 },
+        { title: 'Prepare STAR stories & common interview answers', category: 'Interview Prep', priority: 'high', sortOrder: 60 },
+        { title: 'Schedule & send follow-up note (5 days post-application)', category: 'Follow-up', priority: 'medium', sortOrder: 70 },
+        { title: 'Conduct target salary & benefits benchmarking', category: 'Salary', priority: 'low', sortOrder: 80 },
+      ]
+
+      for (const t of DEFAULT_APPLICATION_TASKS) {
+        await db.query(
+          `INSERT INTO project_tasks (project_id, title, category, priority, sort_order)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [id, t.title, t.category, t.priority, t.sortOrder],
+        )
+      }
+
+      const { rows: tasks } = await db.query('SELECT * FROM project_tasks WHERE project_id = $1 ORDER BY sort_order, created_at ASC', [id])
+      return reply.send({ tasks: tasks.map(taskApiShape) })
+    },
+  )
+
+  // ── Interview Workspace ──────────────────────────────────────────
+
+  fastify.post(
+    '/api/projects/:id/interviews',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = request.body as any
+
+      const { rows: [project] } = await db.query('SELECT id FROM projects WHERE id = $1 AND user_id = $2', [id, userId])
+      if (!project) return reply.code(404).send({ error: 'Project not found' })
+
+      const { rows: [interview] } = await db.query(
+        `INSERT INTO project_interviews (project_id, round_name, scheduled_at, interviewer_info, preparation_notes, star_stories, company_facts, confidence_score)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [
+          id,
+          body.roundName || 'Initial Interview',
+          body.scheduledAt || null,
+          body.interviewerInfo || null,
+          body.preparationNotes || null,
+          JSON.stringify(body.starStories || []),
+          JSON.stringify(body.companyFacts || []),
+          body.confidenceScore ?? 75,
+        ],
+      )
+
+      return reply.code(201).send({ interview })
+    },
+  )
+
+  fastify.patch(
+    '/api/projects/:id/interviews/:interviewId',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, interviewId } = request.params as { id: string; interviewId: string }
+      const body = request.body as any
+
+      const sets: string[] = ['updated_at = NOW()']
+      const values: unknown[] = [interviewId, id]
+      let idx = 3
+
+      if (body.roundName !== undefined) { sets.push(`round_name = $${idx++}`); values.push(body.roundName) }
+      if (body.scheduledAt !== undefined) { sets.push(`scheduled_at = $${idx++}`); values.push(body.scheduledAt) }
+      if (body.interviewerInfo !== undefined) { sets.push(`interviewer_info = $${idx++}`); values.push(body.interviewerInfo) }
+      if (body.preparationNotes !== undefined) { sets.push(`preparation_notes = $${idx++}`); values.push(body.preparationNotes) }
+      if (body.starStories !== undefined) { sets.push(`star_stories = $${idx++}`); values.push(JSON.stringify(body.starStories)) }
+      if (body.companyFacts !== undefined) { sets.push(`company_facts = $${idx++}`); values.push(JSON.stringify(body.companyFacts)) }
+      if (body.feedback !== undefined) { sets.push(`feedback = $${idx++}`); values.push(body.feedback) }
+      if (body.reflection !== undefined) { sets.push(`reflection = $${idx++}`); values.push(body.reflection) }
+      if (body.confidenceScore !== undefined) { sets.push(`confidence_score = $${idx++}`); values.push(body.confidenceScore) }
+      if (body.status !== undefined) { sets.push(`status = $${idx++}`); values.push(body.status) }
+
+      const { rowCount } = await db.query(
+        `UPDATE project_interviews SET ${sets.join(', ')}
+         WHERE id = $1 AND project_id = $2
+           AND project_id IN (SELECT id FROM projects WHERE user_id = $${idx})`,
+        [...values, userId],
+      )
+      if (!rowCount) return reply.code(404).send({ error: 'Interview not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  fastify.delete(
+    '/api/projects/:id/interviews/:interviewId',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, interviewId } = request.params as { id: string; interviewId: string }
+
+      const { rowCount } = await db.query(
+        `DELETE FROM project_interviews WHERE id = $1 AND project_id = $2 AND project_id IN (SELECT id FROM projects WHERE user_id = $3)`,
+        [interviewId, id, userId],
+      )
+      if (!rowCount) return reply.code(404).send({ error: 'Interview not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── Communications Hub ──────────────────────────────────────────
+
+  fastify.post(
+    '/api/projects/:id/communications',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = request.body as any
+
+      const { rows: [project] } = await db.query('SELECT id FROM projects WHERE id = $1 AND user_id = $2', [id, userId])
+      if (!project) return reply.code(404).send({ error: 'Project not found' })
+
+      const { rows: [comm] } = await db.query(
+        `INSERT INTO project_communications (project_id, channel, contact_person, summary, occurred_at, follow_up_due_at)
+         VALUES ($1, $2, $3, $4, COALESCE($5, NOW()), $6) RETURNING *`,
+        [id, body.channel || 'email', body.contactPerson || null, body.summary, body.occurredAt || null, body.followUpDueAt || null],
+      )
+
+      return reply.code(201).send({ communication: comm })
+    },
+  )
+
+  fastify.delete(
+    '/api/projects/:id/communications/:commId',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id, commId } = request.params as { id: string; commId: string }
+
+      const { rowCount } = await db.query(
+        `DELETE FROM project_communications WHERE id = $1 AND project_id = $2 AND project_id IN (SELECT id FROM projects WHERE user_id = $3)`,
+        [commId, id, userId],
+      )
+      if (!rowCount) return reply.code(404).send({ error: 'Communication not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── Lessons Learned ──────────────────────────────────────────────
+
+  fastify.post(
+    '/api/projects/:id/lessons-learned',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = request.body as any
+
+      const { rows: [project] } = await db.query('SELECT id FROM projects WHERE id = $1 AND user_id = $2', [id, userId])
+      if (!project) return reply.code(404).send({ error: 'Project not found' })
+
+      const { rows: [lessons] } = await db.query(
+        `INSERT INTO project_lessons_learned (project_id, what_went_well, what_went_wrong, takeaways)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (project_id) DO UPDATE SET
+           what_went_well = EXCLUDED.what_went_well,
+           what_went_wrong = EXCLUDED.what_went_wrong,
+           takeaways = EXCLUDED.takeaways,
+           updated_at = NOW()
+         RETURNING *`,
+        [id, body.whatWentWell || null, body.whatWentWrong || null, body.takeaways || null],
+      )
+
+      return reply.send({ lessonsLearned: lessons })
+    },
+  )
 }
+

@@ -10,9 +10,11 @@ import {
   StickyNote, Lightbulb, Heart, Target, BarChart2, UserCheck,
   FileText, Download, Send, Sparkles, Zap, Search,
   Tag, Mail, Building2, Briefcase, History, Eye, EyeOff,
+  Clock, HelpCircle, Check, Smile, MessageSquare, ListTodo,
 } from 'lucide-react'
 import { getSocket } from '@/lib/socket'
 import { apiClient } from '@/lib/api'
+import { useApi } from '@/hooks/use-api'
 import type {
   Contact, ContactDetail, Conversation, ConvContext, Message,
   Suggestion, InternalNote, ContactPromise,
@@ -292,6 +294,151 @@ export function IntelPanel({
   if (contextData?.intents?.length) {
     insights.push({ type: 'entity', text: `Detected intent: ${contextData.intents.slice(0,2).join(', ').replace(/_/g, ' ')}` })
   }
+  interface Task {
+    id: string
+    title: string
+    completedAt: string | null
+    dueDate?: string | null
+  }
+
+  // Load tasks live from API for this contact
+  const { data: tasksData, refetch: refetchTasks } = useApi<{ tasks: Task[] }>(
+    contact && token ? `/api/contacts/${contact.id}/tasks` : null,
+    token
+  )
+  const tasks = tasksData?.tasks ?? []
+
+  const handleToggleTask = async (taskId: string, currentCompleted: boolean) => {
+    if (!contact) return
+    try {
+      await apiClient(`/api/contacts/${contact.id}/tasks/${taskId}`, {
+        method: 'PATCH',
+        token: token ?? undefined,
+        body: JSON.stringify({ completed: !currentCompleted }),
+      })
+      refetchTasks()
+    } catch (err) {
+      console.error('Failed to toggle task:', err)
+    }
+  }
+
+  const formatDuration = (ms: number) => {
+    if (ms <= 0) return 'N/A'
+    const seconds = Math.floor(ms / 1000)
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h`
+    const days = Math.floor(hours / 24)
+    return `${days}d`
+  }
+
+  const sortedMsgs = [...(messages || [])].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+  const getConversationAnalytics = () => {
+    if (sortedMsgs.length === 0) {
+      return {
+        avgResponseTime: 0,
+        longestSilence: 0,
+        sentiment: { positive: 40, neutral: 50, negative: 10 },
+        userAvgLength: 0,
+        contactAvgLength: 0,
+      }
+    }
+
+    let totalResponseTime = 0
+    let responseCount = 0
+    let longestSilence = 0
+
+    let userChars = 0
+    let userCount = 0
+    let contactChars = 0
+    let contactCount = 0
+
+    let positiveCount = 0
+    let negativeCount = 0
+    let neutralCount = 0
+
+    const posWords = ['thanks', 'thank', 'great', 'awesome', 'perfect', 'good', 'love', 'appreciate', '😊', '🙏', 'nice', 'cool']
+    const negWords = ['bad', 'issue', 'problem', 'wrong', 'delay', 'failed', 'unhappy', 'angry', 'expensive', 'disappointed', 'slow', 'error', '😞', '😡']
+
+    for (let i = 0; i < sortedMsgs.length; i++) {
+      const m = sortedMsgs[i]
+      const isUser = m.senderType === 'user'
+      const len = m.body?.length ?? 0
+
+      if (isUser) {
+        userChars += len
+        userCount++
+      } else {
+        contactChars += len
+        contactCount++
+
+        const text = (m.body || '').toLowerCase()
+        const hasPos = posWords.some(w => text.includes(w))
+        const hasNeg = negWords.some(w => text.includes(w))
+        if (hasPos && !hasNeg) positiveCount++
+        else if (hasNeg) negativeCount++
+        else neutralCount++
+      }
+
+      if (i > 0) {
+        const prev = sortedMsgs[i - 1]
+        const tDiff = new Date(m.timestamp).getTime() - new Date(prev.timestamp).getTime()
+        if (tDiff > longestSilence) {
+          longestSilence = tDiff
+        }
+
+        const prevIsContact = prev.senderType !== 'user'
+        const currIsUser = m.senderType === 'user'
+        if (prevIsContact && currIsUser) {
+          totalResponseTime += tDiff
+          responseCount++
+        }
+      }
+    }
+
+    if (contactCount === 0) neutralCount = 1
+
+    const totalSentiment = positiveCount + negativeCount + neutralCount
+    const sentiment = {
+      positive: Math.round((positiveCount / totalSentiment) * 100) || 30,
+      neutral: Math.round((neutralCount / totalSentiment) * 100) || 60,
+      negative: Math.round((negativeCount / totalSentiment) * 100) || 10,
+    }
+
+    return {
+      avgResponseTime: responseCount > 0 ? totalResponseTime / responseCount : 0,
+      longestSilence,
+      sentiment,
+      userAvgLength: userCount > 0 ? Math.round(userChars / userCount) : 0,
+      contactAvgLength: contactCount > 0 ? Math.round(contactChars / contactCount) : 0,
+    }
+  }
+
+  const analytics = getConversationAnalytics()
+
+  const getUnansweredQuestions = () => {
+    const unanswered: Message[] = []
+    let lastUserIndex = -1
+    for (let i = sortedMsgs.length - 1; i >= 0; i--) {
+      if (sortedMsgs[i].senderType === 'user') {
+        lastUserIndex = i
+        break
+      }
+    }
+
+    for (let i = lastUserIndex + 1; i < sortedMsgs.length; i++) {
+      const m = sortedMsgs[i]
+      if (m.body && m.body.includes('?')) {
+        unanswered.push(m)
+      }
+    }
+    return unanswered
+  }
+
+  const unansweredQuestions = getUnansweredQuestions()
 
   const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: string } | null>(null)
 
@@ -821,10 +968,10 @@ export function IntelPanel({
               const birthday = contactDetail?.upcomingEvents?.find(e => e.eventType === 'birthday')
               const isDormant = healthScore < 35
               const hasPromises = promises.length > 0
-              if (proactives.length === 0 && !documentSuggestion && !birthday && !isDormant && !hasPromises) return null
+              if (proactives.length === 0 && !documentSuggestion && !birthday && !isDormant && !hasPromises && tasks.length === 0 && unansweredQuestions.length === 0) return null
               return (
                 <div className="p-4 space-y-2.5">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reminders</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Reminders & Analytics</p>
                   {documentSuggestion && token && (
                     <DocumentSuggestionCard contactId={contact.id} suggestion={documentSuggestion} token={token} />
                   )}
@@ -871,6 +1018,44 @@ export function IntelPanel({
                       ))}
                     </div>
                   )}
+                  
+                  {/* Quick Activity & Analytics Summary */}
+                  <div className="space-y-1.5 pt-2 border-t border-gray-100">
+                    <button 
+                      onClick={() => onTabChange('activity')}
+                      className="w-full text-left p-3.5 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/50 to-purple-50/50 hover:shadow-sm hover:border-indigo-200 transition-all duration-300 group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <BarChart2 size={13} className="text-indigo-500 animate-pulse" />
+                          <p className="text-[11px] font-bold text-indigo-950">Analytics & Deliverables</p>
+                        </div>
+                        <ChevronRight size={11} className="text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-indigo-900/80">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={10} className="text-indigo-400" />
+                          <span>Avg Reply: {formatDuration(analytics.avgResponseTime)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <ListTodo size={10} className="text-indigo-400" />
+                          <span>{tasks.filter(t => !t.completedAt).length} Open Tasks</span>
+                        </div>
+                        {unansweredQuestions.length > 0 && (
+                          <div className="col-span-2 flex items-center gap-1.5 text-amber-600 font-medium">
+                            <HelpCircle size={10} className="text-amber-500" />
+                            <span>{unansweredQuestions.length} Unanswered Question{unansweredQuestions.length > 1 ? 's' : ''}</span>
+                          </div>
+                        )}
+                        {promises.length > 0 && (
+                          <div className="col-span-2 flex items-center gap-1.5 text-rose-600 font-medium">
+                            <Heart size={10} className="text-rose-500" />
+                            <span>{promises.length} Promised Commitments</span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  </div>
                 </div>
               )
             })()}
@@ -1366,36 +1551,214 @@ export function IntelPanel({
             </div>
 
             {messages.length > 0 && (() => {
-              const sentCount = messages.filter(m => m.senderType === 'user').length
-              const recvCount = messages.filter(m => m.senderType === 'contact').length
-              const total = messages.length
-              const sentPct = Math.round((sentCount / total) * 100)
-              const recvPct = 100 - sentPct
-              let totalGapMs = 0; let gapCount = 0
-              for (let i = 1; i < messages.length; i++) {
-                if (messages[i].senderType === 'user' && messages[i - 1].senderType === 'contact') {
-                  totalGapMs += new Date(messages[i].timestamp).getTime() - new Date(messages[i - 1].timestamp).getTime()
-                  gapCount++
-                }
-              }
-              const avgResponseMin = gapCount > 0 ? Math.round(totalGapMs / gapCount / 60000) : null
+              const openTasks = tasks.filter(t => !t.completedAt)
+              const completedTasks = tasks.filter(t => t.completedAt)
+              const deadlines = contactDetail?.upcomingEvents?.filter(e => e.eventType === 'deadline' || e.title?.toLowerCase().includes('deadline') || e.title?.toLowerCase().includes('due')) ?? []
+
               return (
-                <div className="p-4 border-t border-gray-50">
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Conversation Stats</p>
-                  <div className="space-y-2.5">
-                    <div>
-                      <div className="flex justify-between text-[11px] mb-1"><span className="text-gray-500">You sent</span><span className="font-semibold text-gray-700">{sentCount} msg ({sentPct}%)</span></div>
-                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-indigo-400 rounded-full transition-all" style={{ width: `${sentPct}%` }} /></div>
-                    </div>
-                    <div>
-                      <div className="flex justify-between text-[11px] mb-1"><span className="text-gray-500">They sent</span><span className="font-semibold text-gray-700">{recvCount} msg ({recvPct}%)</span></div>
-                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${recvPct}%` }} /></div>
-                    </div>
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10px] text-gray-400">{total} messages total</span>
-                      {avgResponseMin !== null && <span className="text-[10px] text-gray-400">Avg reply <span className="font-semibold text-gray-600">{avgResponseMin < 60 ? `${avgResponseMin}m` : `${Math.round(avgResponseMin / 60)}h`}</span></span>}
+                <div className="p-4 border-t border-gray-100 space-y-5 bg-gradient-to-b from-transparent to-gray-50/50">
+                  <div>
+                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-3 flex items-center gap-1">
+                      <BarChart2 size={11} className="animate-pulse" />
+                      Conversation Analytics
+                    </p>
+                    
+                    {/* Mini Dashboard Grid */}
+                    <div className="grid grid-cols-2 gap-2 mb-3.5">
+                      <div className="p-3 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                        <div className="flex items-center justify-between text-gray-400 mb-1">
+                          <span className="text-[9px] uppercase font-bold tracking-wider">Avg Reply</span>
+                          <Clock size={11} className="text-indigo-400" />
+                        </div>
+                        <p className="text-sm font-bold text-gray-800">{formatDuration(analytics.avgResponseTime)}</p>
+                        <span className="text-[8px] text-gray-400 font-medium">response speed</span>
+                      </div>
+
+                      <div className="p-3 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                        <div className="flex items-center justify-between text-gray-400 mb-1">
+                          <span className="text-[9px] uppercase font-bold tracking-wider">Longest Gap</span>
+                          <Activity size={11} className="text-indigo-400" />
+                        </div>
+                        <p className="text-sm font-bold text-gray-800">{formatDuration(analytics.longestSilence)}</p>
+                        <span className="text-[8px] text-gray-400 font-medium">longest silence</span>
+                      </div>
+
+                      <div className="p-3 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between col-span-2">
+                        <div className="flex items-center justify-between text-gray-400 mb-1.5">
+                          <span className="text-[9px] uppercase font-bold tracking-wider">Tone & Sentiment</span>
+                          <Smile size={11} className="text-indigo-400" />
+                        </div>
+                        
+                        {/* Sentiment Stacked Bar Chart */}
+                        <div className="w-full h-2.5 rounded-full overflow-hidden bg-gray-100 flex mb-1.5 shadow-inner">
+                          {analytics.sentiment.positive > 0 && (
+                            <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-400 transition-all duration-500" 
+                                 style={{ width: `${analytics.sentiment.positive}%` }} 
+                                 title={`Positive: ${analytics.sentiment.positive}%`} />
+                          )}
+                          {analytics.sentiment.neutral > 0 && (
+                            <div className="h-full bg-gradient-to-r from-gray-300 to-gray-400 transition-all duration-500" 
+                                 style={{ width: `${analytics.sentiment.neutral}%` }} 
+                                 title={`Neutral: ${analytics.sentiment.neutral}%`} />
+                          )}
+                          {analytics.sentiment.negative > 0 && (
+                            <div className="h-full bg-gradient-to-r from-rose-400 to-red-400 transition-all duration-500" 
+                                 style={{ width: `${analytics.sentiment.negative}%` }} 
+                                 title={`Negative: ${analytics.sentiment.negative}%`} />
+                          )}
+                        </div>
+                        
+                        <div className="flex justify-between text-[9px] font-semibold text-gray-500">
+                          <span className="text-emerald-600">{analytics.sentiment.positive}% Pos</span>
+                          <span className="text-gray-500">{analytics.sentiment.neutral}% Neu</span>
+                          <span className="text-red-500">{analytics.sentiment.negative}% Neg</span>
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col justify-between col-span-2">
+                        <div className="flex items-center justify-between text-gray-400 mb-2">
+                          <span className="text-[9px] uppercase font-bold tracking-wider">Reply Word Balance</span>
+                          <MessageSquare size={11} className="text-indigo-400" />
+                        </div>
+                        
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-500 font-medium">Your reply length (Avg)</span>
+                            <span className="font-bold text-gray-700">{analytics.userAvgLength} chars</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${Math.min(100, (analytics.userAvgLength / (analytics.userAvgLength + analytics.contactAvgLength || 1)) * 100)}%` }} />
+                          </div>
+                          
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-gray-500 font-medium">Their msg length (Avg)</span>
+                            <span className="font-bold text-gray-700">{analytics.contactAvgLength} chars</span>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${Math.min(100, (analytics.contactAvgLength / (analytics.userAvgLength + analytics.contactAvgLength || 1)) * 100)}%` }} />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Questions Unanswered Sub-Panel */}
+                  {unansweredQuestions.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest flex items-center gap-1.5">
+                        <HelpCircle size={11} className="text-amber-500" />
+                        Questions Unanswered ({unansweredQuestions.length})
+                      </p>
+                      <div className="space-y-1.5">
+                        {unansweredQuestions.slice(0, 3).map((q, idx) => (
+                          <div key={idx} className="p-3 bg-amber-50/50 border border-amber-200/60 rounded-xl flex flex-col gap-2">
+                            <p className="text-[11px] text-amber-900 leading-relaxed italic">"{q.body}"</p>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] text-amber-500">{formatTime(q.timestamp)}</span>
+                              <button 
+                                onClick={() => { onSetDraft(q.body ? `Regarding your question about "${q.body.length > 30 ? q.body.slice(0, 30) + '...' : q.body}" ` : ''); draftFocus() }}
+                                className="text-[9px] font-bold px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors flex items-center gap-1 shadow-sm"
+                              >
+                                <Send size={8} /> Reply Now
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Deadlines Sub-Panel */}
+                  {deadlines.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest flex items-center gap-1.5">
+                        <AlertTriangle size={11} className="text-red-500" />
+                        Approaching Deadlines ({deadlines.length})
+                      </p>
+                      <div className="space-y-1.5">
+                        {deadlines.map((dl, idx) => (
+                          <div key={idx} className="p-3 bg-red-50/50 border border-red-200/60 rounded-xl flex items-start gap-2.5">
+                            <AlertCircle size={12} className="text-red-500 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-red-950 truncate">{dl.title}</p>
+                              <p className="text-[10px] text-red-600 font-medium mt-0.5">Due: {dl.eventDate}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tasks Outstanding Sub-Panel */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-1.5">
+                        <ListTodo size={11} className="text-indigo-400" />
+                        Outstanding Tasks ({openTasks.length})
+                      </p>
+                      {tasks.length > 0 && (
+                        <span className="text-[9px] text-gray-400 font-semibold">{completedTasks.length}/{tasks.length} done</span>
+                      )}
+                    </div>
+                    
+                    {tasks.length === 0 ? (
+                      <div className="text-center py-4 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                        <ListTodo size={18} className="text-gray-300 mx-auto mb-1" />
+                        <p className="text-[10px] text-gray-400 font-medium">No CRM tasks set for this contact</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
+                        {openTasks.map(t => (
+                          <div key={t.id} className="flex items-start gap-2.5 p-2.5 bg-white border border-gray-100 rounded-xl hover:border-indigo-100 hover:shadow-sm transition-all duration-200 group">
+                            <button 
+                              onClick={() => handleToggleTask(t.id, t.completedAt !== null)}
+                              className="w-4 h-4 rounded-md border border-gray-300 flex items-center justify-center mt-0.5 hover:border-indigo-500 bg-white group-hover:bg-indigo-50/50 transition-colors"
+                            >
+                              <span className="w-2 h-2 bg-indigo-600 rounded-sm scale-0 group-hover:scale-100 transition-transform duration-200" />
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-gray-700 leading-snug group-hover:text-gray-900 transition-colors">{t.title}</p>
+                              {t.dueDate && <p className="text-[9px] text-indigo-500 font-semibold mt-0.5">Due: {new Date(t.dueDate).toLocaleDateString()}</p>}
+                            </div>
+                          </div>
+                        ))}
+                        
+                        {completedTasks.length > 0 && openTasks.length === 0 && (
+                          <div className="flex flex-col items-center py-3 bg-emerald-50/30 border border-emerald-100 rounded-xl text-center">
+                            <div className="w-6 h-6 bg-emerald-100 rounded-full flex items-center justify-center mb-1">
+                              <Check size={12} className="text-emerald-600" />
+                            </div>
+                            <p className="text-[10px] font-bold text-emerald-800">All tasks completed!</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Promises to Keep Sub-Panel */}
+                  {promises.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest flex items-center gap-1.5">
+                        <Heart size={11} className="text-rose-500 animate-pulse" />
+                        AI Promises to Keep ({promises.length})
+                      </p>
+                      <div className="space-y-1.5">
+                        {promises.map((p, idx) => (
+                          <div key={idx} className="flex items-start gap-2.5 p-2.5 bg-rose-50/40 rounded-xl border border-rose-100/60 hover:border-rose-200 transition-colors group">
+                            <CheckCircle size={12} className="text-rose-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] text-rose-900 leading-relaxed">{p.text}</p>
+                              <p className="text-[9px] text-rose-400 mt-0.5 font-semibold">Commitment: {formatTime(p.messageAt)}</p>
+                            </div>
+                            <button onClick={() => { onSetDraft(p.text); draftFocus() }}
+                              className="text-[9px] font-bold text-rose-600 hover:text-rose-700 bg-rose-100 hover:bg-rose-200 px-2 py-1 rounded-lg flex-shrink-0 transition-colors whitespace-nowrap self-center">
+                              Send Now
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })()}

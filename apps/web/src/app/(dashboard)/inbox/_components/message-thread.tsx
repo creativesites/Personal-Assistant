@@ -78,6 +78,8 @@ export function MessageThread({
   onPrevSearch,
   onNextSearch,
   onSelectMessage,
+  onCardAction,
+  onCardDismiss,
 }: {
   messages: InboxMessage[]
   loading: boolean
@@ -94,6 +96,8 @@ export function MessageThread({
   onPrevSearch: () => void
   onNextSearch: () => void
   onSelectMessage: (id: string) => void
+  onCardAction?: (insight: AIInsight) => void
+  onCardDismiss?: (insight: AIInsight) => void
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
@@ -124,11 +128,35 @@ export function MessageThread({
     })
   }, [messages])
 
-  const insightAfterId = useMemo(() => {
-    if (!timelineInsights.length || sortedMessages.length < 2) return null
-    const target = [...sortedMessages].reverse().find(m => m.senderType === 'contact')
-    return target?.id ?? null
-  }, [sortedMessages, timelineInsights.length])
+  const cardsByMessageId = useMemo(() => {
+    const map: Record<string, AIInsight[]> = {}
+    if (!timelineInsights.length || sortedMessages.length === 0) return map
+
+    const contactMsgs = sortedMessages.filter(m => m.senderType === 'contact')
+
+    timelineInsights.forEach((insight, idx) => {
+      let targetId: string | null = insight.id && sortedMessages.some(m => m.id === insight.id) ? insight.id : null
+
+      if (!targetId) {
+        if (contactMsgs.length > 0) {
+          const msgIdx = Math.min(
+            Math.floor(((idx + 1) / (timelineInsights.length + 1)) * contactMsgs.length),
+            contactMsgs.length - 1
+          )
+          targetId = contactMsgs[msgIdx]?.id ?? contactMsgs[contactMsgs.length - 1]?.id ?? null
+        } else {
+          targetId = sortedMessages[sortedMessages.length - 1]?.id ?? null
+        }
+      }
+
+      if (targetId) {
+        if (!map[targetId]) map[targetId] = []
+        map[targetId].push(insight)
+      }
+    })
+
+    return map
+  }, [sortedMessages, timelineInsights])
 
   return (
     <div className="relative flex-1 min-h-0">
@@ -167,7 +195,7 @@ export function MessageThread({
             {sortedMessages.map((msg, idx) => {
               const prev = sortedMessages[idx - 1]
               const showDate = !prev || dayKey(prev.timestamp) !== dayKey(msg.timestamp)
-              const showInsight = msg.id === insightAfterId && timelineInsights[0]
+              const msgCards = cardsByMessageId[msg.id] ?? []
 
               return (
                 <div
@@ -194,9 +222,16 @@ export function MessageThread({
                     highlighted={highlightedMsgId === msg.id}
                     onQuoteClick={handleQuoteClick}
                   />
-                  {showInsight && (
-                    <div className="py-2 px-2">
-                      <InlineAICard insight={timelineInsights[0]} />
+                  {msgCards.length > 0 && (
+                    <div className="py-2.5 px-2 space-y-2">
+                      {msgCards.map((card, cIdx) => (
+                        <InlineAICard
+                          key={card.id || `card-${msg.id}-${cIdx}`}
+                          insight={card}
+                          onAction={onCardAction}
+                          onDismiss={onCardDismiss}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>

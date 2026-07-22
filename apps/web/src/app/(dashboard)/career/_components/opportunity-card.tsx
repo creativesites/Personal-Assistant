@@ -39,6 +39,8 @@ export interface CareerOpportunity {
   applicationUrl?: string | null
   projectId: string | null
   confidence?: number | null
+  salaryRangeCents?: { min?: number; max?: number; currency?: string } | null
+  deadline?: string | null
   createdAt: string
 }
 

@@ -332,6 +332,23 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const [applyingTemplate, setApplyingTemplate] = useState(false)
+  const applySmartTemplate = async () => {
+    if (!token || !project) return
+    setApplyingTemplate(true)
+    try {
+      const data = await apiClient<{ tasks: Task[] }>(`/api/projects/${project.id}/apply-template`, {
+        method: 'POST', token,
+      })
+      setTasks(data.tasks)
+      addToast({ variant: 'success', title: 'Smart Application Checklist Seeded!' })
+    } catch (err) {
+      addToast({ variant: 'error', title: 'Failed to seed template' })
+    } finally {
+      setApplyingTemplate(false)
+    }
+  }
+
   const cycleTaskStatus = async (task: Task) => {
     if (!token || !project) return
     setBusyTaskId(task.id)
@@ -540,7 +557,16 @@ export default function ProjectDetailPage() {
 
           <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 mt-4">
             <div className="px-4 py-3.5 border-b border-gray-50 flex items-center justify-between">
-              <p className="text-sm font-semibold text-gray-900">Tasks</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-gray-900">Tasks</p>
+                <button
+                  onClick={applySmartTemplate}
+                  disabled={applyingTemplate}
+                  className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200/60 transition flex items-center gap-1 disabled:opacity-50"
+                >
+                  {applyingTemplate ? <Loader2 className="w-3 h-3 animate-spin" /> : '⚡ Seed Smart Template'}
+                </button>
+              </div>
               {totalTasks > 0 && (
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-medium text-gray-500">{completedTasks}/{totalTasks} ({progressPct}%)</span>

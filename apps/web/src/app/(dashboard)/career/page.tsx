@@ -13,6 +13,7 @@ import { JobFeed } from './_components/job-feed'
 import { CareerRadar } from './_components/career-radar'
 import { CareerProgressStrip } from './_components/career-progress-strip'
 import { CareerProfileEditor } from './_components/career-profile-editor'
+import { CareerPreferencesBar } from './_components/career-preferences-bar'
 import { CareerOnboardingModal } from './_components/career-onboarding-modal'
 import { useJobDiscoveryRun, jobDiscoveryPhaseLabel } from './_components/use-job-discovery-run'
 import { useCareerProfile } from './_components/cv-studio/use-career-profile'
@@ -423,6 +424,43 @@ function CareerPageInner() {
               <Badge variant="info">{profile.remotePreference.replace('_', ' ')}</Badge>
             )}
           </div>
+        )}
+
+        {token && (
+          <CareerPreferencesBar
+            initialProfile={{
+              targetRole: profile?.targetRoles?.[0] || profile?.headline,
+              salaryExpectationCents: profile?.salaryExpectationCents,
+              currency: profile?.currency,
+              location: profile?.location,
+              remotePreference: profile?.remotePreference,
+              employmentType: profile?.employmentType,
+              seniorityLevel: profile?.seniorityLevel,
+              availability: profile?.availability,
+              skills: profile?.skills,
+            }}
+            onSave={async (updated: any) => {
+              if (!token) return
+              await apiClient('/api/career/profile', {
+                token,
+                method: 'PATCH',
+                body: JSON.stringify({
+                  targetRoles: updated.targetRole ? [updated.targetRole] : undefined,
+                  salaryExpectationCents: updated.salaryExpectationCents,
+                  currency: updated.currency,
+                  location: updated.location,
+                  remotePreference: updated.remotePreference,
+                  employmentType: updated.employmentType,
+                  seniorityLevel: updated.seniorityLevel,
+                  availability: updated.availability,
+                  skills: updated.skills,
+                }),
+              })
+              refetchProfile()
+              loadOpportunities()
+              addToast({ variant: 'success', title: 'Career preferences saved' })
+            }}
+          />
         )}
 
         {token && <CareerProgressStrip token={token} opportunities={opportunities} skillsCount={profile?.skills?.length ?? 0} />}

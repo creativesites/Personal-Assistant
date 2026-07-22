@@ -44,6 +44,9 @@ export interface CareerProfile {
   experienceLevel: 'entry' | 'mid' | 'senior' | 'lead' | 'executive' | null
   employmentTypePreference: string[]
   skills?: { name: string; level?: string; yearsExperience?: number }[]
+  currency?: string | null
+  employmentType?: string | null
+  seniorityLevel?: string | null
 }
 
 export function useCareerProfile(token: string) {
