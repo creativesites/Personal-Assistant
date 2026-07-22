@@ -1,6 +1,6 @@
 'use client'
 
-import { RefObject, useEffect, useMemo, useRef } from 'react'
+import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { InlineAICard, type AIInsight } from './inline-ai-card'
 import { MessageBubble, type InboxMessage } from './message-bubble'
@@ -97,11 +97,23 @@ export function MessageThread({
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!activeMatchId) return
     rowRefs.current[activeMatchId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [activeMatchId])
+
+  const handleQuoteClick = (quotedId: string) => {
+    const element = rowRefs.current[quotedId]
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setHighlightedMsgId(quotedId)
+      setTimeout(() => {
+        setHighlightedMsgId(null)
+      }, 2000)
+    }
+  }
 
   const sortedMessages = useMemo(() => {
     return [...messages].sort((a, b) => {
@@ -178,6 +190,9 @@ export function MessageThread({
                     activeSearchMatch={activeMatchId === msg.id}
                     searchQuery={searchQuery}
                     onSelect={() => onSelectMessage(msg.id)}
+                    allMessages={messages}
+                    highlighted={highlightedMsgId === msg.id}
+                    onQuoteClick={handleQuoteClick}
                   />
                   {showInsight && (
                     <div className="py-2 px-2">

@@ -109,6 +109,8 @@ export interface MessageBubbleProps {
   onAttachmentClick?: (attachment: Attachment) => void
   onThreadClick?: (msgId: string) => void
   onQuoteClick?: (quotedId: string) => void
+  allMessages?: InboxMessage[]
+  highlighted?: boolean
 }
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -539,17 +541,32 @@ function ActionBar({
   )
 }
 
-function QuotedMessage({ quotedId, onClick }: { quotedId: string; onClick?: () => void }) {
+function QuotedMessage({ 
+  quotedId, 
+  quotedMsg, 
+  onClick 
+}: { 
+  quotedId: string; 
+  quotedMsg?: InboxMessage; 
+  onClick?: () => void 
+}) {
+  const senderLabel = quotedMsg 
+    ? (quotedMsg.senderType === 'user' ? 'You' : 'Contact')
+    : 'Message'
+
+  const bodyText = quotedMsg
+    ? (quotedMsg.body || (quotedMsg.attachments?.length ? 'Attachment' : 'Click to view referenced message'))
+    : 'Click to view referenced message'
+
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-2 p-2 rounded-lg bg-gray-50/80 border-l-2 border-sky-400 
-                 hover:bg-gray-100 transition-colors text-left w-full mb-2"
+      className="flex items-start gap-2 p-1.5 px-2.5 rounded-lg bg-black/5 dark:bg-white/5 border-l-4 border-indigo-500 
+                 hover:bg-black/10 dark:hover:bg-white/10 transition-all text-left w-full mb-1.5 text-xs select-none"
     >
-      <div className="w-1 h-full bg-sky-400 rounded-full" />
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold text-sky-600 mb-0.5">Quoted message</p>
-        <p className="text-xs text-gray-500 truncate">Click to view referenced message</p>
+        <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 mb-0.5">{senderLabel}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-300 truncate leading-snug">{bodyText}</p>
       </div>
     </button>
   )
@@ -573,6 +590,8 @@ export function MessageBubble({
   onAttachmentClick,
   onThreadClick,
   onQuoteClick,
+  allMessages,
+  highlighted,
 }: MessageBubbleProps) {
   const isUser = msg.senderType === 'user'
   const isAssistant = msg.senderType === 'assistant'
@@ -597,26 +616,28 @@ export function MessageBubble({
 
   // Determine bubble styling
   const getBubbleClasses = () => {
-    const base = 'relative px-4 py-3 text-[15px] leading-relaxed border transition-all duration-200'
+    const base = 'relative px-4 py-3 text-[15px] leading-relaxed border transition-all duration-300'
     const radius = isUser ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm'
 
+    let classes = ''
     if (isError) {
-      return `${base} ${radius} bg-red-50/90 text-red-900 border-red-200 shadow-sm`
+      classes = `${base} ${radius} bg-red-50/90 text-red-900 border-red-200 shadow-sm`
+    } else if (isSystem) {
+      classes = `${base} ${radius} bg-gray-50/90 text-gray-600 border-gray-200 shadow-sm text-center text-sm`
+    } else if (isAuto) {
+      classes = `${base} ${radius} bg-gradient-to-br from-emerald-50/95 to-lime-50/95 text-gray-900 border-emerald-200/80 shadow-sm`
+    } else if (isApproved) {
+      classes = `${base} ${radius} bg-emerald-50/95 text-gray-900 border-emerald-200/80 border-l-[3px] border-l-sky-400 shadow-sm`
+    } else if (isUser) {
+      classes = `${base} ${radius} bg-gradient-to-br from-[#dcf8c6] to-[#d4f5b8] text-gray-900 border-[#cbeeb5]/80 shadow-sm`
+    } else {
+      classes = `${base} ${radius} bg-white/95 text-gray-900 border-gray-200/80 shadow-sm hover:shadow-md`
     }
-    if (isSystem) {
-      return `${base} ${radius} bg-gray-50/90 text-gray-600 border-gray-200 shadow-sm text-center text-sm`
+
+    if (highlighted) {
+      classes += ' ring-4 ring-indigo-500/50 scale-[1.02] shadow-lg border-indigo-400 bg-indigo-50/30'
     }
-    if (isAuto) {
-      return `${base} ${radius} bg-gradient-to-br from-emerald-50/95 to-lime-50/95 text-gray-900 border-emerald-200/80 shadow-sm`
-    }
-    if (isApproved) {
-      return `${base} ${radius} bg-emerald-50/95 text-gray-900 border-emerald-200/80 border-l-[3px] border-l-sky-400 shadow-sm`
-    }
-    if (isUser) {
-      return `${base} ${radius} bg-gradient-to-br from-[#dcf8c6] to-[#d4f5b8] text-gray-900 border-[#cbeeb5]/80 shadow-sm`
-    }
-    // Assistant default
-    return `${base} ${radius} bg-white/95 text-gray-900 border-gray-200/80 shadow-sm hover:shadow-md`
+    return classes
   }
 
   const getAvatar = () => {
@@ -704,12 +725,16 @@ export function MessageBubble({
               )}
 
               {/* Quoted message */}
-              {msg.quotedMessageId && (
-                <QuotedMessage 
-                  quotedId={msg.quotedMessageId} 
-                  onClick={() => onQuoteClick?.(msg.quotedMessageId!)} 
-                />
-              )}
+              {msg.quotedMessageId && (() => {
+                const quotedMsg = allMessages?.find(m => m.id === msg.quotedMessageId)
+                return (
+                  <QuotedMessage 
+                    quotedId={msg.quotedMessageId} 
+                    quotedMsg={quotedMsg}
+                    onClick={() => onQuoteClick?.(msg.quotedMessageId!)} 
+                  />
+                )
+              })()}
 
               {/* Thinking indicator */}
               {msg.isTyping && <ThinkingIndicator />}
