@@ -91,6 +91,20 @@ export function requireFeature(area: FeatureArea) {
   }
 }
 
+export function requireAnyFeature(areas: FeatureArea[]) {
+  return async function requireAnyFeatureHandler(request: FastifyRequest, reply: FastifyReply) {
+    const { userId } = request.user as { userId: string }
+    const currentFamily = await getEffectivePlanFamily(userId)
+    const hasAny = areas.some((area) => PLAN_FEATURES[currentFamily].has(area))
+    if (!hasAny) {
+      return reply.code(402).send({
+        error: `This feature isn't available on your current plan.`,
+        upgradeRequired: { feature: areas[0], currentFamily, requiredFamily: minimumFamilyFor(areas[0]) },
+      })
+    }
+  }
+}
+
 // Global mutation guard (registered once in app.ts, not per-route): once a
 // subscription lapses into read_only (Phase 4), every mutating request is
 // blocked except an explicit allowlist — GET/view/export/search always stay

@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { requireMarketingAccess } from '../lib/marketing-access'
-import { requireFeature } from '../lib/entitlements'
+import { requireAnyFeature } from '../lib/entitlements'
+const requireFeature = (area: string) => {
+  if (area === 'business_os') return requireAnyFeature(['business_os', 'career_os'])
+  return requireAnyFeature([area as any])
+}
 import { assignDocumentNumber, computeTotals, formatDocument, lineItemSchema, PHASE_0_TYPES } from './documents'
 
 // Business OS Phase F — lightweight project management. See
@@ -42,6 +46,9 @@ const createTaskBody = z.object({
   title: z.string().min(1).max(255),
   dueDate: z.string().optional().nullable(),
   assignedTo: z.string().max(255).optional().nullable(),
+  priority: z.enum(['low', 'medium', 'high']).optional(),
+  category: z.string().max(30).optional(),
+  sortOrder: z.number().int().optional(),
 })
 
 const patchTaskBody = z.object({
@@ -49,6 +56,13 @@ const patchTaskBody = z.object({
   status: z.enum(TASK_STATUSES).optional(),
   dueDate: z.string().optional().nullable(),
   assignedTo: z.string().max(255).optional().nullable(),
+  priority: z.enum(['low', 'medium', 'high']).optional(),
+  category: z.string().max(30).optional().nullable(),
+  sortOrder: z.number().int().optional(),
+})
+
+const reorderTasksBody = z.object({
+  taskIds: z.array(z.string().uuid()),
 })
 
 const createMilestoneBody = z.object({
@@ -142,7 +156,11 @@ function taskApiShape(r: any) {
     status: r.status,
     dueDate: r.due_date,
     assignedTo: r.assigned_to,
+    priority: r.priority,
+    category: r.category,
+    sortOrder: r.sort_order,
     createdAt: r.created_at,
+    completedAt: r.completed_at,
   }
 }
 
@@ -402,9 +420,17 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
       if (!project) return reply.code(404).send({ error: 'Project not found' })
 
       const { rows: [task] } = await db.query(
-        `INSERT INTO project_tasks (project_id, title, due_date, assigned_to)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [id, body.title, body.dueDate ?? null, body.assignedTo ?? null],
+        `INSERT INTO project_tasks (project_id, title, due_date, assigned_to, priority, category, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [
+          id,
+          body.title,
+          body.dueDate ?? null,
+          body.assignedTo ?? null,
+          body.priority ?? 'medium',
+          body.category ?? 'general',
+          body.sortOrder ?? 0,
+        ],
       )
 
       return reply.code(201).send({ task: taskApiShape(task) })
@@ -432,6 +458,9 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (body.dueDate !== undefined) { sets.push(`due_date = $${idx++}`); values.push(body.dueDate) }
       if (body.assignedTo !== undefined) { sets.push(`assigned_to = $${idx++}`); values.push(body.assignedTo) }
+      if (body.priority !== undefined) { sets.push(`priority = $${idx++}`); values.push(body.priority) }
+      if (body.category !== undefined) { sets.push(`category = $${idx++}`); values.push(body.category) }
+      if (body.sortOrder !== undefined) { sets.push(`sort_order = $${idx++}`); values.push(body.sortOrder) }
       if (sets.length === 0) return reply.send({ ok: true })
 
       const { rowCount } = await db.query(
@@ -460,6 +489,30 @@ export async function projectsRoutes(fastify: FastifyInstance): Promise<void> {
         [taskId, id, userId],
       )
       if (!rowCount) return reply.code(404).send({ error: 'Task not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  fastify.post(
+    '/api/projects/:id/tasks/reorder',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const { taskIds } = reorderTasksBody.parse(request.body)
+
+      const { rows: [project] } = await db.query(
+        'SELECT id FROM projects WHERE id = $1 AND user_id = $2', [id, userId],
+      )
+      if (!project) return reply.code(404).send({ error: 'Project not found' })
+
+      for (let i = 0; i < taskIds.length; i++) {
+        await db.query(
+          'UPDATE project_tasks SET sort_order = $1 WHERE id = $2 AND project_id = $3',
+          [i, taskIds[i], id]
+        )
+      }
 
       return reply.send({ ok: true })
     },

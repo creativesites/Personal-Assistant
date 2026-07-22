@@ -397,14 +397,15 @@ function CareerPageInner() {
           </div>
           <div className="relative mt-4 flex flex-wrap gap-2">
             <button
-              onClick={() => setShowProfileEdit(true)}
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-4 py-2.5 text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 active:bg-indigo-700 min-h-[44px]"
+              onClick={() => setShowProfileEdit(!showProfileEdit)}
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-4.5 py-2.5 text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 active:bg-indigo-700 min-h-[44px] transition-all"
             >
-              {profile?.headline ? 'Edit Profile' : 'Set Up Profile'}
+              <Target className="w-4 h-4" />
+              Update Job Preferences
             </button>
             <Link
               href="/career/cv-studio"
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 text-white px-4 py-2.5 text-sm font-bold shadow-lg shadow-slate-900/15 hover:bg-slate-800 min-h-[44px]"
+              className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 text-white px-4.5 py-2.5 text-sm font-bold shadow-lg shadow-slate-900/15 hover:bg-slate-800 min-h-[44px]"
             >
               CV Studio
             </Link>

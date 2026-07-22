@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, FolderKanban, Plus, Trash2, Loader2, FileText, Check, Circle, Ban, Target, X,
-  Flag, Clock, Play, Square, Wallet, Briefcase,
+  Flag, Clock, Play, Square, Wallet, Briefcase, Pencil,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -82,6 +82,9 @@ interface Task {
   status: 'todo' | 'in_progress' | 'done' | 'blocked'
   dueDate: string | null
   assignedTo: string | null
+  priority?: 'low' | 'medium' | 'high'
+  category?: string | null
+  sortOrder?: number
   createdAt: string
 }
 
@@ -150,6 +153,11 @@ export default function ProjectDetailPage() {
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [addingTask, setAddingTask] = useState(false)
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editPriority, setEditPriority] = useState<'low' | 'medium' | 'high'>('medium')
+  const [editCategory, setEditCategory] = useState('')
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null)
   const [statusUpdating, setStatusUpdating] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showGoalPicker, setShowGoalPicker] = useState(false)
@@ -327,7 +335,7 @@ export default function ProjectDetailPage() {
   const cycleTaskStatus = async (task: Task) => {
     if (!token || !project) return
     setBusyTaskId(task.id)
-    const status = nextTaskStatus(task.status)
+    const status: Task['status'] = task.status === 'done' ? 'todo' : 'done'
     try {
       await apiClient(`/api/projects/${project.id}/tasks/${task.id}`, {
         method: 'PATCH', token, body: JSON.stringify({ status }),
@@ -350,6 +358,40 @@ export default function ProjectDetailPage() {
       addToast({ variant: 'error', title: 'Failed to delete task' })
     } finally {
       setBusyTaskId(null)
+    }
+  }
+
+  const startEditTask = (task: Task) => {
+    setEditingTaskId(task.id)
+    setEditTitle(task.title)
+    setEditPriority(task.priority ?? 'medium')
+    setEditCategory(task.category ?? '')
+  }
+
+  const saveTask = async (taskId: string) => {
+    if (!token || !project) return
+    setSavingTaskId(taskId)
+    try {
+      await apiClient(`/api/projects/${project.id}/tasks/${taskId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          priority: editPriority,
+          category: editCategory.trim() || null,
+        }),
+      })
+      setTasks(ts => ts.map(t => t.id === taskId ? {
+        ...t,
+        title: editTitle.trim(),
+        priority: editPriority,
+        category: editCategory.trim() || null
+      } : t))
+      setEditingTaskId(null)
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update task details' })
+    } finally {
+      setSavingTaskId(null)
     }
   }
 
@@ -427,6 +469,10 @@ export default function ProjectDetailPage() {
     )
   }
 
+  const totalTasks = tasks.length
+  const completedTasks = tasks.filter(t => t.status === 'done').length
+  const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
+
   return (
     <div className="bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
       <div className="p-4 md:p-6">
@@ -493,16 +539,72 @@ export default function ProjectDetailPage() {
           </div>
 
           <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 mt-4">
-            <div className="px-4 py-3.5 border-b border-gray-50">
+            <div className="px-4 py-3.5 border-b border-gray-50 flex items-center justify-between">
               <p className="text-sm font-semibold text-gray-900">Tasks</p>
+              {totalTasks > 0 && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-gray-500">{completedTasks}/{totalTasks} ({progressPct}%)</span>
+                  <div className="w-24 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-indigo-600 h-full rounded-full transition-all duration-300" style={{ width: `${progressPct}%` }} />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="divide-y divide-gray-50">
               {tasks.length === 0 && (
                 <p className="text-xs text-gray-400 px-4 py-3.5">No tasks yet.</p>
               )}
-              {tasks.map(task => {
+               {tasks.map(task => {
                 const overdue = task.status !== 'done' && task.dueDate && new Date(task.dueDate) < new Date()
+                if (editingTaskId === task.id) {
+                  return (
+                    <div key={task.id} className="flex flex-col gap-2.5 px-4 py-3.5 bg-indigo-50/20 border-l-2 border-indigo-500">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={editTitle}
+                          onChange={e => setEditTitle(e.target.value)}
+                          className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-1.5 focus:outline-none bg-white focus:ring-2 focus:ring-indigo-500/30"
+                          placeholder="Task title…"
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          value={editCategory}
+                          onChange={e => setEditCategory(e.target.value)}
+                          className="w-40 text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 focus:outline-none bg-white focus:ring-2 focus:ring-indigo-500/30"
+                          placeholder="Category (e.g. cv, email)"
+                        />
+                        <select
+                          value={editPriority}
+                          onChange={e => setEditPriority(e.target.value as any)}
+                          className="text-xs border border-gray-200 rounded-xl px-2.5 py-1.5 focus:outline-none bg-white focus:ring-2 focus:ring-indigo-500/30"
+                        >
+                          <option value="low">Low Priority</option>
+                          <option value="medium">Medium Priority</option>
+                          <option value="high">High Priority</option>
+                        </select>
+                        <div className="ml-auto flex items-center gap-1.5">
+                          <button
+                            onClick={() => saveTask(task.id)}
+                            disabled={savingTaskId === task.id || !editTitle.trim()}
+                            className="inline-flex items-center justify-center p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors"
+                            title="Save"
+                          >
+                            {savingTaskId === task.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            onClick={() => setEditingTaskId(null)}
+                            className="inline-flex items-center justify-center p-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+                            title="Cancel"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
                 return (
                   <div key={task.id} className="flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50/80">
                     <button
@@ -514,7 +616,21 @@ export default function ProjectDetailPage() {
                       <TaskStatusIcon status={task.status} />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{task.title}</p>
+                      <div className="flex items-center flex-wrap gap-2">
+                        <p className={`text-sm ${task.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{task.title}</p>
+                        {task.category && task.category !== 'general' && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                            {task.category}
+                          </span>
+                        )}
+                        {task.priority && task.priority !== 'medium' && (
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            task.priority === 'high' ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-slate-50 text-slate-600 border border-slate-100'
+                          }`}>
+                            {task.priority}
+                          </span>
+                        )}
+                      </div>
                       {(task.dueDate || task.assignedTo) && (
                         <p className={`text-[11px] mt-0.5 ${overdue ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
                           {task.dueDate && `due ${new Date(task.dueDate).toLocaleDateString()}`}
@@ -523,6 +639,14 @@ export default function ProjectDetailPage() {
                         </p>
                       )}
                     </div>
+                    <button
+                      onClick={() => startEditTask(task)}
+                      disabled={busyTaskId === task.id}
+                      className="text-gray-300 hover:text-indigo-600 transition-colors flex-shrink-0 mr-1"
+                      title="Edit task"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       onClick={() => deleteTask(task)}
                       disabled={busyTaskId === task.id}
