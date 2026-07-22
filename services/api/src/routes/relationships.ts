@@ -2,11 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 
-// The Relationship Feed (docs/RELATIONSHIP_OS_PLAN.md §5.4/§6.3) — a
-// dedicated, richer list endpoint rather than bolting all of this onto
-// GET /api/contacts, which many lighter-weight pages also consume.
-// LATERAL joins keep it to one row per contact (no GROUP BY/array blowup)
-// and every join is either indexed or capped with LIMIT 1.
+// The Relationship Feed — dedicated, richer list endpoint.
 const SELECT_RELATIONSHIPS = `
   SELECT
     co.id, COALESCE(co.custom_name, co.display_name, co.phone_number) AS name, co.avatar_url,
@@ -49,21 +45,111 @@ const SELECT_RELATIONSHIPS = `
   WHERE co.user_id = $1
 `
 
+/**
+ * Deterministic mathematical algorithm calculating relationship health (0–100)
+ * based on message recency, frequency, reciprocity ratio, and document activity.
+ */
+export async function recalculateRelationshipsForUser(userId: string): Promise<number> {
+  // 1. Ensure all contacts have a relationship row
+  await db.query(`
+    INSERT INTO relationships (user_id, contact_id, relationship_type, importance_tier, health_score, health_trend, is_auto_managed)
+    SELECT $1, co.id, 'acquaintance', 3, 50, 'stable', true
+    FROM contacts co
+    WHERE co.user_id = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM relationships r WHERE r.contact_id = co.id AND r.user_id = $1
+      )
+    ON CONFLICT DO NOTHING
+  `, [userId])
+
+  // 2. Deterministic SQL health calculation
+  const result = await db.query(`
+    WITH metrics AS (
+      SELECT
+        co.id AS contact_id,
+        MAX(m.whatsapp_timestamp) AS last_msg_ts,
+        COUNT(m.id) FILTER (WHERE m.whatsapp_timestamp > NOW() - INTERVAL '30 days') AS msg_count_30d,
+        COUNT(m.id) FILTER (WHERE m.whatsapp_timestamp > NOW() - INTERVAL '30 days' AND m.sender_type = 'user') AS user_msg_30d,
+        COUNT(m.id) FILTER (WHERE m.whatsapp_timestamp > NOW() - INTERVAL '30 days' AND m.sender_type = 'contact') AS contact_msg_30d,
+        EXISTS (
+          SELECT 1 FROM documents d
+          WHERE d.contact_id = co.id AND d.user_id = $1 AND d.document_type = 'invoice'
+            AND d.status NOT IN ('paid', 'archived')
+            AND (d.structured_data->>'dueDate')::date < CURRENT_DATE
+        ) AS has_overdue_invoice,
+        EXISTS (
+          SELECT 1 FROM documents d
+          WHERE d.contact_id = co.id AND d.user_id = $1
+            AND d.status IN ('paid', 'accepted')
+            AND d.updated_at > NOW() - INTERVAL '30 days'
+        ) AS has_recent_paid
+      FROM contacts co
+      LEFT JOIN conversations c ON c.contact_id = co.id AND c.user_id = $1
+      LEFT JOIN messages m ON m.conversation_id = c.id
+      WHERE co.user_id = $1
+      GROUP BY co.id
+    ),
+    calculated AS (
+      SELECT
+        m.contact_id,
+        m.last_msg_ts,
+        GREATEST(10, LEAST(100,
+          50
+          -- Recency Factor (up to +-25)
+          + CASE
+              WHEN m.last_msg_ts IS NULL THEN -20
+              WHEN m.last_msg_ts > NOW() - INTERVAL '2 days' THEN 25
+              WHEN m.last_msg_ts > NOW() - INTERVAL '7 days' THEN 18
+              WHEN m.last_msg_ts > NOW() - INTERVAL '14 days' THEN 10
+              WHEN m.last_msg_ts > NOW() - INTERVAL '30 days' THEN 0
+              WHEN m.last_msg_ts > NOW() - INTERVAL '60 days' THEN -10
+              ELSE -25
+            END
+          -- Frequency Factor (up to +-15)
+          + CASE
+              WHEN m.msg_count_30d >= 20 THEN 15
+              WHEN m.msg_count_30d >= 10 THEN 10
+              WHEN m.msg_count_30d >= 3 THEN 5
+              WHEN m.msg_count_30d > 0 THEN 0
+              ELSE -10
+            END
+          -- Reciprocity / Two-Way Balance Factor (up to +-10)
+          + CASE
+              WHEN m.msg_count_30d = 0 THEN 0
+              WHEN (m.user_msg_30d::float / GREATEST(1, m.msg_count_30d)) BETWEEN 0.25 AND 0.75 THEN 10
+              WHEN (m.user_msg_30d::float / GREATEST(1, m.msg_count_30d)) > 0.85 THEN -5
+              WHEN (m.user_msg_30d::float / GREATEST(1, m.msg_count_30d)) < 0.15 THEN -5
+              ELSE 5
+            END
+          -- Document Activity Factor (up to +-10)
+          + CASE WHEN m.has_recent_paid THEN 10 ELSE 0 END
+          + CASE WHEN m.has_overdue_invoice THEN -10 ELSE 0 END
+        )) AS new_score
+      FROM metrics m
+    )
+    UPDATE relationships r
+    SET
+      health_trend = CASE
+        WHEN c.new_score > r.health_score + 3 THEN 'improving'
+        WHEN c.new_score < r.health_score - 3 THEN 'declining'
+        ELSE 'stable'
+      END,
+      health_score = c.new_score,
+      last_interaction_at = COALESCE(c.last_msg_ts, r.last_interaction_at, r.updated_at),
+      updated_at = NOW()
+    FROM calculated c
+    WHERE r.contact_id = c.contact_id AND r.user_id = $1;
+  `, [userId])
+
+  return result.rowCount ?? 0
+}
+
 export async function relationshipsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/api/relationships', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
 
-    // Ensure every contact has a relationships row so INNER JOIN below never drops anyone
-    await db.query(`
-      INSERT INTO relationships (user_id, contact_id, relationship_type, importance_tier, health_score, health_trend, is_auto_managed)
-      SELECT $1, co.id, 'acquaintance', 3, 70, 'stable', true
-      FROM contacts co
-      WHERE co.user_id = $1
-        AND NOT EXISTS (
-          SELECT 1 FROM relationships r WHERE r.contact_id = co.id AND r.user_id = $1
-        )
-      ON CONFLICT DO NOTHING
-    `, [userId])
+    // Run deterministic calculation to keep all contact health scores dynamically fresh
+    await recalculateRelationshipsForUser(userId)
 
     const { rows } = await db.query(
       `${SELECT_RELATIONSHIPS} ORDER BY r.importance_tier ASC NULLS LAST, r.health_score ASC LIMIT 300`,
@@ -106,12 +192,9 @@ export async function relationshipsRoutes(fastify: FastifyInstance): Promise<voi
     const { userId } = request.user as { userId: string }
     const { contactId } = request.params as { contactId: string }
 
-    // Ensure relationship row exists — join through contacts so we only insert
-    // if the contact actually belongs to this user (avoids FK violation on
-    // bad/foreign contactIds, ON CONFLICT handles race conditions)
     await db.query(`
       INSERT INTO relationships (user_id, contact_id, relationship_type, importance_tier, health_score, health_trend, is_auto_managed)
-      SELECT $1, co.id, 'acquaintance', 3, 70, 'stable', true
+      SELECT $1, co.id, 'acquaintance', 3, 50, 'stable', true
       FROM contacts co
       WHERE co.id = $2 AND co.user_id = $1
         AND NOT EXISTS (SELECT 1 FROM relationships WHERE contact_id = $2 AND user_id = $1)
@@ -207,7 +290,6 @@ export async function relationshipsRoutes(fastify: FastifyInstance): Promise<voi
     const { contactId, clockId } = request.params as { contactId: string; clockId: string }
     const body = request.body as { isEnabled?: boolean; dormancyDaysThreshold?: number }
 
-    // Verify ownership
     const { rows } = await db.query(`
       SELECT rc.id FROM relationship_clocks rc
       JOIN relationships r ON r.id = rc.relationship_id
@@ -254,24 +336,24 @@ export async function relationshipsRoutes(fastify: FastifyInstance): Promise<voi
     })
   })
 
-  // ── "Analyze All Relationships" — manual, on-demand bulk recalculation ───
-  // Pure SQL on both ends (health.py/network_value.py make no LLM call), so
-  // this works purely from message history already on file — no dependency
-  // on WhatsApp being currently connected.
+  // ── "Analyze All Relationships" — instant deterministic recalculation ───
   fastify.post('/api/relationships/analyze-all', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
 
+    const count = await recalculateRelationshipsForUser(userId)
+
+    // Trigger python intelligence background worker asynchronously (non-blocking)
     const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000'
-    try {
-      const res = await fetch(`${intelligenceUrl}/internal/relationship-health/recalculate-all`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      })
-      if (!res.ok) return reply.code(502).send({ error: 'Intelligence service error' })
-      return reply.send(await res.json())
-    } catch {
-      return reply.code(502).send({ error: 'Intelligence service unavailable' })
-    }
+    fetch(`${intelligenceUrl}/internal/relationship-health/recalculate-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    }).catch(() => {})
+
+    return reply.send({
+      success: true,
+      analyzedCount: count,
+      message: 'Successfully recalculated relationship health scores using deterministic metrics',
+    })
   })
 }

@@ -1385,4 +1385,131 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       events,
     });
   });
+
+  // ── POST /api/documents/public/:token/action — Accept Quote or Request Changes
+  fastify.post('/api/documents/public/:token/action', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { action, reason } = z.object({
+      action: z.enum(['accept', 'request_changes']),
+      reason: z.string().max(2000).optional(),
+    }).parse(request.body);
+
+    const { rows: [doc] } = await db.query(
+      `SELECT id, user_id, document_number, title, status FROM documents WHERE share_token = $1`,
+      [token]
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const newStatus = action === 'accept' ? 'accepted' : 'revision_requested';
+    await db.query(
+      `UPDATE documents SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [newStatus, doc.id]
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, $2, $3)`,
+      [doc.id, action === 'accept' ? 'accepted' : 'revision_requested', JSON.stringify({ reason: reason || null })]
+    );
+
+    return reply.send({ success: true, status: newStatus });
+  });
+
+  // ── GET & POST /api/documents/public/:token/comments — Line Item Feedback
+  fastify.get('/api/documents/public/:token/comments', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { rows: [doc] } = await db.query(`SELECT id FROM documents WHERE share_token = $1`, [token]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows: comments } = await db.query(
+      `SELECT id, item_index, commenter_name, comment_text, created_at
+       FROM document_comments WHERE document_id = $1 ORDER BY created_at ASC`,
+      [doc.id]
+    );
+
+    return reply.send({ comments });
+  });
+
+  fastify.post('/api/documents/public/:token/comments', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { itemIndex, commenterName, commentText } = z.object({
+      itemIndex: z.number().int().min(0).optional().nullable(),
+      commenterName: z.string().min(1).max(255),
+      commentText: z.string().min(1).max(2000),
+    }).parse(request.body);
+
+    const { rows: [doc] } = await db.query(`SELECT id FROM documents WHERE share_token = $1`, [token]);
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const { rows: [comment] } = await db.query(
+      `INSERT INTO document_comments (document_id, item_index, commenter_name, comment_text)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [doc.id, itemIndex ?? null, commenterName, commentText]
+    );
+
+    return reply.send({ comment });
+  });
+
+  // ── POST /api/documents/public/:token/pay — One-Click Mobile Money & Auto-Receipt
+  fastify.post('/api/documents/public/:token/pay', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { paymentMethod, phoneNumber, reference } = z.object({
+      paymentMethod: z.enum(['mtn_momo', 'airtel_money', 'bank_transfer']),
+      phoneNumber: z.string().max(50).optional(),
+      reference: z.string().max(255).optional(),
+    }).parse(request.body);
+
+    const { rows: [doc] } = await db.query(
+      `SELECT * FROM documents WHERE share_token = $1`,
+      [token]
+    );
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    const crypto = await import('crypto');
+    const paymentRef = reference || `PAY-${paymentMethod.toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+
+    await db.query(
+      `UPDATE documents
+       SET status = 'paid', payment_method = $1, payment_reference = $2, paid_at = NOW(), updated_at = NOW()
+       WHERE id = $3`,
+      [paymentMethod, paymentRef, doc.id]
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'paid', $2)`,
+      [doc.id, JSON.stringify({ paymentMethod, paymentRef, phoneNumber: phoneNumber || null })]
+    );
+
+    const receiptNumber = await assignDocumentNumber(doc.user_id, 'receipt', doc.business_profile_id);
+    const receiptTitle = `Receipt ${receiptNumber}`;
+
+    const { rows: [receipt] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents,
+          source_document_id, requested_by, ai_generated, business_profile_id,
+          payment_method, payment_reference, paid_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'receipt','financial',$7,$8,'paid',$9,$10,$11,$12,$13,$14,$15,'system',false,$16,$17,$18,NOW())
+       RETURNING *`,
+      [
+        doc.user_id, doc.contact_id, doc.deal_id, doc.opportunity_id, doc.conversation_id, doc.template_id,
+        receiptNumber, receiptTitle, doc.structured_data,
+        doc.currency, doc.subtotal_cents, doc.discount_cents, doc.tax_cents, doc.total_cents,
+        doc.id, doc.business_profile_id, paymentMethod, paymentRef
+      ]
+    );
+
+    try {
+      await renderAndSaveDocument(receipt.id, doc.user_id);
+    } catch (err) {
+      fastify.log.error({ err }, 'failed_render_auto_receipt');
+    }
+
+    return reply.send({
+      success: true,
+      paymentReference: paymentRef,
+      receiptNumber: receipt.document_number,
+      receiptShareToken: receipt.share_token,
+    });
+  });
 }

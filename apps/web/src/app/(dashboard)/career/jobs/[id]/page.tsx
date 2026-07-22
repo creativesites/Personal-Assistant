@@ -1,37 +1,50 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
+import { use, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
-  ExternalLink,
-  Briefcase,
-  MapPin,
-  Loader2,
-  Sparkles,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  HelpCircle,
-  FolderPlus,
-  Send,
   Building2,
+  MapPin,
   DollarSign,
-  Clock,
-  Award,
+  Briefcase,
+  Sparkles,
+  ExternalLink,
   BookOpen,
-  MessageSquare,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Send,
+  Loader2,
+  FolderPlus,
   ShieldCheck,
   ChevronRight,
-  TrendingUp,
+  FileText,
 } from 'lucide-react'
-import { apiClient } from '@/lib/api'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { Badge, Tabs, useToast } from '@/components/ui'
-import { type CareerOpportunity } from '../../_components/opportunity-card'
+import { apiClient } from '@/lib/api'
+import { Tabs, useToast } from '@/components/ui'
 import { CompanyIntelligencePanel } from '../../_components/opportunity-insights'
 import { CvTailoringPanel } from '../../_components/cv-tailoring-panel'
+import { JobCoverLetterStudio } from '../../_components/job-cover-letter-studio'
+
+interface Opportunity {
+  id: string
+  title: string
+  companyOrOrg: string | null
+  location: string | null
+  category: string
+  isRemote: boolean
+  description: string | null
+  applicationUrl: string | null
+  status: string
+  salaryRangeCents: { min: number | null; max: number | null; currency: string | null } | null
+  contactEmail: string | null
+  contactPhone: string | null
+  deadline: string | null
+  projectId: string | null
+}
 
 export default function SingleJobPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -40,15 +53,10 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
   const token = session.data?.accessToken
   const { addToast } = useToast()
 
-  const [opp, setOpp] = useState<CareerOpportunity & { description?: string; projectId?: string | null } | null>(null)
+  const [opp, setOpp] = useState<Opportunity | null>(null)
   const [loading, setLoading] = useState(true)
-  const [creatingProject, setCreatingProject] = useState(false)
-
-  // Match Analysis state
-  const [matchData, setMatchAnalysis] = useState<any | null>(null)
+  const [matchData, setMatchAnalysis] = useState<any>(null)
   const [matchLoading, setMatchLoading] = useState(false)
-
-  // Readiness state
   const [readiness, setReadiness] = useState<Record<string, boolean>>({
     resumeReady: true,
     coverLetterReady: false,
@@ -58,24 +66,24 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
     linkedinUpdated: true,
     contactDetailsVerified: true,
   })
+  const [creatingProject, setCreatingProject] = useState(false)
 
-  // Ask Zuri Chat state
+  // Advisor Chat
+  const [inputQuery, setInputQuery] = useState('')
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([
     {
       role: 'assistant',
-      text: "Hello! I am Zuri, your career advisor. Ask me anything about this role, your fit, salary negotiation, or interview prep!",
+      text: 'Hello! I am Zuri Advisor. Ask me anything about this opportunity, salary benchmarking, or interview prep!',
     },
   ])
-  const [inputQuery, setInputQuery] = useState('')
   const [askingZuri, setAskingZuri] = useState(false)
 
   useEffect(() => {
     if (!token) return
     setLoading(true)
-    apiClient<{ opportunity: CareerOpportunity & { description?: string; projectId?: string | null } }>(
-      `/api/career/opportunities/${id}`,
-      { token }
-    )
+
+    // Fetch Opportunity Details
+    apiClient<{ opportunity: Opportunity }>(`/api/career/opportunities/${id}`, { token })
       .then((data) => {
         setOpp(data.opportunity)
         setLoading(false)
@@ -159,21 +167,21 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
 
   if (loading) {
     return (
-      <div className="p-12 text-center">
+      <div className="p-16 text-center bg-slate-50 min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-600 mb-2" />
-        <p className="text-sm font-medium text-gray-500">Loading Job Workspace Command Centre...</p>
+        <p className="text-sm font-medium text-slate-500">Loading Job Workspace Command Centre...</p>
       </div>
     )
   }
 
   if (!opp) {
     return (
-      <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
-        <Link href="/career" className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-900">
+      <div className="max-w-5xl mx-auto px-4 pt-8 space-y-6 min-h-screen bg-slate-50">
+        <Link href="/career" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-900">
           <ArrowLeft className="w-4 h-4" /> Back to Career OS
         </Link>
-        <div className="rounded-[2rem] border border-gray-200 bg-white p-8 text-center">
-          <p className="font-bold text-gray-900">Opportunity not found</p>
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-12 text-center shadow-xs">
+          <p className="font-bold text-slate-900 text-lg">Opportunity not found</p>
         </div>
       </div>
     )
@@ -194,338 +202,356 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
   ]
 
   return (
-    <div className="max-w-5xl mx-auto px-4 pt-6 pb-20 space-y-6">
-      {/* Top Breadcrumb */}
-      <div className="flex items-center justify-between">
-        <Link href="/career" className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-900">
-          <ArrowLeft className="w-4 h-4" /> Back to Opportunities
-        </Link>
-        {opp.projectId && (
-          <Link
-            href={`/projects/${opp.projectId}`}
-            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100"
-          >
-            Application Workspace Linked <ChevronRight className="w-3.5 h-3.5" />
+    <div className="min-h-screen bg-slate-50/50 pb-20">
+      <div className="max-w-5xl mx-auto px-4 pt-6 space-y-6">
+        {/* Top Navigation */}
+        <div className="flex items-center justify-between">
+          <Link href="/career" className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-slate-900 transition">
+            <ArrowLeft className="w-4 h-4" /> Back to Opportunities
           </Link>
-        )}
-      </div>
-
-      {/* PR-Style Command Centre Header */}
-      <div className="relative overflow-hidden rounded-[2rem] border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl p-6 md:p-8">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="px-3 py-1 text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded-full border border-indigo-200/60">
-                {opp.category.replace(/_/g, ' ').toUpperCase()}
-              </span>
-              {opp.isRemote && (
-                <span className="px-3 py-1 text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-full border border-emerald-200/60">
-                  REMOTE WORK
-                </span>
-              )}
-              <span className="px-3 py-1 text-xs font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 rounded-full flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" /> {matchData?.overallScore || 88}% Match
-              </span>
-            </div>
-
-            <h1 className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-              {opp.title}
-            </h1>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600 dark:text-gray-300 font-medium">
-              {opp.companyOrOrg && (
-                <span className="flex items-center gap-1.5 text-gray-900 dark:text-white font-semibold">
-                  <Building2 className="w-4 h-4 text-indigo-500" /> {opp.companyOrOrg}
-                </span>
-              )}
-              {opp.location && (
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4 text-rose-500" /> {opp.location}
-                </span>
-              )}
-              {opp.salaryRangeCents?.max && (
-                <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                  <DollarSign className="w-4 h-4 text-emerald-500" />
-                  {(opp.salaryRangeCents.max / 100).toLocaleString()} {opp.salaryRangeCents.currency || 'USD'} / yr
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Primary Actions Bar */}
-          <div className="flex flex-wrap lg:flex-col items-stretch gap-3 shrink-0">
-            <button
-              onClick={handleCreateProject}
-              disabled={creatingProject}
-              className="px-6 py-3.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-2xl shadow-lg shadow-indigo-500/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
+          {opp.projectId && (
+            <Link
+              href={`/projects/${opp.projectId}`}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-3.5 py-1.5 rounded-xl border border-indigo-100 shadow-xs"
             >
-              {creatingProject ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-5 h-5" />}
-              {opp.projectId ? 'Open Application Workspace' : 'Create Application Project'}
-            </button>
+              Application Workspace Linked <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          )}
+        </div>
 
-            {opp.applicationUrl && (
-              <a
-                href={opp.applicationUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-5 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-2xl transition flex items-center justify-center gap-2"
+        {/* PR-Style Command Centre Header */}
+        <div className="relative overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-sm p-6 sm:p-8">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-3 py-1 text-xs font-bold bg-indigo-50 text-indigo-700 rounded-full border border-indigo-100">
+                  {opp.category.replace(/_/g, ' ').toUpperCase()}
+                </span>
+                {opp.isRemote && (
+                  <span className="px-3 py-1 text-xs font-bold bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                    REMOTE WORK
+                  </span>
+                )}
+                <span className="px-3 py-1 text-xs font-semibold bg-purple-50 text-purple-700 rounded-full flex items-center gap-1 border border-purple-100">
+                  <Sparkles className="w-3.5 h-3.5" /> {matchData?.overallScore || 88}% Match
+                </span>
+              </div>
+
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 tracking-tight">
+                {opp.title}
+              </h1>
+
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-600 font-medium">
+                {opp.companyOrOrg && (
+                  <span className="flex items-center gap-1.5 text-slate-900 font-semibold">
+                    <Building2 className="w-4 h-4 text-indigo-500" /> {opp.companyOrOrg}
+                  </span>
+                )}
+                {opp.location && (
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-rose-500" /> {opp.location}
+                  </span>
+                )}
+                {opp.salaryRangeCents?.max && (
+                  <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                    <DollarSign className="w-4 h-4 text-emerald-500" />
+                    {(opp.salaryRangeCents.max / 100).toLocaleString()} {opp.salaryRangeCents.currency || 'USD'} / yr
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Primary Actions */}
+            <div className="flex flex-wrap lg:flex-col items-stretch gap-3 shrink-0">
+              <button
+                onClick={handleCreateProject}
+                disabled={creatingProject}
+                className="px-6 py-3.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-2xl shadow-md shadow-indigo-100 transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                External Apply <ExternalLink className="w-4 h-4" />
-              </a>
-            )}
+                {creatingProject ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-5 h-5" />}
+                {opp.projectId ? 'Open Application Workspace' : 'Create Application Project'}
+              </button>
+
+              {opp.applicationUrl && (
+                <a
+                  href={opp.applicationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-5 py-3 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-2xl transition flex items-center justify-center gap-2"
+                >
+                  External Apply <ExternalLink className="w-4 h-4" />
+                </a>
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Workspace Workspace Tabs */}
-      <div className="rounded-[2rem] border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-4 md:p-6 min-h-[500px]">
-        <Tabs tabs={TABS} defaultTab="overview">
-          {(activeTab) => (
-            <div className="pt-6">
-              {/* TAB 1: Overview & Details */}
-              {activeTab === 'overview' && (
-                <div className="space-y-8">
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
-                      <BookOpen className="w-5 h-5 text-indigo-500" /> Full Job Description
-                    </h3>
-                    <div className="p-6 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap leading-relaxed border border-gray-100 dark:border-gray-800">
-                      {opp.description || 'No detailed description provided for this position.'}
-                    </div>
-                  </div>
-
-                  {/* Application Metadata & Contacts */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl space-y-2">
-                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Application Contacts</h4>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {opp.contactEmail || opp.contactPhone ? `${opp.contactEmail || ''} ${opp.contactPhone || ''}` : 'Direct HR Ingestion'}
-                      </p>
-                    </div>
-                    <div className="p-5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl space-y-2">
-                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Application Deadline</h4>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
-                        <Clock className="w-4 h-4 text-amber-500" /> {opp.deadline ? new Date(opp.deadline).toLocaleDateString() : 'Open / Rolling basis'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: Explainable Match Analysis */}
-              {activeTab === 'match' && (
-                <div className="space-y-6">
-                  {/* Score Spotlight */}
-                  <div className="p-6 bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-2xl shadow-md flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div className="space-y-2 text-center md:text-left">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-500/30 rounded-full text-xs font-semibold text-indigo-200">
-                        <Sparkles className="w-4 h-4 text-yellow-300" /> Deterministic + AI Match Engine
+        {/* Main Workspace Workspace Tabs */}
+        <div className="rounded-3xl border border-slate-200/90 bg-white shadow-sm p-4 sm:p-6 min-h-[500px]">
+          <Tabs tabs={TABS} defaultTab="overview">
+            {(activeTab) => (
+              <div className="pt-6">
+                {/* TAB 1: Overview & Details */}
+                {activeTab === 'overview' && (
+                  <div className="space-y-8">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900 mb-2 flex items-center gap-2">
+                        <BookOpen className="w-5 h-5 text-indigo-500" /> Full Job Description
+                      </h3>
+                      <div className="p-6 bg-slate-50/80 rounded-2xl text-sm text-slate-800 whitespace-pre-wrap leading-relaxed border border-slate-200/60">
+                        {opp.description || 'No detailed description provided for this position.'}
                       </div>
-                      <h3 className="text-2xl font-bold">Overall Suitability Score</h3>
-                      <p className="text-xs text-indigo-200 max-w-xl">
-                        {matchData?.explanation || 'Your skills and background match this role exceptionally well across key core competencies.'}
-                      </p>
                     </div>
-                    <div className="w-28 h-28 rounded-full bg-indigo-600/50 border-4 border-indigo-400 flex flex-col items-center justify-center shrink-0">
-                      <span className="text-3xl font-black">{matchData?.overallScore || 88}%</span>
-                      <span className="text-[10px] uppercase font-bold text-indigo-200">MATCH</span>
+
+                    {/* Application Metadata & Contacts */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="p-5 bg-slate-50/60 border border-slate-200/80 rounded-2xl space-y-2">
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Application Contacts</h4>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {opp.contactEmail || opp.contactPhone ? `${opp.contactEmail || ''} ${opp.contactPhone || ''}` : 'Direct HR Ingestion'}
+                        </p>
+                      </div>
+                      <div className="p-5 bg-slate-50/60 border border-slate-200/80 rounded-2xl space-y-2">
+                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Application Deadline</h4>
+                        <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-amber-500" /> {opp.deadline ? new Date(opp.deadline).toLocaleDateString() : 'Open / Rolling basis'}
+                        </p>
+                      </div>
                     </div>
                   </div>
+                )}
 
-                  {/* 9 Dimension Breakdown */}
-                  <div>
-                    <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3">Matching Dimensions</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {[
-                        { label: 'Technical Skills', score: matchData?.breakdown?.skillsMatch || 85 },
-                        { label: 'Experience Level', score: matchData?.breakdown?.experienceMatch || 90 },
-                        { label: 'Location & Commute', score: matchData?.breakdown?.locationMatch || 100 },
-                        { label: 'Remote Flexibility', score: matchData?.breakdown?.remotePreferenceMatch || 100 },
-                        { label: 'Salary Alignment', score: matchData?.breakdown?.salaryExpectationMatch || 85 },
-                        { label: 'Career Trajectory', score: matchData?.breakdown?.careerGoalsMatch || 88 },
-                      ].map((dim) => (
-                        <div key={dim.label} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
-                          <div className="flex justify-between text-xs font-semibold mb-1">
-                            <span className="text-gray-700 dark:text-gray-300">{dim.label}</span>
-                            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{dim.score}%</span>
+                {/* TAB 2: Explainable Match Analysis */}
+                {activeTab === 'match' && (
+                  <div className="space-y-6">
+                    {/* Score Spotlight */}
+                    <div className="p-6 bg-gradient-to-br from-indigo-600 to-indigo-800 text-white rounded-3xl shadow-lg shadow-indigo-100 flex flex-col sm:flex-row items-center justify-between gap-6">
+                      <div className="space-y-2 text-center sm:text-left">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/20 rounded-full text-xs font-semibold text-indigo-100">
+                          <Sparkles className="w-4 h-4 text-yellow-300" /> Deterministic + AI Match Engine
+                        </div>
+                        <h3 className="text-2xl font-bold">Overall Suitability Score</h3>
+                        <p className="text-xs text-indigo-100 max-w-xl leading-relaxed">
+                          {matchData?.explanation || 'Your skills and background match this role exceptionally well across key core competencies.'}
+                        </p>
+                      </div>
+                      <div className="w-28 h-28 rounded-full bg-white/10 border-4 border-white/30 flex flex-col items-center justify-center shrink-0">
+                        <span className="text-3xl font-black">{matchData?.overallScore || 88}%</span>
+                        <span className="text-[10px] uppercase font-bold text-indigo-100">MATCH</span>
+                      </div>
+                    </div>
+
+                    {/* 9 Dimension Breakdown */}
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 mb-3">Matching Dimensions</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {[
+                          { label: 'Technical Skills', score: matchData?.breakdown?.skillsMatch || 85 },
+                          { label: 'Experience Level', score: matchData?.breakdown?.experienceMatch || 90 },
+                          { label: 'Location & Commute', score: matchData?.breakdown?.locationMatch || 100 },
+                          { label: 'Remote Flexibility', score: matchData?.breakdown?.remotePreferenceMatch || 100 },
+                          { label: 'Salary Alignment', score: matchData?.breakdown?.salaryExpectationMatch || 85 },
+                          { label: 'Career Trajectory', score: matchData?.breakdown?.careerGoalsMatch || 88 },
+                        ].map((dim) => (
+                          <div key={dim.label} className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl">
+                            <div className="flex justify-between text-xs font-semibold mb-1">
+                              <span className="text-slate-700">{dim.label}</span>
+                              <span className="text-indigo-600 font-bold">{dim.score}%</span>
+                            </div>
+                            <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                              <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${dim.score}%` }} />
+                            </div>
                           </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 h-2 rounded-full overflow-hidden">
-                            <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${dim.score}%` }} />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Missing Skills Matrix */}
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 mb-3">Skills Matrix Analysis</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-4 bg-emerald-50/60 border border-emerald-200/80 rounded-2xl">
+                          <h5 className="text-xs font-bold text-emerald-900 mb-2 flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Core Matching Strengths
+                          </h5>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(matchData?.missingSkills?.have || ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'TailwindCSS']).map((s: string) => (
+                              <span key={s} className="px-2.5 py-1 text-xs font-semibold bg-emerald-100/80 text-emerald-800 rounded-lg">
+                                {s}
+                              </span>
+                            ))}
                           </div>
                         </div>
+
+                        <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-2xl">
+                          <h5 className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-1.5">
+                            <AlertCircle className="w-4 h-4 text-amber-600" /> Recommended Additions
+                          </h5>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(matchData?.missingSkills?.needImprovement || ['System Architecture', 'Cloud Deployment']).map((s: string) => (
+                              <span key={s} className="px-2.5 py-1 text-xs font-semibold bg-amber-100/80 text-amber-800 rounded-lg">
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: CV & Cover Letter */}
+                {activeTab === 'cv-studio' && token && (
+                  <div className="space-y-8">
+                    {/* Part A: Tailored CV Studio */}
+                    <div className="p-6 bg-slate-50/80 border border-slate-200/80 rounded-3xl space-y-4">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-indigo-600" />
+                        <h4 className="text-base font-bold text-slate-900">Tailored CV Manager</h4>
+                      </div>
+                      <CvTailoringPanel opportunityId={opp.id} token={token} />
+                    </div>
+
+                    {/* Part B: Full Cover Letter Studio */}
+                    <JobCoverLetterStudio
+                      opportunityId={opp.id}
+                      jobTitle={opp.title}
+                      companyName={opp.companyOrOrg || ''}
+                      location={opp.location || undefined}
+                      token={token}
+                    />
+                  </div>
+                )}
+
+                {/* TAB 4: Readiness Checklist */}
+                {activeTab === 'readiness' && (
+                  <div className="space-y-6 max-w-2xl">
+                    <div className="p-5 bg-indigo-50/60 border border-indigo-100 rounded-2xl">
+                      <div className="flex justify-between items-center mb-2">
+                        <h4 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
+                          <ShieldCheck className="w-5 h-5 text-indigo-600" /> Application Readiness Score
+                        </h4>
+                        <span className="text-sm font-bold text-indigo-600">{readinessPct}% Complete</span>
+                      </div>
+                      <div className="w-full bg-indigo-200 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-indigo-600 h-full transition-all duration-300" style={{ width: `${readinessPct}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {[
+                        { key: 'resumeReady', label: 'Tailored Resume generated & verified' },
+                        { key: 'coverLetterReady', label: 'Cover Letter drafted & customized' },
+                        { key: 'referencesReady', label: 'Professional references list attached' },
+                        { key: 'portfolioReady', label: 'Portfolio / GitHub projects updated & linked' },
+                        { key: 'certificatesReady', label: 'Relevant certifications verified' },
+                        { key: 'linkedinUpdated', label: 'LinkedIn profile headline & experience aligned' },
+                        { key: 'contactDetailsVerified', label: 'Email, phone & location confirmed' },
+                      ].map((item) => (
+                        <label
+                          key={item.key}
+                          onClick={() => toggleReadinessItem(item.key)}
+                          className="flex items-center gap-3 p-3.5 bg-white border border-slate-200 rounded-2xl cursor-pointer hover:border-indigo-300 transition shadow-2xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!!readiness[item.key]}
+                            onChange={() => {}}
+                            className="w-4 h-4 text-indigo-600 rounded-md focus:ring-indigo-500"
+                          />
+                          <span className={`text-sm font-medium ${readiness[item.key] ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                            {item.label}
+                          </span>
+                        </label>
                       ))}
                     </div>
                   </div>
+                )}
 
-                  {/* Missing Skills Matrix */}
-                  <div>
-                    <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3">Skills Matrix Analysis</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-2xl">
-                        <h5 className="text-xs font-bold text-emerald-800 dark:text-emerald-300 mb-2 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Core Matching Strengths
-                        </h5>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(matchData?.missingSkills?.have || ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'TailwindCSS']).map((s: string) => (
-                            <span key={s} className="px-2.5 py-1 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 rounded-lg">
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                {/* TAB 5: Company Intelligence */}
+                {activeTab === 'company-intel' && token && (
+                  <div className="space-y-6">
+                    <CompanyIntelligencePanel opportunityId={opp.id} token={token} companyOrOrg={opp.companyOrOrg} />
+                  </div>
+                )}
 
-                      <div className="p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl">
-                        <h5 className="text-xs font-bold text-amber-800 dark:text-amber-300 mb-2 flex items-center gap-1.5">
-                          <AlertCircle className="w-4 h-4 text-amber-600" /> Recommended Additions
-                        </h5>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(matchData?.missingSkills?.needImprovement || ['System Architecture', 'Cloud Deployment']).map((s: string) => (
-                            <span key={s} className="px-2.5 py-1 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 rounded-lg">
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                {/* TAB 6: Ask Zuri Advisor */}
+                {activeTab === 'ask-zuri' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 p-3 bg-indigo-50 rounded-2xl text-xs font-medium text-indigo-800 border border-indigo-100">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      Zuri Advisor has full context of this job description, your career profile, and current match score.
                     </div>
-                  </div>
-                </div>
-              )}
 
-              {/* TAB 3: CV & Cover Letter */}
-              {activeTab === 'cv-studio' && token && (
-                <div className="space-y-6">
-                  <CvTailoringPanel opportunityId={opp.id} token={token} />
-                </div>
-              )}
-
-              {/* TAB 4: Readiness Checklist */}
-              {activeTab === 'readiness' && (
-                <div className="space-y-6 max-w-2xl">
-                  <div className="p-5 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-2xl">
-                    <div className="flex justify-between items-center mb-2">
-                      <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
-                        <ShieldCheck className="w-5 h-5 text-indigo-600" /> Application Readiness Score
-                      </h4>
-                      <span className="text-sm font-bold text-indigo-600">{readinessPct}% Complete</span>
+                    {/* Prompt Chips */}
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        'Am I competitive for this role?',
+                        'What target salary should I ask for?',
+                        'How should I prepare for interview round 1?',
+                        'What are potential red flags?',
+                      ].map((chip) => (
+                        <button
+                          key={chip}
+                          onClick={() => handleSendQuery(chip)}
+                          className="px-3.5 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 rounded-xl border border-slate-200/80 transition"
+                        >
+                          {chip}
+                        </button>
+                      ))}
                     </div>
-                    <div className="w-full bg-indigo-200 dark:bg-indigo-900 h-2.5 rounded-full overflow-hidden">
-                      <div className="bg-indigo-600 h-full transition-all duration-300" style={{ width: `${readinessPct}%` }} />
-                    </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    {[
-                      { key: 'resumeReady', label: 'Tailored Resume generated & verified' },
-                      { key: 'coverLetterReady', label: 'Cover Letter drafted & customized' },
-                      { key: 'referencesReady', label: 'Professional references list attached' },
-                      { key: 'portfolioReady', label: 'Portfolio / GitHub projects updated & linked' },
-                      { key: 'certificatesReady', label: 'Relevant certifications verified' },
-                      { key: 'linkedinUpdated', label: 'LinkedIn profile headline & experience aligned' },
-                      { key: 'contactDetailsVerified', label: 'Email, phone & location confirmed' },
-                    ].map((item) => (
-                      <label
-                        key={item.key}
-                        onClick={() => toggleReadinessItem(item.key)}
-                        className="flex items-center gap-3 p-3.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl cursor-pointer hover:border-indigo-300 transition"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!!readiness[item.key]}
-                          onChange={() => {}}
-                          className="w-4 h-4 text-indigo-600 rounded-md focus:ring-indigo-500"
-                        />
-                        <span className={`text-sm font-medium ${readiness[item.key] ? 'line-through text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
-                          {item.label}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 5: Company Intelligence */}
-              {activeTab === 'company-intel' && token && (
-                <div className="space-y-6">
-                  <CompanyIntelligencePanel opportunityId={opp.id} token={token} companyOrOrg={opp.companyOrOrg} />
-                </div>
-              )}
-
-              {/* TAB 6: Ask Zuri Advisor */}
-              {activeTab === 'ask-zuri' && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl text-xs font-medium text-indigo-700 dark:text-indigo-300">
-                    <Sparkles className="w-4 h-4 text-indigo-500" />
-                    Zuri Advisor has context of this job description, your career profile, and current match score.
-                  </div>
-
-                  {/* Prompt Chips */}
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      'Am I competitive for this role?',
-                      'What target salary should I ask for?',
-                      'How should I prepare for interview round 1?',
-                      'What are potential red flags?',
-                    ].map((chip) => (
-                      <button
-                        key={chip}
-                        onClick={() => handleSendQuery(chip)}
-                        className="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-800 hover:bg-indigo-50 text-gray-700 dark:text-gray-300 hover:text-indigo-600 rounded-xl border border-gray-200 dark:border-gray-700 transition"
-                      >
-                        {chip}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Chat Box */}
-                  <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 h-[320px] overflow-y-auto space-y-3">
-                    {chatMessages.map((msg, i) => (
-                      <div
-                        key={i}
-                        className={`flex gap-3 text-xs leading-relaxed ${
-                          msg.role === 'user' ? 'justify-end' : 'justify-start'
-                        }`}
-                      >
+                    {/* Chat Box */}
+                    <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl h-[320px] overflow-y-auto space-y-3">
+                      {chatMessages.map((msg, i) => (
                         <div
-                          className={`max-w-[80%] p-3 rounded-2xl ${
-                            msg.role === 'user'
-                              ? 'bg-indigo-600 text-white rounded-br-none'
-                              : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-none shadow-xs'
+                          key={i}
+                          className={`flex gap-3 text-xs leading-relaxed ${
+                            msg.role === 'user' ? 'justify-end' : 'justify-start'
                           }`}
                         >
-                          {msg.text}
+                          <div
+                            className={`max-w-[80%] p-3.5 rounded-2xl ${
+                              msg.role === 'user'
+                                ? 'bg-indigo-600 text-white rounded-br-none shadow-xs'
+                                : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-2xs'
+                            }`}
+                          >
+                            {msg.text}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {askingZuri && (
-                      <div className="flex gap-2 text-xs text-indigo-600 items-center">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Zuri is analyzing...
-                      </div>
-                    )}
-                  </div>
+                      ))}
+                      {askingZuri && (
+                        <div className="flex gap-2 text-xs text-indigo-600 font-medium items-center">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Zuri is analyzing...
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Input form */}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={inputQuery}
-                      onChange={(e) => setInputQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSendQuery()}
-                      placeholder="Ask Zuri anything about this job..."
-                      className="flex-1 px-4 py-2.5 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                    />
-                    <button
-                      onClick={() => handleSendQuery()}
-                      disabled={askingZuri}
-                      className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl shadow-xs transition"
-                    >
-                      <Send className="w-4 h-4" />
-                    </button>
+                    {/* Input Form */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={inputQuery}
+                        onChange={(e) => setInputQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendQuery()}
+                        placeholder="Ask Zuri anything about this job..."
+                        className="flex-1 px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-medium"
+                      />
+                      <button
+                        onClick={() => handleSendQuery()}
+                        disabled={askingZuri}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl shadow-xs transition"
+                      >
+                        <Send className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </Tabs>
+                )}
+              </div>
+            )}
+          </Tabs>
+        </div>
       </div>
     </div>
   )
