@@ -1214,6 +1214,175 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── POST /api/documents/shares/:token/accept — Phase 2 Public Quote Acceptance
+  fastify.post('/api/documents/shares/:token/accept', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { rows: [doc] } = await db.query(
+      `SELECT d.*, c.phone_number, c.custom_name, c.display_name, c.whatsapp_jid
+       FROM documents d
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE d.share_token = $1`,
+      [token],
+    );
+
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    await db.query(`UPDATE documents SET status = 'accepted', updated_at = NOW() WHERE id = $1`, [doc.id]);
+    await db.query(`INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'accepted', '{}')`, [doc.id]);
+
+    let createdInvoice = null;
+    let invoiceShareToken = '';
+
+    if (doc.document_type === 'quotation') {
+      const invoiceNumber = await assignDocumentNumber(doc.user_id, 'invoice', doc.business_profile_id);
+      const invoiceTitle = `Invoice ${invoiceNumber}`;
+
+      const { rows: [invoice] } = await db.query(
+        `INSERT INTO documents
+           (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+            document_type, document_category, document_number, title, status, structured_data,
+            currency, subtotal_cents, discount_cents, tax_cents, total_cents,
+            source_document_id, requested_by, ai_generated, business_profile_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'invoice','sales',$7,$8,'sent',$9,$10,$11,$12,$13,$14,$15,'system',false,$16)
+         RETURNING *`,
+        [
+          doc.user_id, doc.contact_id, doc.deal_id, doc.opportunity_id, doc.conversation_id,
+          doc.template_id, invoiceNumber, invoiceTitle,
+          JSON.stringify(doc.structured_data), doc.currency, doc.subtotal_cents,
+          doc.discount_cents, doc.tax_cents, doc.total_cents, doc.id, doc.business_profile_id,
+        ],
+      );
+
+      createdInvoice = invoice;
+
+      try {
+        await renderAndSaveDocument(invoice.id, doc.user_id);
+      } catch (err) {
+        fastify.log.warn({ err }, 'auto_invoice_render_failed');
+      }
+
+      const { rows: [share] } = await db.query(
+        `INSERT INTO document_shares (document_id, created_by, is_active)
+         VALUES ($1, $2, true) RETURNING share_token`,
+        [invoice.id, doc.user_id],
+      );
+      invoiceShareToken = share?.share_token || '';
+
+      const baseUrl = process.env.CORS_ORIGIN || 'https://zuri-personal-assistant-delta.vercel.app';
+      const invoiceShareUrl = `${baseUrl}/shared/${invoiceShareToken}`;
+      const recipientName = doc.custom_name || doc.display_name || 'there';
+      const totalFmt = `${doc.currency || 'USD'} ${(Number(doc.total_cents || 0) / 100).toFixed(2)}`;
+      const messageText = `Thank you ${recipientName} for accepting Quotation ${doc.document_number}!\n\nHere is your *INVOICE* (${invoiceNumber}) for *${totalFmt}*:\n\n📄 View or Pay Invoice here:\n${invoiceShareUrl}`;
+
+      const waServiceUrl = process.env.WHATSAPP_SERVICE_URL || config.WHATSAPP_SERVICE_URL;
+      const recipient = doc.whatsapp_jid || doc.phone_number || '';
+      if (recipient) {
+        try {
+          await fetch(`${waServiceUrl}/api/whatsapp/send-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-internal-secret': config.INTERNAL_API_SECRET || '' },
+            body: JSON.stringify({ userId: doc.user_id, recipient, message: messageText }),
+          });
+        } catch (err) {
+          fastify.log.error({ err }, 'auto_invoice_whatsapp_dispatch_failed');
+        }
+      }
+    }
+
+    return reply.send({
+      ok: true,
+      status: 'accepted',
+      invoice: createdInvoice ? formatDocument(createdInvoice) : null,
+      invoiceShareToken,
+    });
+  });
+
+  // ── POST /api/documents/shares/:token/pay — Phase 2 Public Payment Completion
+  fastify.post('/api/documents/shares/:token/pay', async (request, reply) => {
+    const { token } = request.params as { token: string };
+    const { rows: [doc] } = await db.query(
+      `SELECT d.*, c.phone_number, c.custom_name, c.display_name, c.whatsapp_jid
+       FROM documents d
+       LEFT JOIN contacts c ON c.id = d.contact_id
+       WHERE d.share_token = $1`,
+      [token],
+    );
+
+    if (!doc) return reply.code(404).send({ error: 'Document not found' });
+
+    await db.query(`UPDATE documents SET status = 'paid', paid_at = NOW(), updated_at = NOW() WHERE id = $1`, [doc.id]);
+    await db.query(`INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'paid', '{}')`, [doc.id]);
+
+    const structItems = doc.structured_data?.items || [];
+    for (const item of structItems) {
+      if (item.productId) {
+        const qty = Math.max(1, parseInt(String(item.quantity || 1), 10));
+        await db.query(
+          `UPDATE products SET stock_quantity = GREATEST(0, COALESCE(stock_quantity, 0) - $1), updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+          [qty, item.productId, doc.user_id],
+        ).catch(() => {});
+      }
+    }
+
+    const receiptNumber = await assignDocumentNumber(doc.user_id, 'receipt', doc.business_profile_id);
+    const receiptTitle = `Receipt ${receiptNumber}`;
+
+    const { rows: [receipt] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents,
+          source_document_id, requested_by, ai_generated, business_profile_id, paid_at)
+       VALUES ($1,$2,$3,$4,$5,$6,'receipt',$7,$8,$9,'paid',$10,$11,$12,$13,$14,$15,$16,'system',false,$17,NOW())
+       RETURNING *`,
+      [
+        doc.user_id, doc.contact_id, doc.deal_id, doc.opportunity_id, doc.conversation_id,
+        doc.template_id, doc.document_category, receiptNumber, receiptTitle,
+        JSON.stringify(doc.structured_data), doc.currency, doc.subtotal_cents,
+        doc.discount_cents, doc.tax_cents, doc.total_cents, doc.id, doc.business_profile_id,
+      ],
+    );
+
+    try {
+      await renderAndSaveDocument(receipt.id, doc.user_id);
+    } catch (err) {
+      fastify.log.warn({ err }, 'auto_receipt_render_failed');
+    }
+
+    const { rows: [receiptShare] } = await db.query(
+      `INSERT INTO document_shares (document_id, created_by, is_active)
+       VALUES ($1, $2, true) RETURNING share_token`,
+      [receipt.id, doc.user_id],
+    );
+
+    const baseUrl = process.env.CORS_ORIGIN || 'https://zuri-personal-assistant-delta.vercel.app';
+    const receiptShareUrl = `${baseUrl}/shared/${receiptShare?.share_token || ''}`;
+    const recipientName = doc.custom_name || doc.display_name || 'there';
+    const totalFmt = `${doc.currency || 'USD'} ${(Number(doc.total_cents || 0) / 100).toFixed(2)}`;
+    const messageText = `Payment received! Thank you ${recipientName}.\n\nHere is your official *PAYMENT RECEIPT* (${receiptNumber}) for *${totalFmt}*:\n\n📄 View or Download Receipt:\n${receiptShareUrl}`;
+
+    const waServiceUrl = process.env.WHATSAPP_SERVICE_URL || config.WHATSAPP_SERVICE_URL;
+    const recipient = doc.whatsapp_jid || doc.phone_number || '';
+    if (recipient) {
+      try {
+        await fetch(`${waServiceUrl}/api/whatsapp/send-message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal-secret': config.INTERNAL_API_SECRET || '' },
+          body: JSON.stringify({ userId: doc.user_id, recipient, message: messageText }),
+        });
+      } catch (err) {
+        fastify.log.error({ err }, 'auto_receipt_whatsapp_dispatch_failed');
+      }
+    }
+
+    return reply.send({
+      ok: true,
+      status: 'paid',
+      receipt: formatDocument(receipt),
+      receiptShareUrl,
+    });
+  });
+
   // ── GET /api/documents/search — semantic search (plan §15 Phase 4).
   fastify.get('/api/documents/search', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
