@@ -16,7 +16,7 @@ $COMPOSE up -d --no-deps --force-recreate api intelligence whatsapp
 
 echo "==> Waiting for API health check..."
 for i in $(seq 1 30); do
-  if curl -sf http://localhost:5500/api/health > /dev/null 2>&1; then
+  if curl -sf http://localhost:5500/health > /dev/null 2>&1; then
     echo "    API healthy after $((i * 2))s"
     break
   fi
