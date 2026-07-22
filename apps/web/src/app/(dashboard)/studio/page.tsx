@@ -1101,7 +1101,10 @@ function InventoryModule({ token, onAskAI }: { token: string | undefined; onAskA
     token ? '/api/suppliers' : null, token,
   )
   const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
-  const products = productsData?.products ?? []
+  const rawProducts = productsData?.products ?? []
+  const products = rawProducts.filter(
+    p => p.trackInventory !== false && ['product', 'bundle', 'raw_material', 'component'].includes(p.itemType || 'product')
+  )
   const suppliers = suppliersData?.suppliers ?? []
 
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null)

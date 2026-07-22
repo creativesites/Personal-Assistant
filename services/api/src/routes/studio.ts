@@ -367,6 +367,42 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  fastify.post(
+    '/api/studio/customers',
+    { preHandler: [authenticate, requireMarketingAccess, requireFeature('business_os')] },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { name, phone, email, company, jobTitle } = request.body as {
+        name: string
+        phone?: string
+        email?: string
+        company?: string
+        jobTitle?: string
+      }
+
+      if (!name) {
+        return reply.status(400).send({ error: 'Name is required' })
+      }
+
+      const { rows: [contact] } = await db.query(
+        `INSERT INTO contacts (user_id, display_name, phone_number, email, company, job_title, customer_status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'customer')
+         RETURNING id, display_name AS name`,
+        [userId, name, phone || null, email || null, company || null, jobTitle || null],
+      )
+
+      await db.query(
+        `INSERT INTO relationships (user_id, contact_id, health_score, health_trend)
+         VALUES ($1, $2, 80, 'stable')
+         ON CONFLICT (user_id, contact_id) DO NOTHING`,
+        [userId, contact.id],
+      )
+
+      return reply.status(201).send({ customer: contact })
+    },
+  )
+
+
   // Industry Preset Endpoints
   fastify.get(
     '/api/studio/preset',

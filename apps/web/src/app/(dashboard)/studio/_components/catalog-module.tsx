@@ -823,15 +823,26 @@ export function CatalogModule({ token }: { token: string | undefined }) {
             variant="secondary"
             onClick={async () => {
               try {
-                const res = await fetch('/api/studio/catalog/export-pdf', {
+                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+                const res = await fetch(`${apiUrl}/api/studio/catalog/export-pdf`, {
                   method: 'POST',
-                  headers: { Authorization: `Bearer ${token}` },
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  },
                 })
+                if (!res.ok) {
+                  const errData = await res.json().catch(() => ({}))
+                  throw new Error(errData.error || `HTTP ${res.status}`)
+                }
                 const html = await res.text()
                 const win = window.open('', '_blank')
-                if (win) win.document.write(html)
-              } catch (e) {
-                addToast({ variant: 'error', title: 'Failed to export catalog PDF' })
+                if (win) {
+                  win.document.write(html)
+                  win.document.close()
+                }
+              } catch (e: any) {
+                addToast({ variant: 'error', title: e.message || 'Failed to export catalog PDF' })
               }
             }}
           >
