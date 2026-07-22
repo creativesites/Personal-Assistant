@@ -359,7 +359,7 @@ export class BaileysTransport extends WhatsAppTransport {
       }
     });
 
-    sock.ev.on('presence-update', ({ id, presences }) => {
+    sock.ev.on('presence.update', ({ id, presences }) => {
       if (sock !== this.sock) return;
       const participantJid = Object.keys(presences)[0];
       if (!participantJid) return;

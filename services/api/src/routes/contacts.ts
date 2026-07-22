@@ -594,7 +594,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows } = await db.query(
       `SELECT
         ma.promises_detected,
-        ma.analysed_at,
+        ma.analyzed_at,
         m.whatsapp_timestamp AS message_at
        FROM message_analyses ma
        JOIN messages m ON m.id = ma.message_id
@@ -614,7 +614,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         for (const p of detected) {
           const text = p.text ?? p.promise ?? p.content ?? null;
           if (text) {
-            promises.push({ text, detectedAt: row.analysed_at, messageAt: row.message_at });
+            promises.push({ text, detectedAt: row.analyzed_at, messageAt: row.message_at });
           }
         }
       }

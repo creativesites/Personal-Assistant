@@ -11,6 +11,7 @@ import {
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, Dropdown, EmptyState, SkeletonCard, useToast } from '@/components/ui'
+import { AnalyticsSubNav } from '../analytics/_components/analytics-sub-nav'
 
 const DocumentPreviewModal = dynamic(() => import('@/components/documents/DocumentPreviewModal'), { ssr: false })
 
@@ -325,6 +326,7 @@ export default function BusinessPage() {
 
   return (
     <div className="bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
+      <AnalyticsSubNav />
       <div className="p-4 md:p-6 pb-0">
         {/* Hero — value prop + manual-creation CTA front and center */}
         <div className="relative rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">

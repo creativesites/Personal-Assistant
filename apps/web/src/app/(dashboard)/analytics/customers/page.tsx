@@ -54,10 +54,12 @@ interface CustomersData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getInitials(name: string): string {
+function getInitials(name: string | null | undefined): string {
+  if (!name) return '??'
   const parts = name.trim().split(/\s+/)
+  if (parts.length === 0 || !parts[0]) return '??'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return (parts[0][0] + (parts[parts.length - 1]?.[0] || '')).toUpperCase()
 }
 
 function fmtDate(dateStr: string | null): string {
@@ -204,7 +206,8 @@ const AVATAR_COLORS = [
   'bg-pink-500',
 ]
 
-function avatarColor(name: string): string {
+function avatarColor(name: string | null | undefined): string {
+  if (!name) return 'bg-gray-400'
   let hash = 0
   for (let i = 0; i < name.length; i++) {
     hash = (hash * 31 + name.charCodeAt(i)) >>> 0
@@ -212,7 +215,7 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length]
 }
 
-function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }) {
+function Avatar({ name, size = 'md' }: { name: string | null | undefined; size?: 'sm' | 'md' }) {
   const initials = getInitials(name)
   const color = avatarColor(name)
   const sizeClasses = size === 'sm' ? 'w-8 h-8 text-xs' : 'w-9 h-9 text-sm'
@@ -506,13 +509,13 @@ function TopCustomersTable({ customers }: { customers: CustomerRow[] }) {
                   {/* Customer name + avatar */}
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-3">
-                      <Avatar name={customer.name} />
-                      <Link
-                        href={`/contacts/${customer.id}`}
-                        className="text-sm font-medium text-gray-900 hover:text-indigo-600 transition-colors"
-                      >
-                        {customer.name}
-                      </Link>
+                       <Avatar name={customer.name} />
+                       <Link
+                         href={`/contacts/${customer.id}`}
+                         className="text-sm font-medium text-gray-900 hover:text-indigo-600 transition-colors"
+                       >
+                         {customer.name || 'Unnamed Contact'}
+                       </Link>
                     </div>
                   </td>
 

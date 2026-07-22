@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 
 export const ANALYTICS_SUB_NAV = [
+  { href: '/business', label: 'Documents' },
   { href: '/analytics', label: 'Executive' },
   { href: '/analytics/sales', label: 'Sales' },
   { href: '/analytics/customers', label: 'Customers' },

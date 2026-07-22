@@ -741,6 +741,60 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
         ).catch(() => { /* best-effort — the status update itself already succeeded */ });
       }
 
+      // Automatically generate receipt and update sales/revenue stats
+      if (updated.document_type === 'invoice') {
+        try {
+          // 1. Generate receipt
+          const receiptNumber = await assignDocumentNumber(userId, 'receipt', updated.business_profile_id);
+          const receiptTitle = `Receipt ${receiptNumber}`;
+
+          const { rows: [receipt] } = await db.query(
+            `INSERT INTO documents
+               (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id,
+                document_type, document_category, document_number, title, status, structured_data,
+                currency, subtotal_cents, discount_cents, tax_cents, total_cents,
+                source_document_id, requested_by, ai_generated, business_profile_id, paid_at)
+             VALUES ($1,$2,$3,$4,$5,$6,'receipt',$7,$8,$9,'paid',$10,$11,$12,$13,$14,$15,$16,'system',false,$17,NOW())
+             RETURNING *`,
+            [
+              userId, updated.contact_id, updated.deal_id, updated.opportunity_id, updated.conversation_id,
+              updated.template_id, updated.document_category, receiptNumber, receiptTitle,
+              JSON.stringify(updated.structured_data), updated.currency, updated.subtotal_cents,
+              updated.discount_cents, updated.tax_cents, updated.total_cents, updated.id, updated.business_profile_id,
+            ],
+          );
+
+          await db.query(
+            `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'created', $2)`,
+            [receipt.id, JSON.stringify({ convertedFrom: updated.id })],
+          );
+          await db.query(
+            `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'converted', $2)`,
+            [updated.id, JSON.stringify({ convertedTo: receipt.id, targetType: 'receipt' })],
+          );
+
+          // 2. Record revenue event to automatically update financial stats
+          await db.query(
+            `INSERT INTO revenue_events
+               (user_id, conversation_id, contact_id, event_type, amount_cents, currency,
+                description, attributed_to_ai)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              userId,
+              updated.conversation_id || null,
+              updated.contact_id || null,
+              'invoice_payment',
+              updated.total_cents,
+              updated.currency || 'USD',
+              `Invoice ${updated.document_number} marked paid (Receipt ${receiptNumber} generated)`,
+              updated.ai_generated || false,
+            ],
+          ).catch(() => {});
+        } catch (err) {
+          fastify.log.error('Failed to automatically generate receipt/revenue event: ' + err);
+        }
+      }
+
       // Business Feed (docs/PLATFORM_POLISH_PLAN.md §7.2) — a payment-posted
       // event for every paid invoice, plus a milestone-counter-crossing
       // event ("the Nth invoice paid") when the running count hits a round
