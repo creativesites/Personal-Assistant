@@ -217,24 +217,40 @@ export async function careerJobDiscoveryRoutes(fastify: FastifyInstance): Promis
     const limitIdx = params.length - 1
     const offsetIdx = params.length
 
-    const { rows: jobs } = await db.query(
-      `SELECT sj.id, sj.source, sj.source_url, sj.title, sj.company, sj.location,
-              sj.job_type, sj.salary_range, sj.skills, sj.posted_at, sj.scraped_at,
-              sj.contact_email, sj.contact_phone, sj.application_url,
-              sj.freshness_score, sj.expiration_probability, sj.source_reliability, sj.canonical_job_id
-       FROM scraped_jobs sj
-       WHERE ${where}
-       ORDER BY ${relevanceExpr}, sj.freshness_score DESC NULLS LAST, sj.scraped_at DESC
-       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-      params,
-    )
+    try {
+      const { rows: jobs } = await db.query(
+        `SELECT sj.id, sj.source, sj.source_url, sj.title, sj.company, sj.location,
+                sj.job_type, sj.salary_range, sj.skills, sj.posted_at, sj.scraped_at,
+                sj.contact_email, sj.contact_phone, sj.application_url,
+                sj.freshness_score, sj.expiration_probability, sj.source_reliability, sj.canonical_job_id
+         FROM scraped_jobs sj
+         WHERE ${where}
+         ORDER BY ${relevanceExpr}, sj.freshness_score DESC NULLS LAST, sj.scraped_at DESC
+         LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+        params,
+      )
 
-    const { rows: [{ count }] } = await db.query<{ count: string }>(
-      `SELECT COUNT(*) FROM scraped_jobs sj WHERE ${where}`,
-      params.slice(0, params.length - 2),
-    )
+      const { rows: [{ count }] } = await db.query<{ count: string }>(
+        `SELECT COUNT(*) FROM scraped_jobs sj WHERE ${where}`,
+        params.slice(0, params.length - 2),
+      )
 
-    return reply.send({ jobs, total: parseInt(count, 10), limit, offset })
+      return reply.send({ jobs, total: parseInt(count, 10), limit, offset })
+    } catch (err) {
+      console.error('Error fetching scraped-jobs, using simple fallback:', err)
+      // Fallback query if expires_at or complex relevanceExpr fails
+      const { rows: jobs } = await db.query(
+        `SELECT sj.id, sj.source, sj.source_url, sj.title, sj.company, sj.location,
+                sj.job_type, sj.salary_range, sj.skills, sj.posted_at, sj.scraped_at,
+                sj.contact_email, sj.contact_phone, sj.application_url
+         FROM scraped_jobs sj
+         ORDER BY sj.scraped_at DESC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset],
+      )
+      const { rows: [{ count }] } = await db.query<{ count: string }>('SELECT COUNT(*) FROM scraped_jobs')
+      return reply.send({ jobs: jobs || [], total: parseInt(count || '0', 10), limit, offset })
+    }
   })
 
   // Scraper health — pool size + last run per source

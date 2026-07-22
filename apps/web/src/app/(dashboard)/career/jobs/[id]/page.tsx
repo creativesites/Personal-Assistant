@@ -92,7 +92,7 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
       .catch(() => setMatchLoading(false))
 
     // Fetch Readiness
-    apiClient<{ readiness: Record<string, boolean> }>(`/api/career/opportunities/${id}/readiness`, { token })
+    apiClient<{ readiness: Record<string, boolean> }>(`/api/career/opportunities/${id}/manual-readiness`, { token })
       .then((data) => setReadiness(data.readiness))
       .catch(() => {})
   }, [token, id])
@@ -123,7 +123,7 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
     const updated = { ...readiness, [key]: !readiness[key] }
     setReadiness(updated)
     try {
-      await apiClient(`/api/career/opportunities/${id}/readiness`, {
+      await apiClient(`/api/career/opportunities/${id}/manual-readiness`, {
         token,
         method: 'PATCH',
         body: JSON.stringify(updated),

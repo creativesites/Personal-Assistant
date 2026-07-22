@@ -592,8 +592,8 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     })
   })
 
-  // ── GET/PATCH /api/career/opportunities/:id/readiness — Application Readiness Checklist
-  fastify.get('/api/career/opportunities/:id/readiness', { preHandler: gate }, async (request, reply) => {
+  // ── GET/PATCH /api/career/opportunities/:id/manual-readiness — Application Readiness Checklist
+  fastify.get('/api/career/opportunities/:id/manual-readiness', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
 
@@ -615,7 +615,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     return reply.send({ readiness: { ...defaultReadiness, ...(opp.application_readiness || {}) } })
   })
 
-  fastify.patch('/api/career/opportunities/:id/readiness', { preHandler: gate }, async (request, reply) => {
+  fastify.patch('/api/career/opportunities/:id/manual-readiness', { preHandler: gate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { id } = request.params as { id: string }
     const body = request.body as any
