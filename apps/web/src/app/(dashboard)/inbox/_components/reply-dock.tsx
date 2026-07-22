@@ -1,7 +1,7 @@
 'use client'
 
 import { RefObject, useState, useRef, useEffect } from 'react'
-import EmojiPicker, { EmojiClickData } from 'emoji-picker-react'
+import dynamic from 'next/dynamic'
 import {
   Activity,
   Brain,
@@ -17,6 +17,9 @@ import {
   X,
 } from 'lucide-react'
 
+// Dynamic import to prevent SSR/hydration mismatch with emoji-picker-react
+const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false })
+
 interface Suggestion {
   id: string
   text: string
@@ -26,14 +29,14 @@ interface Suggestion {
 }
 
 const TONE_STYLE: Record<string, string> = {
-  friendly: 'bg-emerald-50 text-emerald-900 border-emerald-200',
-  professional: 'bg-blue-50 text-blue-900 border-blue-200',
-  empathetic: 'bg-purple-50 text-purple-900 border-purple-200',
-  casual: 'bg-gray-50 text-gray-800 border-gray-200',
-  urgent: 'bg-amber-50 text-amber-900 border-amber-200',
-  sales: 'bg-orange-50 text-orange-900 border-orange-200',
-  direct: 'bg-slate-50 text-slate-800 border-slate-200',
-  firm: 'bg-slate-50 text-slate-800 border-slate-200',
+  friendly: 'bg-emerald-50 text-emerald-900 border-emerald-200/80 hover:bg-emerald-100/50',
+  professional: 'bg-blue-50 text-blue-900 border-blue-200/80 hover:bg-blue-100/50',
+  empathetic: 'bg-purple-50 text-purple-900 border-purple-200/80 hover:bg-purple-100/50',
+  casual: 'bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100/50',
+  urgent: 'bg-amber-50 text-amber-900 border-amber-200/80 hover:bg-amber-100/50',
+  sales: 'bg-orange-50 text-orange-900 border-orange-200/80 hover:bg-orange-100/50',
+  direct: 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100/50',
+  firm: 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100/50',
 }
 
 interface ReplyDockProps {
@@ -47,7 +50,8 @@ interface ReplyDockProps {
   aiActionResult: { label: string; text: string } | null
   aiAskInput: string
   onDraftChange: (value: string) => void
-  onSendDraft: () => void
+  onSendDraft: (text: string, file: File | null) => void
+  onSelectSuggestion?: (suggestion: Suggestion) => void
   onUseAIResult: (text: string) => void
   onDismissAIResult: () => void
   onToggleAIActions: () => void
@@ -73,6 +77,7 @@ export function ReplyDock({
   aiAskInput,
   onDraftChange,
   onSendDraft,
+  onSelectSuggestion,
   onUseAIResult,
   onDismissAIResult,
   onToggleAIActions,
@@ -87,8 +92,12 @@ export function ReplyDock({
 }: ReplyDockProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // Close picker on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -107,7 +116,7 @@ export function ReplyDock({
   }, [showEmojiPicker])
 
   // Insert emoji at cursor position in the textarea
-  const handleEmojiSelect = (emojiData: EmojiClickData) => {
+  const handleEmojiSelect = (emojiData: any) => {
     const textarea = draftRef.current
     if (!textarea) return
 
@@ -123,6 +132,13 @@ export function ReplyDock({
       textarea.setSelectionRange(pos, pos)
     })
   }
+
+  const handleSend = () => {
+    if (!draft.trim() && !selectedFile) return
+    onSendDraft(draft, selectedFile)
+    setSelectedFile(null)
+  }
+
   return (
     <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
       {aiActionResult && (
@@ -233,7 +249,11 @@ export function ReplyDock({
                 <button
                   key={s.id}
                   onClick={() => {
-                    onDraftChange(s.text)
+                    if (onSelectSuggestion) {
+                      onSelectSuggestion(s)
+                    } else {
+                      onDraftChange(s.text)
+                    }
                     draftRef.current?.focus()
                   }}
                   className={`group relative rounded-2xl p-3 text-left transition-all duration-300 ease-out border border-neutral-200/70 bg-gradient-to-b from-white to-neutral-50/50 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_20px_-8px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-neutral-300 active:translate-y-0 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${TONE_STYLE[s.tone] ?? ''}`}
@@ -257,12 +277,58 @@ export function ReplyDock({
         </div>
       )}
 
+      {/* File attachment preview */}
+      {selectedFile && (
+        <div className="mx-4 mt-2 p-2 bg-neutral-50 rounded-xl border border-neutral-200/80 flex items-center justify-between gap-3 animate-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {selectedFile.type.startsWith('image/') ? (
+              <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-neutral-200 bg-white flex-shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={URL.createObjectURL(selectedFile)} alt="preview" className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-neutral-100 border border-neutral-200 flex items-center justify-center text-neutral-500 flex-shrink-0">
+                <FileText size={18} />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-neutral-800 truncate">{selectedFile.name}</p>
+              <p className="text-[10px] text-neutral-400 font-medium">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSelectedFile(null)}
+            className="p-1 rounded-lg text-neutral-400 hover:text-rose-600 hover:bg-rose-50 transition-all flex-shrink-0"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <div className="px-4 pb-5 pt-2 bg-gradient-to-t from-white via-white to-transparent">
         <div className="flex flex-col gap-2.5">
           <div className="group/input relative flex items-end gap-2 p-1.5 rounded-2xl border border-neutral-200/80 bg-neutral-50/70 backdrop-blur-md focus-within:border-neutral-300 focus-within:bg-white focus-within:shadow-[0_8px_30px_rgb(0,0,0,0.04)] transition-all duration-300">
-            <button className="p-2 text-neutral-400 hover:text-neutral-600 active:scale-95 rounded-xl hover:bg-neutral-100 transition-all flex-shrink-0 mb-0.5">
+            
+            {/* File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) setSelectedFile(file)
+              }}
+            />
+            
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className={`p-2 rounded-xl transition-all flex-shrink-0 mb-0.5 active:scale-95 ${
+                selectedFile ? 'text-indigo-600 bg-indigo-50' : 'text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100'
+              }`}
+            >
               <Paperclip size={18} strokeWidth={2.2} />
             </button>
+
             <div className="flex-1 min-w-0 self-center py-1">
               <textarea
                 ref={draftRef}
@@ -272,15 +338,16 @@ export function ReplyDock({
                 onKeyDown={e => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault()
-                    onSendDraft()
+                    handleSend()
                   }
                 }}
-                placeholder="Type a message..."
+                placeholder={selectedFile ? "Add a caption..." : "Type a message..."}
                 className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 placeholder-neutral-400 focus:outline-none leading-relaxed align-middle"
                 style={{ minHeight: '24px', maxHeight: '140px' }}
               />
             </div>
-             {/* --- Emoji button + picker --- */}
+
+            {/* Emoji button + picker */}
             <div className="relative flex-shrink-0 mb-0.5">
               <button
                 ref={emojiButtonRef}
@@ -312,18 +379,18 @@ export function ReplyDock({
               )}
             </div>
 
-              <button
-                onClick={onSendDraft}
-                disabled={!draft.trim()}
-                className={`p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm ${
-                  draft.trim()
-                    ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110'
-                    : 'bg-neutral-200 text-neutral-400 cursor-not-allowed opacity-70'
-                }`}
-              >
-                <Send size={15} strokeWidth={2.5} />
-              </button>
-            </div>
+            <button
+              onClick={handleSend}
+              disabled={!draft.trim() && !selectedFile}
+              className={`p-2.5 rounded-xl flex-shrink-0 mb-0.5 transition-all duration-300 ease-out shadow-sm ${
+                (draft.trim() || selectedFile)
+                  ? 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white shadow-indigo-500/20 active:scale-95 hover:brightness-110'
+                  : 'bg-neutral-200 text-neutral-400 cursor-not-allowed opacity-70'
+              }`}
+            >
+              <Send size={15} strokeWidth={2.5} />
+            </button>
+          </div>
 
           {!isGroup ? (
             <div className="flex items-center justify-between px-1">

@@ -10,6 +10,7 @@ import {
   Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2,
   UserCircle, SlidersHorizontal, Brain, Bot, Database, ShieldCheck,
   Building2, Link2, ChevronRight, Palette, Upload,
+  RefreshCw, Sparkles, X, CheckCircle,
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -274,6 +275,36 @@ export default function SettingsPage() {
   // docs/REALITY_ENGINE_PLAN.md §10.
   const [realityEnginePaused, setRealityEnginePaused] = useState(false)
   const [realityEngineSaving, setRealityEngineSaving] = useState(false)
+
+  // Localisation & Currency Settings
+  const [preferredCurrency, setPreferredCurrency] = useState('ZMW')
+  const [preferredLocale, setPreferredLocale] = useState('en-ZM')
+  const [savingLocalisation, setSavingLocalisation] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedCurrency = localStorage.getItem('zuri_preferred_currency') || 'ZMW'
+      const savedLocale = localStorage.getItem('zuri_preferred_locale') || 'en-ZM'
+      setPreferredCurrency(savedCurrency)
+      setPreferredLocale(savedLocale)
+    }
+  }, [])
+
+  const saveLocalisation = () => {
+    setSavingLocalisation(true)
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('zuri_preferred_currency', preferredCurrency)
+      localStorage.setItem('zuri_preferred_locale', preferredLocale)
+    }
+    setTimeout(() => {
+      setSavingLocalisation(false)
+      addToast({
+        variant: 'success',
+        title: 'Localisation Settings Saved',
+        description: `Currency updated to ${preferredCurrency} and region updated to ${preferredLocale}.`,
+      })
+    }, 400)
+  }
 
   useEffect(() => {
     if (session.data?.mode) setPendingMode(session.data.mode)
@@ -741,6 +772,21 @@ export default function SettingsPage() {
   const [inclusionsLoaded, setInclusionsLoaded] = useState(false)
   const [privacyLoaded, setPrivacyLoaded] = useState(false)
 
+  // Privacy Assistant states
+  const [showPrivacyAssistant, setShowPrivacyAssistant] = useState(false)
+  const [runningPrivacyAnalysis, setRunningPrivacyAnalysis] = useState(false)
+  const [privacyAssistantResults, setPrivacyAssistantResults] = useState<{
+    contacts: {
+      id: string
+      name: string
+      reason: string
+      confidence: number
+      snippet: string
+    }[]
+  } | null>(null)
+  const [selectedPrivacyAssistantContactIds, setSelectedPrivacyAssistantContactIds] = useState<string[]>([])
+  const [applyingBulkPrivacy, setApplyingBulkPrivacy] = useState(false)
+
   const loadExclusions = async () => {
     if (!token || exclusionsLoaded) return
     setExclusionsLoaded(true)
@@ -854,6 +900,48 @@ export default function SettingsPage() {
       await apiClient(`/api/settings/privacy/exclusions/${id}`, { method: 'DELETE', token })
     } catch {
       addToast({ variant: 'error', title: 'Failed to remove privacy exclusion' })
+    }
+  }
+
+  const handleRunPrivacyAnalysis = async () => {
+    if (!token) return
+    setRunningPrivacyAnalysis(true)
+    try {
+      const data = await apiClient<{ contacts: any[] }>('/api/privacy/assistant', { token })
+      setPrivacyAssistantResults({ contacts: data.contacts || [] })
+      setSelectedPrivacyAssistantContactIds((data.contacts || []).map(c => c.id))
+      setShowPrivacyAssistant(true)
+      addToast({ variant: 'success', title: 'AI Privacy analysis completed' })
+    } catch (err) {
+      console.error('Failed to run privacy assistant', err)
+      addToast({ variant: 'error', title: 'Failed to run AI Privacy Assistant analysis' })
+    } finally {
+      setRunningPrivacyAnalysis(false)
+    }
+  }
+
+  const handleApplyBulkPrivacy = async () => {
+    if (!token || selectedPrivacyAssistantContactIds.length === 0) return
+    setApplyingBulkPrivacy(true)
+    try {
+      const data = await apiClient<{ ok: boolean; count: number }>('/api/privacy/bulk-apply', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ contactIds: selectedPrivacyAssistantContactIds }),
+      })
+      if (data.ok) {
+        addToast({ variant: 'success', title: `Successfully applied strict privacy to ${data.count} contacts` })
+        setShowPrivacyAssistant(false)
+        setPrivacyAssistantResults(null)
+        // Refresh exclusions / privacy listings
+        setPrivacyLoaded(false)
+        loadPrivacyExclusions()
+      }
+    } catch (err) {
+      console.error('Failed to bulk apply privacy settings', err)
+      addToast({ variant: 'error', title: 'Failed to apply bulk privacy settings' })
+    } finally {
+      setApplyingBulkPrivacy(false)
     }
   }
 
@@ -1462,6 +1550,56 @@ export default function SettingsPage() {
                         {savingMode ? 'Saving…' : 'Save Mode'}
                       </button>
                     </div>
+
+                    <Section title="Currency &amp; Localisation">
+                      <div className="p-5 space-y-4">
+                        <p className="text-xs text-gray-500">
+                          Set your default workspace currency and regional formatting standards for financial calculations and display.
+                        </p>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Preferred Currency</label>
+                            <select
+                              value={preferredCurrency}
+                              onChange={e => setPreferredCurrency(e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="ZMW">ZMW - Zambian Kwacha (ZK)</option>
+                              <option value="USD">USD - US Dollar ($)</option>
+                              <option value="GBP">GBP - British Pound (£)</option>
+                              <option value="EUR">EUR - Euro (€)</option>
+                              <option value="ZAR">ZAR - South African Rand (R)</option>
+                            </select>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">Regional Format</label>
+                            <select
+                              value={preferredLocale}
+                              onChange={e => setPreferredLocale(e.target.value)}
+                              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="en-ZM">English (Zambia)</option>
+                              <option value="en-US">English (United States)</option>
+                              <option value="en-GB">English (United Kingdom)</option>
+                              <option value="en-ZA">English (South Africa)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end pt-2">
+                          <button
+                            type="button"
+                            onClick={saveLocalisation}
+                            disabled={savingLocalisation}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all"
+                          >
+                            {savingLocalisation ? 'Saving...' : 'Save Localisation'}
+                          </button>
+                        </div>
+                      </div>
+                    </Section>
 
                     <Section title="What's included">
                       {[
@@ -2614,6 +2752,30 @@ export default function SettingsPage() {
                             </li>
                           ))}
                         </ul>
+
+                        <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-900">AI Privacy Assistant</p>
+                            <p className="text-xs text-gray-500 mt-0.5">Scan your contacts using AI to identify high-privacy relationships and apply strict privacy controls in bulk.</p>
+                          </div>
+                          <button
+                            onClick={handleRunPrivacyAnalysis}
+                            disabled={runningPrivacyAnalysis}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors flex items-center gap-2 whitespace-nowrap"
+                          >
+                            {runningPrivacyAnalysis ? (
+                              <>
+                                <RefreshCw size={13} className="animate-spin" />
+                                <span>Scanning...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={13} />
+                                <span>Launch Assistant</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </Section>
 
@@ -2745,6 +2907,130 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {showPrivacyAssistant && privacyAssistantResults && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm transition-opacity" onClick={() => setShowPrivacyAssistant(false)} />
+          
+          <div className="relative bg-white rounded-2xl shadow-xl border border-gray-100 max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100/50 flex items-center justify-center text-indigo-600">
+                  <Sparkles size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">AI Privacy Assistant</h3>
+                  <p className="text-xs text-gray-500">Suggested high-privacy contacts detected</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPrivacyAssistant(false)}
+                className="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Content list */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <p className="text-xs text-gray-500 leading-relaxed">
+                The Zuri Reality Engine detected conversational markers indicating sensitive, personal, medical, or confidential relationships. We recommend applying strict privacy settings to these contacts.
+              </p>
+
+              {privacyAssistantResults.contacts.length === 0 ? (
+                <div className="py-8 flex flex-col items-center justify-center text-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
+                    <CheckCircle size={18} />
+                  </div>
+                  <p className="text-xs font-semibold text-gray-800">All contacts are secure</p>
+                  <p className="text-[11px] text-gray-400">No high-risk personal relationships detected.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {privacyAssistantResults.contacts.map((c) => {
+                    const isSelected = selectedPrivacyAssistantContactIds.includes(c.id)
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedPrivacyAssistantContactIds(prev => prev.filter(id => id !== c.id))
+                          } else {
+                            setSelectedPrivacyAssistantContactIds(prev => [...prev, c.id])
+                          }
+                        }}
+                        className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3 select-none text-left ${
+                          isSelected
+                            ? 'bg-indigo-50/50 border-indigo-200/80 shadow-sm'
+                            : 'bg-white border-gray-100 hover:border-gray-200'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          readOnly
+                          className="mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500/20 w-4 h-4 flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-gray-900">{c.name}</p>
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-600 border border-amber-100/50 flex-shrink-0">
+                              {c.confidence}% Risk
+                            </span>
+                          </div>
+                          <p className="text-[11px] font-medium text-amber-800/85 mt-1 leading-relaxed bg-amber-50/50 px-2 py-1 rounded-lg border border-amber-100/30">
+                            {c.reason}
+                          </p>
+                          {c.snippet && (
+                            <p className="text-[10px] text-gray-400 italic mt-1.5 leading-relaxed bg-gray-50 px-2 py-1 rounded-md border border-gray-100/40">
+                              "{c.snippet}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {privacyAssistantResults.contacts.length > 0 && (
+              <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between gap-4">
+                <p className="text-[11px] text-gray-500 font-semibold">
+                  {selectedPrivacyAssistantContactIds.length} of {privacyAssistantResults.contacts.length} selected
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowPrivacyAssistant(false)}
+                    className="px-4 py-2 border border-gray-200 hover:bg-gray-100 rounded-xl text-xs font-semibold text-gray-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleApplyBulkPrivacy}
+                    disabled={applyingBulkPrivacy || selectedPrivacyAssistantContactIds.length === 0}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white rounded-xl text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5"
+                  >
+                    {applyingBulkPrivacy ? (
+                      <>
+                        <RefreshCw size={12} className="animate-spin" />
+                        <span>Applying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={12} />
+                        <span>Apply Strict Privacy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         open={clearAllOpen}

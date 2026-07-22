@@ -15,7 +15,7 @@ from ..ai.prompts import ASK_ANYTHING
 
 log = structlog.get_logger()
 
-_VALID_ENTITIES = {'contacts', 'documents', 'projects', 'suppliers', 'products'}
+_VALID_ENTITIES = {'contacts', 'documents', 'projects', 'suppliers', 'products', 'messages'}
 _VALID_OPS = {'eq', 'contains', 'gt', 'gte', 'lt', 'lte'}
 
 

@@ -50,7 +50,7 @@ class RelationshipHealthService:
         pool = await get_pool()
         async with pool.acquire() as conn:
             rel = await conn.fetchrow(
-                """SELECT id, health_score, dormancy_alert_days, importance_tier
+                """SELECT id, health_score, dormancy_alert_days, importance_tier, relationship_category
                    FROM relationships WHERE contact_id = $1 AND user_id = $2""",
                 contact_id, user_id,
             )
@@ -244,7 +244,27 @@ class RelationshipHealthService:
             signals['documents'] = 0.0
             notes['documents'] = 'No notable document activity'
 
-        weighted = {k: WEIGHTS[k] * signals[k] * SCALE for k in WEIGHTS}
+        category = rel.get('relationship_category') or 'professional'
+        if category in ('family', 'personal'):
+            category_weights = {
+                'recency': 0.35,
+                'frequency': 0.25,
+                'sentiment': 0.25,
+                'responsiveness': 0.15,
+                'pipeline_velocity': 0.0,
+                'documents': 0.0,
+            }
+        else:
+            category_weights = {
+                'recency': 0.25,
+                'frequency': 0.15,
+                'sentiment': 0.15,
+                'responsiveness': 0.15,
+                'pipeline_velocity': 0.20,
+                'documents': 0.10,
+            }
+
+        weighted = {k: category_weights[k] * signals[k] * SCALE for k in category_weights}
         proactive_bonus = PROACTIVE_BONUS if recent_proactive else 0
         delta = sum(weighted.values()) + proactive_bonus
 

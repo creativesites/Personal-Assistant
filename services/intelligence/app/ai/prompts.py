@@ -1099,6 +1099,30 @@ Return ONLY valid JSON in exactly this shape:
 }}
 """
 
+EXPLAIN_JOB_MATCH = """\
+You are an expert career advisor. Evaluate how well this candidate's CV matches the given job opportunity.
+Provide a comprehensive, explainable breakdown of the fit.
+
+Job Opportunity:
+---
+{opportunity_text}
+---
+
+Candidate CV:
+---
+{cv_text}
+---
+
+Return ONLY valid JSON in exactly this shape:
+{{
+  "overallAnalysis": "A 2-3 sentence summary of why they are or aren't a good fit.",
+  "strengths": ["Strong match: Has 5 years of Python experience as required"],
+  "gaps": ["Missing requirement: AWS certification not found on CV"],
+  "experienceMatch": "Excellent|Good|Fair|Poor",
+  "educationMatch": "Excellent|Good|Fair|Poor"
+}}
+"""
+
 # CV Studio Tailored CVs (§8) — proposes which of the user's own existing CV
 # content to surface, reorder, or lead with for a specific opportunity. The
 # never-invent policy applies exactly as it does to every rewrite call: a
@@ -1143,6 +1167,7 @@ Entities and their queryable fields:
 - "projects": title (text), status (one of: active, completed, on_hold, cancelled)
 - "suppliers": company (text), reliabilityScore (number 0-100), averageDeliveryTime (number, days)
 - "products": name (text), category (text), available (number), sellingPrice (number)
+- "messages": body (text), contactName (text), senderType (one of: user, contact), messageType (one of: text, document, image, video, audio, location)
 
 Each filter's "op" must be one of: eq, contains, gt, gte, lt, lte. Use "contains" for fuzzy text matches, "eq" for exact/enum matches, and gt/gte/lt/lte for numeric comparisons. Money amounts in the question (e.g. "over 500") map to totalCents by multiplying by 100 unless the question already speaks in cents.
 
@@ -1150,7 +1175,7 @@ Question: "{question}"
 
 Return ONLY valid JSON in exactly this shape:
 {{
-  "entityType": "contacts" | "documents" | "projects" | "suppliers" | "products" | null,
+  "entityType": "contacts" | "documents" | "projects" | "suppliers" | "products" | "messages" | null,
   "filters": [{{"field": "leadScore", "op": "gt", "value": "70"}}],
   "sort": {{"field": "leadScore", "direction": "desc"}} or null
 }}

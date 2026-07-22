@@ -68,6 +68,7 @@ const patchBody = z.object({
   contactPhone: z.string().nullable().optional(),
   deadline: z.string().nullable().optional(),
   status: z.enum(STATUSES).optional(),
+  outcomeNotes: z.string().nullable().optional(),
 })
 
 function opportunityApiShape(r: any) {
@@ -93,6 +94,8 @@ function opportunityApiShape(r: any) {
     status: r.status,
     confidence: r.confidence != null ? parseFloat(r.confidence) : null,
     projectId: r.project_id ?? null,
+    outcomeNotes: r.outcome_notes ?? null,
+    outcomeLoggedAt: r.outcome_logged_at ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   }
@@ -201,6 +204,11 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
       is_remote: body.isRemote, contact_id: body.contactId, application_url: body.applicationUrl,
       contact_email: body.contactEmail, contact_phone: body.contactPhone,
       deadline: body.deadline, status: body.status,
+      outcome_notes: body.outcomeNotes,
+    }
+
+    if (body.outcomeNotes !== undefined) {
+      columns.outcome_logged_at = new Date()
     }
 
     const sets: string[] = ['updated_at = NOW()']

@@ -22,11 +22,12 @@ export async function apiClient<T>(
   const isWrite = method === 'POST' || method === 'PUT' || method === 'PATCH'
   const body = rest.body !== undefined ? rest.body : (isWrite ? '{}' : undefined)
 
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
   const res = await fetch(`${API_URL}${path}`, {
     ...rest,
     body,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },

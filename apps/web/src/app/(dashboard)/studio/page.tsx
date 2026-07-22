@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, Suspense } from 'react'
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import {
@@ -286,12 +286,16 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
   const totalItems = products.length
   const lowStock   = products.filter(p => p.available <= p.minimumStock).length
 
-  // ── Advisor chat ──
+  // ── Advisor chat (Multi-Session support) ──
   const [sessionId,      setSessionId]      = useState<string | null>(null)
   const [messages,       setMessages]       = useState<AdvisorMessage[]>([])
+  const [sessions,       setSessions]       = useState<AdvisorSession[]>([])
   const [sessionLoading, setSessionLoading] = useState(false)
   const [typing,         setTyping]         = useState(false)
   const [input,          setInput]          = useState('')
+  const [showSessionSelector, setShowSessionSelector] = useState(false)
+  const [creatingSession, setCreatingSession] = useState(false)
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const { addToast } = useToast()
 
@@ -304,30 +308,97 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
     'Which customers should I follow up with this week?',
   ]
 
-  useEffect(() => {
+  const loadSessions = useCallback(async (activeId?: string | null) => {
     if (!token) return
     setSessionLoading(true)
-    apiClient<{ sessions: AdvisorSession[] }>('/api/advisor/sessions?category=business', { token })
-      .then(async res => {
-        let sid: string
-        if (res.sessions && res.sessions.length > 0) {
-          sid = res.sessions[0].id
-        } else {
-          const created = await apiClient<{ session: AdvisorSession }>('/api/advisor/sessions', {
-            method: 'POST', token,
-            body: JSON.stringify({ title: 'Business Advisor', category: 'business' }),
-          })
-          sid = created.session.id
-        }
-        setSessionId(sid)
+    try {
+      const res = await apiClient<{ sessions: AdvisorSession[] }>('/api/advisor/sessions?category=business', { token })
+      const list = res.sessions ?? []
+      setSessions(list)
+      
+      let targetId = activeId || (list.length > 0 ? list[0].id : null)
+      if (!targetId && list.length === 0) {
+        const created = await apiClient<{ session: AdvisorSession }>('/api/advisor/sessions', {
+          method: 'POST', token,
+          body: JSON.stringify({ title: 'Business Chat 1', category: 'business' }),
+        })
+        targetId = created.session.id
+        setSessions([created.session])
+      }
+      
+      if (targetId) {
+        setSessionId(targetId)
         const msgs = await apiClient<{ messages: AdvisorMessage[] }>(
-          `/api/advisor/sessions/${sid}/messages`, { token },
+          `/api/advisor/sessions/${targetId}/messages`, { token },
         )
         setMessages(msgs.messages ?? [])
+      }
+    } catch {
+      addToast({ variant: 'error', title: 'Could not load advisor sessions' })
+    } finally {
+      setSessionLoading(false)
+    }
+  }, [token, addToast])
+
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
+
+  async function handleSwitchSession(sid: string) {
+    if (!token || sessionLoading) return
+    setSessionId(sid)
+    setSessionLoading(true)
+    setShowSessionSelector(false)
+    try {
+      const msgs = await apiClient<{ messages: AdvisorMessage[] }>(
+        `/api/advisor/sessions/${sid}/messages`, { token },
+      )
+      setMessages(msgs.messages ?? [])
+    } catch {
+      addToast({ variant: 'error', title: 'Could not load session messages' })
+    } finally {
+      setSessionLoading(false)
+    }
+  }
+
+  async function handleCreateSession() {
+    if (!token || creatingSession) return
+    setCreatingSession(true)
+    try {
+      const title = `Business Chat ${sessions.length + 1}`
+      const created = await apiClient<{ session: AdvisorSession }>('/api/advisor/sessions', {
+        method: 'POST', token,
+        body: JSON.stringify({ title, category: 'business' }),
       })
-      .catch(() => addToast({ variant: 'error', title: 'Could not load advisor session' }))
-      .finally(() => setSessionLoading(false))
-  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+      setSessions(prev => [created.session, ...prev])
+      setSessionId(created.session.id)
+      setMessages([])
+      addToast({ variant: 'success', title: 'New chat session created' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to create new chat session' })
+    } finally {
+      setCreatingSession(false)
+      setShowSessionSelector(false)
+    }
+  }
+
+  async function handleDeleteSession(sid: string) {
+    if (!token || deletingSessionId) return
+    setDeletingSessionId(sid)
+    try {
+      await apiClient(`/api/advisor/sessions/${sid}`, { method: 'DELETE', token })
+      const remaining = sessions.filter(s => s.id !== sid)
+      setSessions(remaining)
+      addToast({ variant: 'success', title: 'Chat session deleted' })
+      if (sessionId === sid && remaining.length > 0) {
+        handleSwitchSession(remaining[0].id)
+      }
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to delete chat session' })
+    } finally {
+      setDeletingSessionId(null)
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -420,209 +491,307 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
 
   const statsLoading = productsLoading || suppliersLoading || rulesLoading
 
+  const [viewMode, setViewMode] = useState<'metrics' | 'advisor'>('metrics')
+
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {statsLoading
-          ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-          : ([
-              { label: 'Total Items',     value: totalItems,                               Icon: Package,       color: 'text-indigo-600' },
-              { label: 'Low Stock',       value: lowStock,                                 Icon: AlertTriangle, color: lowStock > 0 ? 'text-red-600' : 'text-green-600' },
-              { label: 'Suppliers',       value: suppliers.length,                         Icon: Truck,         color: 'text-blue-600' },
-              { label: 'Business Rules',  value: rules.filter(r => r.isActive).length,     Icon: FileText,      color: 'text-purple-600' },
-            ] as const).map(({ label, value, Icon, color }) => (
-              <div key={label} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-gray-500">{label}</p>
-                  <Icon className={`w-4 h-4 ${color}`} />
-                </div>
-                <p className="text-2xl font-bold text-gray-900">{value}</p>
-              </div>
-            ))
-        }
+      {/* Mobile-first segmented view selector */}
+      <div className="flex md:hidden p-1 bg-gray-100 rounded-2xl ring-1 ring-gray-200">
+        <button
+          type="button"
+          onClick={() => setViewMode('metrics')}
+          className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all ${
+            viewMode === 'metrics'
+              ? 'bg-white text-indigo-600 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Performance &amp; Alerts
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode('advisor')}
+          className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+            viewMode === 'advisor'
+              ? 'bg-white text-indigo-600 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          AI Business Advisor
+        </button>
       </div>
 
-      {/* Business Pulse — quick top-line stats from Zuri Insights */}
-      {insights && (
-        <div className="flex flex-wrap gap-3">
-          <div className="flex-1 min-w-[140px] rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-gray-100">
-            <p className="text-[11px] font-semibold text-gray-500">Inventory Value</p>
-            <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(insights.stats.inventoryValue)}</p>
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Metrics & Alerts */}
+        <div className={`space-y-6 md:col-span-5 ${viewMode === 'metrics' ? 'block' : 'hidden md:block'}`}>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 gap-4">
+            {statsLoading
+              ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+              : ([
+                  { label: 'Total Items',     value: totalItems,                               Icon: Package,       color: 'text-indigo-600' },
+                  { label: 'Low Stock',       value: lowStock,                                 Icon: AlertTriangle, color: lowStock > 0 ? 'text-red-600' : 'text-green-600' },
+                  { label: 'Suppliers',       value: suppliers.length,                         Icon: Truck,         color: 'text-blue-600' },
+                  { label: 'Business Rules',  value: rules.filter(r => r.isActive).length,     Icon: FileText,      color: 'text-purple-600' },
+                ] as const).map(({ label, value, Icon, color }) => (
+                  <div key={label} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-gray-500 font-medium truncate">{label}</p>
+                      <Icon className={`w-4 h-4 ${color} flex-shrink-0`} />
+                    </div>
+                    <p className="text-xl font-bold text-gray-900">{value}</p>
+                  </div>
+                ))
+            }
           </div>
-          <div className="flex-1 min-w-[140px] rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-gray-100">
-            <p className="text-[11px] font-semibold text-gray-500">Owed to Suppliers</p>
-            <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(insights.stats.outstandingSupplierBalance)}</p>
-          </div>
-          <div className="flex-1 min-w-[140px] rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-gray-100">
-            <p className="text-[11px] font-semibold text-gray-500">Needs Attention</p>
-            <p className="text-lg font-black text-gray-950 tabular-nums">
-              {insights.stats.lowStockCount + insights.stats.outOfStockCount + insights.thinMargin.length + insights.supplierFlags.length}
-            </p>
-          </div>
-        </div>
-      )}
 
-      {/* Business OS Phase G (§13) — Operational Financial Overview: a
-          rollup over documents/products/stock_movements, not accounting
-          (no ledger, no double-entry). Expenses stay a soft note until the
-          expense_claim document type is actually in use. */}
-      {financials && (
-        <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-3">Financial Overview</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-2xl bg-emerald-50/70 px-3 py-2.5 ring-1 ring-emerald-100">
-              <p className="text-[11px] font-semibold text-emerald-700">Cash Collected</p>
-              <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(financials.revenue.cashCollectedCents / 100)}</p>
+          {/* Business Pulse — quick top-line stats from Zuri Insights */}
+          {insights && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-2xl bg-white/80 px-3 py-2.5 shadow-sm ring-1 ring-gray-100">
+                <p className="text-[10px] font-semibold text-gray-500">Inventory Value</p>
+                <p className="text-xs font-black text-gray-950 tabular-nums truncate mt-0.5">{formatCurrency(insights.stats.inventoryValue)}</p>
+              </div>
+              <div className="rounded-2xl bg-white/80 px-3 py-2.5 shadow-sm ring-1 ring-gray-100">
+                <p className="text-[10px] font-semibold text-gray-500">Owed to Suppliers</p>
+                <p className="text-xs font-black text-gray-950 tabular-nums truncate mt-0.5">{formatCurrency(insights.stats.outstandingSupplierBalance)}</p>
+              </div>
+              <div className="rounded-2xl bg-white/80 px-3 py-2.5 shadow-sm ring-1 ring-gray-100">
+                <p className="text-[10px] font-semibold text-gray-500">Needs Attention</p>
+                <p className="text-xs font-black text-gray-950 tabular-nums truncate mt-0.5">
+                  {insights.stats.lowStockCount + insights.stats.outOfStockCount + insights.thinMargin.length + insights.supplierFlags.length}
+                </p>
+              </div>
             </div>
-            <div className="rounded-2xl bg-amber-50/70 px-3 py-2.5 ring-1 ring-amber-100">
-              <p className="text-[11px] font-semibold text-amber-700">Outstanding</p>
-              <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(financials.revenue.outstandingCents / 100)}</p>
+          )}
+
+          {/* Financial Overview Card */}
+          {financials && (
+            <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
+              <p className="text-sm font-semibold text-gray-900 mb-3">Financial Overview</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-emerald-50/70 px-3 py-2.5 ring-1 ring-emerald-100">
+                  <p className="text-[10px] font-semibold text-emerald-700">Cash Collected</p>
+                  <p className="text-sm font-black text-gray-950 tabular-nums truncate mt-0.5">{formatCurrency(financials.revenue.cashCollectedCents / 100)}</p>
+                </div>
+                <div className="rounded-2xl bg-amber-50/70 px-3 py-2.5 ring-1 ring-amber-100">
+                  <p className="text-[10px] font-semibold text-amber-700">Outstanding</p>
+                  <p className="text-sm font-black text-gray-950 tabular-nums truncate mt-0.5">{formatCurrency(financials.revenue.outstandingCents / 100)}</p>
+                </div>
+                <div className="rounded-2xl bg-gray-50/90 px-3 py-2.5 ring-1 ring-gray-100">
+                  <p className="text-[10px] font-semibold text-gray-500">Purchases (30d)</p>
+                  <p className="text-sm font-black text-gray-950 tabular-nums truncate mt-0.5">{formatCurrency(financials.purchases.last30DaysCents / 100)}</p>
+                </div>
+                <div className="rounded-2xl bg-indigo-50/70 px-3 py-2.5 ring-1 ring-indigo-100">
+                  <p className="text-[10px] font-semibold text-indigo-700">Avg Margin</p>
+                  <p className="text-sm font-black text-gray-950 tabular-nums truncate mt-0.5">{financials.avgMarginPct.toFixed(1)}%</p>
+                </div>
+              </div>
+              {financials.expenses.claimCount === 0 ? (
+                <p className="text-[10px] text-gray-400 mt-3">{financials.expenses.note}</p>
+              ) : (
+                <p className="text-[10px] text-gray-500 mt-3">
+                  Expenses: {formatCurrency(financials.expenses.totalCents / 100)} across {financials.expenses.claimCount} claim{financials.expenses.claimCount !== 1 ? 's' : ''}
+                </p>
+              )}
             </div>
-            <div className="rounded-2xl bg-gray-50/90 px-3 py-2.5 ring-1 ring-gray-100">
-              <p className="text-[11px] font-semibold text-gray-500">Purchases (30d)</p>
-              <p className="text-lg font-black text-gray-950 tabular-nums">{formatCurrency(financials.purchases.last30DaysCents / 100)}</p>
+          )}
+
+          {/* Business Events - "Zuri Noticed" activity feed */}
+          {insights && insights.recentEvents.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3 px-1">
+                <p className="text-sm font-semibold text-gray-900">Zuri Noticed</p>
+                <Link href="/feed" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
+                  View all <ChevronDown className="w-3 h-3 -rotate-90" />
+                </Link>
+              </div>
+              <div className="space-y-2">
+                {insights.recentEvents.slice(0, 3).map(ev => (
+                  <BusinessEventRow key={ev.id} event={ev} token={token} compact />
+                ))}
+              </div>
             </div>
-            <div className="rounded-2xl bg-indigo-50/70 px-3 py-2.5 ring-1 ring-indigo-100">
-              <p className="text-[11px] font-semibold text-indigo-700">Avg Margin</p>
-              <p className="text-lg font-black text-gray-950 tabular-nums">{financials.avgMarginPct.toFixed(1)}%</p>
-            </div>
-          </div>
-          {financials.expenses.claimCount === 0 ? (
-            <p className="text-[11px] text-gray-400 mt-3">{financials.expenses.note}</p>
-          ) : (
-            <p className="text-[11px] text-gray-500 mt-3">
-              Expenses: {formatCurrency(financials.expenses.totalCents / 100)} across {financials.expenses.claimCount} claim{financials.expenses.claimCount !== 1 ? 's' : ''}
-            </p>
           )}
         </div>
-      )}
 
-      {/* Business Events Part F — "Zuri Noticed" activity feed. Every
-          detected business signal writes a business_events row regardless
-          of whether it produced an action bundle, independent of the
-          Financial Overview above. See docs/BUSINESS_EVENTS_PLAN.md Part F. */}
-      {insights && insights.recentEvents.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3 px-1">
-            <p className="text-sm font-semibold text-gray-900">Zuri Noticed</p>
-            <Link href="/feed" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
-              View all <ChevronDown className="w-3 h-3 -rotate-90" />
-            </Link>
-          </div>
-          <div className="space-y-2">
-            {insights.recentEvents.map(ev => (
-              <BusinessEventRow key={ev.id} event={ev} token={token} compact />
-            ))}
-          </div>
-        </div>
-      )}
+        {/* Right Column: AI Business Advisor Chat */}
+        <div className={`md:col-span-7 ${viewMode === 'advisor' ? 'block' : 'hidden md:block'}`}>
+          <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-xl border border-gray-100 flex flex-col" style={{ height: '620px' }}>
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.16),transparent_30%)] pointer-events-none" />
 
-      {/* AI Business Advisor Chat */}
-      <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white flex flex-col" style={{ height: '620px' }}>
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.16),transparent_30%)] pointer-events-none" />
-
-        <div className="relative z-10 flex items-center gap-2.5 px-5 py-4 border-b border-white/60">
-          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shadow-lg shadow-indigo-200">Z</div>
-          <div>
-            <p className="font-bold text-gray-900 text-sm">AI Business Advisor</p>
-            <p className="text-[11px] text-gray-500">Knows your catalog, stock, suppliers &amp; customers</p>
-          </div>
-        </div>
-
-        {sessionLoading ? (
-          <div className="relative z-10 flex-1 flex items-center justify-center">
-            <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
-          </div>
-        ) : (
-          <>
-            <div className="relative z-10 flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.length === 0 && !typing && (
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-500 text-center pt-4">Ask your Business Advisor anything</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {SUGGESTED.map(prompt => (
-                      <button
-                        key={prompt}
-                        onClick={() => sendMessage(prompt)}
-                        className="text-left text-xs font-medium text-gray-700 bg-white/80 hover:bg-white border border-white ring-1 ring-gray-100 rounded-2xl p-3 shadow-sm transition-all hover:-translate-y-0.5"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
+            <div className="relative z-10 flex items-center justify-between px-5 py-4 border-b border-white/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shadow-lg shadow-indigo-200">Z</div>
+                <div>
+                  <p className="font-bold text-gray-900 text-sm">AI Business Advisor</p>
+                  <p className="text-[11px] text-gray-500">Knows your catalog, stock, suppliers &amp; customers</p>
                 </div>
-              )}
-              {messages.map(msg => {
-                const isUser = msg.role === 'user'
-                return (
-                  <div key={msg.id} className={`flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
-                    {!isUser && (
-                      <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5 shadow-lg shadow-indigo-200">Z</div>
-                    )}
-                    <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                      isUser
-                        ? 'bg-indigo-600 text-white whitespace-pre-wrap shadow-lg shadow-indigo-200'
-                        : 'bg-white border border-white text-slate-800 shadow-sm shadow-slate-200/80 ring-1 ring-slate-100'
-                    }`}>
-                      {isUser ? (
-                        msg.content
-                      ) : (
-                        <>
-                          <ChatFormatter content={msg.content} theme="light" onAction={handleChatAction} />
-                          <div className="flex items-center justify-end border-t border-slate-100 pt-2 mt-2">
-                            <button onClick={() => navigator.clipboard.writeText(msg.content)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700" title="Copy">
-                              <Copy className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    {isUser && (
-                      <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-[10px] font-bold flex-shrink-0 mt-0.5">You</div>
-                    )}
-                  </div>
-                )
-              })}
-              {typing && (
-                <div className="flex gap-2.5 items-center">
-                  <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold animate-pulse shadow-lg shadow-indigo-200">Z</div>
-                  <div className="bg-white border border-white rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-slate-100">
-                    <span className="flex gap-1">
-                      {[0, 150, 300].map(d => (
-                        <span
-                          key={d}
-                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: `${d}ms` }}
-                        />
-                      ))}
+              </div>
+
+              {/* Multi-Session Manager */}
+              <div className="relative flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSessionSelector(!showSessionSelector)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50/80 hover:bg-indigo-100 rounded-xl transition-all"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span className="max-w-[100px] truncate">
+                      {sessions.find(s => s.id === sessionId)?.title || 'Sessions'}
                     </span>
-                  </div>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showSessionSelector ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {showSessionSelector && (
+                    <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white border border-gray-100 shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <div className="px-3 pb-1 mb-1 border-b border-gray-50 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Chats</span>
+                        <button
+                          onClick={handleCreateSession}
+                          disabled={creatingSession}
+                          className="p-1 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="New Chat"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {sessions.map(s => {
+                          const isActive = s.id === sessionId
+                          return (
+                            <div
+                              key={s.id}
+                              className={`flex items-center justify-between px-3 py-2 text-xs transition-colors ${
+                                isActive ? 'bg-indigo-50/60 font-semibold text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
+                              }`}
+                            >
+                              <button
+                                onClick={() => handleSwitchSession(s.id)}
+                                className="flex-1 text-left truncate pr-2"
+                              >
+                                {s.title}
+                              </button>
+                              {sessions.length > 1 && (
+                                <button
+                                  onClick={() => handleDeleteSession(s.id)}
+                                  disabled={!!deletingSessionId}
+                                  className="p-0.5 text-gray-400 hover:text-red-500 rounded transition-colors"
+                                  title="Delete Chat"
+                                >
+                                  {deletingSessionId === s.id ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3 h-3" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-              <div ref={bottomRef} />
+              </div>
             </div>
 
-            <div className="relative z-10 border-t border-white/60 px-4 py-3">
-              <form onSubmit={e => { e.preventDefault(); sendMessage(input) }} className="flex gap-2">
-                <input
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  placeholder="Ask about your business..."
-                  disabled={typing}
-                  className="flex-1 rounded-2xl border border-gray-100 bg-white px-3.5 py-2.5 text-sm shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                />
-                <button
-                  type="submit"
-                  disabled={!input.trim() || typing}
-                  className="shrink-0 w-10 h-10 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center disabled:opacity-40 transition-all shadow-lg shadow-indigo-500/25"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            </div>
-          </>
-        )}
+            {sessionLoading ? (
+              <div className="relative z-10 flex-1 flex items-center justify-center">
+                <RefreshCw className="w-5 h-5 text-gray-400 animate-spin" />
+              </div>
+            ) : (
+              <>
+                <div className="relative z-10 flex-1 overflow-y-auto p-4 space-y-4">
+                  {messages.length === 0 && !typing && (
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-500 text-center pt-4">Ask your Business Advisor anything</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {SUGGESTED.map(prompt => (
+                          <button
+                            key={prompt}
+                            onClick={() => sendMessage(prompt)}
+                            className="text-left text-xs font-medium text-gray-700 bg-white/80 hover:bg-white border border-white ring-1 ring-gray-100 rounded-2xl p-3 shadow-sm transition-all hover:-translate-y-0.5"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {messages.map(msg => {
+                    const isUser = msg.role === 'user'
+                    return (
+                      <div key={msg.id} className={`flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                        {!isUser && (
+                          <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5 shadow-lg shadow-indigo-200">Z</div>
+                        )}
+                        <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                          isUser
+                            ? 'bg-indigo-600 text-white whitespace-pre-wrap shadow-lg shadow-indigo-200'
+                            : 'bg-white border border-white text-slate-800 shadow-sm shadow-slate-200/80 ring-1 ring-slate-100'
+                        }`}>
+                          {isUser ? (
+                            msg.content
+                          ) : (
+                            <>
+                              <ChatFormatter content={msg.content} theme="light" onAction={handleChatAction} />
+                              <div className="flex items-center justify-end border-t border-slate-100 pt-2 mt-2">
+                                <button onClick={() => navigator.clipboard.writeText(msg.content)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 hover:text-slate-700" title="Copy">
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {isUser && (
+                          <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-[10px] font-bold flex-shrink-0 mt-0.5">You</div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {typing && (
+                    <div className="flex gap-2.5 items-center">
+                      <div className="w-8 h-8 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold animate-pulse shadow-lg shadow-indigo-200">Z</div>
+                      <div className="bg-white border border-white rounded-2xl px-4 py-2.5 shadow-sm ring-1 ring-slate-100">
+                        <span className="flex gap-1">
+                          {[0, 150, 300].map(d => (
+                            <span
+                              key={d}
+                              className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                              style={{ animationDelay: `${d}ms` }}
+                            />
+                          ))}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={bottomRef} />
+                </div>
+
+                <div className="relative z-10 border-t border-white/60 px-4 py-3">
+                  <form onSubmit={e => { e.preventDefault(); sendMessage(input) }} className="flex gap-2">
+                    <input
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      placeholder="Ask about your business..."
+                      disabled={typing}
+                      className="flex-1 rounded-2xl border border-gray-100 bg-white px-3.5 py-2.5 text-sm shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || typing}
+                      className="shrink-0 w-10 h-10 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center disabled:opacity-40 transition-all shadow-lg shadow-indigo-500/25"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -1278,7 +1447,7 @@ function PricingModule({ token, onAskAI }: { token: string | undefined; onAskAI:
                 {insights.topProfitable.map((p, i) => (
                   <div key={p.id} className="flex items-center justify-between text-sm">
                     <span className="text-gray-700 truncate flex-1">{i + 1}. {p.name}</span>
-                    <span className="font-semibold text-emerald-600 shrink-0 ml-2">{formatCurrency(p.totalProfit, 'USD')}</span>
+                    <span className="font-semibold text-emerald-600 shrink-0 ml-2">{formatCurrency(p.totalProfit)}</span>
                   </div>
                 ))}
               </div>
@@ -1624,7 +1793,7 @@ function SupplierProductsPanel({ token, supplierId }: { token: string | undefine
           {supplierProducts.map(sp => (
             <div key={sp.productId} className="flex items-center gap-2 px-3 py-2 text-xs">
               <span className="flex-1 truncate text-gray-700">{sp.productName}</span>
-              {sp.cost != null && <span className="text-gray-500">{formatCurrency(sp.cost, 'USD')}</span>}
+              {sp.cost != null && <span className="text-gray-500">{formatCurrency(sp.cost)}</span>}
               {sp.leadTimeDays != null && <span className="text-gray-400">{sp.leadTimeDays}d</span>}
               <button onClick={() => unlinkProduct(sp.productId)} className="p-1 rounded hover:bg-gray-100 text-red-400">
                 <Trash2 className="w-3 h-3" />
@@ -1847,7 +2016,7 @@ function SuppliersModule({ token, onAskAI }: { token: string | undefined; onAskA
                   </p>
                   <p className="text-xs text-gray-500">
                     from {sug.supplierName}
-                    {sug.unitCost != null && ` · ${formatCurrency(sug.estimatedCost, 'USD')} est.`}
+                    {sug.unitCost != null && ` · ${formatCurrency(sug.estimatedCost)} est.`}
                     {sug.leadTimeDays != null && ` · ${sug.leadTimeDays}d lead time`}
                   </p>
                 </div>

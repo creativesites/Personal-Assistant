@@ -67,13 +67,108 @@ class RealityEngineService:
             json.dumps({'contactId': contact_id, 'count': len(rows), 'reason': reason}),
         )
         log.info('reality_engine_resolved_relationship_nudges', user_id=user_id, contact_id=contact_id, count=len(rows))
-        return len(rows)
+    async def resolve_nudges_by_conditions(self) -> int:
+        """Resolve pending proactive nudges whose resolution conditions are met in reality."""
+        pool = await get_pool()
+        resolved_count = 0
+        async with pool.acquire() as conn:
+            # Fetch all pending proactive_queue items with resolution_conditions
+            pending_nudges = await conn.fetch(
+                """SELECT id, user_id, contact_id, resolution_condition, created_at
+                   FROM proactive_queue
+                   WHERE status = 'pending' AND resolution_condition IS NOT NULL"""
+            )
+            for nudge in pending_nudges:
+                nudge_id = nudge['id']
+                user_id = str(nudge['user_id'])
+                contact_id = str(nudge['contact_id'])
+                created_at = nudge['created_at']
+                
+                try:
+                    cond = json.loads(nudge['resolution_condition']) if isinstance(nudge['resolution_condition'], str) else nudge['resolution_condition']
+                except Exception:
+                    continue
+                
+                if not cond or not isinstance(cond, dict):
+                    continue
+                
+                cond_type = cond.get('type')
+                met = False
+                reason = ""
+                
+                if cond_type == 'new_message':
+                    # Check if there's any message from contact or user after nudge creation
+                    msg_count = await conn.fetchval(
+                        """SELECT COUNT(*) FROM messages m
+                           JOIN conversations c ON c.id = m.conversation_id
+                           WHERE c.contact_id = $1 AND c.user_id = $2
+                             AND m.whatsapp_timestamp > $3""",
+                        nudge['contact_id'], nudge['user_id'], created_at
+                    )
+                    if msg_count > 0:
+                        met = True
+                        reason = f"Organic communication exchanged ({msg_count} message(s)) since nudge was created."
+                
+                elif cond_type == 'document_status':
+                    # Check if document has changed status
+                    doc_type = cond.get('document_type')
+                    target_status = cond.get('status', 'paid')
+                    doc_exists = await conn.fetchval(
+                        """SELECT EXISTS (
+                             SELECT 1 FROM documents
+                             WHERE contact_id = $1 AND user_id = $2
+                               AND document_type = $3 AND status = $4
+                               AND updated_at > $5
+                           )""",
+                        nudge['contact_id'], nudge['user_id'], doc_type, target_status, created_at
+                    )
+                    if doc_exists:
+                        met = True
+                        reason = f"Linked document '{doc_type}' transitioned to '{target_status}'."
+                
+                elif cond_type == 'deal_stage':
+                    # Check if deal is closed
+                    target_stage = cond.get('stage', 'closed_won')
+                    deal_exists = await conn.fetchval(
+                        """SELECT EXISTS (
+                             SELECT 1 FROM deals
+                             WHERE contact_id = $1 AND user_id = $2
+                               AND stage = $3 AND updated_at > $4
+                           )""",
+                        nudge['contact_id'], nudge['user_id'], target_stage, created_at
+                    )
+                    if deal_exists:
+                        met = True
+                        reason = f"Linked deal stage transitioned to '{target_stage}'."
+
+                if met:
+                    await conn.execute(
+                        """UPDATE proactive_queue
+                           SET status = 'auto_resolved', resolved_reason = $1, updated_at = NOW()
+                           WHERE id = $2""",
+                        reason, nudge_id
+                    )
+                    await _business_events.record(
+                        user_id, 'nudge_auto_resolved', contact_id=contact_id,
+                        confidence=1.0, evidence=[reason],
+                        payload={'proactiveQueueId': str(nudge_id), 'reason': reason},
+                    )
+                    await publish_event(
+                        f'reality.resolved:{user_id}',
+                        json.dumps({'contactId': contact_id, 'count': 1, 'reason': reason}),
+                    )
+                    resolved_count += 1
+                    
+        return resolved_count
 
     async def run_hourly_sweep(self) -> int:
         """Layer 2 — deterministic contradiction detection, no LLM call.
         Detect-and-surface only; never mutates the underlying business row."""
         pool = await get_pool()
         found = 0
+
+        # Auto-resolve proactive nudges if resolution conditions are met
+        await self.resolve_nudges_by_conditions()
 
         async with pool.acquire() as conn:
             invoice_deal_mismatches = await conn.fetch(

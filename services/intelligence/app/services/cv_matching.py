@@ -19,6 +19,7 @@ import numpy as np
 from ..ai.client import get_ai_client
 from ..ai.prompts import (
     CV_STUDIO_NEVER_INVENT_POLICY,
+    EXPLAIN_JOB_MATCH,
     EXTRACT_JOB_REQUIREMENTS,
     SUGGEST_CV_TAILORING,
 )
@@ -56,11 +57,11 @@ async def compute_cv_opportunity_match(user_id: str, cv_text: str, cv_skills: li
     cosine = float(np.dot(cv_vec, opp_vec) / denom)
     match_score = round(max(0.0, min(1.0, cosine)) * 100)
 
-    raw = await ai.complete_json([{
+    raw_req = await ai.complete_json([{
         'role': 'user',
         'content': EXTRACT_JOB_REQUIREMENTS.format(description=opp_text[:3000]),
     }], service='career', feature='cv_match_extract_requirements', user_id=user_id)
-    required_skills = [s for s in (raw.get('requiredSkills') or []) if isinstance(s, str)]
+    required_skills = [s for s in (raw_req.get('requiredSkills') or []) if isinstance(s, str)]
 
     cv_skills_lower = [s.lower() for s in cv_skills if isinstance(s, str)]
     missing_skills = [
@@ -68,7 +69,27 @@ async def compute_cv_opportunity_match(user_id: str, cv_text: str, cv_skills: li
         if not any(s.lower() in cs or cs in s.lower() for cs in cv_skills_lower)
     ]
 
-    return {'matchScore': match_score, 'requiredSkills': required_skills, 'missingSkills': missing_skills}
+    # Generate Explainable Match Breakdown
+    explain_res = await ai.complete_json([{
+        'role': 'user',
+        'content': EXPLAIN_JOB_MATCH.format(
+            opportunity_text=opp_text[:3000],
+            cv_text=cv_text[:4000]
+        ),
+    }], service='career', feature='cv_match_explain', user_id=user_id)
+
+    return {
+        'matchScore': match_score, 
+        'requiredSkills': required_skills, 
+        'missingSkills': missing_skills,
+        'breakdown': {
+            'overallAnalysis': explain_res.get('overallAnalysis', 'Analysis not available.'),
+            'strengths': explain_res.get('strengths', []),
+            'gaps': explain_res.get('gaps', []),
+            'experienceMatch': explain_res.get('experienceMatch', 'Fair'),
+            'educationMatch': explain_res.get('educationMatch', 'Fair')
+        }
+    }
 
 
 async def generate_tailoring_suggestions(user_id: str, cv_text: str, opportunity_id: str) -> dict:

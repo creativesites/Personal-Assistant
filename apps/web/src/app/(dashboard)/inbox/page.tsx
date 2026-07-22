@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
@@ -66,6 +67,10 @@ export default function InboxPage() {
   const mode = session.data?.mode ?? 'business'
   const userName = (session.data?.user?.email ?? '').split('@')[0] || 'there'
   const { addToast } = useToast()
+
+  const searchParams = useSearchParams()
+  const urlContactId = searchParams?.get('contactId')
+  const urlConvId = searchParams?.get('conversationId')
 
   // Data
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -660,6 +665,22 @@ export default function InboxPage() {
     }
   }
 
+  // Auto-selection of conversation via url params
+  useEffect(() => {
+    if (conversations.length === 0) return
+    if (urlConvId) {
+      const found = conversations.find(c => c.id === urlConvId)
+      if (found && selectedId !== found.id) {
+        selectConversation(found.id)
+      }
+    } else if (urlContactId) {
+      const found = conversations.find(c => c.contact?.id === urlContactId)
+      if (found && selectedId !== found.id) {
+        selectConversation(found.id)
+      }
+    }
+  }, [conversations, urlConvId, urlContactId, selectedId])
+
   const selectMessage = async (msgId: string) => {
     setSelectedMsgId(msgId)
     if (!token) return
@@ -693,17 +714,60 @@ export default function InboxPage() {
     setRegenerating(false)
   }
 
-  const sendDraft = async () => {
-    if (!draft.trim() || !selectedId || !token) return
-    const text = draft.trim(); setDraft('')
+  const sendDraft = async (textOverride?: string, file?: File | null) => {
+    const text = textOverride !== undefined ? textOverride : draft;
+    if ((!text.trim() && !file) || !selectedId || !token) return
+    
+    if (textOverride === undefined) {
+      setDraft('')
+    }
+
     const tempId = `temp-${Date.now()}`
-    const tempMsg: Message = { id: tempId, senderType: 'user', messageType: 'text', body: text, timestamp: new Date().toISOString(), pendingSuggestions: 0 }
+    const msgType = file ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'document') : 'text'
+    const tempMsg: Message = {
+      id: tempId,
+      senderType: 'user',
+      messageType: msgType,
+      body: text || file?.name || '',
+      timestamp: new Date().toISOString(),
+      pendingSuggestions: 0,
+      mediaUrl: file ? URL.createObjectURL(file) : undefined,
+      mediaMimeType: file ? file.type : undefined
+    } as any;
     setMessages(prev => [...prev, tempMsg])
+
     try {
-      const data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text }) })
+      let data;
+      if (file) {
+        const formData = new FormData()
+        formData.append('file', file)
+        if (text) {
+          formData.append('caption', text)
+        }
+        data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/media`, {
+          method: 'POST',
+          token,
+          body: formData,
+        })
+      } else {
+        data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, {
+          method: 'POST',
+          token,
+          body: JSON.stringify({ text }),
+        })
+      }
       setMessages(prev => prev.map(m => m.id === tempId ? data.message : m))
       if (data.conversation) setConversations(prev => upsertConversation(prev, data.conversation!))
     } catch {}
+  }
+
+  const selectSuggestionAsDraft = async (s: Suggestion) => {
+    setDraft(s.text)
+    if (!token) return
+    try {
+      await apiClient(`/api/suggestions/${s.id}/dismiss`, { method: 'POST', token })
+    } catch {}
+    setSuggestions(prev => prev.filter(item => item.id !== s.id))
   }
 
   const sendDirect = async (text: string) => {
@@ -1425,6 +1489,7 @@ export default function InboxPage() {
                   aiAskInput={aiAskInput}
                   onDraftChange={setDraft}
                   onSendDraft={sendDraft}
+                  onSelectSuggestion={selectSuggestionAsDraft}
                   onUseAIResult={(text) => { setDraft(text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
                   onDismissAIResult={() => setAIActionResult(null)}
                   onToggleAIActions={() => { setShowAIActions(v => !v); setAIActionResult(null) }}

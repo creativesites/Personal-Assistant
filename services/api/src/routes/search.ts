@@ -56,6 +56,18 @@ const ENTITIES: Record<string, EntityConfig> = {
     fieldColumns: { name: 'name', category: 'category', available: 'available', sellingPrice: 'selling_price' },
     numericFields: new Set(['available', 'sellingPrice']),
   },
+  messages: {
+    select: `m.id, m.body, m.sender_type AS "senderType", m.message_type AS "messageType", m.created_at AS "createdAt", COALESCE(c.custom_name, c.display_name) AS "contactName", c.id AS "contactId", conv.id AS "conversationId"`,
+    from: `messages m JOIN conversations conv ON m.conversation_id = conv.id JOIN contacts c ON conv.contact_id = c.id WHERE conv.user_id = $1`,
+    fieldColumns: {
+      body: 'm.body',
+      senderType: 'm.sender_type',
+      messageType: 'm.message_type',
+      contactName: 'COALESCE(c.custom_name, c.display_name)',
+      createdAt: 'm.created_at'
+    },
+    numericFields: new Set(),
+  },
 }
 
 const OP_SQL: Record<Op, string> = { eq: '=', contains: 'ILIKE', gt: '>', gte: '>=', lt: '<', lte: '<=' }
@@ -71,7 +83,12 @@ function buildQuery(entityType: string, filters: Filter[], sort: ClassifyResult[
     const value = isNumeric ? Number(f.value) : f.value
     if (isNumeric && Number.isNaN(value as number)) continue
     params.push(f.op === 'contains' ? `%${value}%` : value)
-    clause += ` AND ${column} ${OP_SQL[f.op]} $${params.length}`
+    
+    if (entityType === 'messages' && f.field === 'body' && f.op === 'contains') {
+      clause += ` AND (m.body ILIKE $${params.length} OR m.transcription ILIKE $${params.length})`
+    } else {
+      clause += ` AND ${column} ${OP_SQL[f.op]} $${params.length}`
+    }
   }
   let orderBy = ''
   if (sort) {

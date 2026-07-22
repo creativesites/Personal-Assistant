@@ -65,3 +65,17 @@ async def recalculate_all(body: RecalculateAllRequest):
 
     await asyncio.gather(*(_bounded(cid) for cid in contact_ids))
     return {'analyzedCount': len(contact_ids)}
+
+
+class PrivacyAssistantRequest(BaseModel):
+    userId: str
+
+
+@router.post('/privacy-assistant')
+async def privacy_assistant(body: PrivacyAssistantRequest):
+    """Detect and propose highly-likely personal/family contacts to bulk-exclude."""
+    from ..ai.privacy_detector import PrivacyDetector
+    detector = PrivacyDetector()
+    results = await detector.detect_likely_personal_contacts(body.userId)
+    return {'proposedExclusions': results}
+

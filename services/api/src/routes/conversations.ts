@@ -304,6 +304,12 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           AND m.sender_type = 'contact'
           AND (ma.intent::text ILIKE '%buy%' OR ma.intent::text ILIKE '%order%' OR ma.intent::text ILIKE '%price%')
           AND m.whatsapp_timestamp > NOW() - INTERVAL '48 hours'
+          AND NOT EXISTS (
+            SELECT 1 FROM messages m2
+            WHERE m2.conversation_id = c.id
+              AND m2.sender_type = 'user'
+              AND m2.whatsapp_timestamp > m.whatsapp_timestamp
+          )
         ORDER BY co.lead_score DESC, m.whatsapp_timestamp DESC
         LIMIT 1
       `, [userId]),
@@ -384,6 +390,12 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
             AND m.sender_type = 'contact'
             AND ma.sentiment = 'negative'
             AND m.whatsapp_timestamp > NOW() - INTERVAL '72 hours'
+            AND NOT EXISTS (
+              SELECT 1 FROM messages m2
+              WHERE m2.conversation_id = c.id
+                AND m2.sender_type = 'user'
+                AND m2.whatsapp_timestamp > m.whatsapp_timestamp
+            )
           ORDER BY c.id, m.whatsapp_timestamp DESC
         ) q
         ORDER BY whatsapp_timestamp DESC
@@ -1010,5 +1022,127 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     if (result.rowCount === 0) return reply.code(404).send({ error: 'Conversation not found' });
     await publishInboxEvent(userId, 'conversation:read', { conversationId: id, unreadCount: 0 });
     return reply.send({ ok: true });
+  });
+
+  // ── POST /api/conversations/:id/media ──────────────────────────────────────
+  fastify.post('/api/conversations/:id/media', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id: conversationId } = request.params as { id: string };
+
+    // Verify conversation belongs to user
+    const { rows: [conv] } = await db.query(
+      `SELECT c.id, c.whatsapp_chat_id, co.whatsapp_jid, c.contact_id
+       FROM conversations c
+       JOIN contacts co ON co.id = c.contact_id
+       WHERE c.id = $1 AND c.user_id = $2`,
+      [conversationId, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    // Ensure multipart
+    if (!request.isMultipart()) {
+      return reply.code(400).send({ error: 'Request must be multipart' });
+    }
+
+    const data = await request.file();
+    if (!data) {
+      return reply.code(400).send({ error: 'No file provided' });
+    }
+
+    const { filename, file, mimetype } = data;
+    
+    // Determine target media directory
+    const MEDIA_DIR = process.env.MEDIA_DIR ?? '/app/media';
+    const fs = await import('fs');
+    const path = await import('path');
+    const crypto = await import('crypto');
+    const { pipeline } = await import('stream');
+    const { promisify } = await import('util');
+    const pump = promisify(pipeline);
+
+    if (!fs.existsSync(MEDIA_DIR)) {
+      fs.mkdirSync(MEDIA_DIR, { recursive: true });
+    }
+
+    // Save with unique prefix to avoid collisions
+    const fileId = crypto.randomUUID();
+    const ext = path.extname(filename);
+    const safeName = `${fileId}${ext}`;
+    const targetPath = path.join(MEDIA_DIR, safeName);
+
+    await pump(file, fs.createWriteStream(targetPath));
+
+    // Determine message type from mime
+    let msgType = 'document';
+    if (mimetype.startsWith('image/')) msgType = 'image';
+    else if (mimetype.startsWith('audio/')) msgType = 'audio';
+    else if (mimetype.startsWith('video/')) msgType = 'video';
+
+    const caption = (data.fields?.caption as any)?.value || '';
+
+    // Insert message into DB
+    const now = new Date();
+    const tempWaId = `direct-media-${crypto.randomUUID()}`;
+    const mediaUrl = `/api/media/${safeName}`;
+
+    const { rows: [msg] } = await db.query(
+      `INSERT INTO messages
+         (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp, media_url, media_mime_type)
+       VALUES ($1, $2, 'user', $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [conversationId, tempWaId, msgType, caption || filename, now, mediaUrl, mimetype],
+    );
+
+    // Update conversation state
+    await db.query(
+      `UPDATE conversations
+       SET last_message_at = $1, last_message_preview = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [now, `[Attachment] ${filename}`, conversationId],
+    );
+
+    // Enqueue sending via Baileys SEND_REPLY
+    await addToQueue(QUEUE_NAMES.SEND_REPLY, {
+      userId,
+      messageId: msg.id,
+      suggestedReplyId: null,
+      recipientJid: conv.whatsapp_jid,
+      text: caption,
+      mediaPath: targetPath,
+      mediaMimeType: mimetype,
+      mediaFileName: filename,
+    });
+
+    // Emit live Socket.io events so UI updates instantly
+    const message = {
+      id: msg.id,
+      senderType: 'user',
+      messageType: msgType,
+      body: caption || filename,
+      timestamp: now.toISOString(),
+      pendingSuggestions: 0,
+      mediaUrl,
+      mediaMimeType: mimetype,
+      transcription: null,
+    };
+
+    const conversation = await getInboxConversation(userId, conversationId);
+    if (conversation) {
+      await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+    }
+    await publishInboxEvent(userId, 'message:new', {
+      messageId: msg.id,
+      conversationId,
+      contactId: conv.contact_id,
+      senderType: 'user',
+      messageType: msgType,
+      body: caption || filename,
+      mediaUrl,
+      mediaMimeType: mimetype,
+      transcription: null,
+      timestamp: now.toISOString(),
+    });
+
+    return reply.send({ message, conversation });
   });
 }

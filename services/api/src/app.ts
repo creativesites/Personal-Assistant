@@ -69,6 +69,7 @@ import { billingRoutes } from './routes/billing';
 import { promotionsRoutes } from './routes/promotions';
 import { adminPromotionsRoutes } from './routes/admin-promotions';
 import { adminRevenueRoutes } from './routes/admin-revenue';
+import { privacyRoutes } from './routes/privacy';
 import { readOnlyModeGuard } from './lib/entitlements';
 
 export async function buildApp() {
@@ -119,6 +120,7 @@ export async function buildApp() {
   await fastify.register(contactsRoutes);
   await fastify.register(proactiveRoutes);
   await fastify.register(suggestionsRoutes);
+  await fastify.register(privacyRoutes);
   await fastify.register(companionRoutes);
   await fastify.register(adminRoutes);
   await fastify.register(agentRoutes);

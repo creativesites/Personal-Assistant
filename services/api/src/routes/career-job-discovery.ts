@@ -220,10 +220,11 @@ export async function careerJobDiscoveryRoutes(fastify: FastifyInstance): Promis
     const { rows: jobs } = await db.query(
       `SELECT sj.id, sj.source, sj.source_url, sj.title, sj.company, sj.location,
               sj.job_type, sj.salary_range, sj.skills, sj.posted_at, sj.scraped_at,
-              sj.contact_email, sj.contact_phone, sj.application_url
+              sj.contact_email, sj.contact_phone, sj.application_url,
+              sj.freshness_score, sj.expiration_probability, sj.source_reliability, sj.canonical_job_id
        FROM scraped_jobs sj
        WHERE ${where}
-       ORDER BY ${relevanceExpr}, sj.scraped_at DESC
+       ORDER BY ${relevanceExpr}, sj.freshness_score DESC NULLS LAST, sj.scraped_at DESC
        LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
       params,
     )

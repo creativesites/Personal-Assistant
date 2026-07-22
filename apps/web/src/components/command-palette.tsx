@@ -346,21 +346,92 @@ export function CommandPalette({ open: controlledOpen, onOpenChange }: CommandPa
                 {askResponse.message ?? 'No matches for that question.'}
               </p>
             ) : (
-              <div className="px-2">
+              <div className="px-2 space-y-1">
                 <p className="px-3 pt-1 pb-2 text-[10px] text-gray-400 uppercase tracking-wide font-medium">
                   {askResponse.results.length} {askResponse.entityType}
                 </p>
                 {askResponse.results.map((row, i) => {
+                  const handleResultClick = () => {
+                    if (askResponse.entityType === 'messages') {
+                      if (row.conversationId) {
+                        router.push(`/inbox?conversationId=${row.conversationId}`)
+                      } else if (row.contactId) {
+                        router.push(`/inbox?contactId=${row.contactId}`)
+                      }
+                      close()
+                    } else if (askResponse.entityType === 'contacts') {
+                      if (row.id) {
+                        router.push(`/contacts/${row.id}`)
+                      }
+                      close()
+                    }
+                  }
+
+                  const senderType = row.senderType as string | undefined
+                  const contactName = row.contactName as string | undefined
+                  const createdAt = row.createdAt as string | undefined
+                  const messageType = row.messageType as string | undefined
+                  const body = row.body as string | undefined
+
+                  if (askResponse.entityType === 'messages') {
+                    return (
+                      <button
+                        key={(row.id as string) ?? i}
+                        onClick={handleResultClick}
+                        className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50/50 hover:text-indigo-900 group flex items-start gap-3 transition-all border border-transparent hover:border-indigo-100"
+                      >
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${
+                          senderType === 'user'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : 'bg-emerald-100 text-green-700'
+                        }`}>
+                          {senderType === 'user' ? 'You' : String(contactName ?? 'WA').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-gray-900 group-hover:text-indigo-950 truncate">
+                              {senderType === 'user' ? `You → ${contactName ?? 'Contact'}` : String(contactName ?? 'Contact')}
+                            </p>
+                            {createdAt && (
+                              <span className="text-[10px] text-gray-400 group-hover:text-indigo-500 whitespace-nowrap">
+                                {new Date(createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-600 group-hover:text-indigo-900 flex items-center gap-1.5 leading-snug">
+                            {messageType && messageType !== 'text' && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 group-hover:bg-indigo-100 group-hover:text-indigo-700 capitalize flex-shrink-0">
+                                {messageType}
+                              </span>
+                            )}
+                            <p className="truncate">
+                              {String(body || 'No message content')}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  }
+
                   const entries = Object.entries(row).filter(([k]) => k !== 'id')
                   const primary = entries[0]?.[1]
                   const rest = entries.slice(1)
+                  const isClickable = ['contacts', 'documents'].includes(askResponse.entityType || '')
+
                   return (
-                    <div key={(row.id as string) ?? i} className="px-3 py-2 rounded-lg hover:bg-gray-50">
+                    <button
+                      key={(row.id as string) ?? i}
+                      onClick={handleResultClick}
+                      disabled={!isClickable}
+                      className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                        isClickable ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'
+                      }`}
+                    >
                       <p className="text-sm text-gray-900 font-medium">{String(primary ?? '—')}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {rest.map(([k, v]) => `${k}: ${v ?? '—'}`).join(' · ')}
                       </p>
-                    </div>
+                    </button>
                   )
                 })}
               </div>

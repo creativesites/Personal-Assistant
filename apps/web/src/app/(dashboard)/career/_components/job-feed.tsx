@@ -27,6 +27,13 @@ interface ScrapedJob {
   skills: string[]
   posted_at: string | null
   scraped_at: string
+  contact_email?: string | null
+  contact_phone?: string | null
+  application_url?: string | null
+  freshness_score?: number | null
+  expiration_probability?: number | null
+  source_reliability?: number | null
+  canonical_job_id?: string | null
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -69,6 +76,7 @@ function opportunityBadges(opp: CareerOpportunity): Badge[] {
   }
   const hours = hoursSince(opp.createdAt)
   if (hours != null && hours < 24) badges.push({ emoji: '⚡', label: 'Fresh today' })
+  if (opp.confidence != null && opp.confidence >= 0.8) badges.push({ emoji: '✨', label: `High Confidence (${Math.round(opp.confidence * 100)}%)` })
   if (opp.source === 'web_search') badges.push({ emoji: '🌍', label: 'AI Search' })
   if (opp.source === 'whatsapp_detected') badges.push({ emoji: '🤝', label: 'Referral' })
   return badges
@@ -83,6 +91,8 @@ function scrapedBadges(job: ScrapedJob): Badge[] {
   }
   const hours = hoursSince(job.posted_at ?? job.scraped_at)
   if (hours != null && hours < 24) badges.push({ emoji: '⚡', label: 'Fresh today' })
+  if (job.freshness_score && job.freshness_score >= 80) badges.push({ emoji: '🔥', label: 'Hot' })
+  if (job.source_reliability && job.source_reliability >= 80) badges.push({ emoji: '✅', label: 'Verified Source' })
   badges.push({ emoji: '🏢', label: SOURCE_LABELS[job.source] ?? job.source })
   return badges
 }
@@ -119,7 +129,10 @@ function ScrapedJobCard({
         method: 'POST', token,
         body: JSON.stringify({
           category: 'job', title: job.title, companyOrOrg: job.company ?? undefined,
-          location: job.location ?? undefined, source: 'manual', applicationUrl: job.source_url,
+          location: job.location ?? undefined, source: 'manual', 
+          applicationUrl: job.application_url ?? job.source_url,
+          contactEmail: job.contact_email ?? undefined,
+          contactPhone: job.contact_phone ?? undefined,
         }),
       })
       await apiClient(`/api/career/opportunities/${created.opportunity.id}`, {
@@ -156,6 +169,28 @@ function ScrapedJobCard({
         {job.salary_range && <span>· {job.salary_range}</span>}
       </div>
 
+      {(job.contact_email || job.contact_phone) && (
+        <div className="flex flex-col gap-1 text-xs bg-slate-50 border border-slate-100/50 rounded-xl p-2 mt-1">
+          <span className="font-semibold text-gray-700">Contact details:</span>
+          {job.contact_email && (
+            <div className="flex items-center gap-1 text-gray-600">
+              <span>📧</span>
+              <a href={`mailto:${job.contact_email}`} className="text-indigo-600 hover:underline font-medium break-all">
+                {job.contact_email}
+              </a>
+            </div>
+          )}
+          {job.contact_phone && (
+            <div className="flex items-center gap-1 text-gray-600">
+              <span>📞</span>
+              <a href={`tel:${job.contact_phone}`} className="text-indigo-600 hover:underline font-medium">
+                {job.contact_phone}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
       {displaySkills.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {displaySkills.map(skill => (
@@ -183,14 +218,26 @@ function ScrapedJobCard({
             Hide
           </button>
         </div>
-        <a
-          href={job.source_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 rounded-xl bg-white px-2.5 py-1.5 text-[11px] font-bold text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50 min-h-[32px]"
-        >
-          View <ExternalLink className="w-3 h-3" />
-        </a>
+        <div className="flex items-center gap-2">
+          {job.application_url && job.application_url !== job.source_url && (
+            <a
+              href={job.application_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-xl bg-indigo-50 px-2.5 py-1.5 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100 min-h-[32px]"
+            >
+              Apply <ExternalLink className="w-3 h-3 text-indigo-600" />
+            </a>
+          )}
+          <a
+            href={job.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-xl bg-white px-2.5 py-1.5 text-[11px] font-bold text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50 min-h-[32px]"
+          >
+            View <ExternalLink className="w-3 h-3" />
+          </a>
+        </div>
       </div>
     </div>
   )

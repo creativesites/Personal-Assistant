@@ -426,19 +426,20 @@ function CareerPageInner() {
 
         {token && <CareerProgressStrip token={token} opportunities={opportunities} skillsCount={profile?.skills?.length ?? 0} />}
 
+        {token && showProfileEdit && (
+          <CareerProfileEditor
+            token={token}
+            sharedProfile={careerProfile}
+            inline
+            open={true}
+            onClose={() => setShowProfileEdit(false)}
+          />
+        )}
+
         {SECTION_ORDER[profile?.careerMode ?? 'job_seeker'].map(key => (
           <div key={key}>{sectionNodes[key]}</div>
         ))}
       </div>
-
-      {token && (
-        <CareerProfileEditor
-          token={token}
-          open={showProfileEdit}
-          onClose={() => setShowProfileEdit(false)}
-          sharedProfile={careerProfile}
-        />
-      )}
 
       {token && profile && !profile.onboardingCompletedAt && (
         <CareerOnboardingModal

@@ -132,12 +132,17 @@ export function itemTypeBadgeVariant(type: string): 'default' | 'info' | 'succes
   }
 }
 
-export function formatCurrency(amount: number | null | undefined, currency = 'USD'): string {
+export function formatCurrency(amount: number | null | undefined, currency?: string): string {
   if (amount == null) return '—'
   try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
+    const savedCurrency = typeof window !== 'undefined' ? localStorage.getItem('zuri_preferred_currency') || 'ZMW' : 'ZMW'
+    const savedLocale = typeof window !== 'undefined' ? localStorage.getItem('zuri_preferred_locale') || 'en-ZM' : 'en-ZM'
+    
+    const activeCurrency = currency || savedCurrency
+    return new Intl.NumberFormat(savedLocale, { style: 'currency', currency: activeCurrency }).format(amount)
   } catch {
-    return `${currency} ${amount.toFixed(2)}`
+    const activeCurrency = currency || 'ZMW'
+    return `${activeCurrency} ${amount.toFixed(2)}`
   }
 }
 

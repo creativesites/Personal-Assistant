@@ -328,6 +328,45 @@ class JobDiscoveryService:
         keywords = [k.lower() for k in ((profile['target_roles'] or []) + skills) if k]
 
         raw_results: list[tuple[str, object]] = []
+        
+        # 1. Pull from scraped_jobs (Zambia-First Discovery)
+        try:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                for q in queries:
+                    # Simple ILIKE search or use pgvector if embedding is set.
+                    # We use a broad search since skills/keywords filter later.
+                    query_term = q['query']
+                    scraped = await conn.fetch(
+                        """
+                        SELECT id, title, company, description, location, job_type, 
+                               salary_range, posted_at, source_url, contact_email, contact_phone,
+                               freshness_score, expiration_probability, source
+                        FROM scraped_jobs 
+                        WHERE (title ILIKE $1 OR description ILIKE $1 OR company ILIKE $1)
+                          AND expires_at > NOW()
+                          AND (expiration_probability IS NULL OR expiration_probability < 0.8)
+                        LIMIT 10
+                        """,
+                        f"%{query_term}%"
+                    )
+                    for s in scraped:
+                        text = f"{s['title']} {s['description']}".lower()
+                        if keywords and not any(k in text for k in keywords):
+                            continue
+                            
+                        # Format as a pseudo-result to match Tavily results
+                        class ScrapedResult:
+                            title = s['title']
+                            snippet = (s['description'] or '')[:500]
+                            url = s['source_url']
+                            raw_data = dict(s)
+                            
+                        raw_results.append((q['pass'], ScrapedResult()))
+        except Exception as exc:
+            log.error('scraped_jobs_search_failed', error=str(exc))
+
+        # 2. Pull from Web Search (Tavily)
         for q in queries:
             try:
                 results = await web_search.search(q['query'], max_results=_MAX_RESULTS_PER_QUERY)
@@ -338,47 +377,72 @@ class JobDiscoveryService:
                 text = f'{r.title} {r.snippet}'.lower()
                 if keywords and not any(k in text for k in keywords):
                     continue
+                r.raw_data = {} # Mark as web search
                 raw_results.append((q['pass'], r))
 
         raw_results = raw_results[:max_extractions]
 
         candidates: list[dict] = []
         for pass_name, r in raw_results:
-            try:
-                extracted = await ai.complete_json([{
-                    'role': 'user',
-                    'content': EXTRACT_JOB_LISTING.format(
-                        title=r.title, url=r.url, snippet=r.snippet,
-                        user_skills=', '.join(skills) or 'none listed',
-                        target_roles=', '.join(profile['target_roles'] or []),
-                        remote_preference=profile['remote_preference'] or 'no_preference',
-                        relocation_preference=profile['relocation_preference'] or 'depends',
-                    ),
-                }], service='career', feature='job_listing_extraction', user_id=user_id)
-            except Exception as exc:
-                log.warning('job_listing_extraction_failed_using_scraper_fallback', url=r.url[:80], error=str(exc))
-                # Fallback implementation: construct candidate dictionary straight from the search result mapping
+            # If it came from scraped_jobs, bypass AI extraction to save money
+            if getattr(r, 'raw_data', None):
+                s = r.raw_data
                 extracted = {
                     'isJobRelated': True,
-                    'title': r.title,
-                    'companyOrOrg': 'Unknown Company',
-                    'summary': r.snippet,
-                    'location': profile['country'] or 'Remote',
-                    'isRemote': True if 'remote' in f"{r.title} {r.snippet}".lower() else None,
+                    'title': s['title'],
+                    'companyOrOrg': s['company'] or 'Unknown',
+                    'summary': s['description'],
+                    'location': s['location'],
+                    'isRemote': s['job_type'] == 'remote',
                     'category': 'job',
                     'requiredSkills': [],
-                    'postedAt': None,
+                    'postedAt': s['posted_at'].isoformat() if s['posted_at'] else None,
                     'salaryMin': None,
                     'salaryMax': None,
-                    'salaryCurrency': None
+                    'salaryCurrency': None,
+                    'applicationUrl': s['source_url'],
+                    'contactEmail': s['contact_email'],
+                    'contactPhone': s['contact_phone'],
+                    '_freshness_score_override': s.get('freshness_score'),
+                    '_expiration_probability': s.get('expiration_probability'),
+                    '_source': 'scraper'
                 }
+            else:
+                try:
+                    extracted = await ai.complete_json([{
+                        'role': 'user',
+                        'content': EXTRACT_JOB_LISTING.format(
+                            title=r.title, url=r.url, snippet=r.snippet,
+                            user_skills=', '.join(skills) or 'none listed',
+                            target_roles=', '.join(profile['target_roles'] or []),
+                            remote_preference=profile['remote_preference'] or 'no_preference',
+                            relocation_preference=profile['relocation_preference'] or 'depends',
+                        ),
+                    }], service='career', feature='job_listing_extraction', user_id=user_id)
+                except Exception as exc:
+                    log.warning('job_listing_extraction_failed_using_scraper_fallback', url=r.url[:80], error=str(exc))
+                    # Fallback implementation: construct candidate dictionary straight from the search result mapping
+                    extracted = {
+                        'isJobRelated': True,
+                        'title': r.title,
+                        'companyOrOrg': 'Unknown Company',
+                        'summary': r.snippet,
+                        'location': profile['country'] or 'Remote',
+                        'isRemote': True if 'remote' in f"{r.title} {r.snippet}".lower() else None,
+                        'category': 'job',
+                        'requiredSkills': [],
+                        'postedAt': None,
+                        'salaryMin': None,
+                        'salaryMax': None,
+                        'salaryCurrency': None
+                    }
             
             if not extracted.get('isJobRelated'):
                 continue
             extracted['_pass'] = pass_name
             extracted.setdefault('applicationUrl', r.url)
             candidates.append(extracted)
-        return candidates, len(raw_results)
+        return candidates, len([r for _, r in raw_results if not getattr(r, 'raw_data', None)])
 
     def _dedup_within_batch(self, candidates: list[dict]) -> list[dict]:
         def completeness(c: dict) -> int:
@@ -446,11 +510,24 @@ class JobDiscoveryService:
             freshness_score = 80
         else:
             freshness_score = 40
+            
+        # Override with scraper-provided freshness score if available
+        if c.get('_freshness_score_override') is not None:
+            freshness_score = c['_freshness_score_override']
+            
+        expiration_prob = c.get('_expiration_probability') or 0.0
+        if expiration_prob > 0.8:
+            c['_drop'] = True
+            return c
 
         overall = round(
             skills_score * 0.35 + location_score * 0.2 + salary_score * 0.2
             + category_score * 0.15 + freshness_score * 0.1
         )
+        
+        # Penalize overall score slightly based on expiration probability
+        if expiration_prob > 0:
+            overall = int(overall * (1.0 - (expiration_prob * 0.2)))
 
         c['_match_score'] = max(0, min(100, overall))
         c['_match_breakdown'] = {
@@ -479,13 +556,14 @@ class JobDiscoveryService:
                     """INSERT INTO career_opportunities
                          (user_id, category, title, company_or_org, description, location,
                           is_remote, salary_range_cents, source, application_url, match_score,
-                          match_breakdown, confidence)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'web_search', $9, $10, $11::jsonb, $12)
+                          match_breakdown, confidence, contact_email, contact_phone)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::jsonb, $13, $14, $15)
                        RETURNING id, title, company_or_org, match_score, is_remote""",
                     user_id, category, (c.get('title') or 'Untitled opportunity')[:255],
                     c.get('companyOrOrg') or 'Unknown Company', c.get('summary'), c.get('location'), c.get('isRemote'),
-                    salary_range, c.get('applicationUrl'), c.get('_match_score'),
+                    salary_range, c.get('_source', 'web_search'), c.get('applicationUrl'), c.get('_match_score'),
                     c.get('_match_breakdown') or {}, _DEFAULT_CONFIDENCE,
+                    c.get('contactEmail'), c.get('contactPhone'),
                 )
                 inserted.append(dict(row))
         return inserted

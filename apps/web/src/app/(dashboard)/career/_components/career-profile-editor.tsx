@@ -22,39 +22,40 @@ const TABS = [
 ]
 
 export function CareerProfileEditor({
-  token, open, onClose, sharedProfile,
+  token, open, onClose, sharedProfile, inline = false
 }: {
   token: string
-  open: boolean
-  onClose: () => void
+  open?: boolean
+  onClose?: () => void
   sharedProfile?: ReturnType<typeof useCareerProfile>
+  inline?: boolean
 }) {
   const owned = useCareerProfile(token)
   const { profile, updateField } = sharedProfile ?? owned
 
-  if (!open) return null
+  if (!inline && !open) return null
 
-  return (
-    <Modal open={open} onClose={onClose} title="Career Profile" size="lg">
-      {!profile ? (
-        <p className="text-sm text-gray-500 p-1">Loading...</p>
-      ) : (
-        <div className="p-1">
-          <Tabs tabs={TABS} defaultTab="basics">
-            {(activeTab) => (
-              <div className="pt-4">
-                {activeTab === 'basics' && <PersonalDetailsStep profile={profile} updateField={updateField} />}
-                {activeTab === 'summary' && (
-                  <div className="space-y-5">
-                    <SummaryStep profile={profile} token={token} updateField={updateField} />
-                    <ObjectivesStep profile={profile} token={token} updateField={updateField} />
-                  </div>
-                )}
-                {activeTab === 'preferences' && <AdditionalInfoStep profile={profile} updateField={updateField} />}
-              </div>
-            )}
-          </Tabs>
+  const content = (
+    !profile ? (
+      <p className="text-sm text-gray-500 p-1">Loading...</p>
+    ) : (
+      <div className={inline ? '' : 'p-1'}>
+        <Tabs tabs={TABS} defaultTab="basics">
+          {(activeTab) => (
+            <div className="pt-4">
+              {activeTab === 'basics' && <PersonalDetailsStep profile={profile} updateField={updateField} />}
+              {activeTab === 'summary' && (
+                <div className="space-y-5">
+                  <SummaryStep profile={profile} token={token} updateField={updateField} />
+                  <ObjectivesStep profile={profile} token={token} updateField={updateField} />
+                </div>
+              )}
+              {activeTab === 'preferences' && <AdditionalInfoStep profile={profile} updateField={updateField} />}
+            </div>
+          )}
+        </Tabs>
 
+        {!inline && onClose && (
           <div className="flex items-center justify-between gap-2 pt-5 mt-2 border-t border-gray-100">
             <p className="text-xs text-gray-400">Saved automatically as you go.</p>
             <button
@@ -64,8 +65,24 @@ export function CareerProfileEditor({
               Done
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    )
+  )
+
+  if (inline) {
+    return (
+      <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-5 md:p-6 mb-4">
+        <h2 className="text-lg font-bold text-gray-900 mb-2">Update Job Preferences</h2>
+        <p className="text-sm text-gray-500 mb-4">Saved automatically as you go.</p>
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Modal open={open!} onClose={onClose!} title="Career Profile" size="lg">
+      {content}
     </Modal>
   )
 }

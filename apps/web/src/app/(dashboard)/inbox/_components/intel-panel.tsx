@@ -12,6 +12,7 @@ import {
   Tag, Mail, Building2, Briefcase, History, Eye, EyeOff,
 } from 'lucide-react'
 import { getSocket } from '@/lib/socket'
+import { apiClient } from '@/lib/api'
 import type {
   Contact, ContactDetail, Conversation, ConvContext, Message,
   Suggestion, InternalNote, ContactPromise,
@@ -212,6 +213,74 @@ export function IntelPanel({
   ]
 
   const healthScore = contactDetail?.relationship?.healthScore ?? selectedConv?.healthScore ?? 0
+
+  // Privacy & Relationship settings state
+  const [relationshipCategory, setRelationshipCategory] = useState<string>('professional')
+  const [privacyLevel, setPrivacyLevel] = useState<string>('standard')
+  const [analysisMode, setAnalysisMode] = useState<string>('full')
+  const [privacySettings, setPrivacySettings] = useState<any>({
+    analyze_messages: true,
+    generate_replies: true,
+    store_intelligence: true,
+    relationship_analysis: true,
+  })
+  const [savingPrivacy, setSavingPrivacy] = useState(false)
+
+  useEffect(() => {
+    if (contactDetail) {
+      const detail = contactDetail as any
+      setRelationshipCategory(detail.relationship?.relationshipCategory ?? 'professional')
+      setPrivacyLevel(detail.relationship?.privacyLevel ?? 'standard')
+      setAnalysisMode(detail.relationship?.analysisMode ?? 'full')
+      
+      const rawSettings = detail.privacySettings ?? detail.privacy_settings ?? {
+        analyze_messages: true,
+        generate_replies: true,
+        store_intelligence: true,
+        relationship_analysis: true,
+      }
+      setPrivacySettings({
+        analyze_messages: rawSettings.analyze_messages ?? rawSettings.analyzeMessages ?? true,
+        generate_replies: rawSettings.generate_replies ?? rawSettings.generateReplies ?? true,
+        store_intelligence: rawSettings.store_intelligence ?? rawSettings.storeIntelligence ?? true,
+        relationship_analysis: rawSettings.relationship_analysis ?? rawSettings.relationshipAnalysis ?? true,
+      })
+    }
+  }, [contactDetail])
+
+  const handleUpdatePrivacy = async (updates: {
+    relationshipCategory?: string
+    privacyLevel?: string
+    analysisMode?: string
+    privacySettings?: any
+  }) => {
+    if (!contact || !token) return
+    setSavingPrivacy(true)
+    try {
+      const res = await apiClient<{ ok: boolean; contact: any }>(`/api/contacts/${contact.id}/privacy-settings`, {
+        method: 'PUT',
+        token,
+        body: JSON.stringify(updates),
+      })
+      if (res.ok && res.contact) {
+        setRelationshipCategory(res.contact.relationshipCategory ?? 'professional')
+        setPrivacyLevel(res.contact.privacyLevel ?? 'standard')
+        setAnalysisMode(res.contact.analysisMode ?? 'full')
+        
+        const raw = res.contact.privacySettings ?? {}
+        setPrivacySettings({
+          analyze_messages: raw.analyze_messages ?? raw.analyzeMessages ?? true,
+          generate_replies: raw.generate_replies ?? raw.generateReplies ?? true,
+          store_intelligence: raw.store_intelligence ?? raw.storeIntelligence ?? true,
+          relationship_analysis: raw.relationship_analysis ?? raw.relationshipAnalysis ?? true,
+        })
+      }
+    } catch (err) {
+      console.error('Failed to update privacy settings', err)
+    } finally {
+      setSavingPrivacy(false)
+    }
+  }
 
   const insights: AIInsight[] = []
   if (contextData?.buyingSignals?.length) {
@@ -971,6 +1040,88 @@ export function IntelPanel({
               <div className="p-4">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Buying Behaviour</p>
                 <p className="text-xs text-gray-700 leading-relaxed">{contactDetail.profile.buyingBehaviour}</p>
+              </div>
+            )}
+
+            {contactDetail && (
+              <div className="p-4 border-t border-gray-100 bg-gray-50/50">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Privacy & Relationship Controls</p>
+                <div className="space-y-4">
+                  {/* Category select buttons */}
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Category</label>
+                    <div className="grid grid-cols-4 gap-1.5 mt-1.5">
+                      {['personal', 'professional', 'family', 'other'].map((cat) => (
+                        <button
+                          key={cat}
+                          onClick={() => handleUpdatePrivacy({ relationshipCategory: cat })}
+                          className={`py-1 px-1 rounded-lg text-[10px] font-semibold capitalize border transition-all ${
+                            relationshipCategory === cat
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm'
+                              : 'bg-white text-gray-500 border-gray-200/80 hover:bg-gray-50'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Privacy Level select buttons */}
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Privacy Level</label>
+                    <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                      {[
+                        { id: 'standard', icon: Eye, label: 'Standard' },
+                        { id: 'restricted', icon: AlertTriangle, label: 'Restricted' },
+                        { id: 'incognito', icon: EyeOff, label: 'Incognito' },
+                      ].map((lvl) => {
+                        const Icon = lvl.icon
+                        return (
+                          <button
+                            key={lvl.id}
+                            onClick={() => handleUpdatePrivacy({ privacyLevel: lvl.id })}
+                            className={`py-1.5 px-1 rounded-lg text-[10px] font-semibold border transition-all flex items-center justify-center gap-1 ${
+                              privacyLevel === lvl.id
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm'
+                                : 'bg-white text-gray-500 border-gray-200/80 hover:bg-gray-50'
+                            }`}
+                          >
+                            <Icon size={10} />
+                            <span>{lvl.label}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Individual Checkboxes */}
+                  <div className="space-y-2.5 pt-3 border-t border-gray-100">
+                    {[
+                      { key: 'analyze_messages', label: 'Analyze Incoming Messages', desc: 'Allows AI perception on messages' },
+                      { key: 'generate_replies', label: 'Generate Suggested Replies', desc: 'Provides suggested response options' },
+                      { key: 'store_intelligence', label: 'Store Living Profile Snaps', desc: 'Saves summaries & snapshots' },
+                      { key: 'relationship_analysis', label: 'Enable Health Analytics', desc: 'Tracks health trends & patterns' },
+                    ].map((item) => (
+                      <label key={item.key} className="flex items-start gap-2.5 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={!!privacySettings[item.key]}
+                          disabled={savingPrivacy}
+                          onChange={(e) => {
+                            const updated = { ...privacySettings, [item.key]: e.target.checked }
+                            handleUpdatePrivacy({ privacySettings: updated })
+                          }}
+                          className="mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500/20 w-3.5 h-3.5"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold text-gray-700 group-hover:text-gray-900 transition-colors">{item.label}</p>
+                          <p className="text-[9px] text-gray-400 mt-0.5">{item.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
