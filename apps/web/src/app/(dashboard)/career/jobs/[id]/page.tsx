@@ -93,7 +93,11 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
 
     // Fetch Readiness
     apiClient<{ readiness: Record<string, boolean> }>(`/api/career/opportunities/${id}/manual-readiness`, { token })
-      .then((data) => setReadiness(data.readiness))
+      .then((data) => {
+        if (data && data.readiness && typeof data.readiness === 'object') {
+          setReadiness(data.readiness)
+        }
+      })
       .catch(() => {})
   }, [token, id])
 
@@ -175,8 +179,9 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
     )
   }
 
-  const readinessCount = Object.values(readiness).filter(Boolean).length
-  const readinessTotal = Object.keys(readiness).length
+  const safeReadiness = readiness || {}
+  const readinessCount = Object.values(safeReadiness).filter(Boolean).length
+  const readinessTotal = Object.keys(safeReadiness).length || 1
   const readinessPct = Math.round((readinessCount / readinessTotal) * 100)
 
   const TABS = [

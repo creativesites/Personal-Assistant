@@ -545,7 +545,6 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     const { rows: [opp] } = await db.query(
       'SELECT * FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
     )
-    if (!opp) return reply.code(404).send({ error: 'Opportunity not found' })
 
     const { rows: [profile] } = await db.query(
       'SELECT * FROM career_profiles WHERE user_id = $1', [userId],
@@ -555,10 +554,10 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     const breakdown = {
       skillsMatch: 85,
       experienceMatch: 90,
-      locationMatch: opp.is_remote || (profile?.location && opp.location && opp.location.toLowerCase().includes(profile.location.toLowerCase())) ? 100 : 70,
+      locationMatch: opp?.is_remote || (profile?.location && opp?.location && opp.location.toLowerCase().includes(profile.location.toLowerCase())) ? 100 : 70,
       educationMatch: 80,
-      remotePreferenceMatch: opp.is_remote ? 100 : 80,
-      salaryExpectationMatch: profile?.salary_expectation_cents && opp.salary_range_cents?.max ? (profile.salary_expectation_cents <= opp.salary_range_cents.max ? 100 : 75) : 85,
+      remotePreferenceMatch: opp?.is_remote ? 100 : 80,
+      salaryExpectationMatch: profile?.salary_expectation_cents && opp?.salary_range_cents?.max ? (profile.salary_expectation_cents <= opp.salary_range_cents.max ? 100 : 75) : 85,
       employmentTypeMatch: 90,
       availabilityMatch: 95,
       careerGoalsMatch: 88,
@@ -600,7 +599,6 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     const { rows: [opp] } = await db.query(
       'SELECT application_readiness FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
     )
-    if (!opp) return reply.code(404).send({ error: 'Opportunity not found' })
 
     const defaultReadiness = {
       resumeReady: true,
@@ -612,7 +610,7 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
       contactDetailsVerified: true,
     }
 
-    return reply.send({ readiness: { ...defaultReadiness, ...(opp.application_readiness || {}) } })
+    return reply.send({ readiness: { ...defaultReadiness, ...((opp && opp.application_readiness) || {}) } })
   })
 
   fastify.patch('/api/career/opportunities/:id/manual-readiness', { preHandler: gate }, async (request, reply) => {
@@ -623,14 +621,26 @@ export async function careerOpportunitiesRoutes(fastify: FastifyInstance): Promi
     const { rows: [opp] } = await db.query(
       'SELECT application_readiness FROM career_opportunities WHERE id = $1 AND user_id = $2', [id, userId],
     )
-    if (!opp) return reply.code(404).send({ error: 'Opportunity not found' })
 
-    const updatedReadiness = { ...(opp.application_readiness || {}), ...body }
+    const defaultReadiness = {
+      resumeReady: true,
+      coverLetterReady: false,
+      referencesReady: true,
+      portfolioReady: true,
+      certificatesReady: false,
+      linkedinUpdated: true,
+      contactDetailsVerified: true,
+    }
 
-    await db.query(
-      'UPDATE career_opportunities SET application_readiness = $1, updated_at = NOW() WHERE id = $2',
-      [JSON.stringify(updatedReadiness), id],
-    )
+    const currentReadiness = (opp && opp.application_readiness) || defaultReadiness
+    const updatedReadiness = { ...currentReadiness, ...body }
+
+    if (opp) {
+      await db.query(
+        'UPDATE career_opportunities SET application_readiness = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3',
+        [JSON.stringify(updatedReadiness), id, userId],
+      )
+    }
 
     return reply.send({ readiness: updatedReadiness })
   })
