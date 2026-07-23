@@ -410,7 +410,7 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const res = await db.query(
-        `SELECT industry_preset FROM business_profiles WHERE user_id = $1 LIMIT 1`,
+        `SELECT industry_preset FROM business_profiles WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC LIMIT 1`,
         [userId],
       )
       const preset = res.rows[0]?.industry_preset || 'retail_ecommerce'
@@ -437,12 +437,23 @@ export async function studioRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'Invalid industry preset' })
       }
 
-      await db.query(
-        `INSERT INTO business_profiles (user_id, company_name, industry_preset)
-         VALUES ($1, 'My Business', $2)
-         ON CONFLICT (user_id) DO UPDATE SET industry_preset = EXCLUDED.industry_preset, updated_at = NOW()`,
-        [userId, preset],
+      const existing = await db.query(
+        `SELECT id FROM business_profiles WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC LIMIT 1`,
+        [userId],
       )
+
+      if (existing.rows.length > 0) {
+        await db.query(
+          `UPDATE business_profiles SET industry_preset = $1, updated_at = NOW() WHERE id = $2`,
+          [preset, existing.rows[0].id],
+        )
+      } else {
+        await db.query(
+          `INSERT INTO business_profiles (user_id, company_name, is_default, industry_preset)
+           VALUES ($1, 'My Business', true, $2)`,
+          [userId, preset],
+        )
+      }
 
       return reply.send({ success: true, preset })
     },

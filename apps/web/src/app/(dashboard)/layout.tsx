@@ -60,17 +60,17 @@ const NAV_GROUPS: NavGroup[] = [
     icon: LayoutDashboard,
     items: [
       { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
-      // { href: '/studio', label: ' Business Manager ', icon: Send },
       { href: '/notifications', label: 'Notifications', icon: Bell },
     ],
   },
   {
     key: 'marketing',
-    label: 'Business',
+    label: 'Business Hub',
     icon: Send,
     showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/studio', label: ' Business Manager ', icon: Send },
+      { href: '/studio', label: ' Business Knowledge Hub ', icon: Send },
+      { href: '/business', label: ' Invoices & Documents ', icon: FileText },
     ],
   },
   {
@@ -92,7 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/contacts', label: 'Contacts',      icon: Users },
       { href: '/leads',    label: 'Leads',         icon: Flame },
       { href: '/projects', label: 'Projects',      icon: FolderKanban },
-      { href: '/business', label: 'Documents',     icon: FileText },
+      { href: '/business', label: 'Invoices & Docs', icon: FileText },
       { href: '/feed',     label: 'Activity Feed', icon: Rss },
     ],
   },
@@ -101,11 +101,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'AI',
     icon: Brain,
     items: [
-      { href: '/advisor',        label: 'AI Advisor',  icon: Brain },
-      { href: '/proactive',      label: 'Proactive',   icon: Sparkles },
-      { href: '/automation',     label: 'Agents',      icon: Bot,        showForModes: ['business', 'hybrid'] },
-      { href: '/knowledge-base', label: 'Knowledge',   icon: BookOpen,   showForModes: ['business', 'hybrid'] },
-      { href: '/analytics',      label: 'Intelligence', icon: TrendingUp, showForModes: ['business', 'hybrid'] },
+      { href: '/advisor',        label: 'AI Advisor',            icon: Brain },
+      { href: '/proactive',      label: 'Proactive Nudges',     icon: Sparkles },
+      { href: '/automation',     label: 'Autonomous Agents',    icon: Bot,        showForModes: ['business', 'hybrid'] },
+      { href: '/knowledge-base', label: 'Organizational Memory', icon: BookOpen,   showForModes: ['business', 'hybrid'] },
+      { href: '/analytics',      label: 'Intelligence',          icon: TrendingUp, showForModes: ['business', 'hybrid'] },
     ],
   },
   {
@@ -138,7 +138,7 @@ const BOTTOM_NAV: Record<WorkspaceMode, BottomNavEntry[]> = {
   business: [
     { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
     { href: '/inbox',       label: 'Inbox',    icon: MessageSquare, badge: true },
-    { href: '/studio',    label: 'Business Manager', icon: Users },
+    { href: '/studio',      label: 'Business Hub', icon: Users },
     { isSearchToggle: true },
     { isMenuToggle: true },
   ],
@@ -152,7 +152,7 @@ const BOTTOM_NAV: Record<WorkspaceMode, BottomNavEntry[]> = {
   hybrid: [
     { href: '/dashboard',  label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',      label: 'Inbox',     icon: MessageSquare, badge: true },
-    { href: '/studio',   label: 'Business Manager',  icon: Users },
+    { href: '/studio',     label: 'Business Hub',  icon: Users },
     { isSearchToggle: true },
     { isMenuToggle: true },
   ],
