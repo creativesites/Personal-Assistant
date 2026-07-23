@@ -412,6 +412,105 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
     },
   )
 
+  // ─── Dead-Letter Queue (DLQ) Inspector & Manual Retry ────────────────────
+
+  fastify.get(
+    '/api/admin/queues/failed',
+    { preHandler: authenticateAdmin },
+    async (_request, reply) => {
+      const failedJobs: Array<{
+        id: string
+        queueName: string
+        failedReason: string
+        timestamp: number
+        attemptsMade: number
+        data: any
+      }> = []
+
+      for (const [name, queue] of Object.entries(queues)) {
+        try {
+          const jobs = await queue.getFailed(0, 50)
+          for (const job of jobs) {
+            failedJobs.push({
+              id: job.id ?? '',
+              queueName: name,
+              failedReason: job.failedReason || 'Unknown error',
+              timestamp: job.timestamp,
+              attemptsMade: job.attemptsMade,
+              data: job.data,
+            })
+          }
+        } catch {
+          // ignore error for uninitialized queue
+        }
+      }
+
+      return reply.send({ ok: true, failedJobs, totalFailed: failedJobs.length })
+    },
+  )
+
+  fastify.post(
+    '/api/admin/queues/retry-failed',
+    { preHandler: authenticateAdmin },
+    async (request, reply) => {
+      const { queueName, jobId, all } = (request.body as { queueName?: string; jobId?: string; all?: boolean }) || {}
+      let retriedCount = 0
+
+      if (queueName && jobId) {
+        const queue = (queues as any)[queueName]
+        if (queue) {
+          const job = await queue.getJob(jobId)
+          if (job) {
+            await job.retry()
+            retriedCount++
+          }
+        }
+      } else if (all || !jobId) {
+        for (const queue of Object.values(queues)) {
+          try {
+            const jobs = await queue.getFailed(0, 100)
+            for (const job of jobs) {
+              await job.retry()
+              retriedCount++
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return reply.send({ ok: true, retriedCount })
+    },
+  )
+
+  fastify.delete(
+    '/api/admin/queues/failed',
+    { preHandler: authenticateAdmin },
+    async (request, reply) => {
+      const { queueName } = (request.body as { queueName?: string }) || {}
+      let clearedCount = 0
+
+      if (queueName) {
+        const queue = (queues as any)[queueName]
+        if (queue) {
+          const removed = await queue.clean(0, 0, 'failed')
+          clearedCount += removed.length
+        }
+      } else {
+        for (const queue of Object.values(queues)) {
+          try {
+            const removed = await queue.clean(0, 0, 'failed')
+            clearedCount += removed.length
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return reply.send({ ok: true, clearedCount })
+    },
+  )
+
   // ─── Feature flags ────────────────────────────────────────────────────────
 
   fastify.get(

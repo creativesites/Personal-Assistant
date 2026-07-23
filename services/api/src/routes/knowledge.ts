@@ -542,27 +542,30 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
         return typeof value === 'string' && value.trim() ? value.trim() : undefined
       }
 
-      const isPdf =
-        mimetype === 'application/pdf' ||
-        filename.toLowerCase().endsWith('.pdf')
-
+      const isPdf = mimetype === 'application/pdf' || /\.pdf$/i.test(filename)
       const isExcel =
-        mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
         mimetype === 'application/vnd.ms-excel' ||
-        filename.toLowerCase().endsWith('.xlsx') ||
-        filename.toLowerCase().endsWith('.xls')
+        mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        /\.(xlsx?)$/i.test(filename)
+      const isCsv = mimetype === 'text/csv' || /\.csv$/i.test(filename)
+      const isImage = mimetype.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(filename)
 
-      const isCsv =
-        mimetype === 'text/csv' ||
-        filename.toLowerCase().endsWith('.csv')
+      const isTxt =
+        mimetype === 'text/plain' ||
+        mimetype === 'text/markdown' ||
+        mimetype === 'application/json' ||
+        /\.(txt|text|md|markdown|json)$/i.test(filename)
 
-      const isImage = mimetype.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(filename)
+      const isDoc =
+        mimetype === 'application/msword' ||
+        mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        /\.(docx?)$/i.test(filename)
 
-      if (!isPdf && !isExcel && !isCsv && !isImage) {
-        return reply.code(400).send({ error: 'Unsupported file type. Accepted: PDF, image, Excel (.xlsx/.xls), CSV' })
+      if (!isPdf && !isExcel && !isCsv && !isImage && !isTxt && !isDoc) {
+        return reply.code(400).send({ error: 'Unsupported file type. Accepted: PDF, TXT, CSV, DOCX, Excel, Images' })
       }
 
-      const sourceType = isPdf ? 'pdf' : isExcel ? 'excel' : isCsv ? 'csv' : 'image'
+      const sourceType = isPdf ? 'pdf' : isExcel ? 'excel' : isCsv ? 'csv' : isTxt ? 'text' : isDoc ? 'docx' : 'image'
       const title = (fieldValue('title') ?? filename.replace(/\.[^.]+$/, '')) || 'Uploaded file'
       const category = fieldValue('category') ?? null
       const tags = (fieldValue('tags') ?? '')
@@ -576,11 +579,14 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       await fs.mkdir(path.dirname(storagePath), { recursive: true })
       await fs.writeFile(storagePath, buf)
 
+      const rawContent = isTxt ? buf.toString('utf-8') : null
+      const wordCount = rawContent ? rawContent.split(/\s+/).filter(Boolean).length : null
+
       const { rows: [doc] } = await db.query<{ id: string; created_at: string }>(
         `INSERT INTO kb_documents
            (user_id, title, source_type, source_url, storage_path, mime_type,
-            category, tags, file_size_bytes, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'processing')
+            category, tags, file_size_bytes, raw_content, word_count, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing')
          RETURNING id, created_at`,
         [
           userId,
@@ -592,6 +598,8 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
           category,
           tags,
           fileSizeBytes,
+          rawContent,
+          wordCount,
         ],
       )
 

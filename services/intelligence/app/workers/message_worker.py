@@ -1,8 +1,9 @@
 import json
+import asyncio
 import structlog
 from bullmq import Worker, Queue
 from ..database import get_pool
-from ..queue import redis_conn_opts, publish_event
+from ..queue import redis_conn_opts, publish_event, acquire_conversation_lock, release_conversation_lock
 from ..services.analyser import MessageAnalyser
 from ..services.reply_gen import ReplyGenerator
 from ..services.event_extractor import EventExtractor
@@ -68,6 +69,14 @@ async def _process(job, token: str):
     # regardless of this check, so skipping here only affects AI processing.
     pool = await get_pool()
     async with pool.acquire() as conn:
+        already_analyzed = await conn.fetchval(
+            'SELECT EXISTS(SELECT 1 FROM message_analyses WHERE message_id = $1)',
+            message_id,
+        )
+        if already_analyzed:
+            log.info('message_already_analyzed_skipped', message_id=message_id)
+            return {'ok': True, 'skipped': 'already_analyzed'}
+
         contact_row = await conn.fetchrow('SELECT is_group FROM contacts WHERE id = $1', contact_id)
         privacy_excluded = await conn.fetchval(
             'SELECT EXISTS(SELECT 1 FROM privacy_exclusions WHERE contact_id = $1 AND user_id = $2)',
@@ -89,15 +98,28 @@ async def _process(job, token: str):
         log.info('message_analysis_skipped_no_credits', message_id=message_id, user_id=user_id)
         return {'ok': True, 'skipped': 'no_credits'}
 
-    analysis, suggestions = await _analyser.analyse(
-        message_id=message_id,
-        user_id=user_id,
-        conversation_id=conversation_id,
-        contact_id=contact_id,
-        generate_reply=(not is_historical),
-    )
+    # Acquire conversation lock to ensure strict FIFO ordering per conversation
+    locked = False
+    if conversation_id:
+        for _ in range(10):
+            if await acquire_conversation_lock(conversation_id, timeout_sec=15):
+                locked = True
+                break
+            await asyncio.sleep(0.5)
 
-    await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
+    try:
+        analysis, suggestions = await _analyser.analyse(
+            message_id=message_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            contact_id=contact_id,
+            generate_reply=(not is_historical),
+        )
+
+        await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
+    finally:
+        if locked and conversation_id:
+            await release_conversation_lock(conversation_id)
 
     # Business facts are mined from history too — unlike conversation memory,
     # this is durable knowledge, and a business's chat history is exactly

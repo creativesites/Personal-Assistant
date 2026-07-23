@@ -30,10 +30,16 @@ import {
   FolderKanban,
   Flag,
   Wallet,
+  CheckCircle2,
+  Briefcase,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { useWAStatus } from '@/hooks/use-wa-status'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, HealthBar, SkeletonCard, useToast } from '@/components/ui'
+import { TrainYourAiWidget } from './_components/train-your-ai-widget'
 
 interface Conversation {
   id: string
@@ -236,6 +242,13 @@ export default function DashboardPage() {
   const [briefDismissed, setBriefDismissed] = useState(false)
   const [dismissedBriefItems, setDismissedBriefItems] = useState<string[]>([])
 
+  const [hasProfile, setHasProfile] = useState(false)
+  const [hasFacts, setHasFacts] = useState(false)
+  const [hasAutoResponse, setHasAutoResponse] = useState(false)
+  const [checklistCollapsed, setChecklistCollapsed] = useState(false)
+
+  const waStatus = useWAStatus(token)
+
   useEffect(() => {
     if (!token) return
     Promise.allSettled([
@@ -245,13 +258,19 @@ export default function DashboardPage() {
       apiClient<BriefData>('/api/proactive/brief', { token }),
       apiClient<HealthRollup>('/api/analytics/health-rollup', { token }),
       apiClient<{ reflection: ReflectionData | null }>('/api/reflection/latest', { token }),
-    ]).then(([convRes, contactRes, proRes, briefRes, rollupRes, reflectionRes]) => {
+      apiClient<{ profile: { companyName?: string } | null }>('/api/business-profile', { token }),
+      apiClient<{ facts: any[] }>('/api/business-facts', { token }),
+      apiClient<{ settings: { isEnabled?: boolean } | null }>('/api/settings/auto-response', { token }),
+    ]).then(([convRes, contactRes, proRes, briefRes, rollupRes, reflectionRes, profileRes, factsRes, autoRes]) => {
       if (convRes.status === 'fulfilled') setConversations(convRes.value.conversations)
       if (contactRes.status === 'fulfilled') setContacts(contactRes.value.contacts)
       if (proRes.status === 'fulfilled') setProactive(proRes.value.suggestions)
       if (briefRes.status === 'fulfilled') setBrief(briefRes.value)
       if (rollupRes.status === 'fulfilled') setRollup(rollupRes.value)
       if (reflectionRes.status === 'fulfilled') setReflection(reflectionRes.value.reflection)
+      if (profileRes.status === 'fulfilled' && profileRes.value?.profile?.companyName) setHasProfile(true)
+      if (factsRes.status === 'fulfilled' && (factsRes.value?.facts?.length ?? 0) > 0) setHasFacts(true)
+      if (autoRes.status === 'fulfilled' && autoRes.value?.settings?.isEnabled) setHasAutoResponse(true)
       setLoading(false)
     })
   }, [token])
@@ -371,6 +390,15 @@ export default function DashboardPage() {
     .filter(c => c.unreadCount > 0)
     .slice(0, 5)
 
+  const step1Done = waStatus.connected || conversations.length > 0 || contacts.length > 0
+  const step2Done = hasProfile || Boolean(session.data?.user?.name && session.data?.user?.name !== session.data?.user?.email)
+  const step3Done = hasFacts
+  const step4Done = hasAutoResponse
+
+  const completedStepsCount = [step1Done, step2Done, step3Done, step4Done].filter(Boolean).length
+  const progressPct = Math.round((completedStepsCount / 4) * 100)
+  const isFullyComplete = completedStepsCount === 4
+
   return (
     <div className="flex min-h-full flex-col bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]">
       <div className="flex-1 px-4 pb-8 pt-4 md:px-6 md:pt-6">
@@ -454,6 +482,203 @@ export default function DashboardPage() {
               )
             })}
           </div>
+
+          {/* Train Your AI Knowledge Engine Widget */}
+          {token && <TrainYourAiWidget token={token} />}
+
+          {/* Setup Checklist Widget */}
+          {(!isFullyComplete || !checklistCollapsed) && (
+            <section className="overflow-hidden rounded-[2rem] border border-indigo-100 bg-white shadow-xl shadow-indigo-100/50 transition-all">
+              <div className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 p-5 md:p-6 text-white">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center text-white border border-white/20">
+                      <ListChecks className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold tracking-tight">Workspace Setup Checklist</h2>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white backdrop-blur-sm border border-white/20">
+                          {completedStepsCount} / 4 Done ({progressPct}%)
+                        </span>
+                      </div>
+                      <p className="text-xs text-indigo-100 mt-0.5">
+                        Complete these key steps to get the most out of Zuri AI.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setChecklistCollapsed(v => !v)}
+                    className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors border border-white/10"
+                    title={checklistCollapsed ? 'Expand Checklist' : 'Collapse Checklist'}
+                  >
+                    {checklistCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="mt-4 w-full bg-black/20 rounded-full h-2 overflow-hidden p-0.5 border border-white/10">
+                  <div
+                    className="bg-gradient-to-r from-emerald-400 to-cyan-300 h-full rounded-full transition-all duration-500 shadow-sm"
+                    style={{ width: `${Math.max(progressPct, 5)}%` }}
+                  />
+                </div>
+              </div>
+
+              {!checklistCollapsed && (
+                <div className="p-4 md:p-6 grid grid-cols-1 md:grid-cols-2 gap-3.5 bg-gray-50/50">
+                  {/* Step 1: Connect WhatsApp */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    step1Done ? 'bg-emerald-50/50 border-emerald-200/80' : 'bg-white border-gray-200/80 shadow-sm'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${
+                          step1Done ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-50 text-indigo-600'
+                        }`}>
+                          {step1Done ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Smartphone className="w-4 h-4" />}
+                        </div>
+                        <h3 className="text-sm font-bold text-gray-900">1. Pair WhatsApp Session</h3>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        step1Done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {step1Done ? 'Connected' : 'Action Required'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                      Link your phone via QR code or pairing code for live WhatsApp message ingestion and draft generation.
+                    </p>
+                    <div className="mt-3 pt-2 border-t border-gray-100/60 flex justify-end">
+                      <Link
+                        href="/onboarding"
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
+                          step1Done
+                            ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-500/20'
+                        }`}
+                      >
+                        {step1Done ? 'View Session' : 'Pair WhatsApp Now'}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Set Business Profile & Voice */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    step2Done ? 'bg-emerald-50/50 border-emerald-200/80' : 'bg-white border-gray-200/80 shadow-sm'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${
+                          step2Done ? 'bg-emerald-100 text-emerald-700' : 'bg-purple-50 text-purple-600'
+                        }`}>
+                          {step2Done ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Briefcase className="w-4 h-4" />}
+                        </div>
+                        <h3 className="text-sm font-bold text-gray-900">2. Business Profile & Voice</h3>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        step2Done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {step2Done ? 'Configured' : 'Recommended'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                      Set your company name, industry, and brand voice so AI reply suggestions reflect your brand's tone.
+                    </p>
+                    <div className="mt-3 pt-2 border-t border-gray-100/60 flex justify-end">
+                      <Link
+                        href="/profile"
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
+                          step2Done
+                            ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
+                            : 'bg-purple-600 hover:bg-purple-500 text-white shadow-sm shadow-purple-500/20'
+                        }`}
+                      >
+                        {step2Done ? 'Edit Profile' : 'Set Business Context'}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+
+                  {/* Step 3: Add Knowledge Base */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    step3Done ? 'bg-emerald-50/50 border-emerald-200/80' : 'bg-white border-gray-200/80 shadow-sm'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${
+                          step3Done ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-600'
+                        }`}>
+                          {step3Done ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Brain className="w-4 h-4" />}
+                        </div>
+                        <h3 className="text-sm font-bold text-gray-900">3. Business Knowledge & Facts</h3>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        step3Done ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {step3Done ? 'Added' : 'Optional'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                      Add FAQs, pricing, or company facts so Zuri provides accurate business answers to your clients.
+                    </p>
+                    <div className="mt-3 pt-2 border-t border-gray-100/60 flex justify-end">
+                      <Link
+                        href="/settings"
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
+                          step3Done
+                            ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
+                            : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20'
+                        }`}
+                      >
+                        {step3Done ? 'Manage Knowledge' : 'Add Business Facts'}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+
+                  {/* Step 4: Configure Auto-Response & AI Workforce */}
+                  <div className={`p-4 rounded-2xl border transition-all ${
+                    step4Done ? 'bg-emerald-50/50 border-emerald-200/80' : 'bg-white border-gray-200/80 shadow-sm'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${
+                          step4Done ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-50 text-amber-600'
+                        }`}>
+                          {step4Done ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <Settings className="w-4 h-4" />}
+                        </div>
+                        <h3 className="text-sm font-bold text-gray-900">4. Auto-Response & AI Rules</h3>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        step4Done ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {step4Done ? 'Active' : 'Optional'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                      Configure approval modes (Preview, Draft, or Auto) and activate autonomous AI agents for your team.
+                    </p>
+                    <div className="mt-3 pt-2 border-t border-gray-100/60 flex justify-end">
+                      <Link
+                        href="/settings"
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
+                          step4Done
+                            ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
+                            : 'bg-amber-600 hover:bg-amber-500 text-white shadow-sm shadow-amber-500/20'
+                        }`}
+                      >
+                        {step4Done ? 'View Rules' : 'Configure Rules'}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* AI Daily Brief — same greeting/place every morning, real names and numbers */}
           {brief && !briefDismissed && (visibleBriefItems.length > 0 || brief.revenueAtRisk) && (
@@ -698,37 +923,60 @@ export default function DashboardPage() {
         )}
 
         {/* Business: recent unread conversations */}
-        {(mode === 'business' || mode === 'hybrid') && recentConversations.length > 0 && (
+        {(mode === 'business' || mode === 'hybrid') && (
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-900">Needs Reply</h2>
-              <Link href="/inbox" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
-                View all <ArrowRight size={12} />
-              </Link>
-            </div>
-            <div className="overflow-hidden rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
-              {recentConversations.map(conv => (
-                <Link
-                  key={conv.id}
-                  href="/inbox"
-                  className="flex items-center gap-3 border-b border-gray-50 px-4 py-3.5 transition-colors last:border-b-0 hover:bg-gray-50/80"
-                >
-                  <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-gray-900 truncate">{conv.contact.name}</span>
-                      <span className="text-xs text-gray-400 flex-shrink-0">{timeAgo(conv.lastMessageAt)}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessagePreview || 'No preview'}</p>
-                  </div>
-                  {conv.unreadCount > 0 && (
-                    <span className="flex-shrink-0 w-5 h-5 bg-indigo-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                      {conv.unreadCount}
-                    </span>
-                  )}
+              {recentConversations.length > 0 && (
+                <Link href="/inbox" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
+                  View all <ArrowRight size={12} />
                 </Link>
-              ))}
+              )}
             </div>
+            {recentConversations.length > 0 ? (
+              <div className="overflow-hidden rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
+                {recentConversations.map(conv => (
+                  <Link
+                    key={conv.id}
+                    href="/inbox"
+                    className="flex items-center gap-3 border-b border-gray-50 px-4 py-3.5 transition-colors last:border-b-0 hover:bg-gray-50/80"
+                  >
+                    <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-gray-900 truncate">{conv.contact.name}</span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">{timeAgo(conv.lastMessageAt)}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate mt-0.5">{conv.lastMessagePreview || 'No preview'}</p>
+                    </div>
+                    {conv.unreadCount > 0 && (
+                      <span className="flex-shrink-0 w-5 h-5 bg-indigo-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {conv.unreadCount}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[1.75rem] border border-gray-100 bg-white p-6 text-center shadow-sm shadow-gray-200/60">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3">
+                  <MessageSquare size={22} />
+                </div>
+                <h3 className="text-sm font-bold text-gray-900">No Unread WhatsApp Messages</h3>
+                <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1 mb-4 leading-relaxed">
+                  Once your WhatsApp session is connected, incoming client messages will appear here with live AI sentiment and reply draft generation.
+                </p>
+                {!step1Done && (
+                  <Link
+                    href="/onboarding"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-sm shadow-indigo-500/20"
+                  >
+                    <Smartphone size={15} />
+                    Pair WhatsApp Now
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -760,14 +1008,16 @@ export default function DashboardPage() {
         )}
 
         {/* Proactive queue preview */}
-        {proactive.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-900">Proactive Queue</h2>
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900">Proactive Queue</h2>
+            {proactive.length > 0 && (
               <Link href="/proactive" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1">
                 View all <ArrowRight size={12} />
               </Link>
-            </div>
+            )}
+          </div>
+          {proactive.length > 0 ? (
             <div className="overflow-hidden rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70">
               {proactive.slice(0, 3).map(s => (
                 <div key={s.id} className="border-b border-gray-50 px-4 py-3.5 last:border-b-0">
@@ -821,8 +1071,18 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="rounded-[1.75rem] border border-gray-100 bg-white p-5 text-center shadow-sm shadow-gray-200/60">
+              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-2">
+                <Zap size={18} />
+              </div>
+              <h3 className="text-xs font-bold text-gray-900">Proactive Nudge Queue Clear</h3>
+              <p className="text-[11px] text-gray-500 max-w-sm mx-auto mt-1 leading-normal">
+                Zuri continually monitors client relationship clocks. When a contact needs attention or a check-in is due, AI follow-up suggestions will appear here.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Zuri Marketing — same dashboard, same contacts, just a different funnel */}
         {hasMarketingAccess && marketing && (
@@ -895,23 +1155,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Empty state when nothing loaded */}
-        {!loading && conversations.length === 0 && contacts.length === 0 && (
-          <div className="rounded-[2rem] border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm shadow-gray-200/60">
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Smartphone size={26} className="text-indigo-600" />
-            </div>
-            <h3 className="text-base font-semibold text-gray-900 mb-1.5">Connect WhatsApp to get started</h3>
-            <p className="text-sm text-gray-500 mb-5 max-w-xs mx-auto">Zuri reads your conversations and starts building intelligence immediately.</p>
-            <Link
-              href="/onboarding"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              Connect WhatsApp
-              <ArrowRight size={15} />
-            </Link>
-          </div>
-        )}
         </div>
       </div>
     </div>

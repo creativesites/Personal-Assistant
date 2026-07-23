@@ -240,10 +240,14 @@ About {contact_name} ({relationship_type}):
             contact_name=contact_name,
         )
 
-        raw_response = await client.complete_text(
-            [{'role': 'user', 'content': prompt}],
-            service='intelligence', feature='single_pass_cognition', user_id=user_id,
-        )
+        try:
+            raw_response = await client.complete_text(
+                [{'role': 'user', 'content': prompt}],
+                service='intelligence', feature='single_pass_cognition', user_id=user_id,
+            )
+        except Exception as exc:
+            log.warning('single_pass_cognition_failed_or_timed_out', message_id=message_id, user_id=user_id, error=str(exc))
+            raw_response = '<intelligence>{"sentiment":"neutral","sentiment_score":0.5,"emotions":{"joy":0,"sadness":0,"anger":0,"fear":0,"surprise":0},"intent":{"category":"general","confidence":0.5},"topics":[],"entities":[],"importance_score":0.5,"requires_response":false,"response_urgency":"low","promises_detected":[],"events_detected":[],"summary":"Analysis timed out or failed"}</intelligence>'
 
         intelligence_json = self._parse_xml_tag(raw_response, 'intelligence')
         if not intelligence_json:

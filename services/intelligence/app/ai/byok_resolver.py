@@ -92,7 +92,7 @@ async def resolve_ai_context(
                     team_row['team_id'], provider,
                 )
 
-            # Fall back to Personal Key
+            # Fall back to Personal Key for specified provider
             if not key_row:
                 key_row = await conn.fetchrow(
                     """
@@ -102,7 +102,39 @@ async def resolve_ai_context(
                     user_id, provider,
                 )
 
+            # Fall back to ANY active key if specified provider has no key and provider wasn't explicitly requested
+            if not key_row and not requested_provider:
+                if team_row and team_row['team_id']:
+                    key_row = await conn.fetchrow(
+                        """
+                        SELECT encrypted_key, provider FROM user_ai_keys
+                        WHERE team_id = $1 AND is_active = true
+                        ORDER BY created_at DESC LIMIT 1
+                        """,
+                        team_row['team_id'],
+                    )
+                if not key_row:
+                    key_row = await conn.fetchrow(
+                        """
+                        SELECT encrypted_key, provider FROM user_ai_keys
+                        WHERE user_id = $1 AND team_id IS NULL AND is_active = true
+                        ORDER BY created_at DESC LIMIT 1
+                        """,
+                        user_id,
+                    )
+
             if key_row and key_row['encrypted_key']:
+                provider = key_row['provider']
+                if not requested_model:
+                    if provider == 'openai':
+                        model = 'openai/gpt-4o-mini'
+                    elif provider == 'anthropic':
+                        model = 'anthropic/claude-3-5-sonnet-20241022'
+                    elif provider == 'google':
+                        model = 'gemini/gemini-2.5-flash'
+                    elif provider == 'dashscope':
+                        model = 'dashscope/qwen-max'
+
                 try:
                     decrypted = decrypt_api_key(key_row['encrypted_key'])
                     if decrypted:

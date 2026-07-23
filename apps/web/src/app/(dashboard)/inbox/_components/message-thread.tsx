@@ -80,6 +80,7 @@ export function MessageThread({
   onSelectMessage,
   onCardAction,
   onCardDismiss,
+  lockInfo,
 }: {
   messages: InboxMessage[]
   loading: boolean
@@ -98,6 +99,7 @@ export function MessageThread({
   onSelectMessage: (id: string) => void
   onCardAction?: (insight: AIInsight) => void
   onCardDismiss?: (insight: AIInsight) => void
+  lockInfo?: { lockedBy: string | null; lockedByName?: string } | null
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
@@ -160,6 +162,14 @@ export function MessageThread({
 
   return (
     <div className="relative flex-1 min-h-0">
+      {lockInfo?.lockedBy && (
+        <div className="sticky top-0 z-30 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-800 shadow-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping flex-shrink-0" />
+            <span>🔒 Currently viewed/edited by <strong className="font-semibold text-amber-950">{lockInfo.lockedByName || 'another team member'}</strong>. Be cautious to avoid overlapping replies.</span>
+          </div>
+        </div>
+      )}
       {searchOpen && (
         <div className="absolute left-3 right-3 top-3 z-30 rounded-2xl border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md">
           <div className="flex items-center gap-2 px-3 py-2">

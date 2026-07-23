@@ -35,6 +35,16 @@ def _is_hard_error(exc: Exception) -> bool:
     return False
 
 
+class AITimeoutError(RuntimeError):
+    """Raised when AI draft generation exceeds the 8.0s timeout cap."""
+    pass
+
+
+class BYOKKeyError(RuntimeError):
+    """Raised when a custom user/team BYOK key returns authentication or quota errors."""
+    pass
+
+
 # True when a private Alibaba MaaS workspace is configured.
 # We prefer the OpenAI-compatible endpoint because LiteLLM's dashscope/
 # provider ignores api_base and always dials the public DashScope URL.
@@ -144,6 +154,42 @@ class AIClient:
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         )
 
+    async def _handle_byok_error(self, user_id: str | None, provider: str, exc: Exception):
+        if not user_id:
+            return
+        err_str = str(exc)
+        status = getattr(exc, 'status_code', None) or getattr(exc, 'code', None)
+        clear_msg = f"Your custom {provider.upper()} key returned an error ({status or 'auth_error'}): {err_str[:150]}. Please check your key in Settings → BYOK or switch to Zuri Included Credits."
+        log.warning('byok_key_authentication_error', user_id=user_id, provider=provider, status=status, error=err_str)
+        try:
+            from ..database import get_pool
+            import uuid
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE user_ai_keys
+                    SET status = 'invalid', last_error_message = $1, updated_at = NOW()
+                    WHERE user_id = $2 AND provider = $3
+                    """,
+                    clear_msg, uuid.UUID(user_id) if isinstance(user_id, str) else user_id, provider,
+                )
+        except Exception as db_exc:
+            log.warning('failed_to_update_byok_key_status', error=str(db_exc))
+
+        try:
+            from ..queue import publish_event
+            await publish_event(
+                f'byok:error:{user_id}',
+                json.dumps({
+                    'provider': provider,
+                    'status': status,
+                    'error': clear_msg,
+                })
+            )
+        except Exception as pub_exc:
+            log.warning('failed_to_publish_byok_error_event', error=str(pub_exc))
+
     async def _call_with_failover(
         self,
         messages: list[dict],
@@ -156,100 +202,117 @@ class AIClient:
         service: str = 'intelligence',
         feature: str = 'unknown',
         user_id: str | None = None,
+        timeout_sec: float = 8.0,
     ):
-        """Call litellm with automatic pool advance on hard errors (403, quota, etc).
-        After 3 consecutive hard failures on dashscope, falls back to Gemini."""
-        # 1. Resolve BYOK context if user_id is provided
-        byok_ctx = await resolve_ai_context(user_id, requested_model=model)
-        if byok_ctx and byok_ctx.get('is_byok') and byok_ctx.get('api_key'):
-            byok_key = byok_ctx['api_key']
-            byok_model = _normalize_model(byok_ctx['model'])
-            log.info('using_byok_provider', user_id=user_id, provider=byok_ctx['provider'], model=byok_model)
-            kwargs: dict = dict(
-                model=byok_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                api_key=byok_key,
-            )
-            if json_mode:
-                kwargs['response_format'] = {'type': 'json_object'}
-            try:
-                response = await litellm.acompletion(**kwargs)
-                await self._log_token_usage(
-                    byok_model, messages, response, service=service, feature=feature, user_id=user_id,
+        """Call litellm with automatic pool advance and strict 8.0s timeout cap."""
+        async def _execute():
+            # 1. Resolve BYOK context if user_id is provided
+            byok_ctx = await resolve_ai_context(user_id, requested_model=model)
+            if byok_ctx and byok_ctx.get('is_byok') and byok_ctx.get('api_key'):
+                byok_key = byok_ctx['api_key']
+                provider = byok_ctx['provider']
+                byok_model = _normalize_model(byok_ctx['model'])
+                log.info('using_byok_provider', user_id=user_id, provider=provider, model=byok_model)
+                kwargs: dict = dict(
+                    model=byok_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    api_key=byok_key,
+                    timeout=timeout_sec,
                 )
-                return byok_model, response
-            except Exception as exc:
-                log.error('byok_completion_failed', user_id=user_id, provider=byok_ctx['provider'], error=str(exc))
-                # If auto fallback enabled or user's key fails, continue to system failover
-                log.info('falling_back_to_system_pool', user_id=user_id)
-
-        attempted: set[str] = set()
-        consecutive_hard_failures = 0
-        _GEMINI_FALLBACK_AFTER = 3
-
-        for _ in range(20):  # generous upper bound
-            m = await self._resolve_model(model, pool)
-
-            # Dashscope pool exhausted — fall back to Gemini
-            if consecutive_hard_failures >= _GEMINI_FALLBACK_AFTER or m in attempted:
-                gemini = _normalize_model(settings.default_ai_model)
-                if gemini.startswith('gemini/') and settings.google_ai_api_key:
-                    log.warning(
-                        'ai_gemini_fallback', pool=pool,
-                        reason=f'{consecutive_hard_failures} consecutive hard failures',
+                if json_mode:
+                    kwargs['response_format'] = {'type': 'json_object'}
+                try:
+                    response = await litellm.acompletion(**kwargs)
+                    await self._log_token_usage(
+                        byok_model, messages, response, service=service, feature=feature, user_id=user_id,
                     )
-                    try:
-                        kwargs: dict = dict(
-                            model=gemini, messages=messages,
-                            temperature=temperature, max_tokens=max_tokens,
-                        )
-                        if json_mode:
-                            kwargs['response_format'] = {'type': 'json_object'}
-                        response = await litellm.acompletion(**kwargs)
-                        await self._log_token_usage(
-                            gemini, messages, response, service=service, feature=feature, user_id=user_id,
-                        )
-                        return gemini, response
-                    except Exception as exc:
-                        log.error('ai_gemini_fallback_failed', error=str(exc))
-                        raise
-                raise RuntimeError(f'All models in pool "{pool}" failed and no Gemini key configured')
+                    return byok_model, response
+                except Exception as exc:
+                    log.error('byok_completion_failed', user_id=user_id, provider=provider, error=str(exc))
+                    status = getattr(exc, 'status_code', None) or getattr(exc, 'code', None)
+                    err_str = str(exc).lower()
+                    if status in (401, 403, 429) or any(
+                        k in err_str for k in ['invalid_api_key', 'unauthorized', 'forbidden', 'permission_denied', 'quota', 'exceeded', 'authentication']
+                    ):
+                        await self._handle_byok_error(user_id, provider, exc)
+                    log.info('falling_back_to_system_pool', user_id=user_id)
 
-            attempted.add(m)
-            extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
-            effective_model = extra.pop('_override_model', m)
-            kwargs = dict(
-                model=effective_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                **extra,
-            )
-            if json_mode:
-                kwargs['response_format'] = {'type': 'json_object'}
+            attempted: set[str] = set()
+            consecutive_hard_failures = 0
+            _GEMINI_FALLBACK_AFTER = 3
 
-            try:
-                response = await litellm.acompletion(**kwargs)
-                await self._report_usage(m, pool, response)
-                await self._log_token_usage(
-                    m, messages, response, service=service, feature=feature, user_id=user_id,
+            for _ in range(20):  # generous upper bound
+                m = await self._resolve_model(model, pool)
+
+                # Dashscope pool exhausted — fall back to Gemini
+                if consecutive_hard_failures >= _GEMINI_FALLBACK_AFTER or m in attempted:
+                    gemini = _normalize_model(settings.default_ai_model)
+                    if gemini.startswith('gemini/') and settings.google_ai_api_key:
+                        log.warning(
+                            'ai_gemini_fallback', pool=pool,
+                            reason=f'{consecutive_hard_failures} consecutive hard failures',
+                        )
+                        try:
+                            kwargs: dict = dict(
+                                model=gemini, messages=messages,
+                                temperature=temperature, max_tokens=max_tokens,
+                                timeout=timeout_sec,
+                            )
+                            if json_mode:
+                                kwargs['response_format'] = {'type': 'json_object'}
+                            response = await litellm.acompletion(**kwargs)
+                            await self._log_token_usage(
+                                gemini, messages, response, service=service, feature=feature, user_id=user_id,
+                            )
+                            return gemini, response
+                        except Exception as exc:
+                            log.error('ai_gemini_fallback_failed', error=str(exc))
+                            raise
+                    raise RuntimeError(f'All models in pool "{pool}" failed and no Gemini key configured')
+
+                attempted.add(m)
+                extra = _build_dashscope_kwargs(m) if m.startswith('dashscope/') else {}
+                effective_model = extra.pop('_override_model', m)
+                kwargs = dict(
+                    model=effective_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=timeout_sec,
+                    **extra,
                 )
-                return m, response
+                if json_mode:
+                    kwargs['response_format'] = {'type': 'json_object'}
 
-            except Exception as exc:
-                log.error('ai_completion_failed', model=m, error=str(exc))
-                if _is_hard_error(exc):
-                    consecutive_hard_failures += 1
-                    next_m = await force_advance(pool, m, reason=str(exc)[:120])
-                    model = None  # let _resolve_model pick next active model
-                    log.info('ai_failover', pool=pool, next_model=next_m,
-                             consecutive_failures=consecutive_hard_failures)
-                    continue
-                raise  # transient / unexpected — don't loop
+                try:
+                    response = await litellm.acompletion(**kwargs)
+                    await self._report_usage(m, pool, response)
+                    await self._log_token_usage(
+                        m, messages, response, service=service, feature=feature, user_id=user_id,
+                    )
+                    return m, response
 
-        raise RuntimeError(f'All models in pool "{pool}" failed or exhausted')
+                except Exception as exc:
+                    log.error('ai_completion_failed', model=m, error=str(exc))
+                    if _is_hard_error(exc):
+                        consecutive_hard_failures += 1
+                        next_m = await force_advance(pool, m, reason=str(exc)[:120])
+                        model = None  # let _resolve_model pick next active model
+                        log.info('ai_failover', pool=pool, next_model=next_m,
+                                 consecutive_failures=consecutive_hard_failures)
+                        continue
+                    raise  # transient / unexpected — don't loop
+
+            raise RuntimeError(f'All models in pool "{pool}" failed or exhausted')
+
+        import asyncio
+        try:
+            return await asyncio.wait_for(_execute(), timeout=timeout_sec)
+        except asyncio.TimeoutError:
+            log.warning('ai_generation_timeout_exceeded', user_id=user_id, feature=feature, timeout_sec=timeout_sec)
+            raise AITimeoutError(f'AI draft generation timed out after {timeout_sec}s')
 
     async def complete_json(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',

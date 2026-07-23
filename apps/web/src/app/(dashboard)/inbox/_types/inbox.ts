@@ -119,6 +119,7 @@ export interface Conversation {
   slaMinutes?: number | null
   leadScore?: number
   assignedTo?: string | null
+  assignedToName?: string | null
   assignedToEmail?: string | null
   lockedBy?: string | null
   lockedByEmail?: string | null

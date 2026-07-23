@@ -63,6 +63,7 @@ interface ReplyDockProps {
   onAnalyzeLatest: () => void
   onAnalyzeRecent: () => void
   isGroup?: boolean
+  aiNotice?: { type: 'warning' | 'error' | 'info'; text: string } | null
 }
 
 export function ReplyDock({
@@ -89,6 +90,7 @@ export function ReplyDock({
   onAnalyzeLatest,
   onAnalyzeRecent,
   isGroup = false,
+  aiNotice = null,
 }: ReplyDockProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false)
@@ -143,6 +145,32 @@ export function ReplyDock({
 
   return (
     <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
+      {regenerating && (
+        <div className="mx-3 mt-2 bg-indigo-50/80 rounded-xl border border-indigo-100 p-2.5 flex items-center justify-between gap-2 text-indigo-900 text-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <RefreshCw size={12} className="animate-spin text-indigo-600" />
+            <span className="font-medium text-indigo-700">Generating AI reply draft (max 8s)...</span>
+          </div>
+        </div>
+      )}
+
+      {aiNotice && (
+        <div className="mx-3 mt-2 bg-amber-500/10 rounded-xl border border-amber-500/20 p-2.5 flex items-center justify-between gap-2 text-amber-900 text-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-bold flex-shrink-0 text-amber-600">⚡ AI Notice:</span>
+            <span className="truncate text-amber-800 font-medium">{aiNotice.text}</span>
+          </div>
+          <button
+            onClick={onRegenerate}
+            disabled={regenerating}
+            className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 rounded-lg text-[11px] font-semibold transition-colors flex-shrink-0 flex items-center gap-1"
+          >
+            <RefreshCw size={10} className={regenerating ? 'animate-spin' : ''} />
+            Retry
+          </button>
+        </div>
+      )}
+
       {aiActionResult && (
         <div className="mx-3 mt-2 bg-indigo-50 rounded-xl border border-indigo-100 overflow-hidden">
           <div className="flex items-center justify-between px-3 pt-2.5 pb-1">

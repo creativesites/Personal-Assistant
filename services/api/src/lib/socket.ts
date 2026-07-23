@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 import { config } from '../config';
+import { getMissedEvents } from './event-buffer';
 
 let io: Server | null = null;
 
@@ -18,19 +19,37 @@ export function setupSocket(httpServer: HttpServer, jwtVerify?: JwtVerifyFn): Se
   io.on('connection', (socket) => {
     socket.on('authenticate', (token: string) => {
       try {
+        let userId: string;
         if (jwtVerify) {
           const payload = jwtVerify(token);
-          const userId = payload.userId;
-          socket.join(`user:${userId}`);
-          socket.emit('authenticated', { userId });
+          userId = payload.userId;
         } else {
-          // Fallback: treat token as userId (dev only)
-          socket.join(`user:${token}`);
-          socket.emit('authenticated', { userId: token });
+          userId = token;
         }
+        socket.data.userId = userId;
+        socket.join(`user:${userId}`);
+        socket.emit('authenticated', { userId });
       } catch {
         socket.emit('auth_error', { message: 'Invalid token' });
         socket.disconnect(true);
+      }
+    });
+
+    socket.on('sync:request', async (payload: { lastSeenSeq?: number }) => {
+      const userId = socket.data.userId;
+      if (!userId) {
+        socket.emit('sync:error', { message: 'Unauthenticated socket' });
+        return;
+      }
+
+      const lastSeenSeq = typeof payload?.lastSeenSeq === 'number' ? payload.lastSeenSeq : 0;
+      try {
+        const { missed, latestSeq } = await getMissedEvents(userId, lastSeenSeq);
+        socket.emit('sync:replay', { missed, latestSeq });
+        socket.emit('sync:complete', { latestSeq, count: missed.length });
+      } catch (err) {
+        console.error(`[socket] sync:request failed for user ${userId}:`, err);
+        socket.emit('sync:error', { message: 'Failed to fetch missed events' });
       }
     });
 

@@ -11,6 +11,7 @@ import { CommandPalette } from '@/components/command-palette'
 import { SubscriptionStatusBanner } from '@/components/subscription-status-banner'
 import { useToast } from '@/components/ui/toast'
 import { getSocket } from '@/lib/socket'
+import { useSocketStatus } from '@/hooks/use-socket-status'
 import {
   LayoutDashboard, MessageSquare, Zap, Users, Flame, TrendingUp,
   Bot, BookOpen, AlertTriangle, HeartPulse,
@@ -70,7 +71,8 @@ const NAV_GROUPS: NavGroup[] = [
     showForModes: ['business', 'hybrid'],
     items: [
       { href: '/organization', label: ' Organization & Teams ', icon: Building2 },
-      { href: '/studio', label: ' Business Knowledge Hub ', icon: Send },
+      { href: '/knowledge-base', label: ' Knowledge Base & AI Training ', icon: BookOpen },
+      { href: '/studio', label: ' Marketing & Products ', icon: Send },
       { href: '/business', label: ' Invoices & Documents ', icon: FileText },
     ],
   },
@@ -102,11 +104,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'AI',
     icon: Brain,
     items: [
-      { href: '/advisor',        label: 'AI Advisor',            icon: Brain },
-      { href: '/proactive',      label: 'Proactive Nudges',     icon: Sparkles },
-      { href: '/automation',     label: 'Autonomous Agents',    icon: Bot,        showForModes: ['business', 'hybrid'] },
-      { href: '/knowledge-base', label: 'Organizational Memory', icon: BookOpen,   showForModes: ['business', 'hybrid'] },
-      { href: '/analytics',      label: 'Intelligence',          icon: TrendingUp, showForModes: ['business', 'hybrid'] },
+      { href: '/advisor',        label: 'AI Advisor',                  icon: Brain },
+      { href: '/knowledge-base', label: 'Knowledge Base & AI Training', icon: BookOpen,   showForModes: ['business', 'hybrid'] },
+      { href: '/proactive',      label: 'Proactive Nudges',           icon: Sparkles },
+      { href: '/automation',     label: 'Autonomous Agents',          icon: Bot,        showForModes: ['business', 'hybrid'] },
+      { href: '/analytics',      label: 'Intelligence',                icon: TrendingUp, showForModes: ['business', 'hybrid'] },
     ],
   },
   {
@@ -527,6 +529,42 @@ function MobileBottomNav({
   )
 }
 
+function SocketStatusIndicator() {
+  const { status, replayedCount } = useSocketStatus()
+
+  if (status === 'connected') return null
+
+  return (
+    <div className="fixed top-3 right-4 z-[75] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-xl ring-1 ring-white/10 transition-all animate-in fade-in slide-in-from-top-2">
+      {(status === 'reconnecting' || status === 'connecting') && (
+        <>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+          </span>
+          <span className="text-amber-200">Reconnecting real-time stream...</span>
+        </>
+      )}
+
+      {status === 'syncing' && (
+        <>
+          <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+          <span className="text-indigo-200">
+            {replayedCount > 0 ? `Syncing ${replayedCount} missed update${replayedCount > 1 ? 's' : ''}...` : 'Syncing real-time updates...'}
+          </span>
+        </>
+      )}
+
+      {status === 'disconnected' && (
+        <>
+          <span className="h-2 w-2 rounded-full bg-rose-500" />
+          <span className="text-rose-200">Real-time offline</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = useZuriSession()
   const pathname = usePathname()
@@ -637,6 +675,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
+      <SocketStatusIndicator />
       <div
         className={`fixed left-0 right-0 top-0 z-[70] h-0.5 origin-left bg-gradient-to-r from-cyan-400 via-indigo-400 to-fuchsia-400 transition-all duration-300 ${
           isNavigating ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'

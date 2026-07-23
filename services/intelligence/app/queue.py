@@ -38,3 +38,16 @@ async def close_redis_publisher() -> None:
     if _redis_pub is not None:
         await _redis_pub.aclose()
         _redis_pub = None
+
+
+async def acquire_conversation_lock(conversation_id: str, timeout_sec: int = 15) -> bool:
+    r = await get_redis_publisher()
+    key = f"lock:conversation:{conversation_id}"
+    acquired = await r.set(key, "1", nx=True, ex=timeout_sec)
+    return bool(acquired)
+
+
+async def release_conversation_lock(conversation_id: str) -> None:
+    r = await get_redis_publisher()
+    key = f"lock:conversation:{conversation_id}"
+    await r.delete(key)

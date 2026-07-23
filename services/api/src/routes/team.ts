@@ -25,6 +25,7 @@ const changeRoleBody = z.object({
 const assignBody = z.object({
   assignedTo: z.string().uuid().nullable().optional(),
   teamId: z.string().uuid().nullable().optional(),
+  expectedAssignedTo: z.string().uuid().nullable().optional(),
 });
 
 const noteBody = z.object({
@@ -203,7 +204,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // POST /api/conversations/:id/assign — assign a conversation
+  // POST /api/conversations/:id/assign — assign a conversation with pessimistic locking
   fastify.post(
     '/api/conversations/:id/assign',
     { preHandler: gate },
@@ -219,38 +220,118 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid request body', detail: err.message });
       }
 
-      const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND (
-           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
-           (user_id = $3::uuid OR user_id = $4::uuid)
-         )`,
-        [id, scope.organizationId, scope.ownerUserId, userId],
-      );
-      if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
 
-      const { rows: [assignment] } = await db.query<{ id: string }>(
-        `INSERT INTO conversation_assignments (conversation_id, assigned_to, team_id, assigned_by)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (conversation_id) DO UPDATE
-           SET assigned_to = EXCLUDED.assigned_to,
-               team_id = EXCLUDED.team_id,
-               assigned_by = EXCLUDED.assigned_by,
-               assigned_at = NOW()
-         RETURNING id`,
-        [id, body.assignedTo ?? null, body.teamId ?? null, userId],
-      );
+        const { rows: [conv] } = await client.query(
+          `SELECT id FROM conversations WHERE id = $1 AND (
+             ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+             (user_id = $3::uuid OR user_id = $4::uuid)
+           )`,
+          [id, scope.organizationId, scope.ownerUserId, userId],
+        );
+        if (!conv) {
+          await client.query('ROLLBACK');
+          return reply.code(404).send({ error: 'Conversation not found' });
+        }
 
-      const eventPayload = { conversationId: id, assignedTo: body.assignedTo ?? null, assignedBy: userId };
-      await publishInboxEvent(scope.ownerUserId, 'conversation:assigned', eventPayload);
-      if (userId !== scope.ownerUserId) {
-        await publishInboxEvent(userId, 'conversation:assigned', eventPayload);
+        // Lock existing assignment row for update
+        const { rows: [existing] } = await client.query<{
+          assigned_to: string | null;
+          locked_by: string | null;
+          assigned_name: string | null;
+          locked_name: string | null;
+        }>(
+          `SELECT
+             ca.assigned_to,
+             ca.locked_by,
+             COALESCE(au.full_name, au.email) AS assigned_name,
+             COALESCE(lu.full_name, lu.email) AS locked_name
+           FROM conversation_assignments ca
+           LEFT JOIN users au ON au.id = ca.assigned_to
+           LEFT JOIN users lu ON lu.id = ca.locked_by
+           WHERE ca.conversation_id = $1
+           FOR UPDATE`,
+          [id],
+        );
+
+        // Conflict Check 1: Conversation is locked by a different team member
+        if (existing?.locked_by && existing.locked_by !== userId) {
+          await client.query('ROLLBACK');
+          return reply.code(409).send({
+            error: 'Conversation is currently locked by another agent',
+            lockedBy: existing.locked_by,
+            lockedByName: existing.locked_name ?? 'Another team member',
+          });
+        }
+
+        // Conflict Check 2: Optimistic concurrency check if expectedAssignedTo was supplied
+        if (body.expectedAssignedTo !== undefined && existing?.assigned_to && existing.assigned_to !== body.expectedAssignedTo) {
+          await client.query('ROLLBACK');
+          return reply.code(409).send({
+            error: 'Conversation assignment was modified by another agent',
+            assignedTo: existing.assigned_to,
+            assignedToName: existing.assigned_name ?? 'Another team member',
+          });
+        }
+
+        const { rows: [assignment] } = await client.query<{ id: string }>(
+          `INSERT INTO conversation_assignments (conversation_id, assigned_to, team_id, assigned_by)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (conversation_id) DO UPDATE
+             SET assigned_to = EXCLUDED.assigned_to,
+                 team_id = EXCLUDED.team_id,
+                 assigned_by = EXCLUDED.assigned_by,
+                 assigned_at = NOW()
+           RETURNING id`,
+          [id, body.assignedTo ?? null, body.teamId ?? null, userId],
+        );
+
+        await client.query('COMMIT');
+
+        const { rows: [assigner] } = await db.query('SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1', [userId]);
+        let assignedToName: string | null = null;
+        let assignedToEmail: string | null = null;
+        if (body.assignedTo) {
+          const { rows: [assignee] } = await db.query('SELECT COALESCE(full_name, email) AS name, email FROM users WHERE id = $1', [body.assignedTo]);
+          assignedToName = assignee?.name ?? null;
+          assignedToEmail = assignee?.email ?? null;
+        }
+        const { rows: [contactRow] } = await db.query(
+          `SELECT ct.name FROM conversations c JOIN contacts ct ON ct.id = c.contact_id WHERE c.id = $1`,
+          [id]
+        );
+
+        const eventPayload = {
+          conversationId: id,
+          assignedTo: body.assignedTo ?? null,
+          assignedToName,
+          assignedToEmail,
+          assignedBy: userId,
+          assignedByName: assigner?.name ?? 'A team member',
+          contactName: contactRow?.name ?? 'a customer',
+        };
+
+        await publishInboxEvent(scope.ownerUserId, 'conversation:assigned', eventPayload);
+        if (userId !== scope.ownerUserId) {
+          await publishInboxEvent(userId, 'conversation:assigned', eventPayload);
+        }
+        if (body.assignedTo && body.assignedTo !== scope.ownerUserId && body.assignedTo !== userId) {
+          await publishInboxEvent(body.assignedTo, 'conversation:assigned', eventPayload);
+        }
+
+        return reply.send({ assignmentId: assignment.id, assignedToName });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
       }
-
-      return reply.send({ assignmentId: assignment.id });
     },
   );
 
-  // POST /api/conversations/:id/lock — lock a conversation for collision detection
+  // POST /api/conversations/:id/lock — lock a conversation for collision detection with pessimistic locking
   fastify.post(
     '/api/conversations/:id/lock',
     { preHandler: gate },
@@ -259,46 +340,68 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string };
       const scope = await getEffectiveScope(userId);
 
-      const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND (
-           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
-           (user_id = $3::uuid OR user_id = $4::uuid)
-         )`,
-        [id, scope.organizationId, scope.ownerUserId, userId],
-      );
-      if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
 
-      const { rows: [assignment] } = await db.query<{ locked_by: string | null }>(
-        `SELECT locked_by FROM conversation_assignments WHERE conversation_id = $1`,
-        [id],
-      );
+        const { rows: [conv] } = await client.query(
+          `SELECT id FROM conversations WHERE id = $1 AND (
+             ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+             (user_id = $3::uuid OR user_id = $4::uuid)
+           )`,
+          [id, scope.organizationId, scope.ownerUserId, userId],
+        );
+        if (!conv) {
+          await client.query('ROLLBACK');
+          return reply.code(404).send({ error: 'Conversation not found' });
+        }
 
-      if (assignment?.locked_by && assignment.locked_by !== userId) {
-        const { rows: [lockedUser] } = await db.query('SELECT COALESCE(full_name, email) AS name, email FROM users WHERE id = $1', [assignment.locked_by]);
-        return reply.code(409).send({
-          error: 'Conversation is locked',
-          lockedBy: assignment.locked_by,
-          lockedByName: lockedUser?.name ?? 'Another agent',
-        });
+        const { rows: [assignment] } = await client.query<{
+          locked_by: string | null;
+          locked_name: string | null;
+        }>(
+          `SELECT ca.locked_by, COALESCE(lu.full_name, lu.email) AS locked_name
+           FROM conversation_assignments ca
+           LEFT JOIN users lu ON lu.id = ca.locked_by
+           WHERE ca.conversation_id = $1
+           FOR UPDATE`,
+          [id],
+        );
+
+        if (assignment?.locked_by && assignment.locked_by !== userId) {
+          await client.query('ROLLBACK');
+          return reply.code(409).send({
+            error: 'Conversation is locked',
+            lockedBy: assignment.locked_by,
+            lockedByName: assignment.locked_name ?? 'Another agent',
+          });
+        }
+
+        await client.query(
+          `INSERT INTO conversation_assignments (conversation_id, locked_by, locked_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (conversation_id) DO UPDATE
+             SET locked_by = $2, locked_at = NOW()`,
+          [id, userId],
+        );
+
+        await client.query('COMMIT');
+
+        const { rows: [currentUser] } = await db.query('SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1', [userId]);
+
+        const eventPayload = { conversationId: id, lockedBy: userId, lockedByName: currentUser?.name ?? 'An agent' };
+        await publishInboxEvent(scope.ownerUserId, 'conversation:locked', eventPayload);
+        if (userId !== scope.ownerUserId) {
+          await publishInboxEvent(userId, 'conversation:locked', eventPayload);
+        }
+
+        return reply.send({ ok: true });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
       }
-
-      await db.query(
-        `INSERT INTO conversation_assignments (conversation_id, locked_by, locked_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (conversation_id) DO UPDATE
-           SET locked_by = $2, locked_at = NOW()`,
-        [id, userId],
-      );
-
-      const { rows: [currentUser] } = await db.query('SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1', [userId]);
-
-      const eventPayload = { conversationId: id, lockedBy: userId, lockedByName: currentUser?.name ?? 'An agent' };
-      await publishInboxEvent(scope.ownerUserId, 'conversation:locked', eventPayload);
-      if (userId !== scope.ownerUserId) {
-        await publishInboxEvent(userId, 'conversation:locked', eventPayload);
-      }
-
-      return reply.send({ ok: true });
     },
   );
 

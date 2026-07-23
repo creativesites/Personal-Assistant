@@ -42,7 +42,16 @@ interface SyncState {
 }
 
 function parseSocketPayload<T>(payload: T | string): T {
-  return typeof payload === 'string' ? JSON.parse(payload) as T : payload
+  try {
+    const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload
+    if (parsed && typeof parsed === 'object' && 'payload' in parsed && 'seq' in parsed && 'event' in parsed) {
+      const inner = (parsed as any).payload
+      return typeof inner === 'string' ? JSON.parse(inner) as T : (inner as T)
+    }
+    return parsed as T
+  } catch {
+    return payload as unknown as T
+  }
 }
 
 function sortConversations(list: Conversation[]) {
@@ -85,6 +94,8 @@ export default function InboxPage() {
   const [threadError, setThreadError] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
+  const [aiNotice, setAiNotice] = useState<{ type: 'warning' | 'error' | 'info'; text: string } | null>(null)
+  const regenerateTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [error, setError] = useState(false)
 
   // Briefing
@@ -128,6 +139,27 @@ export default function InboxPage() {
 
   // In-thread search states
   const [threadSearchOpen, setThreadSearchOpen] = useState(false)
+
+  // Queue depth & AI delayed monitoring
+  const [queueHealth, setQueueHealth] = useState<{ queueDepth: number; aiDelayed: boolean }>({ queueDepth: 0, aiDelayed: false })
+
+  useEffect(() => {
+    if (!token) return
+    const checkQueueHealth = async () => {
+      try {
+        const res = await apiClient<{ ok: boolean; queueDepth: number; aiDelayed: boolean }>('/api/system/queue-health', { token })
+        if (res.ok) {
+          setQueueHealth({ queueDepth: res.queueDepth, aiDelayed: res.aiDelayed })
+        }
+      } catch {
+        // ignore error
+      }
+    }
+
+    checkQueueHealth()
+    const interval = setInterval(checkQueueHealth, 15000)
+    return () => clearInterval(interval)
+  }, [token])
   const [threadSearchQuery, setThreadSearchQuery] = useState('')
   const [threadActiveSearchIndex, setThreadActiveSearchIndex] = useState(0)
 
@@ -329,19 +361,35 @@ export default function InboxPage() {
 
   const assignConversation = useCallback(async (convId: string, assignedTo: string | null) => {
     if (!token) return
+    const currentConv = conversations.find(c => c.id === convId)
+    const expectedAssignedTo = currentConv?.assignedTo ?? null
     try {
       await apiClient(`/api/conversations/${convId}/assign`, {
         method: 'POST',
         token,
-        body: JSON.stringify({ assignedTo }),
+        body: JSON.stringify({ assignedTo, expectedAssignedTo }),
       })
       const member = teamMembers.find(m => m.userId === assignedTo)
       setConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedTo, assignedToEmail: member?.email ?? null } : c))
       addToast({ variant: 'success', title: assignedTo ? 'Conversation assigned' : 'Assignment cleared' })
-    } catch {
-      addToast({ variant: 'error', title: 'Failed to assign conversation' })
+    } catch (err: any) {
+      if (err?.status === 409) {
+        const winnerName = err?.data?.assignedToName || err?.data?.lockedByName || 'another team member'
+        if (err?.data?.assignedTo) {
+          const winnerId = err.data.assignedTo
+          const member = teamMembers.find(m => m.userId === winnerId)
+          setConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedTo: winnerId, assignedToEmail: member?.email ?? null } : c))
+        }
+        addToast({
+          variant: 'error',
+          title: 'Assignment Conflict',
+          description: `This conversation was claimed by ${winnerName}.`,
+        })
+      } else {
+        addToast({ variant: 'error', title: 'Failed to assign conversation' })
+      }
     }
-  }, [token, teamMembers, addToast])
+  }, [token, conversations, teamMembers, addToast])
 
   useEffect(() => {
     const defaultTitle = 'Inbox | Zuri'
@@ -512,12 +560,38 @@ export default function InboxPage() {
 
     socket.on('suggestion:ready', (payload: string) => {
       try {
+        if (regenerateTimerRef.current) clearTimeout(regenerateTimerRef.current)
+        setRegenerating(false)
+        setAiNotice(null)
         const data = parseSocketPayload<{ messageId: string }>(payload)
         if (selectedIdRef.current && token) {
           apiClient<{ suggestions: Suggestion[] }>(`/api/messages/${data.messageId}/suggestions`, { token })
             .then(d => { setSuggestions(d.suggestions); setSelectedMsgId(data.messageId) })
         }
         loadConversations()
+      } catch {}
+    })
+
+    socket.on('suggestion:failed', (payload: string) => {
+      try {
+        if (regenerateTimerRef.current) clearTimeout(regenerateTimerRef.current)
+        setRegenerating(false)
+        const data = parseSocketPayload<{ messageId: string; error?: string; details?: string }>(payload)
+        setAiNotice({ type: 'warning', text: data.error || 'AI draft unavailable — reply manually or retry' })
+        setTimeout(() => draftRef.current?.focus(), 50)
+      } catch {
+        setRegenerating(false)
+        setAiNotice({ type: 'warning', text: 'AI draft unavailable — reply manually or retry' })
+      }
+    })
+
+    socket.on('byok:error', (payload: string) => {
+      try {
+        if (regenerateTimerRef.current) clearTimeout(regenerateTimerRef.current)
+        setRegenerating(false)
+        const data = parseSocketPayload<{ provider: string; status?: number; error?: string }>(payload)
+        setAiNotice({ type: 'error', text: data.error || `Your custom ${data.provider?.toUpperCase()} key returned an error. Please check your key in Settings.` })
+        setTimeout(() => draftRef.current?.focus(), 50)
       } catch {}
     })
 
@@ -571,8 +645,40 @@ export default function InboxPage() {
 
     const handleConversationAssigned = (payload: string) => {
       try {
-        const data = parseSocketPayload<{ conversationId: string; assignedTo: string | null }>(payload)
-        setConversations(prev => prev.map(c => c.id === data.conversationId ? { ...c, assignedTo: data.assignedTo } : c))
+        const data = parseSocketPayload<{
+          conversationId: string
+          assignedTo: string | null
+          assignedToName?: string | null
+          assignedToEmail?: string | null
+          assignedBy?: string
+          assignedByName?: string
+          contactName?: string
+        }>(payload)
+
+        setConversations(prev => prev.map(c => c.id === data.conversationId
+          ? {
+              ...c,
+              assignedTo: data.assignedTo,
+              assignedToName: data.assignedToName ?? c.assignedToName,
+              assignedToEmail: data.assignedToEmail ?? c.assignedToEmail,
+            }
+          : c
+        ))
+
+        const currentUserId = session.data?.user?.id
+        const currentUserEmail = session.data?.user?.email
+        const isAssignedToMe = Boolean(
+          (currentUserId && data.assignedTo === currentUserId) ||
+          (currentUserEmail && data.assignedToEmail === currentUserEmail)
+        )
+
+        if (isAssignedToMe && data.assignedBy !== currentUserId) {
+          addToast({
+            variant: 'info',
+            title: 'Conversation Assigned',
+            description: `${data.contactName || 'A conversation'} was assigned to you by ${data.assignedByName || 'a team member'}.`,
+          })
+        }
       } catch {}
     }
 
@@ -793,9 +899,37 @@ export default function InboxPage() {
 
   const regenerate = async () => {
     if (!token || !selectedMsgId) return
-    setRegenerating(true); setSuggestions([])
-    await apiClient(`/api/messages/${selectedMsgId}/regenerate`, { method: 'POST', token })
-    setRegenerating(false)
+    setRegenerating(true)
+    setSuggestions([])
+    setAiNotice(null)
+
+    if (regenerateTimerRef.current) clearTimeout(regenerateTimerRef.current)
+
+    // Safety 8.5s client-side cap: never leave user on an infinite spinner
+    regenerateTimerRef.current = setTimeout(() => {
+      setRegenerating(prev => {
+        if (prev) {
+          setAiNotice({ type: 'warning', text: 'AI draft unavailable — reply manually or retry' })
+          setTimeout(() => draftRef.current?.focus(), 50)
+        }
+        return false
+      })
+    }, 8500)
+
+    try {
+      const res = await apiClient<{ ok?: boolean; error?: string }>(`/api/messages/${selectedMsgId}/regenerate`, { method: 'POST', token })
+      if (res && res.error) {
+        if (regenerateTimerRef.current) clearTimeout(regenerateTimerRef.current)
+        setRegenerating(false)
+        setAiNotice({ type: 'warning', text: res.error })
+        setTimeout(() => draftRef.current?.focus(), 50)
+      }
+    } catch {
+      if (regenerateTimerRef.current) clearTimeout(regenerateTimerRef.current)
+      setRegenerating(false)
+      setAiNotice({ type: 'warning', text: 'AI draft unavailable — reply manually or retry' })
+      setTimeout(() => draftRef.current?.focus(), 50)
+    }
   }
 
   const sendDraft = async (textOverride?: string, file?: File | null) => {
@@ -1072,7 +1206,14 @@ export default function InboxPage() {
   const filtered = conversations.filter(c => {
     const q = search.toLowerCase()
     const matchSearch = !search || c.contact.name.toLowerCase().includes(q) || (c.lastMessagePreview ?? '').toLowerCase().includes(q)
-    if (!matchSearch) return false
+    if (filter === 'assigned_to_me') {
+      const currentUserId = session.data?.user?.id
+      const currentUserEmail = session.data?.user?.email
+      return Boolean(
+        (currentUserId && c.assignedTo === currentUserId) ||
+        (currentUserEmail && c.assignedToEmail === currentUserEmail)
+      )
+    }
     if (filter === 'unread')      return c.unreadCount > 0
     if (filter === 'needs_reply') return c.unreadCount > 0 || c.aiPriority === 'waiting'
     if (filter === 'hot_leads')   return c.aiPriority === 'hot_lead' || c.aiPriority === 'ready_to_buy'
@@ -1339,6 +1480,21 @@ export default function InboxPage() {
                 </a>
               </div>
             )}
+          </div>
+        )}
+
+        {/* AI Processing Delayed Banner */}
+        {queueHealth.aiDelayed && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-amber-200 text-xs">
+            <div className="flex items-center gap-2 font-medium">
+              <span className="text-amber-400 font-bold">⚡ AI Intelligence Processing Delayed:</span>
+              <span>
+                There are currently <strong className="text-amber-300 font-mono">{queueHealth.queueDepth}</strong> messages in the queue. Incoming AI reply drafts may take a moment to appear.
+              </span>
+            </div>
+            <span className="text-[10px] text-amber-400/70 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              Queue Depth &gt; 10
+            </span>
           </div>
         )}
 
@@ -1716,6 +1872,7 @@ export default function InboxPage() {
                     onPrevSearch={handleThreadSearchPrev}
                     onNextSearch={handleThreadSearchNext}
                     onSelectMessage={selectMessage}
+                    lockInfo={selectedConvLock}
                   />
                 )}
                 {selectedConvLock && selectedConvLock.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
@@ -1752,6 +1909,7 @@ export default function InboxPage() {
                   onAnalyzeLatest={() => runManualAnalysis('latest')}
                   onAnalyzeRecent={() => runManualAnalysis('recent')}
                   isGroup={contact?.isGroup ?? false}
+                  aiNotice={aiNotice}
                 />
               </div>
 

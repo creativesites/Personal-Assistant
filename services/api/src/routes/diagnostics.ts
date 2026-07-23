@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '../lib/db'
+import { queues } from '../lib/queue'
 import { authenticate } from '../plugins/authenticate'
 import { authenticateAdmin } from '../plugins/authenticateAdmin'
 
@@ -262,4 +263,35 @@ export async function diagnosticsRoutes(fastify: FastifyInstance): Promise<void>
       return reply.send({ ok: true, rates: merged })
     },
   )
+
+  fastify.get('/api/system/queue-health', { preHandler: authenticate }, async (_request, reply) => {
+    try {
+      const incoming = queues.messagesIncoming
+      const [waiting, active, failed] = await Promise.all([
+        incoming.getWaitingCount(),
+        incoming.getActiveCount(),
+        incoming.getFailedCount(),
+      ])
+      const totalDepth = waiting + active
+      const aiDelayed = totalDepth > 10
+
+      return reply.send({
+        ok: true,
+        queueDepth: totalDepth,
+        waiting,
+        active,
+        failed,
+        aiDelayed,
+      })
+    } catch {
+      return reply.send({
+        ok: false,
+        queueDepth: 0,
+        waiting: 0,
+        active: 0,
+        failed: 0,
+        aiDelayed: false,
+      })
+    }
+  })
 }

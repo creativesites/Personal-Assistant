@@ -109,7 +109,13 @@ export class MessageHandler {
         messageType: msg.messageType, body: msg.body ?? undefined,
         whatsappTimestamp: timestamp.toISOString(), isHistorical,
       },
-      { removeOnComplete: { count: 100 } },
+      {
+        jobId: `msg_${messageId}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: { count: 500 },
+        removeOnFail: { count: 1000 },
+      },
     );
 
     if (!isHistorical) {

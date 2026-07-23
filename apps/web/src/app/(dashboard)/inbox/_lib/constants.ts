@@ -31,13 +31,14 @@ export const TONE_STYLE: Record<string, string> = {
 }
 
 export const FILTERS = [
-  { id: 'all',         label: 'All' },
-  { id: 'unread',      label: 'Unread' },
-  { id: 'needs_reply', label: 'Needs Reply' },
-  { id: 'hot_leads',   label: 'Hot Leads' },
-  { id: 'vip',         label: 'VIP' },
-  { id: 'waiting',     label: 'Waiting' },
-  { id: 'at_risk',     label: 'At Risk' },
+  { id: 'all',            label: 'All' },
+  { id: 'assigned_to_me', label: 'Assigned to Me' },
+  { id: 'unread',         label: 'Unread' },
+  { id: 'needs_reply',    label: 'Needs Reply' },
+  { id: 'hot_leads',      label: 'Hot Leads' },
+  { id: 'vip',            label: 'VIP' },
+  { id: 'waiting',        label: 'Waiting' },
+  { id: 'at_risk',        label: 'At Risk' },
 ] as const
 
 export const MOCK_ACTIONS = [

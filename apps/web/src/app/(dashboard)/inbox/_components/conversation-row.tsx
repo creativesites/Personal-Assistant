@@ -66,9 +66,14 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
               {conv.leadScore}
             </span>
           )}
-          {conv.assignedToEmail && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md" title={`Assigned to ${conv.assignedToEmail}`}>
-              👤 {conv.assignedToEmail.split('@')[0]}
+          {(conv.assignedToName || conv.assignedToEmail) && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md" title={`Assigned to ${conv.assignedToName || conv.assignedToEmail}`}>
+              👤 {(conv.assignedToName || conv.assignedToEmail || '').split('@')[0]}
+            </span>
+          )}
+          {conv.lockedBy && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-md" title="Locked by active agent">
+              🔒 In use
             </span>
           )}
           {syncing && (

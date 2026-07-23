@@ -298,11 +298,25 @@ class ReplyGenerator:
             intent=analysis.intent.primary,
         ) + memory_context + relationship_context + search_context + kb_context + facts_context + catalog_context
 
-        raw = await client.complete_json(
-            [{'role': 'user', 'content': prompt}],
-            service='intelligence', feature='reply_generation', user_id=user_id,
-        )
-        suggestions_model = ReplySuggestions(**raw)
+        try:
+            raw = await client.complete_json(
+                [{'role': 'user', 'content': prompt}],
+                service='intelligence', feature='reply_generation', user_id=user_id,
+            )
+            suggestions_model = ReplySuggestions(**raw)
+        except Exception as exc:
+            err_msg = str(exc)
+            log.warning('reply_generation_failed_or_timed_out', message_id=message_id, user_id=user_id, error=err_msg)
+            await publish_event(
+                f'suggestion:failed:{user_id}',
+                json.dumps({
+                    'messageId': message_id,
+                    'conversationId': conversation_id,
+                    'error': 'AI draft unavailable — reply manually or retry',
+                    'details': err_msg,
+                })
+            )
+            return []
 
         pool = await get_pool()
         inserted_suggestions = []

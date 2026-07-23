@@ -113,8 +113,14 @@ export async function getInboxConversation(userId: string, conversationId: strin
   return row ? formatConversationRow(row) : null;
 }
 
+import { bufferInboxEvent } from './event-buffer';
+
 export async function publishInboxEvent(userId: string, event: string, payload: unknown): Promise<void> {
-  await redis.publish(`${event}:${userId}`, JSON.stringify(payload)).catch(() => {
+  try {
+    const buffered = await bufferInboxEvent(userId, event, payload);
+    await redis.publish(`${event}:${userId}`, JSON.stringify(buffered)).catch(() => {});
+  } catch (err) {
     // Realtime is best-effort; HTTP/DB mutations remain authoritative.
-  });
+    console.error(`[publishInboxEvent] Error publishing event ${event} for user ${userId}:`, err);
+  }
 }

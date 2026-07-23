@@ -228,6 +228,15 @@ export default function KnowledgeBasePage() {
   const [newFactValue, setNewFactValue] = useState('')
   const [savingFact, setSavingFact] = useState(false)
 
+  // Upload & Scrape Form State
+  const [uploadFileObj, setUploadFileObj] = useState<File | null>(null)
+  const [uploadCategory, setUploadCategory] = useState('general')
+  const [uploadingFile, setUploadingFile] = useState(false)
+
+  const [scrapeUrl, setScrapeUrl] = useState('')
+  const [scrapeCategory, setScrapeCategory] = useState('general')
+  const [scrapingUrl, setScrapingUrl] = useState(false)
+
   // Search & Q&A Studio State
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -392,6 +401,61 @@ export default function KnowledgeBasePage() {
       setChatHistory(prev => prev.map(m => m.id === tempId ? { ...m, answer: 'Sorry, I failed to retrieve context.' } : m))
     } finally {
       setChatLoading(false)
+    }
+  }
+
+  const handleUploadDocument = async () => {
+    if (!token || !uploadFileObj) return
+    setUploadingFile(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadFileObj)
+      formData.append('title', uploadFileObj.name.replace(/\.[^.]+$/, ''))
+      formData.append('category', uploadCategory)
+
+      const res = await fetch('/api/proxy/api/knowledge/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || 'Upload failed')
+      }
+
+      showToast('Document uploaded successfully & queued for Q&A extraction!', 'success')
+      setShowUploadModal(false)
+      setUploadFileObj(null)
+      loadMemoryData()
+    } catch (err: any) {
+      showToast(err.message || 'Failed to upload document', 'error')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
+  const handleScrapeUrl = async () => {
+    if (!token || !scrapeUrl.trim()) return
+    setScrapingUrl(true)
+    try {
+      await apiClient('/api/knowledge/add-url', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          title: scrapeUrl.replace(/^https?:\/\//, '').split('/')[0] || 'Web Page',
+          url: scrapeUrl.trim(),
+          category: scrapeCategory,
+        }),
+      })
+      showToast('Web URL queued for crawling & knowledge extraction!', 'success')
+      setShowUrlModal(false)
+      setScrapeUrl('')
+      loadMemoryData()
+    } catch (err: any) {
+      showToast('Failed to crawl web URL', 'error')
+    } finally {
+      setScrapingUrl(false)
     }
   }
 
@@ -1012,6 +1076,120 @@ export default function KnowledgeBasePage() {
                 className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-bold"
               >
                 Approve Edited Fact
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* Upload Document Modal */}
+      {showUploadModal && (
+        <ModalWrapper onClose={() => setShowUploadModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Upload className="w-4 h-4 text-indigo-600" /> Upload Document to Knowledge Base
+              </h2>
+              <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Document Category</label>
+                <select
+                  value={uploadCategory}
+                  onChange={e => setUploadCategory(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {['general', 'pricing', 'catalog', 'faq', 'terms', 'policies', 'manual'].map(c => (
+                    <option key={c} value={c}>{c.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Select File (PDF, CSV, TXT, DOCX, Excel)</label>
+                <input
+                  type="file"
+                  onChange={e => setUploadFileObj(e.target.files?.[0] || null)}
+                  accept=".pdf,.csv,.txt,.text,.md,.doc,.docx,.xlsx,.xls,image/*"
+                  className="w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                />
+              </div>
+
+              {uploadFileObj && (
+                <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1">
+                  <p className="font-bold text-indigo-900">{uploadFileObj.name}</p>
+                  <p className="text-[11px] text-indigo-600">{(uploadFileObj.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <button onClick={() => setShowUploadModal(false)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancel</button>
+              <button
+                onClick={handleUploadDocument}
+                disabled={!uploadFileObj || uploadingFile}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                {uploadingFile ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                {uploadingFile ? 'Uploading & Extracting...' : 'Upload & Extract'}
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* Scrape Web URL Modal */}
+      {showUrlModal && (
+        <ModalWrapper onClose={() => setShowUrlModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Globe className="w-4 h-4 text-blue-600" /> Scrape Web Page into Memory
+              </h2>
+              <button onClick={() => setShowUrlModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Target Web URL</label>
+                <input
+                  type="url"
+                  value={scrapeUrl}
+                  onChange={e => setScrapeUrl(e.target.value)}
+                  placeholder="https://yourcompany.com/pricing"
+                  className="w-full border border-gray-200 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Category</label>
+                <select
+                  value={scrapeCategory}
+                  onChange={e => setScrapeCategory(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {['pricing', 'catalog', 'faq', 'policies', 'general'].map(c => (
+                    <option key={c} value={c}>{c.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <button onClick={() => setShowUrlModal(false)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancel</button>
+              <button
+                onClick={handleScrapeUrl}
+                disabled={!scrapeUrl.trim() || scrapingUrl}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                {scrapingUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                {scrapingUrl ? 'Crawling...' : 'Crawl Page'}
               </button>
             </div>
           </div>

@@ -27,8 +27,24 @@ const queueByName = new Map<string, Queue>(
   Object.values(queues).map((q) => [q.name, q]),
 );
 
-export async function addToQueue(name: QueueName, data: unknown, opts?: JobsOptions): Promise<void> {
+export async function addToQueue(name: QueueName, data: any, opts?: JobsOptions): Promise<void> {
   const queue = queueByName.get(name);
   if (!queue) throw new Error(`Unknown queue: ${name}`);
-  await queue.add(name, data, opts);
+
+  const defaultJobId = data?.messageId
+    ? `msg_${data.messageId}`
+    : data?.id
+    ? `${name}_${data.id}`
+    : undefined;
+
+  const combinedOpts: JobsOptions = {
+    jobId: opts?.jobId ?? defaultJobId,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 1000 },
+    removeOnComplete: { count: 500 },
+    removeOnFail: { count: 1000 },
+    ...opts,
+  };
+
+  await queue.add(name, data, combinedOpts);
 }

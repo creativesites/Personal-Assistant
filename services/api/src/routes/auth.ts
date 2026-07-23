@@ -360,6 +360,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         businessDescription: z.string().optional(),
         industry: z.string().optional(),
         primaryGoal: z.string().optional(),
+        teamSize: z.string().optional(),
       });
 
       let body: z.infer<typeof bodySchema> = {};
@@ -427,6 +428,9 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       }
       if (body.identityRole) {
         factSeeds.push({ category: 'general_info', key: 'user_role', value: body.identityRole });
+      }
+      if (body.teamSize) {
+        factSeeds.push({ category: 'general_info', key: 'team_size', value: body.teamSize });
       }
       if (body.primaryGoal) {
         factSeeds.push({ category: 'company_values', key: 'primary_goal', value: body.primaryGoal });

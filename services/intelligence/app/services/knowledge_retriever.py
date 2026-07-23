@@ -20,75 +20,73 @@ from ..database import get_pool
 
 log = structlog.get_logger()
 
-# Target chunk size in words; hard cap prevents over-large chunks
-_TARGET_CHUNK_WORDS = 500
-_MAX_CHUNK_WORDS = 600
-
-# Simple HTML tag pattern used for stripping markup from fetched URLs
-_HTML_TAG_RE = re.compile(r'<[^>]+>')
-_WHITESPACE_RE = re.compile(r'\s{2,}')
-
-
-def _strip_html(html: str) -> str:
-    """Strip HTML tags and normalise whitespace, returning plain text."""
-    text = _HTML_TAG_RE.sub(' ', html)
-    text = _WHITESPACE_RE.sub(' ', text)
-    return text.strip()
+# Target chunk size in words; sliding overlap ensures boundary context preservation
+_TARGET_CHUNK_WORDS = 200
+_OVERLAP_WORDS = 40
+_MAX_CHUNK_WORDS = 350
 
 
 def _split_into_chunks(text: str) -> list[str]:
     """
-    Split text into chunks of roughly _TARGET_CHUNK_WORDS words.
+    Semantic chunker with sliding-window overlap and structural table/CSV preservation.
 
-    Splits on paragraph boundaries first, then accumulates paragraphs until
-    the target word count is reached. A paragraph that alone exceeds
-    _MAX_CHUNK_WORDS is hard-split at sentence boundaries.
+    1. Preserves markdown table blocks (| col |) and CSV rows as atomic units.
+    2. Groups prose into ~200 word target chunks.
+    3. Adds a ~40 word sliding overlap suffix between consecutive chunks.
     """
-    paragraphs = [p.strip() for p in re.split(r'\n{2,}|\r\n\r\n', text) if p.strip()]
+    lines = text.splitlines()
+    blocks: list[str] = []
+    current_block: list[str] = []
+    in_table = False
+
+    for line in lines:
+        stripped = line.strip()
+        is_table_row = stripped.startswith('|') and '|' in stripped[1:]
+        is_csv_row = ',' in stripped and not stripped.startswith('#') and len(stripped.split(',')) >= 3
+
+        if is_table_row or is_csv_row:
+            if not in_table and current_block:
+                blocks.append('\n'.join(current_block))
+                current_block = []
+            in_table = True
+            current_block.append(line)
+        else:
+            if in_table and current_block:
+                blocks.append('\n'.join(current_block))
+                current_block = []
+                in_table = False
+
+            if not stripped:
+                if current_block:
+                    blocks.append('\n'.join(current_block))
+                    current_block = []
+            else:
+                current_block.append(line)
+
+    if current_block:
+        blocks.append('\n'.join(current_block))
 
     chunks: list[str] = []
     current_words: list[str] = []
-    current_count = 0
 
-    for para in paragraphs:
-        para_words = para.split()
-        para_count = len(para_words)
-
-        if para_count > _MAX_CHUNK_WORDS:
-            # Flush what we have first
-            if current_words:
-                chunks.append(' '.join(current_words))
-                current_words = []
-                current_count = 0
-            # Hard-split on sentence boundaries
-            sentences = re.split(r'(?<=[.!?])\s+', para)
-            sentence_buf: list[str] = []
-            sentence_count = 0
-            for sentence in sentences:
-                s_words = sentence.split()
-                if sentence_count + len(s_words) > _TARGET_CHUNK_WORDS and sentence_buf:
-                    chunks.append(' '.join(sentence_buf))
-                    sentence_buf = s_words
-                    sentence_count = len(s_words)
-                else:
-                    sentence_buf.extend(s_words)
-                    sentence_count += len(s_words)
-            if sentence_buf:
-                chunks.append(' '.join(sentence_buf))
+    for block in blocks:
+        block_words = block.split()
+        if not block_words:
             continue
 
-        if current_count + para_count > _TARGET_CHUNK_WORDS and current_words:
-            chunks.append(' '.join(current_words))
-            current_words = para_words
-            current_count = para_count
+        if len(current_words) + len(block_words) > _TARGET_CHUNK_WORDS and current_words:
+            chunk_str = ' '.join(current_words)
+            chunks.append(chunk_str)
+            # Create sliding window overlap with last _OVERLAP_WORDS words
+            overlap = current_words[-_OVERLAP_WORDS:] if len(current_words) > _OVERLAP_WORDS else current_words
+            current_words = overlap + block_words
         else:
-            current_words.extend(para_words)
-            current_count += para_count
+            current_words.extend(block_words)
 
     if current_words:
         chunks.append(' '.join(current_words))
 
-    return [c for c in chunks if c]
+    return [c for c in chunks if c.strip()]
 
 
 def _estimate_tokens(text: str) -> int:
@@ -529,7 +527,10 @@ async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[di
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT kc.content,
+            SELECT kc.id AS chunk_id,
+                   kc.chunk_index,
+                   kc.token_count,
+                   kc.content,
                    1 - (kc.embedding <-> $1) AS score,
                    kd.id AS document_id,
                    kd.title AS document_title,
@@ -557,6 +558,9 @@ async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[di
 
     return [
         {
+            'chunk_id': str(row['chunk_id']),
+            'chunk_index': row['chunk_index'],
+            'token_count': row['token_count'],
             'content': row['content'],
             'score': float(row['score']),
             'document_id': str(row['document_id']),
@@ -566,6 +570,52 @@ async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[di
         }
         for row in rows
     ]
+
+
+async def update_chunk_content(user_id: str, chunk_id: str, new_content: str) -> dict:
+    """Update a chunk's text content and re-embed it in pgvector."""
+    if not new_content.strip():
+        raise ValueError("Chunk content cannot be empty")
+
+    from ..ai.client import get_ai_client
+    client = get_ai_client()
+
+    raw_embedding = await client.embed(new_content[:2000], user_id=user_id)
+    if raw_embedding is None:
+        raise ValueError("Failed to generate vector embedding for chunk")
+
+    query_vec = __import__('numpy').array(
+        raw_embedding if isinstance(raw_embedding, list) else list(raw_embedding),
+        dtype=__import__('numpy').float32,
+    )
+    token_count = _estimate_tokens(new_content)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE kb_chunks
+            SET content = $1, embedding = $2, token_count = $3, updated_at = NOW()
+            WHERE id = $4 AND user_id = $5
+            RETURNING id, document_id, chunk_index, token_count, updated_at
+            """,
+            new_content,
+            query_vec,
+            token_count,
+            chunk_id,
+            user_id,
+        )
+        if not row:
+            raise ValueError("Chunk not found or permission denied")
+
+    return {
+        "id": str(row['id']),
+        "document_id": str(row['document_id']),
+        "chunk_index": row['chunk_index'],
+        "token_count": row['token_count'],
+        "content": new_content,
+        "updated_at": row['updated_at'].isoformat() if row['updated_at'] else None,
+    }
 
 
 async def chat_with_knowledge(user_id: str, question: str) -> dict:
