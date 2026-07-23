@@ -719,9 +719,7 @@ export default function InboxPage() {
     const text = textOverride !== undefined ? textOverride : draft;
     if ((!text.trim() && !file) || !selectedId || !token) return
     
-    if (textOverride === undefined) {
-      setDraft('')
-    }
+    setDraft('')
 
     const tempId = `temp-${Date.now()}`
     const msgType = file ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'document') : 'text'

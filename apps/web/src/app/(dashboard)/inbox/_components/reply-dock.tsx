@@ -135,7 +135,9 @@ export function ReplyDock({
 
   const handleSend = () => {
     if (!draft.trim() && !selectedFile) return
-    onSendDraft(draft, selectedFile)
+    const textToSend = draft
+    onDraftChange('')
+    onSendDraft(textToSend, selectedFile)
     setSelectedFile(null)
   }
 

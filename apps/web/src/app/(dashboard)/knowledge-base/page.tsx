@@ -8,14 +8,17 @@ import {
   Sparkles, Search, RefreshCw, Trash2, Eye, RotateCcw,
   AlertTriangle, X, ChevronRight, File as FileIcon, Send, Database,
   Layers, Clock, Tag, CheckCircle, AlertCircle, Loader2, Image as ImageIcon,
+  Check, ShieldAlert, Cpu, GitBranch, Share2, HelpCircle, Plus,
+  BarChart3, ArrowRight, ThumbsUp, ThumbsDown, Edit3, Merge, Filter,
+  Building2, DollarSign, Package, UserCheck, ShieldCheck, Zap
 } from 'lucide-react'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Interfaces ──────────────────────────────────────────────────────────────
 
 interface KbDocument {
   id: string
   title: string
-  sourceType: 'pdf' | 'url' | 'text' | 'excel' | 'csv' | 'notion' | string
+  sourceType: 'pdf' | 'url' | 'text' | 'excel' | 'csv' | 'docx' | 'pptx' | string
   sourceUrl: string | null
   category: string | null
   tags: string[]
@@ -29,36 +32,87 @@ interface KbDocument {
   errorMessage: string | null
   contentPreview: string | null
   createdAt: string
-  updatedAt: string
 }
 
-interface KbStats {
-  totalDocuments: number
-  totalChunks: number
-  totalWords: number
-  lastSync: string | null
-  categories: string[]
-}
-
-interface KbHealthWarning {
+interface BusinessFact {
   id: string
-  message: string
+  category: string
+  factKey: string
+  factValue: string
+  confidence: number
+  source: string
+  isApproved: boolean
+  createdAt: string
+}
+
+interface KnowledgeSuggestion {
+  id: string
+  suggestionType: string
+  category: string
+  title: string
+  proposedKey: string | null
+  proposedValue: string
+  existingValue: string | null
+  confidence: number
+  sourceType: string
+  sourceId: string | null
+  sourceSnippet: string | null
+  detectedEntities: string[]
+  status: string
+  createdAt: string
+}
+
+interface GraphNode {
+  id: string
+  label: string
   type: string
+}
+
+interface GraphEdge {
+  id: string
+  fromType: string
+  fromId: string
+  toType: string
+  toId: string
+  relation: string
+  confidence: number
+}
+
+interface DuplicateCandidate {
+  id: string
+  entityType: string
+  primaryId: string
+  duplicateId: string
+  similarityScore: number
+  reason: string
+  status: string
+  createdAt: string
+}
+
+interface KnowledgeAnalytics {
+  completenessScore: number
+  qualityScore: number
+  totalFacts: number
+  totalDocuments: number
+  pendingSuggestions: number
+  flaggedDuplicates: number
+  categoryBreakdown: Record<string, number>
 }
 
 interface ChatMessage {
   id: string
   question: string
   answer: string
-  sources: string[]
+  sources: { content: string; score: number }[]
 }
 
 interface SearchResult {
   document_id: string
   document_title: string
   content: string
-  relevance_score: number
+  score: number
   source_type: string
+  category: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,69 +142,40 @@ function relativeTime(iso: string | null): string {
   return new Date(iso).toLocaleDateString()
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
 function TypeIcon({ type, className = 'w-4 h-4' }: { type: string; className?: string }) {
-  switch (type) {
-    case 'pdf':    return <FileText className={`${className} text-red-500`} />
-    case 'url':    return <Globe className={`${className} text-blue-500`} />
-    case 'text':   return <FileEdit className={`${className} text-green-500`} />
-    case 'excel':  return <Table className={`${className} text-emerald-600`} />
-    case 'csv':    return <Table className={`${className} text-gray-500`} />
-    case 'image':  return <ImageIcon className={`${className} text-pink-500`} />
-    case 'notion': return <BookOpen className={`${className} text-purple-500`} />
-    default:       return <FileIcon className={`${className} text-gray-400`} />
-  }
+  const t = type.toLowerCase()
+  if (t === 'pdf') return <FileText className={`${className} text-red-500`} />
+  if (t === 'url') return <Globe className={`${className} text-blue-500`} />
+  if (t === 'text') return <FileEdit className={`${className} text-green-500`} />
+  if (['excel', 'xlsx', 'xls', 'csv'].includes(t)) return <Table className={`${className} text-emerald-600`} />
+  if (['word', 'docx', 'doc'].includes(t)) return <BookOpen className={`${className} text-indigo-500`} />
+  if (['pptx', 'ppt', 'presentation'].includes(t)) return <Layers className={`${className} text-purple-500`} />
+  if (t === 'image') return <ImageIcon className={`${className} text-pink-500`} />
+  return <FileIcon className={`${className} text-gray-400`} />
 }
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === 'ready') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-      <CheckCircle className="w-3 h-3" /> AI Ready
+  if (status === 'ready' || status === 'approved') return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+      <CheckCircle className="w-3 h-3" /> Ready
     </span>
   )
-  if (status === 'processing') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
-      <Loader2 className="w-3 h-3 animate-spin" /> Processing
+  if (status === 'processing' || status === 'pending') return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+      <Loader2 className="w-3 h-3 animate-spin" /> Pending Review
     </span>
   )
-  if (status === 'error') return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+  if (status === 'error' || status === 'rejected') return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
       <AlertCircle className="w-3 h-3" /> Failed
     </span>
   )
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
       {status}
     </span>
   )
 }
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
-}
-
-// ─── Stat Cards ──────────────────────────────────────────────────────────────
-
-function StatCard({
-  label, value, icon: Icon, color,
-}: {
-  label: string; value: string | number; icon: React.ElementType; color: string
-}) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center gap-3">
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-        <p className="text-lg font-bold text-gray-900 leading-tight font-numeric">{value}</p>
-      </div>
-    </div>
-  )
-}
-
-// ─── Modals ──────────────────────────────────────────────────────────────────
 
 function ModalWrapper({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   useEffect(() => {
@@ -161,7 +186,7 @@ function ModalWrapper({ onClose, children }: { onClose: () => void; children: Re
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       {children}
@@ -169,1193 +194,830 @@ function ModalWrapper({ onClose, children }: { onClose: () => void; children: Re
   )
 }
 
-function UploadModal({
-  token,
-  onClose,
-  onSuccess,
-}: {
-  token: string | undefined
-  onClose: () => void
-  onSuccess: () => void
-}) {
-  const [file, setFile] = useState<File | null>(null)
-  const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('')
-  const [tags, setTags] = useState('')
-  const [progress, setProgress] = useState<'idle' | 'uploading' | 'indexing' | 'done' | 'error'>('idle')
-  const [errorMsg, setErrorMsg] = useState('')
-  const dropRef = useRef<HTMLDivElement>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  const handleFile = (f: File) => {
-    setFile(f)
-    if (!title) setTitle(f.name.replace(/\.[^/.]+$/, ''))
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    const f = e.dataTransfer.files[0]
-    if (f) handleFile(f)
-  }
-
-  const handleSubmit = async () => {
-    if (!file || !title.trim() || !token) return
-    setProgress('uploading')
-    setErrorMsg('')
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('title', title)
-      if (category) formData.append('category', category)
-      if (tags) formData.append('tags', tags)
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-      const res = await fetch(`${apiUrl}/api/knowledge/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `HTTP ${res.status}`)
-      }
-      setProgress('indexing')
-      await new Promise(r => setTimeout(r, 800))
-      setProgress('done')
-      await new Promise(r => setTimeout(r, 600))
-      onSuccess()
-      onClose()
-    } catch (err: unknown) {
-      setProgress('error')
-      setErrorMsg(err instanceof Error ? err.message : 'Upload failed')
-    }
-  }
-
-  const progressLabel: Record<string, string> = {
-    idle: 'Upload & Index',
-    uploading: 'Uploading...',
-    indexing: 'Indexing...',
-    done: 'Done!',
-    error: 'Retry',
-  }
-
-  return (
-    <ModalWrapper onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-gray-900">Upload File</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
-        </div>
-
-        {/* Drop zone */}
-        <div
-          ref={dropRef}
-          onDragOver={e => e.preventDefault()}
-          onDrop={handleDrop}
-          onClick={() => fileRef.current?.click()}
-          className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/40 transition-colors mb-4"
-        >
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-          />
-          {file ? (
-            <div className="flex items-center justify-center gap-3">
-              <TypeIcon
-                type={
-                  file.type.startsWith('image/') ? 'image'
-                    : file.name.endsWith('.pdf') ? 'pdf'
-                      : file.name.endsWith('.csv') ? 'csv'
-                        : 'excel'
-                }
-                className="w-6 h-6"
-              />
-              <div className="text-left">
-                <p className="text-sm font-medium text-gray-900 truncate max-w-[200px]">{file.name}</p>
-                <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <Upload className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm font-medium text-gray-700">Drop PDF, image, Excel or CSV here</p>
-              <p className="text-xs text-gray-400 mt-1">or click to browse files</p>
-            </>
-          )}
-        </div>
-
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
-            <input
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="Document title"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
-              <input
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="e.g. Policies"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Tags</label>
-              <input
-                value={tags}
-                onChange={e => setTags(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="comma, separated"
-              />
-            </div>
-          </div>
-        </div>
-
-        {errorMsg && (
-          <div className="mb-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errorMsg}
-          </div>
-        )}
-
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button
-            disabled={!file || !title.trim() || progress === 'uploading' || progress === 'indexing'}
-            onClick={handleSubmit}
-            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-          >
-            {(progress === 'uploading' || progress === 'indexing') && <Loader2 className="w-4 h-4 animate-spin" />}
-            {progressLabel[progress]}
-          </button>
-        </div>
-      </div>
-    </ModalWrapper>
-  )
-}
-
-function AddUrlModal({
-  token,
-  onClose,
-  onSuccess,
-}: {
-  token: string | undefined
-  onClose: () => void
-  onSuccess: () => void
-}) {
-  const [url, setUrl] = useState('')
-  const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('')
-  const [tags, setTags] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
-
-  const handleUrlChange = (val: string) => {
-    setUrl(val)
-    if (!title && val) {
-      try {
-        const domain = new URL(val).hostname.replace('www.', '')
-        setTitle(domain)
-      } catch {}
-    }
-  }
-
-  const handleSubmit = async () => {
-    if (!url.trim() || !title.trim() || !token) return
-    setLoading(true)
-    setErrorMsg('')
-    try {
-      await apiClient('/api/knowledge/add-url', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ url, title, category, tags }),
-      })
-      onSuccess()
-      onClose()
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to add URL')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <ModalWrapper onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-gray-900">Add Website</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">URL</label>
-            <input
-              value={url}
-              onChange={e => handleUrlChange(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="https://yourwebsite.com/faq"
-              type="url"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
-            <input
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="e.g. Company FAQ"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
-              <input
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="e.g. Support"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Tags</label>
-              <input
-                value={tags}
-                onChange={e => setTags(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="comma, separated"
-              />
-            </div>
-          </div>
-        </div>
-        {errorMsg && (
-          <div className="mb-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errorMsg}
-          </div>
-        )}
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button
-            disabled={!url.trim() || !title.trim() || loading}
-            onClick={handleSubmit}
-            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? 'Adding...' : 'Scrape & Index'}
-          </button>
-        </div>
-      </div>
-    </ModalWrapper>
-  )
-}
-
-function AddNoteModal({
-  token,
-  onClose,
-  onSuccess,
-}: {
-  token: string | undefined
-  onClose: () => void
-  onSuccess: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
-  const [category, setCategory] = useState('')
-  const [tags, setTags] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
-
-  const handleSubmit = async () => {
-    if (!title.trim() || !content.trim() || !token) return
-    setLoading(true)
-    setErrorMsg('')
-    try {
-      await apiClient('/api/knowledge/add-note', {
-        method: 'POST',
-        token,
-        body: JSON.stringify({ title, content, category, tags }),
-      })
-      onSuccess()
-      onClose()
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to save')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <ModalWrapper onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold text-gray-900">Paste Content</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
-            <input
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              placeholder="e.g. Refund Policy, Pricing Guide"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
-              <input
-                value={category}
-                onChange={e => setCategory(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="e.g. Policies"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Tags</label>
-              <input
-                value={tags}
-                onChange={e => setTags(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="comma, separated"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">
-              Content
-              <span className="ml-2 font-normal text-gray-400 normal-case">{content.length.toLocaleString()} chars</span>
-            </label>
-            <textarea
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              rows={8}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              placeholder="Paste your content here — FAQs, policies, product specs, pricing..."
-            />
-          </div>
-        </div>
-        {errorMsg && (
-          <div className="mb-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errorMsg}
-          </div>
-        )}
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Cancel</button>
-          <button
-            disabled={!title.trim() || !content.trim() || loading}
-            onClick={handleSubmit}
-            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? 'Saving...' : 'Save & Index'}
-          </button>
-        </div>
-      </div>
-    </ModalWrapper>
-  )
-}
-
-function DocumentDetailModal({
-  doc,
-  token,
-  onClose,
-  onRefresh,
-}: {
-  doc: KbDocument
-  token: string | undefined
-  onClose: () => void
-  onRefresh: () => void
-}) {
-  const [reindexing, setReindexing] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [editTitle, setEditTitle] = useState(doc.title)
-  const [editCategory, setEditCategory] = useState(doc.category ?? '')
-  const [editTags, setEditTags] = useState((doc.tags ?? []).join(', '))
-  const [saving, setSaving] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  const handleReindex = async () => {
-    if (!token) return
-    setReindexing(true)
-    try {
-      await apiClient(`/api/knowledge/${doc.id}/reindex`, { method: 'POST', token })
-      onRefresh()
-    } finally {
-      setReindexing(false)
-    }
-  }
-
-  const handleSave = async () => {
-    if (!token) return
-    setSaving(true)
-    try {
-      await apiClient(`/api/knowledge/${doc.id}`, {
-        method: 'PATCH',
-        token,
-        body: JSON.stringify({ title: editTitle, category: editCategory, tags: editTags }),
-      })
-      onRefresh()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!token) return
-    setDeleting(true)
-    try {
-      await apiClient(`/api/knowledge/${doc.id}`, { method: 'DELETE', token })
-      onRefresh()
-      onClose()
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <ModalWrapper onClose={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-start justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center">
-              <TypeIcon type={doc.sourceType} className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{doc.sourceType}</p>
-              <StatusBadge status={doc.status} />
-            </div>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
-        </div>
-
-        {/* Editable fields */}
-        <div className="space-y-3 mb-5">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1">Title</label>
-            <input
-              value={editTitle}
-              onChange={e => setEditTitle(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
-              <input
-                value={editCategory}
-                onChange={e => setEditCategory(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="Uncategorized"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">Tags</label>
-              <input
-                value={editTags}
-                onChange={e => setEditTags(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="comma, separated"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Stats grid */}
-        <div className="grid grid-cols-3 gap-2 mb-5">
-          {[
-            { label: 'Chunks', value: doc.chunkCount },
-            { label: 'Words', value: doc.wordCount != null ? formatWords(doc.wordCount) : '—' },
-            { label: 'Size', value: doc.fileSizeBytes != null ? formatFileSize(doc.fileSizeBytes) : '—' },
-            { label: 'Used', value: doc.usedCount ?? 0 },
-            { label: 'Last used', value: relativeTime(doc.lastUsedAt) },
-            { label: 'Added', value: new Date(doc.createdAt).toLocaleDateString() },
-          ].map(({ label, value }) => (
-            <div key={label} className="bg-gray-50 rounded-lg p-2.5 text-center">
-              <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-              <p className="text-sm font-bold text-gray-900 mt-0.5">{value}</p>
-            </div>
-          ))}
-        </div>
-
-        {doc.summary && (
-          <div className="mb-4">
-            <p className="text-xs font-semibold text-gray-700 mb-1">Summary</p>
-            <p className="text-sm text-gray-600 leading-relaxed">{doc.summary}</p>
-          </div>
-        )}
-
-        {doc.errorMessage && (
-          <div className="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-700">{doc.errorMessage}</p>
-          </div>
-        )}
-
-        {doc.contentPreview && (
-          <div className="mb-5">
-            <p className="text-xs font-semibold text-gray-700 mb-1">Content preview</p>
-            <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto font-mono">
-              {doc.contentPreview.slice(0, 500)}{doc.contentPreview.length > 500 ? '...' : ''}
-            </pre>
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-          >
-            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Save changes
-          </button>
-          <button
-            onClick={handleReindex}
-            disabled={reindexing}
-            className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            {reindexing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-            Reindex
-          </button>
-          {confirmDelete ? (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="px-4 py-2.5 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors flex items-center gap-2"
-            >
-              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-              Confirm delete
-            </button>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="px-4 py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors flex items-center gap-2"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </button>
-          )}
-        </div>
-      </div>
-    </ModalWrapper>
-  )
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function KnowledgeBasePage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
 
-  // Data state
+  // Tab State: 'overview' | 'queue' | 'facts' | 'documents' | 'graph' | 'studio'
+  const [activeTab, setActiveTab] = useState<'overview' | 'queue' | 'facts' | 'documents' | 'graph' | 'studio'>('overview')
+
+  // Core Data State
+  const [analytics, setAnalytics] = useState<KnowledgeAnalytics | null>(null)
+  const [suggestions, setSuggestions] = useState<KnowledgeSuggestion[]>([])
+  const [facts, setFacts] = useState<BusinessFact[]>([])
   const [documents, setDocuments] = useState<KbDocument[]>([])
-  const [stats, setStats] = useState<KbStats | null>(null)
-  const [health, setHealth] = useState<KbHealthWarning[]>([])
+  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([])
+  const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([])
+  const [duplicates, setDuplicates] = useState<DuplicateCandidate[]>([])
   const [loading, setLoading] = useState(true)
-  const [dismissedWarnings, setDismissedWarnings] = useState<string[]>([])
 
-  // Table filter state
-  const [tableSearch, setTableSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-
-  // Chat state
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
-  const [chatInput, setChatInput] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-
-  // Knowledge search state
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
-  const [searchLoading, setSearchLoading] = useState(false)
-
-  // Modal state
+  // Modals State
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showUrlModal, setShowUrlModal] = useState(false)
   const [showNoteModal, setShowNoteModal] = useState(false)
+  const [showFactModal, setShowNoteModalFact] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<KbDocument | null>(null)
+  const [editingSuggestion, setEditingSuggestion] = useState<KnowledgeSuggestion | null>(null)
+  const [editedSuggestionValue, setEditedSuggestionValue] = useState('')
 
-  // Toast state
+  // Fact Form State
+  const [newFactCategory, setNewFactCategory] = useState('pricing')
+  const [newFactKey, setNewFactKey] = useState('')
+  const [newFactValue, setNewFactValue] = useState('')
+  const [savingFact, setSavingFact] = useState(false)
+
+  // Search & Q&A Studio State
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
+  const [chatLoading, setChatLoading] = useState(false)
+
+  // Toast
   const [toast, setToast] = useState<{ msg: string; type: 'info' | 'success' | 'error' } | null>(null)
-
   const showToast = useCallback((msg: string, type: 'info' | 'success' | 'error' = 'info') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
   }, [])
 
-  // ── Data loading ──────────────────────────────────────────────────────────
+  // ── Load All Memory Engine Data ──────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
+  const loadMemoryData = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
-      const [docsData, statsData, healthData] = await Promise.allSettled([
-        apiClient<{ documents: KbDocument[] }>('/api/knowledge', { token: token ?? undefined }),
-        apiClient<KbStats>('/api/knowledge/stats', { token: token ?? undefined }),
-        apiClient<{ warnings: KbHealthWarning[] }>('/api/knowledge/health', { token: token ?? undefined }),
+      const [analyticsRes, suggestionsRes, factsRes, docsRes, graphRes, dupsRes] = await Promise.allSettled([
+        apiClient<KnowledgeAnalytics>('/api/knowledge/analytics', { token }),
+        apiClient<{ suggestions: KnowledgeSuggestion[] }>('/api/knowledge/suggestions?status=pending', { token }),
+        apiClient<{ facts: BusinessFact[] }>('/api/business-facts', { token }),
+        apiClient<{ documents: KbDocument[] }>('/api/knowledge/documents', { token }),
+        apiClient<{ nodes: GraphNode[]; edges: GraphEdge[] }>('/api/knowledge/graph', { token }),
+        apiClient<{ duplicates: DuplicateCandidate[] }>('/api/knowledge/duplicates', { token }),
       ])
-      if (docsData.status === 'fulfilled') setDocuments(docsData.value.documents ?? [])
-      if (statsData.status === 'fulfilled') setStats(statsData.value)
-      if (healthData.status === 'fulfilled') setHealth(healthData.value.warnings ?? [])
+
+      if (analyticsRes.status === 'fulfilled') setAnalytics(analyticsRes.value)
+      if (suggestionsRes.status === 'fulfilled') setSuggestions(suggestionsRes.value.suggestions || [])
+      if (factsRes.status === 'fulfilled') setFacts(factsRes.value.facts || [])
+      if (docsRes.status === 'fulfilled') setDocuments(docsRes.value.documents || [])
+      if (graphRes.status === 'fulfilled') {
+        setGraphNodes(graphRes.value.nodes || [])
+        setGraphEdges(graphRes.value.edges || [])
+      }
+      if (dupsRes.status === 'fulfilled') setDuplicates(dupsRes.value.duplicates || [])
+    } catch (err) {
+      showToast('Failed to load knowledge base data', 'error')
     } finally {
       setLoading(false)
     }
-  }, [token])
-
-  useEffect(() => { loadData() }, [loadData])
+  }, [token, showToast])
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatHistory, chatLoading])
+    loadMemoryData()
+  }, [loadMemoryData])
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
+  // ── Action Handlers ──────────────────────────────────────────────────────────
 
-  const handleAskKb = useCallback(async (question: string) => {
-    const q = question.trim()
-    if (!q || !token || chatLoading) return
-    setChatInput('')
-    setChatLoading(true)
+  const handleApproveSuggestion = async (id: string, editedVal?: string) => {
+    if (!token) return
     try {
-      const data = await apiClient<{ answer: string; sources: string[] }>('/api/knowledge/chat', {
+      await apiClient(`/api/knowledge/suggestions/${id}/approve`, {
         method: 'POST',
-        token: token ?? undefined,
-        body: JSON.stringify({ question: q }),
+        token,
+        body: JSON.stringify({ editedValue: editedVal }),
       })
-      setChatHistory(prev => [...prev, {
-        id: `c-${Date.now()}`,
-        question: q,
-        answer: data.answer,
-        sources: data.sources ?? [],
-      }])
-    } catch {
-      setChatHistory(prev => [...prev, {
-        id: `e-${Date.now()}`,
-        question: q,
-        answer: "Couldn't reach the knowledge engine. Make sure the intelligence service is running.",
-        sources: [],
-      }])
-    } finally {
-      setChatLoading(false)
+      showToast('Knowledge suggestion approved & published to business memory', 'success')
+      setEditingSuggestion(null)
+      loadMemoryData()
+    } catch (err) {
+      showToast('Failed to approve suggestion', 'error')
     }
-  }, [token, chatLoading])
+  }
 
-  // ── Knowledge search ─────────────────────────────────────────────────────
+  const handleRejectSuggestion = async (id: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/knowledge/suggestions/${id}/reject`, {
+        method: 'POST',
+        token,
+      })
+      showToast('Suggestion rejected', 'info')
+      loadMemoryData()
+    } catch (err) {
+      showToast('Failed to reject suggestion', 'error')
+    }
+  }
 
-  const handleSearch = useCallback(async () => {
-    const q = searchQuery.trim()
-    if (!q || !token) return
+  const handleBulkSuggestions = async (action: 'approve_all' | 'reject_all') => {
+    if (!token) return
+    try {
+      await apiClient('/api/knowledge/suggestions/bulk', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ action }),
+      })
+      showToast(action === 'approve_all' ? 'All suggestions approved' : 'Queue cleared', 'success')
+      loadMemoryData()
+    } catch (err) {
+      showToast('Bulk action failed', 'error')
+    }
+  }
+
+  const handleCreateFact = async () => {
+    if (!token || !newFactKey.trim() || !newFactValue.trim()) return
+    setSavingFact(true)
+    try {
+      await apiClient('/api/business-facts', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          category: newFactCategory,
+          factKey: newFactKey,
+          factValue: newFactValue,
+        }),
+      })
+      showToast('Business fact saved', 'success')
+      setNewFactKey('')
+      setNewFactValue('')
+      setShowNoteModalFact(false)
+      loadMemoryData()
+    } catch (err) {
+      showToast('Failed to save business fact', 'error')
+    } finally {
+      setSavingFact(false)
+    }
+  }
+
+  const handleMergeDuplicate = async (id: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/knowledge/duplicates/${id}/merge`, { method: 'POST', token })
+      showToast('Duplicate record merged successfully', 'success')
+      loadMemoryData()
+    } catch (err) {
+      showToast('Failed to merge duplicate', 'error')
+    }
+  }
+
+  const handleKnowledgeSearch = async () => {
+    if (!token || !searchQuery.trim()) return
     setSearchLoading(true)
     try {
-      const data = await apiClient<{ results: SearchResult[] }>('/api/knowledge/search', {
-        method: 'POST',
-        token: token ?? undefined,
-        body: JSON.stringify({ query: q }),
-      })
-      setSearchResults(data.results ?? [])
-    } catch {
-      showToast('Search failed. Check the intelligence service.', 'error')
+      const res = await apiClient<{ results: SearchResult[] }>(`/api/knowledge/search?q=${encodeURIComponent(searchQuery)}`, { token })
+      setSearchResults(res.results || [])
+    } catch (err) {
+      showToast('Search failed', 'error')
     } finally {
       setSearchLoading(false)
     }
-  }, [searchQuery, token, showToast])
+  }
 
-  // ── Reindex ───────────────────────────────────────────────────────────────
-
-  const handleReindex = useCallback(async (docId: string) => {
-    if (!token) return
+  const handleKnowledgeChat = async () => {
+    if (!token || !chatInput.trim() || chatLoading) return
+    const q = chatInput.trim()
+    setChatInput('')
+    setChatLoading(true)
+    const tempId = Date.now().toString()
+    setChatHistory(prev => [...prev, { id: tempId, question: q, answer: 'Thinking...', sources: [] }])
     try {
-      await apiClient(`/api/knowledge/${docId}/reindex`, { method: 'POST', token: token ?? undefined })
-      showToast('Reindex started', 'success')
-      await loadData()
-    } catch {
-      showToast('Reindex failed', 'error')
+      const res = await apiClient<{ answer: string; sources: { content: string; score: number }[] }>('/api/knowledge/chat', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ question: q }),
+      })
+      setChatHistory(prev => prev.map(m => m.id === tempId ? { ...m, answer: res.answer, sources: res.sources || [] } : m))
+    } catch (err) {
+      setChatHistory(prev => prev.map(m => m.id === tempId ? { ...m, answer: 'Sorry, I failed to retrieve context.' } : m))
+    } finally {
+      setChatLoading(false)
     }
-  }, [token, loadData, showToast])
-
-  // ── Delete ────────────────────────────────────────────────────────────────
-
-  const handleDelete = useCallback(async (docId: string) => {
-    if (!token || !confirm('Delete this document? All indexed chunks will be removed.')) return
-    try {
-      await apiClient(`/api/knowledge/${docId}`, { method: 'DELETE', token: token ?? undefined })
-      showToast('Document deleted', 'success')
-      await loadData()
-    } catch {
-      showToast('Delete failed', 'error')
-    }
-  }, [token, loadData, showToast])
-
-  // ── Filtered documents ────────────────────────────────────────────────────
-
-  const filteredDocs = documents.filter(doc => {
-    const q = tableSearch.toLowerCase()
-    if (q && !doc.title.toLowerCase().includes(q)) return false
-    if (categoryFilter && doc.category !== categoryFilter) return false
-    if (statusFilter && doc.status !== statusFilter) return false
-    return true
-  })
-
-  const allCategories = Array.from(new Set(documents.map(d => d.category).filter(Boolean))) as string[]
-  const visibleWarnings = health.filter(w => !dismissedWarnings.includes(w.id))
-
-  // ─── Render ───────────────────────────────────────────────────────────────
+  }
 
   return (
-    <div className="flex-1 overflow-auto bg-gray-50 pt-16 pb-20 md:pt-5 md:pb-5">
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-5 space-y-6">
+    <div className="min-h-screen bg-gray-50/50 pb-20 pt-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-6">
+      
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 transition-all ${
+          toast.type === 'success' ? 'bg-green-900 text-white border-green-800' :
+          toast.type === 'error' ? 'bg-red-900 text-white border-red-800' :
+          'bg-gray-900 text-white border-gray-800'
+        }`}>
+          {toast.type === 'success' && <CheckCircle className="w-4 h-4 text-green-400" />}
+          {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-red-400" />}
+          {toast.msg}
+        </div>
+      )}
 
-        {/* ── Toast ─────────────────────────────────────────────────────── */}
-        {toast && (
-          <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all ${
-            toast.type === 'success' ? 'bg-green-600 text-white' :
-            toast.type === 'error' ? 'bg-red-600 text-white' :
-            'bg-gray-900 text-white'
-          }`}>
-            {toast.type === 'success' && <CheckCircle className="w-4 h-4" />}
-            {toast.type === 'error' && <AlertCircle className="w-4 h-4" />}
-            {toast.msg}
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <Cpu className="w-6 h-6" />
+            </div>
+            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Organizational Knowledge & Memory System</h1>
           </div>
-        )}
-
-        {/* ── Header ────────────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              🧠 Knowledge Base
-            </h1>
-            <p className="text-sm text-gray-500 mt-1 max-w-xl">
-              Teach Zuri about your business. AI replies, agents, planning, and automation consult this before responding.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowUploadModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload File
-            </button>
-            <button
-              onClick={() => setShowUrlModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Globe className="w-3.5 h-3.5" /> Add Website
-            </button>
-            <button
-              onClick={() => setShowNoteModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <FileEdit className="w-3.5 h-3.5" /> Paste Content
-            </button>
-            <button
-              onClick={() => {
-                if (!selectedDoc) { showToast('Select a document first', 'info'); return }
-                handleReindex(selectedDoc.id)
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Refresh AI Index
-            </button>
-          </div>
+          <p className="text-sm text-gray-500">
+            Zuri's continuous long-term memory layer — automatically capturing facts, rules, documents, and relationship graphs across all business channels.
+          </p>
         </div>
 
-        {/* ── Stats ─────────────────────────────────────────────────────── */}
-        {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-16" />)}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <StatCard
-              label="Documents"
-              value={stats?.totalDocuments ?? documents.length}
-              icon={Database}
-              color="bg-blue-50 text-blue-600"
-            />
-            <StatCard
-              label="AI-Ready Chunks"
-              value={(stats?.totalChunks ?? 0).toLocaleString()}
-              icon={Layers}
-              color="bg-green-50 text-green-600"
-            />
-            <StatCard
-              label="Words Indexed"
-              value={formatWords(stats?.totalWords ?? 0)}
-              icon={FileText}
-              color="bg-purple-50 text-purple-600"
-            />
-            <StatCard
-              label="Last Sync"
-              value={relativeTime(stats?.lastSync ?? null)}
-              icon={Clock}
-              color="bg-gray-100 text-gray-600"
-            />
-            <StatCard
-              label="Categories"
-              value={stats?.categories?.length ?? allCategories.length}
-              icon={Tag}
-              color="bg-amber-50 text-amber-600"
-            />
-          </div>
-        )}
+        {/* Quick Action Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowUploadModal(true)}
+            className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-2"
+          >
+            <Upload className="w-4 h-4" /> Upload Document
+          </button>
+          <button
+            onClick={() => setShowUrlModal(true)}
+            className="px-3.5 py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-2"
+          >
+            <Globe className="w-4 h-4 text-blue-500" /> Scrape Web URL
+          </button>
+          <button
+            onClick={() => setShowNoteModalFact(true)}
+            className="px-3.5 py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4 text-green-500" /> Add Fact / Policy
+          </button>
+        </div>
+      </div>
 
-        {/* ── Health Warnings ────────────────────────────────────────────── */}
-        {visibleWarnings.length > 0 && (
-          <div className="space-y-2">
-            {visibleWarnings.map(w => (
-              <div key={w.id} className="flex items-start gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
-                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="flex-1 text-sm text-amber-800">{w.message}</p>
-                <button
-                  onClick={() => setDismissedWarnings(prev => [...prev, w.id])}
-                  className="text-amber-500 hover:text-amber-700 p-0.5"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-200 pb-2 no-scrollbar">
+        {[
+          { id: 'overview', label: 'Memory Dashboard', icon: BarChart3 },
+          { id: 'queue', label: `Approval Queue (${suggestions.length})`, icon: ShieldAlert, badge: suggestions.length },
+          { id: 'facts', label: 'Fact & Policy Roster', icon: Zap },
+          { id: 'documents', label: 'Documents Vault', icon: BookOpen },
+          { id: 'graph', label: 'Knowledge Graph', icon: GitBranch },
+          { id: 'studio', label: 'Search & Q&A Studio', icon: Sparkles },
+        ].map(tab => {
+          const Icon = tab.icon
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                isActive
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+              {tab.badge && tab.badge > 0 ? (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  isActive ? 'bg-indigo-800 text-white' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {tab.badge}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── TAB 1: OVERVIEW & HEALTH DASHBOARD ───────────────────────────────── */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          
+          {/* Health & Completeness Score Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            
+            {/* Business Memory Completeness */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Memory Completeness</span>
+                <ShieldCheck className="w-5 h-5 text-indigo-600" />
               </div>
-            ))}
-          </div>
-        )}
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black text-gray-900 font-numeric">{analytics?.completenessScore || 0}%</span>
+                <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Optimal</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2.5">
+                <div
+                  className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
+                  style={{ width: `${analytics?.completenessScore || 0}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Calculated across policies, pricing, customer facts, products, and indexed documents.
+              </p>
+            </div>
 
-        {/* ── Ask Your Knowledge Base ────────────────────────────────────── */}
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-600" />
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Ask Your Knowledge Base</h2>
-              <p className="text-xs text-gray-500">Ask anything about your business — Zuri answers from your documents.</p>
+            {/* Knowledge Quality Score */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Knowledge Quality</span>
+                <Zap className="w-5 h-5 text-green-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black text-gray-900 font-numeric">{analytics?.qualityScore || 100}%</span>
+                <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">Verified</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2.5">
+                <div
+                  className="bg-green-600 h-2.5 rounded-full transition-all duration-500"
+                  style={{ width: `${analytics?.qualityScore || 100}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Reflects low redundancy, human review status, and active corroboration.
+              </p>
+            </div>
+
+            {/* Pending Approvals Alert Card */}
+            <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-200 rounded-2xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-800 uppercase tracking-wider">Pending Review Queue</span>
+                <ShieldAlert className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black text-amber-900 font-numeric">{suggestions.length}</span>
+                <span className="text-xs font-semibold text-amber-800">Auto-Detected Facts</span>
+              </div>
+              <button
+                onClick={() => setActiveTab('queue')}
+                className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+              >
+                Review Items Now <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
-          {/* Chat area */}
-          <div className="p-5">
-            {chatHistory.length === 0 && !chatLoading ? (
-              <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Try asking</p>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    'Do you ship to Kitwe?',
-                    'What is our refund policy?',
-                    'What discounts do VIP customers get?',
-                  ].map(q => (
-                    <button
-                      key={q}
-                      onClick={() => handleAskKb(q)}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
-                    >
-                      <ChevronRight className="w-3 h-3" />
-                      {q}
-                    </button>
+          {/* Core Metrics Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { label: 'Active Business Facts', val: facts.length, icon: Zap, color: 'text-indigo-600 bg-indigo-50' },
+              { label: 'Indexed Documents', val: documents.length, icon: BookOpen, color: 'text-blue-600 bg-blue-50' },
+              { label: 'Graph Entities', val: graphNodes.length, icon: GitBranch, color: 'text-purple-600 bg-purple-50' },
+              { label: 'Flagged Duplicates', val: duplicates.length, icon: Merge, color: 'text-orange-600 bg-orange-50' },
+            ].map(m => {
+              const Icon = m.icon
+              return (
+                <div key={m.label} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-center gap-3">
+                  <div className={`p-2.5 rounded-xl ${m.color}`}>
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-500 uppercase">{m.label}</p>
+                    <p className="text-xl font-black text-gray-900 font-numeric">{m.val}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Category Breakdown & Duplicates Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Category Coverage Breakdown */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-indigo-600" /> Knowledge Coverage by Category
+              </h3>
+              <div className="space-y-2.5">
+                {['pricing', 'policies', 'products', 'services', 'procedures', 'general'].map(cat => {
+                  const count = facts.filter(f => f.category?.toLowerCase() === cat).length
+                  const pct = Math.min(100, count * 15)
+                  return (
+                    <div key={cat} className="space-y-1">
+                      <div className="flex justify-between text-xs font-semibold text-gray-700 capitalize">
+                        <span>{cat}</span>
+                        <span>{count} facts</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-2">
+                        <div className="bg-indigo-600 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Duplicates Manager Card */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Merge className="w-4 h-4 text-orange-600" /> Duplicate Candidates ({duplicates.length})
+                </h3>
+              </div>
+              {duplicates.length === 0 ? (
+                <div className="p-8 text-center border-2 border-dashed border-gray-200 rounded-xl">
+                  <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-gray-700">No duplicate items detected</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Zuri continuously monitors memory items for redundancy.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                  {duplicates.map(dup => (
+                    <div key={dup.id} className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between gap-3 text-xs">
+                      <div>
+                        <p className="font-bold text-gray-900 capitalize">{dup.entityType} Duplicate Candidate</p>
+                        <p className="text-gray-500 text-[11px]">{dup.reason}</p>
+                      </div>
+                      <button
+                        onClick={() => handleMergeDuplicate(dup.id)}
+                        className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-bold transition-all text-[11px]"
+                      >
+                        1-Click Merge
+                      </button>
+                    </div>
                   ))}
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-4 mb-4 max-h-72 overflow-y-auto pr-1">
-                {chatHistory.map(item => (
-                  <div key={item.id} className="space-y-2">
-                    {/* Question */}
-                    <div className="flex justify-end">
-                      <div className="bg-indigo-600 text-white rounded-2xl rounded-br-md px-4 py-2.5 max-w-[80%] text-sm leading-relaxed">
-                        {item.question}
-                      </div>
-                    </div>
-                    {/* Answer */}
-                    <div className="flex justify-start">
-                      <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-2.5 max-w-[85%]">
-                        <p className="text-sm text-gray-900 leading-relaxed">{item.answer}</p>
-                        {item.sources.length > 0 && (
-                          <p className="text-[11px] text-gray-400 mt-2">
-                            Sources: {item.sources.slice(0, 3).join(' · ')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-2">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-                      <span className="text-sm text-gray-500">Thinking...</span>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 2: SMART APPROVAL QUEUE ──────────────────────────────────────── */}
+      {activeTab === 'queue' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Auto-Captured Knowledge Queue</h2>
+              <p className="text-xs text-gray-500">Zuri observed these facts from messaging, invoices, and notes. Review before publishing to memory.</p>
+            </div>
+            {suggestions.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleBulkSuggestions('approve_all')}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-all"
+                >
+                  Approve All
+                </button>
+                <button
+                  onClick={() => handleBulkSuggestions('reject_all')}
+                  className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-xs font-bold transition-all"
+                >
+                  Clear Queue
+                </button>
               </div>
             )}
+          </div>
 
-            {/* Input */}
+          {suggestions.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center space-y-3">
+              <CheckCircle className="w-10 h-10 text-green-500 mx-auto" />
+              <h3 className="text-sm font-bold text-gray-900">Review Queue Empty</h3>
+              <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                All auto-detected business facts and contact preferences have been reviewed or auto-approved.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {suggestions.map(sug => (
+                <div key={sug.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {sug.category}
+                        </span>
+                        <span className="text-xs font-bold text-gray-900">{sug.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500">Key: <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">{sug.proposedKey || 'general_fact'}</code></p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                        {Math.round(sug.confidence * 100)}% Confidence
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Proposed Value & Diff Display */}
+                  <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-2 text-xs">
+                    <p className="font-bold text-gray-700">Proposed Value:</p>
+                    <p className="text-gray-900 leading-relaxed font-mono bg-white p-2.5 rounded-lg border border-gray-200">{sug.proposedValue}</p>
+                    {sug.existingValue && (
+                      <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-red-600">
+                        <span className="font-bold">Previous Value:</span> {sug.existingValue}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Source Snippet */}
+                  {sug.sourceSnippet && (
+                    <p className="text-[11px] text-gray-500 italic bg-amber-50/50 p-2.5 rounded-lg border border-amber-200/50">
+                      Source snippet: &ldquo;{sug.sourceSnippet}&rdquo;
+                    </p>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                    <button
+                      onClick={() => {
+                        setEditingSuggestion(sug)
+                        setEditedSuggestionValue(sug.proposedValue)
+                      }}
+                      className="px-3 py-2 border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" /> Edit Before Approve
+                    </button>
+                    <button
+                      onClick={() => handleRejectSuggestion(sug.id)}
+                      className="px-3.5 py-2 border border-red-200 hover:bg-red-50 text-red-600 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" /> Reject
+                    </button>
+                    <button
+                      onClick={() => handleApproveSuggestion(sug.id)}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" /> Approve & Save
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB 3: FACT & POLICY ROSTER ──────────────────────────────────────── */}
+      {activeTab === 'facts' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Active Business Facts & Rules</h2>
+              <p className="text-xs text-gray-500">Live single source of truth for pricing, policies, shipping, and FAQs.</p>
+            </div>
+            <button
+              onClick={() => setShowNoteModalFact(true)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Fact
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {facts.map(fact => (
+              <div key={fact.id} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-2 hover:border-indigo-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    {fact.category}
+                  </span>
+                  <span className="text-[11px] font-bold text-gray-400 font-mono">{fact.factKey}</span>
+                </div>
+                <p className="text-xs font-medium text-gray-900 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  {fact.factValue}
+                </p>
+                <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1">
+                  <span>Source: {fact.source}</span>
+                  <span>Added {relativeTime(fact.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 4: DOCUMENTS VAULT ───────────────────────────────────────────── */}
+      {activeTab === 'documents' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Indexed Knowledge Vault</h2>
+              <p className="text-xs text-gray-500">Multi-format file storage parsed and vectorized for instant agent retrieval.</p>
+            </div>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+            >
+              <Upload className="w-3.5 h-3.5" /> Upload File
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {documents.map(doc => (
+              <div
+                key={doc.id}
+                onClick={() => setSelectedDoc(doc)}
+                className="bg-white border border-gray-200 hover:border-indigo-400 rounded-2xl p-4 shadow-sm cursor-pointer transition-all space-y-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="p-2 bg-gray-50 rounded-xl border border-gray-200 flex-shrink-0">
+                      <TypeIcon type={doc.sourceType} className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-gray-900 truncate">{doc.title}</p>
+                      <p className="text-[11px] text-gray-400 capitalize">{doc.sourceType} • {doc.category || 'General'}</p>
+                    </div>
+                  </div>
+                  <StatusBadge status={doc.status} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600 font-numeric">
+                  <div>Chunks: <span className="font-bold text-gray-900">{doc.chunkCount}</span></div>
+                  <div>Words: <span className="font-bold text-gray-900">{doc.wordCount ? formatWords(doc.wordCount) : '—'}</span></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 5: KNOWLEDGE GRAPH ───────────────────────────────────────────── */}
+      {activeTab === 'graph' && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm space-y-4">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-indigo-600" /> Relational Knowledge Graph Explorer
+            </h2>
+            <p className="text-xs text-gray-500">Visual mapping of entity connections across customers, products, suppliers, and projects.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 min-h-[300px]">
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+              <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Entities ({graphNodes.length})</h3>
+              <div className="space-y-1.5 max-h-64 overflow-y-auto text-xs">
+                {graphNodes.map(node => (
+                  <div key={node.id} className="p-2 bg-white rounded-lg border border-gray-200 font-medium text-gray-900 flex justify-between">
+                    <span>{node.label}</span>
+                    <span className="text-[10px] text-indigo-600 uppercase font-bold">{node.type}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="md:col-span-2 bg-gray-900 text-white rounded-xl p-6 flex flex-col items-center justify-center text-center space-y-3 border border-gray-800">
+              <Share2 className="w-10 h-10 text-indigo-400 animate-pulse" />
+              <h3 className="text-sm font-bold">GraphRAG Active</h3>
+              <p className="text-xs text-gray-400 max-w-md">
+                Zuri automatically traverses relationships to deliver deep contextual responses across invoicing, CRM messaging, and advisor tools.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 6: SEARCH & Q&A STUDIO ───────────────────────────────────────── */}
+      {activeTab === 'studio' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          {/* Hybrid Semantic Search */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <Search className="w-4 h-4 text-indigo-600" /> Hybrid Semantic Search
+            </h2>
+            <div className="flex gap-2">
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleKnowledgeSearch() }}
+                placeholder="Search across all business memories, docs & facts..."
+                className="flex-1 border border-gray-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={handleKnowledgeSearch}
+                disabled={searchLoading}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                {searchLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} Search
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {searchResults.map((res, idx) => (
+                <div key={idx} className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-1 text-xs">
+                  <p className="font-bold text-gray-900">{res.document_title}</p>
+                  <p className="text-gray-600 leading-relaxed font-mono text-[11px]">{res.content}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Memory Q&A Studio Chat */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm flex flex-col h-[500px]">
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2 mb-3">
+              <Sparkles className="w-4 h-4 text-indigo-600" /> Organizational Q&A Assistant
+            </h2>
+
+            <div className="flex-1 overflow-y-auto space-y-3 p-2 bg-gray-50 rounded-xl border border-gray-100 mb-3 text-xs">
+              {chatHistory.length === 0 ? (
+                <p className="text-center text-gray-400 mt-20">Ask any question about your company policies, pricing, customer terms, or docs...</p>
+              ) : (
+                chatHistory.map(m => (
+                  <div key={m.id} className="space-y-2">
+                    <div className="p-2.5 bg-indigo-600 text-white rounded-xl max-w-[80%] ml-auto text-right font-medium">
+                      {m.question}
+                    </div>
+                    <div className="p-3 bg-white border border-gray-200 text-gray-900 rounded-xl max-w-[90%] leading-relaxed space-y-2">
+                      <p>{m.answer}</p>
+                      {m.sources.length > 0 && (
+                        <div className="pt-2 border-t border-gray-100 text-[10px] text-gray-400">
+                          Sources: {m.sources.length} matching memory chunks
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
             <div className="flex gap-2">
               <input
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAskKb(chatInput) } }}
-                placeholder="Ask about your products, policies, pricing..."
-                className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                onKeyDown={e => { if (e.key === 'Enter') handleKnowledgeChat() }}
+                placeholder="Ask Zuri Memory Engine..."
+                className="flex-1 border border-gray-200 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <button
-                onClick={() => handleAskKb(chatInput)}
-                disabled={!chatInput.trim() || chatLoading || !token}
-                className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 text-sm font-semibold"
+                onClick={handleKnowledgeChat}
+                disabled={chatLoading}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
               >
-                <Send className="w-3.5 h-3.5" />
-                Ask
+                {chatLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
-        </div>
 
-        {/* ── Knowledge Search ───────────────────────────────────────────── */}
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
-            <Search className="w-4 h-4 text-gray-500" />
-            <h2 className="text-sm font-bold text-gray-900">Search Knowledge</h2>
-          </div>
-          <div className="p-5">
-            <div className="flex gap-2 mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
-                  placeholder="Search indexed content..."
-                  className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-              <button
-                onClick={handleSearch}
-                disabled={!searchQuery.trim() || searchLoading || !token}
-                className="px-4 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm font-semibold"
-              >
-                {searchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
-              </button>
-            </div>
-            {searchResults.length > 0 && (
-              <div className="space-y-3">
-                {searchResults.map((r, i) => (
-                  <div key={i} className="p-3.5 bg-gray-50 rounded-xl border border-gray-100">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <TypeIcon type={r.source_type} className="w-3.5 h-3.5" />
-                        <span className="text-xs font-semibold text-gray-700">{r.document_title}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-indigo-500 rounded-full"
-                            style={{ width: `${Math.round(r.relevance_score * 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-gray-500 font-numeric">{Math.round(r.relevance_score * 100)}%</span>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-600 leading-relaxed line-clamp-3">{r.content}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
+      )}
 
-        {/* ── Documents Table ────────────────────────────────────────────── */}
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex items-center gap-2 flex-1">
-                <h2 className="text-sm font-bold text-gray-900">Knowledge Sources</h2>
-                <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full text-xs font-semibold border border-indigo-100">
-                  {filteredDocs.length}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                  <input
-                    value={tableSearch}
-                    onChange={e => setTableSearch(e.target.value)}
-                    placeholder="Filter by title..."
-                    className="pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-40"
-                  />
-                </div>
-                {allCategories.length > 0 && (
-                  <select
-                    value={categoryFilter}
-                    onChange={e => setCategoryFilter(e.target.value)}
-                    className="py-2 pl-3 pr-7 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 bg-white"
-                  >
-                    <option value="">All categories</option>
-                    {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                )}
+      {/* ── MODALS ───────────────────────────────────────────────────────────── */}
+
+      {/* Add Fact Modal */}
+      {showFactModal && (
+        <ModalWrapper onClose={() => setShowNoteModalFact(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-gray-900">Add Business Fact / Policy Rule</h2>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Category</label>
                 <select
-                  value={statusFilter}
-                  onChange={e => setStatusFilter(e.target.value)}
-                  className="py-2 pl-3 pr-7 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 bg-white"
+                  value={newFactCategory}
+                  onChange={e => setNewFactCategory(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="">All status</option>
-                  <option value="ready">AI Ready</option>
-                  <option value="processing">Processing</option>
-                  <option value="error">Failed</option>
+                  {['pricing', 'policies', 'products', 'services', 'procedures', 'general'].map(c => (
+                    <option key={c} value={c}>{c.toUpperCase()}</option>
+                  ))}
                 </select>
               </div>
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Fact Key</label>
+                <input
+                  value={newFactKey}
+                  onChange={e => setNewFactKey(e.target.value)}
+                  placeholder="e.g. standard_return_policy"
+                  className="w-full border border-gray-200 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Fact / Policy Value</label>
+                <textarea
+                  value={newFactValue}
+                  onChange={e => setNewFactValue(e.target.value)}
+                  rows={4}
+                  placeholder="e.g. Clients get 100% refund within 14 days of purchase provided services haven't commenced."
+                  className="w-full border border-gray-200 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setShowNoteModalFact(false)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancel</button>
+              <button onClick={handleCreateFact} disabled={savingFact} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">{savingFact ? 'Saving...' : 'Save Fact'}</button>
             </div>
           </div>
+        </ModalWrapper>
+      )}
 
-          {/* Table */}
-          {loading ? (
-            <div className="p-5 space-y-3">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-14" />)}
+      {/* Edit Suggestion Modal */}
+      {editingSuggestion && (
+        <ModalWrapper onClose={() => setEditingSuggestion(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-gray-900">Edit Proposed Fact Before Approval</h2>
+            <textarea
+              value={editedSuggestionValue}
+              onChange={e => setEditedSuggestionValue(e.target.value)}
+              rows={5}
+              className="w-full border border-gray-200 rounded-xl p-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingSuggestion(null)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancel</button>
+              <button
+                onClick={() => handleApproveSuggestion(editingSuggestion.id, editedSuggestionValue)}
+                className="px-4 py-2 bg-green-600 text-white rounded-xl text-xs font-bold"
+              >
+                Approve Edited Fact
+              </button>
             </div>
-          ) : filteredDocs.length === 0 && documents.length === 0 ? (
-            // Empty state
-            <div className="p-10 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
-                <Database className="w-7 h-7 text-gray-300" />
-              </div>
-              <h3 className="text-base font-bold text-gray-900 mb-1">Your Knowledge Base is empty</h3>
-              <p className="text-sm text-gray-500 mb-6">Add documents to make Zuri smarter about your business.</p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-sm mx-auto">
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
-                >
-                  <Upload className="w-4 h-4" /> Upload PDF
-                </button>
-                <button
-                  onClick={() => setShowUrlModal(true)}
-                  className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
-                >
-                  <Globe className="w-4 h-4" /> Add Website
-                </button>
-                <button
-                  onClick={() => setShowNoteModal(true)}
-                  className="flex items-center justify-center gap-2 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 transition-all"
-                >
-                  <FileEdit className="w-4 h-4" /> Paste Content
-                </button>
-              </div>
-            </div>
-          ) : filteredDocs.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 text-sm">No documents match your filters.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
-                <thead>
-                  <tr className="border-b border-gray-100 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                    <th className="text-left px-5 py-3">Title</th>
-                    <th className="text-left px-4 py-3">Category</th>
-                    <th className="text-left px-4 py-3">Status</th>
-                    <th className="text-right px-4 py-3 font-numeric">Chunks</th>
-                    <th className="text-right px-4 py-3 font-numeric">Used</th>
-                    <th className="text-left px-4 py-3">Updated</th>
-                    <th className="text-right px-5 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredDocs.map(doc => (
-                    <tr
-                      key={doc.id}
-                      className="hover:bg-gray-50 cursor-pointer transition-colors group"
-                      onClick={() => setSelectedDoc(doc)}
-                    >
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <TypeIcon type={doc.sourceType} className="w-4 h-4 flex-shrink-0" />
-                          <div className="min-w-0">
-                            <p className="font-medium text-gray-900 truncate max-w-[200px]">{doc.title}</p>
-                            {doc.sourceUrl && (
-                              <p className="text-xs text-gray-400 truncate max-w-[200px]">{doc.sourceUrl}</p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        {doc.category ? (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">{doc.category}</span>
-                        ) : (
-                          <span className="text-gray-300 text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3.5"><StatusBadge status={doc.status} /></td>
-                      <td className="px-4 py-3.5 text-right text-gray-700 font-numeric">{(doc.chunkCount ?? 0).toLocaleString()}</td>
-                      <td className="px-4 py-3.5 text-right text-gray-500 font-numeric">{doc.usedCount ?? 0}</td>
-                      <td className="px-4 py-3.5 text-gray-500 whitespace-nowrap">{relativeTime(doc.updatedAt)}</td>
-                      <td className="px-5 py-3.5">
-                        <div
-                          className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={e => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => setSelectedDoc(doc)}
-                            title="View details"
-                            className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleReindex(doc.id)}
-                            title="Reindex"
-                            className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(doc.id)}
-                            title="Delete"
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+          </div>
+        </ModalWrapper>
+      )}
 
-      </div>
-
-      {/* ── Modals ─────────────────────────────────────────────────────── */}
-      {showUploadModal && (
-        <UploadModal
-          token={token ?? undefined}
-          onClose={() => setShowUploadModal(false)}
-          onSuccess={loadData}
-        />
-      )}
-      {showUrlModal && (
-        <AddUrlModal
-          token={token ?? undefined}
-          onClose={() => setShowUrlModal(false)}
-          onSuccess={loadData}
-        />
-      )}
-      {showNoteModal && (
-        <AddNoteModal
-          token={token ?? undefined}
-          onClose={() => setShowNoteModal(false)}
-          onSuccess={loadData}
-        />
-      )}
-      {selectedDoc && (
-        <DocumentDetailModal
-          doc={selectedDoc}
-          token={token ?? undefined}
-          onClose={() => setSelectedDoc(null)}
-          onRefresh={() => { loadData(); setSelectedDoc(null) }}
-        />
-      )}
     </div>
   )
 }

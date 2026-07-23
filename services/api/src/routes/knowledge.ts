@@ -721,4 +721,339 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       }
     },
   )
+
+  // ── GET /api/knowledge/suggestions ──────────────────────────────────────────
+  fastify.get(
+    '/api/knowledge/suggestions',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const query = request.query as Record<string, string>
+      const status = query.status || 'pending'
+
+      const { rows } = await db.query<{
+        id: string
+        suggestion_type: string
+        category: string
+        title: string
+        proposed_key: string | null
+        proposed_value: string
+        existing_value: string | null
+        confidence: string
+        source_type: string
+        source_id: string | null
+        source_snippet: string | null
+        detected_entities: unknown
+        status: string
+        created_at: string
+      }>(
+        `SELECT id, suggestion_type, category, title, proposed_key, proposed_value,
+                existing_value, confidence, source_type, source_id, source_snippet,
+                detected_entities, status, created_at
+         FROM knowledge_suggestions
+         WHERE user_id = $1 AND ($2 = 'all' OR status = $2)
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        [userId, status],
+      )
+
+      return reply.send({
+        suggestions: rows.map(s => ({
+          id: s.id,
+          suggestionType: s.suggestion_type,
+          category: s.category,
+          title: s.title,
+          proposedKey: s.proposed_key,
+          proposedValue: s.proposed_value,
+          existingValue: s.existing_value,
+          confidence: Number(s.confidence),
+          sourceType: s.source_type,
+          sourceId: s.source_id,
+          sourceSnippet: s.source_snippet,
+          detectedEntities: s.detected_entities ?? [],
+          status: s.status,
+          createdAt: s.created_at,
+        })),
+      })
+    },
+  )
+
+  // ── POST /api/knowledge/suggestions/:id/approve ────────────────────────────
+  fastify.post(
+    '/api/knowledge/suggestions/:id/approve',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+      const body = (request.body as { editedValue?: string } | undefined) || {}
+
+      const { rows: [sug] } = await db.query<{
+        id: string
+        category: string
+        proposed_key: string | null
+        proposed_value: string
+      }>(
+        `SELECT id, category, proposed_key, proposed_value
+         FROM knowledge_suggestions
+         WHERE id = $1 AND user_id = $2 AND status = 'pending'`,
+        [id, userId],
+      )
+
+      if (!sug) return reply.code(404).send({ error: 'Suggestion not found or already processed' })
+
+      const finalVal = body.editedValue?.trim() || sug.proposed_value
+      const factKey = sug.proposed_key || 'general_fact'
+
+      await db.query(
+        `INSERT INTO business_facts (user_id, category, fact_key, fact_value, confidence, source, is_approved, approved_at)
+         VALUES ($1, $2, $3, $4, 1.0, 'ai_inference', TRUE, NOW())
+         ON CONFLICT (user_id, fact_key, fact_value) DO UPDATE SET
+           category = EXCLUDED.category, is_active = TRUE, is_approved = TRUE, approved_at = NOW(), updated_at = NOW()`,
+        [userId, sug.category || 'other', factKey, finalVal],
+      )
+
+      await db.query(
+        `UPDATE knowledge_suggestions SET status = 'approved', reviewed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [id],
+      )
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── POST /api/knowledge/suggestions/:id/reject ─────────────────────────────
+  fastify.post(
+    '/api/knowledge/suggestions/:id/reject',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rowCount } = await db.query(
+        `UPDATE knowledge_suggestions SET status = 'rejected', reviewed_at = NOW(), updated_at = NOW()
+         WHERE id = $1 AND user_id = $2`,
+        [id, userId],
+      )
+
+      if (!rowCount) return reply.code(404).send({ error: 'Suggestion not found' })
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── POST /api/knowledge/suggestions/bulk ───────────────────────────────────
+  fastify.post(
+    '/api/knowledge/suggestions/bulk',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { action, ids } = request.body as { action: 'approve_all' | 'reject_all'; ids?: string[] }
+
+      if (action === 'reject_all') {
+        let sql = `UPDATE knowledge_suggestions SET status = 'rejected', reviewed_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND status = 'pending'`
+        const params: unknown[] = [userId]
+        if (ids && ids.length > 0) {
+          sql += ` AND id = ANY($2::uuid[])`
+          params.push(ids)
+        }
+        await db.query(sql, params)
+        return reply.send({ ok: true })
+      }
+
+      if (action === 'approve_all') {
+        let sql = `SELECT id, category, proposed_key, proposed_value FROM knowledge_suggestions WHERE user_id = $1 AND status = 'pending'`
+        const params: unknown[] = [userId]
+        if (ids && ids.length > 0) {
+          sql += ` AND id = ANY($2::uuid[])`
+          params.push(ids)
+        }
+        const { rows } = await db.query<{ id: string; category: string; proposed_key: string | null; proposed_value: string }>(sql, params)
+
+        for (const sug of rows) {
+          const factKey = sug.proposed_key || 'general_fact'
+          await db.query(
+            `INSERT INTO business_facts (user_id, category, fact_key, fact_value, confidence, source, is_approved, approved_at)
+             VALUES ($1, $2, $3, $4, 1.0, 'ai_inference', TRUE, NOW())
+             ON CONFLICT (user_id, fact_key, fact_value) DO UPDATE SET
+               category = EXCLUDED.category, is_active = TRUE, is_approved = TRUE, approved_at = NOW(), updated_at = NOW()`,
+            [userId, sug.category || 'other', factKey, sug.proposed_value],
+          )
+          await db.query(`UPDATE knowledge_suggestions SET status = 'approved', reviewed_at = NOW(), updated_at = NOW() WHERE id = $1`, [sug.id])
+        }
+
+        return reply.send({ ok: true, count: rows.length })
+      }
+
+      return reply.code(400).send({ error: 'Invalid action' })
+    },
+  )
+
+  // ── GET /api/knowledge/graph ────────────────────────────────────────────────
+  fastify.get(
+    '/api/knowledge/graph',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const { rows: edges } = await db.query<{
+        id: string
+        from_entity_type: string
+        from_entity_id: string
+        to_entity_type: string
+        to_entity_id: string
+        relation_type: string
+        confidence: string
+      }>(
+        `SELECT id, from_entity_type, from_entity_id, to_entity_type, to_entity_id, relation_type, confidence
+         FROM knowledge_graph_edges
+         WHERE user_id = $1
+         LIMIT 200`,
+        [userId],
+      )
+
+      const { rows: contacts } = await db.query<{ id: string; display_name: string }>(
+        `SELECT id, COALESCE(custom_name, display_name, phone_number) AS display_name FROM contacts WHERE user_id = $1 LIMIT 50`,
+        [userId],
+      )
+      const { rows: products } = await db.query<{ id: string; name: string }>(
+        `SELECT id, name FROM products WHERE user_id = $1 LIMIT 50`,
+        [userId],
+      )
+      const { rows: suppliers } = await db.query<{ id: string; company: string }>(
+        `SELECT id, company FROM suppliers WHERE user_id = $1 LIMIT 50`,
+        [userId],
+      )
+      const { rows: projects } = await db.query<{ id: string; title: string }>(
+        `SELECT id, title FROM projects WHERE user_id = $1 LIMIT 50`,
+        [userId],
+      )
+
+      const nodes: Array<{ id: string; label: string; type: string }> = [
+        ...contacts.map(c => ({ id: c.id, label: c.display_name, type: 'contact' })),
+        ...products.map(p => ({ id: p.id, label: p.name, type: 'product' })),
+        ...suppliers.map(s => ({ id: s.id, label: s.company, type: 'supplier' })),
+        ...projects.map(pj => ({ id: pj.id, label: pj.title, type: 'project' })),
+      ]
+
+      return reply.send({
+        nodes,
+        edges: edges.map(e => ({
+          id: e.id,
+          fromType: e.from_entity_type,
+          fromId: e.from_entity_id,
+          toType: e.to_entity_type,
+          toId: e.to_entity_id,
+          relation: e.relation_type,
+          confidence: Number(e.confidence),
+        })),
+      })
+    },
+  )
+
+  // ── GET /api/knowledge/duplicates ──────────────────────────────────────────
+  fastify.get(
+    '/api/knowledge/duplicates',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const { rows } = await db.query<{
+        id: string
+        entity_type: string
+        primary_id: string
+        duplicate_id: string
+        similarity_score: string
+        reason: string
+        status: string
+        created_at: string
+      }>(
+        `SELECT id, entity_type, primary_id, duplicate_id, similarity_score, reason, status, created_at
+         FROM knowledge_duplicates
+         WHERE user_id = $1 AND status = 'flagged'
+         ORDER BY similarity_score DESC`,
+        [userId],
+      )
+
+      return reply.send({
+        duplicates: rows.map(d => ({
+          id: d.id,
+          entityType: d.entity_type,
+          primaryId: d.primary_id,
+          duplicateId: d.duplicate_id,
+          similarityScore: Number(d.similarity_score),
+          reason: d.reason,
+          status: d.status,
+          createdAt: d.created_at,
+        })),
+      })
+    },
+  )
+
+  // ── POST /api/knowledge/duplicates/:id/merge ────────────────────────────────
+  fastify.post(
+    '/api/knowledge/duplicates/:id/merge',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows: [dup] } = await db.query<{
+        id: string; entity_type: string; primary_id: string; duplicate_id: string
+      }>(
+        `SELECT id, entity_type, primary_id, duplicate_id FROM knowledge_duplicates WHERE id = $1 AND user_id = $2`,
+        [id, userId],
+      )
+
+      if (!dup) return reply.code(404).send({ error: 'Duplicate record not found' })
+
+      if (dup.entity_type === 'fact') {
+        await db.query(`UPDATE business_facts SET is_active = FALSE WHERE id = $1 AND user_id = $2`, [dup.duplicate_id, userId])
+      } else if (dup.entity_type === 'document') {
+        await db.query(`DELETE FROM kb_documents WHERE id = $1 AND user_id = $2`, [dup.duplicate_id, userId])
+      }
+
+      await db.query(`UPDATE knowledge_duplicates SET status = 'merged' WHERE id = $1`, [id])
+
+      return reply.send({ ok: true })
+    },
+  )
+
+  // ── GET /api/knowledge/analytics ───────────────────────────────────────────
+  fastify.get(
+    '/api/knowledge/analytics',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const [
+        { rows: [docs] },
+        { rows: [facts] },
+        { rows: [suggestions] },
+        { rows: [duplicates] },
+        { rows: categories },
+      ] = await Promise.all([
+        db.query<{ count: string }>(`SELECT COUNT(*) FROM kb_documents WHERE user_id = $1 AND status = 'ready'`, [userId]),
+        db.query<{ count: string }>(`SELECT COUNT(*) FROM business_facts WHERE user_id = $1 AND is_approved = TRUE AND is_active = TRUE`, [userId]),
+        db.query<{ count: string }>(`SELECT COUNT(*) FROM knowledge_suggestions WHERE user_id = $1 AND status = 'pending'`, [userId]),
+        db.query<{ count: string }>(`SELECT COUNT(*) FROM knowledge_duplicates WHERE user_id = $1 AND status = 'flagged'`, [userId]),
+        db.query<{ category: string; count: string }>(`SELECT category, COUNT(*) FROM business_facts WHERE user_id = $1 AND is_approved = TRUE AND is_active = TRUE GROUP BY category`, [userId]),
+      ])
+
+      const totalFacts = parseInt(facts.count, 10)
+      const totalDocs = parseInt(docs.count, 10)
+
+      const completeness = Math.min(100, Math.round(((totalFacts * 3) + (totalDocs * 10))))
+      const qualityScore = Math.min(100, Math.max(50, 100 - (parseInt(suggestions.count, 10) * 2) - (parseInt(duplicates.count, 10) * 5)))
+
+      return reply.send({
+        completenessScore: completeness,
+        qualityScore,
+        totalFacts,
+        totalDocuments: totalDocs,
+        pendingSuggestions: parseInt(suggestions.count, 10),
+        flaggedDuplicates: parseInt(duplicates.count, 10),
+        categoryBreakdown: Object.fromEntries(categories.map(c => [c.category, parseInt(c.count, 10)])),
+      })
+    },
+  )
 }

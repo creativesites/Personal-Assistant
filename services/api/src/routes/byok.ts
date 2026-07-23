@@ -55,10 +55,11 @@ const saveKeyBody = z.object({
 
 const saveSettingsBody = z.object({
   default_provider: z.string().default('google'),
-  preferred_model: z.string().default('gemini/gemini-2.5-flash'),
-  reasoning_model: z.string().default('gemini/gemini-2.5-pro'),
-  fast_model: z.string().default('gemini/gemini-2.5-flash'),
-  vision_model: z.string().default('gemini/gemini-2.5-flash'),
+  preferred_model: z.string().default('gemini/gemini-3.6-flash'),
+  reasoning_model: z.string().default('gemini/gemini-3.5-pro'),
+  fast_model: z.string().default('gemini/gemini-3.6-flash'),
+  vision_model: z.string().default('gemini/gemini-3.6-flash'),
+
   temperature: z.number().min(0).max(2).default(0.7),
   max_output_length: z.number().int().min(100).max(32000).default(2048),
   streaming_enabled: z.boolean().default(true),
@@ -71,7 +72,7 @@ const saveSettingsBody = z.object({
 });
 
 export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
-  // GET /api/byok/providers — List supported providers and setup guides
+  // GET /api/byok/providers — Metadata & setup catalogue
   fastify.get('/api/byok/providers', { preHandler: authenticate }, async (_request, reply) => {
     return reply.send({
       providers: [
@@ -95,21 +96,25 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
             { step: 4, title: 'Copy Key', description: 'Copy the generated API key string (starts with "AIza").' },
             { step: 5, title: 'Paste in Zuri', description: 'Paste your key in the secure input field below and click Test Connection.' },
           ],
-          default_model: 'gemini/gemini-2.5-flash',
+          default_model: 'gemini/gemini-3.6-flash',
           recommended_models: [
-            { id: 'gemini/gemini-2.5-flash', name: 'Gemini 2.5 Flash', type: 'fast/general', description: 'Fastest, highly capable, best overall balance.' },
-            { id: 'gemini/gemini-2.5-pro', name: 'Gemini 2.5 Pro', type: 'reasoning', description: 'Deep analytical reasoning for complex negotiation & strategy.' },
-            { id: 'gemini/gemini-2.0-flash', name: 'Gemini 2.0 Flash', type: 'fast', description: 'Legacy low-latency model.' },
+            { id: 'gemini/gemini-3.6-flash', name: 'Gemini 3.6 Flash', type: 'fast/general', description: 'Recommended. High speed, latest Gemini 3 architecture.', recommended: true },
+            { id: 'gemini/gemini-3.5-pro', name: 'Gemini 3.5 Pro', type: 'reasoning', description: 'Deep reasoning & analysis.' },
+            { id: 'gemini/gemini-3.5-flash', name: 'Gemini 3.5 Flash', type: 'fast', description: 'Balanced speed & accuracy.' },
+            { id: 'gemini/gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', type: 'light', description: 'Ultra-fast lightweight model.' },
+            { id: 'gemini/gemini-3-flash', name: 'Gemini 3 Flash', type: 'fast', description: 'Standard Gemini 3 Flash.' },
+            { id: 'gemini/gemini-3-deep-think', name: 'Gemini 3 Deep Think', type: 'reasoning', description: 'Advanced deep thinking & logic.' },
+            { id: 'gemini/gemini-flash-cyber', name: 'Gemini Flash Cyber', type: 'specialized', description: 'Specialized security & cyber intelligence.' },
           ],
         },
         {
           id: 'openai',
           name: 'OpenAI',
           company: 'OpenAI',
-          description: 'Industry standard for general language tasks, GPT-4o, and advanced structured function calling.',
+          description: 'Industry standard for general language tasks, GPT-5, and advanced structured function calling.',
           strengths: ['Universal standard compatibility', 'Exceptional function calling', 'Great multilingual performance'],
-          best_for: 'Businesses requiring GPT-4o capabilities and standard enterprise integrations',
-          estimated_pricing: '~$2.50 per 1M input tokens (GPT-4o mini: ~$0.15)',
+          best_for: 'Businesses requiring GPT-5 capabilities and standard enterprise integrations',
+          estimated_pricing: '~$2.50 per 1M input tokens',
           difficulty: 'Easy',
           is_recommended: false,
           badge: 'Popular Standard',
@@ -122,11 +127,14 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
             { step: 4, title: 'Copy Secret Key', description: 'Copy your key immediately (starts with "sk-"). It will not be shown again by OpenAI.' },
             { step: 5, title: 'Paste in Zuri', description: 'Paste your key below and click Test Connection.' },
           ],
-          default_model: 'gpt-4o-mini',
+          default_model: 'gpt-5.6',
           recommended_models: [
-            { id: 'gpt-4o-mini', name: 'GPT-4o Mini', type: 'fast/general', description: 'Fast, cheap, and smart for everyday messaging.' },
-            { id: 'gpt-4o', name: 'GPT-4o', type: 'reasoning/vision', description: 'Flagship multimodal reasoning model.' },
-            { id: 'o3-mini', name: 'o3-mini', type: 'reasoning', description: 'Specialized STEM and analytical reasoning.' },
+            { id: 'gpt-5.6', name: 'GPT-5.6 (Sol)', type: 'flagship', description: 'Recommended. Next-gen GPT-5 architecture.', recommended: true },
+            { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', type: 'general', description: 'Grounded high-efficiency model.' },
+            { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', type: 'fast', description: 'Sub-second real-time model.' },
+            { id: 'o4', name: 'o4', type: 'reasoning', description: 'Advanced o-series reasoning model.' },
+            { id: 'o4-mini', name: 'o4 Mini', type: 'reasoning/fast', description: 'Compact STEM & logic reasoning.' },
+            { id: 'o3', name: 'o3', type: 'reasoning', description: 'Deep reasoning engine.' },
           ],
         },
         {
@@ -136,7 +144,7 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
           description: 'Renowned for unmatched nuance, human-like voice matching, empathy, and ethical safety controls.',
           strengths: ['Best voice & tone matching', 'Superior empathy & nuanced communication', 'Massive context window'],
           best_for: 'Personal coaching, executive assistant tasks, and relationship OS matching',
-          estimated_pricing: '~$3.00 per 1M input tokens (Claude 3.5 Haiku: ~$0.80)',
+          estimated_pricing: '~$3.00 per 1M input tokens',
           difficulty: 'Easy',
           is_recommended: false,
           badge: 'Best Human Voice',
@@ -149,10 +157,41 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
             { step: 4, title: 'Copy Key', description: 'Copy your secret key (starts with "sk-ant-").' },
             { step: 5, title: 'Paste in Zuri', description: 'Paste your key below and click Test Connection.' },
           ],
-          default_model: 'claude-3-5-haiku-20241022',
+          default_model: 'claude-opus-5',
           recommended_models: [
-            { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', type: 'fast', description: 'Lightning fast with human warmth.' },
-            { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', type: 'reasoning/writing', description: 'Industry gold standard for human writing & reasoning.' },
+            { id: 'claude-opus-5', name: 'Claude Opus 5', type: 'flagship', description: 'Recommended. Unmatched human empathy, nuance & writing.', recommended: true },
+            { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', type: 'reasoning/writing', description: 'Balanced reasoning and professional writing.' },
+            { id: 'claude-haiku-5', name: 'Claude Haiku 5', type: 'fast', description: 'Lightning-fast voice matching.' },
+          ],
+        },
+        {
+          id: 'qwen',
+          name: 'Alibaba Qwen',
+          company: 'Alibaba Cloud',
+          description: 'High performance open-weights and enterprise models via DashScope API.',
+          strengths: ['Multilingual excellence', 'Strong reasoning & coding', 'Low cost'],
+          best_for: 'Enterprise workflows and custom domain adaptations',
+          estimated_pricing: '~$0.20 per 1M input tokens',
+          difficulty: 'Easy',
+          is_recommended: false,
+          badge: 'High Quality',
+          console_url: 'https://dashscope.console.aliyun.com/',
+          documentation_url: 'https://help.aliyun.com/dashscope/',
+          setup_steps: [
+            { step: 1, title: 'Open DashScope Console', description: 'Navigate to Alibaba Cloud DashScope.' },
+            { step: 2, title: 'Generate API Key', description: 'Create a new DashScope API Key.' },
+            { step: 3, title: 'Paste in Zuri', description: 'Paste your key below and test connection.' },
+          ],
+          default_model: 'dashscope/qwen-3.8-max',
+          recommended_models: [
+            { id: 'qwen-3.8-max', name: 'Qwen 3.8 Max', type: 'flagship', description: 'Recommended. Premium large model.', recommended: true },
+            { id: 'qwen-3.8', name: 'Qwen 3.8', type: 'general', description: 'Standard Qwen 3.8 model.' },
+            { id: 'qwen-3.7-max', name: 'Qwen 3.7 Max', type: 'reasoning', description: 'Qwen 3.7 Max intelligence.' },
+            { id: 'qwen-3.6-plus', name: 'Qwen 3.6 Plus', type: 'general', description: 'Balanced Qwen 3.6 Plus.' },
+            { id: 'qwen-3.5', name: 'Qwen 3.5', type: 'fast', description: 'Fast lightweight model.' },
+            { id: 'qwen2.5-coder', name: 'Qwen2.5 Coder', type: 'coding', description: 'Specialized coding assistant.' },
+            { id: 'qwen2.5-vl', name: 'Qwen2.5 VL', type: 'vision', description: 'Multimodal vision model.' },
+            { id: 'qwen2.5-math', name: 'Qwen2.5 Math', type: 'math', description: 'Specialized math engine.' },
           ],
         },
         {
@@ -220,7 +259,7 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ keys: rows });
   });
 
-  // POST /api/byok/keys — Add or update an encrypted API key
+  // POST /api/byok/keys — Save/encrypt user API key
   fastify.post('/api/byok/keys', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
 
@@ -234,22 +273,53 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
     const encryptedKey = encryptApiKey(body.api_key.trim());
     const hint = generateKeyHint(body.api_key);
 
-    const { rows: [entry] } = await db.query<{ id: string; updated_at: string }>(
-      `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, key_hint, is_active, status)
-       VALUES ($1, $2, $3, $4, $5, true, 'untested')
-       ON CONFLICT (user_id, provider) WHERE team_id IS NULL DO UPDATE
-         SET encrypted_key = EXCLUDED.encrypted_key,
-             key_hint = EXCLUDED.key_hint,
-             is_active = true,
-             status = 'untested',
-             updated_at = NOW()
-       RETURNING id, updated_at`,
-      [userId, body.team_id ?? null, body.provider, encryptedKey, hint],
-    );
+    let entry: { id: string; updated_at: string } | undefined;
+
+    try {
+      // Primary UPSERT attempt
+      const { rows } = await db.query<{ id: string; updated_at: string }>(
+        `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, key_hint, is_active, status)
+         VALUES ($1, $2, $3, $4, $5, true, 'untested')
+         ON CONFLICT (user_id, provider) WHERE team_id IS NULL DO UPDATE
+           SET encrypted_key = EXCLUDED.encrypted_key,
+               key_hint = EXCLUDED.key_hint,
+               is_active = true,
+               status = 'untested',
+               updated_at = NOW()
+         RETURNING id, updated_at`,
+        [userId, body.team_id ?? null, body.provider, encryptedKey, hint],
+      );
+      entry = rows[0];
+    } catch (insertErr: any) {
+      request.log.warn({ err: insertErr }, 'UPSERT with ON CONFLICT failed, attempting fallback UPDATE/INSERT');
+      // Fallback: Check if row already exists
+      const { rows: existing } = await db.query<{ id: string }>(
+        `SELECT id FROM user_ai_keys WHERE user_id = $1 AND provider = $2 AND team_id IS NULL`,
+        [userId, body.provider]
+      );
+      if (existing.length > 0) {
+        const { rows: updated } = await db.query<{ id: string; updated_at: string }>(
+          `UPDATE user_ai_keys 
+           SET encrypted_key = $1, key_hint = $2, is_active = true, status = 'untested', updated_at = NOW()
+           WHERE id = $3
+           RETURNING id, updated_at`,
+          [encryptedKey, hint, existing[0].id]
+        );
+        entry = updated[0];
+      } else {
+        const { rows: inserted } = await db.query<{ id: string; updated_at: string }>(
+          `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, key_hint, is_active, status)
+           VALUES ($1, $2, $3, $4, $5, true, 'untested')
+           RETURNING id, updated_at`,
+          [userId, body.team_id ?? null, body.provider, encryptedKey, hint]
+        );
+        entry = inserted[0];
+      }
+    }
 
     return reply.code(201).send({
       key: {
-        id: entry.id,
+        id: entry?.id,
         provider: body.provider,
         key_hint: hint,
         status: 'untested',

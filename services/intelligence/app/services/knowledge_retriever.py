@@ -138,6 +138,35 @@ def _extract_csv_text(file_path: Path) -> str:
     return '\n'.join(' | '.join(cell.strip() for cell in row if cell.strip()) for row in rows)
 
 
+def _extract_docx_text(file_path: Path) -> str:
+    try:
+        import docx
+        doc = docx.Document(str(file_path))
+        paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        return '\n\n'.join(paras)
+    except Exception:
+        raw = file_path.read_text(encoding='utf-8', errors='ignore')
+        return _strip_html(raw)
+
+
+def _extract_pptx_text(file_path: Path) -> str:
+    try:
+        import pptx
+        prs = pptx.Presentation(str(file_path))
+        slides: list[str] = []
+        for idx, slide in enumerate(prs.slides, start=1):
+            texts: list[str] = []
+            for shape in slide.shapes:
+                if hasattr(shape, 'text') and shape.text.strip():
+                    texts.append(shape.text.strip())
+            if texts:
+                slides.append(f"=== Slide {idx} ===\n" + '\n'.join(texts))
+        return '\n\n'.join(slides)
+    except Exception:
+        raw = file_path.read_text(encoding='utf-8', errors='ignore')
+        return _strip_html(raw)
+
+
 async def _extract_file_text(
     source_type: str, storage_path: str, mime_type: str | None, user_id: str | None = None,
 ) -> str:
@@ -145,13 +174,18 @@ async def _extract_file_text(
     if not file_path.exists():
         raise ValueError('Uploaded file is missing from KB storage')
 
-    if source_type == 'pdf':
+    st = source_type.lower()
+    if st == 'pdf':
         return _extract_pdf_text(file_path)
-    if source_type == 'excel':
+    if st in ('excel', 'xlsx', 'xls'):
         return _extract_workbook_text(file_path)
-    if source_type == 'csv':
+    if st == 'csv':
         return _extract_csv_text(file_path)
-    if source_type == 'image':
+    if st in ('word', 'docx', 'doc'):
+        return _extract_docx_text(file_path)
+    if st in ('pptx', 'ppt', 'presentation'):
+        return _extract_pptx_text(file_path)
+    if st == 'image':
         client = get_ai_client()
         return await client.extract_image_text(
             image_bytes=file_path.read_bytes(),
@@ -159,6 +193,7 @@ async def _extract_file_text(
             service='intelligence', feature='ocr_extraction', user_id=user_id,
         )
     return file_path.read_text(encoding='utf-8', errors='ignore')
+
 
 
 async def process_document(document_id: str, user_id: str) -> None:

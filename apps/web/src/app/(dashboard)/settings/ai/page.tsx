@@ -12,6 +12,42 @@ import {
   Building, ChevronRight, Sliders, AlertCircle, Info, RefreshCw as RotateCcw
 } from 'lucide-react'
 
+export const OPENAI_MODELS = [
+  { id: "gpt-5.6", name: "GPT-5.6 (Sol)", recommended: true },
+  { id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+  { id: "o4", name: "o4" },
+  { id: "o4-mini", name: "o4 Mini" },
+  { id: "o3", name: "o3" }
+]
+
+export const GEMINI_MODELS = [
+  { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", recommended: true },
+  { id: "gemini-3.5-pro", name: "Gemini 3.5 Pro" },
+  { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
+  { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash Lite" },
+  { id: "gemini-3-flash", name: "Gemini 3 Flash" },
+  { id: "gemini-3-deep-think", name: "Gemini 3 Deep Think" },
+  { id: "gemini-flash-cyber", name: "Gemini Flash Cyber" }
+]
+
+export const CLAUDE_MODELS = [
+  { id: "claude-opus-5", name: "Claude Opus 5", recommended: true },
+  { id: "claude-sonnet-5", name: "Claude Sonnet 5" },
+  { id: "claude-haiku-5", name: "Claude Haiku 5" }
+]
+
+export const QWEN_MODELS = [
+  { id: "qwen-3.8-max", name: "Qwen 3.8 Max", recommended: true },
+  { id: "qwen-3.8", name: "Qwen 3.8" },
+  { id: "qwen-3.7-max", name: "Qwen 3.7 Max" },
+  { id: "qwen-3.6-plus", name: "Qwen 3.6 Plus" },
+  { id: "qwen-3.5", name: "Qwen 3.5" },
+  { id: "qwen2.5-coder", name: "Qwen2.5 Coder" },
+  { id: "qwen2.5-vl", name: "Qwen2.5 VL" },
+  { id: "qwen2.5-math", name: "Qwen2.5 Math" }
+]
+
 interface ProviderMetadata {
   id: string
   name: string
@@ -109,10 +145,10 @@ export default function AISettingsPage() {
   const [savedKeys, setSavedKeys] = useState<SavedKey[]>([])
   const [settings, setSettings] = useState<AISettings>({
     default_provider: 'google',
-    preferred_model: 'gemini/gemini-2.5-flash',
-    reasoning_model: 'gemini/gemini-2.5-pro',
-    fast_model: 'gemini/gemini-2.5-flash',
-    vision_model: 'gemini/gemini-2.5-flash',
+    preferred_model: 'gemini/gemini-3.6-flash',
+    reasoning_model: 'gemini/gemini-3.5-pro',
+    fast_model: 'gemini/gemini-3.6-flash',
+    vision_model: 'gemini/gemini-3.6-flash',
     temperature: 0.7,
     max_output_length: 2048,
     streaming_enabled: true,
@@ -126,6 +162,7 @@ export default function AISettingsPage() {
   const [usageSummary, setUsageSummary] = useState<UsageSummary>({
     todaySpendUsd: 0, monthSpendUsd: 0, todayRequests: 0, monthRequests: 0,
   })
+
 
   // Selected Provider for Guided Wizard & Entry
   const [selectedProviderId, setSelectedProviderId] = useState<string>('google')
@@ -627,8 +664,9 @@ export default function AISettingsPage() {
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="google">Google Gemini (Recommended)</option>
-              <option value="openai">OpenAI (GPT-4o)</option>
+              <option value="openai">OpenAI (GPT-5 / GPT-4o)</option>
               <option value="anthropic">Anthropic Claude</option>
+              <option value="qwen">Alibaba Qwen</option>
               <option value="openrouter">OpenRouter Gateway</option>
               <option value="groq">Groq LPU</option>
             </select>
@@ -641,12 +679,34 @@ export default function AISettingsPage() {
               onChange={e => setSettings({ ...settings, preferred_model: e.target.value })}
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="gemini/gemini-2.5-flash">Gemini 2.5 Flash (Fastest & Best Value)</option>
-              <option value="gemini/gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
-              <option value="gpt-4o-mini">GPT-4o Mini (OpenAI)</option>
-              <option value="gpt-4o">GPT-4o (OpenAI Flagship)</option>
-              <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Anthropic)</option>
-              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Anthropic)</option>
+              <optgroup label="Google Gemini">
+                {GEMINI_MODELS.map(m => (
+                  <option key={m.id} value={`gemini/${m.id}`}>
+                    {m.name} {m.recommended ? '(Recommended)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="OpenAI">
+                {OPENAI_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} {m.recommended ? '(Recommended)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Anthropic">
+                {CLAUDE_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} {m.recommended ? '(Recommended)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Alibaba Qwen">
+                {QWEN_MODELS.map(m => (
+                  <option key={m.id} value={`dashscope/${m.id}`}>
+                    {m.name} {m.recommended ? '(Recommended)' : ''}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </div>
 
@@ -657,11 +717,16 @@ export default function AISettingsPage() {
               onChange={e => setSettings({ ...settings, reasoning_model: e.target.value })}
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option value="gemini/gemini-2.5-pro">Gemini 2.5 Pro</option>
-              <option value="gpt-4o">GPT-4o Flagship</option>
-              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+              <option value="gemini/gemini-3.5-pro">Gemini 3.5 Pro (Deep Reasoning)</option>
+              <option value="gemini/gemini-3-deep-think">Gemini 3 Deep Think</option>
+              <option value="gpt-5.6">GPT-5.6 (Sol)</option>
+              <option value="o4">o4 Reasoning</option>
+              <option value="o3">o3 Reasoning</option>
+              <option value="claude-opus-5">Claude Opus 5</option>
+              <option value="dashscope/qwen-3.8-max">Qwen 3.8 Max</option>
             </select>
           </div>
+
 
           <div className="space-y-2">
             <label className="block text-xs font-bold text-slate-700">Temperature (Creativity Level): {settings.temperature}</label>

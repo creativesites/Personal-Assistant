@@ -269,10 +269,110 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     { preHandler: authenticate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
+
+      const bodySchema = z.object({
+        mode: z.enum(['business', 'personal', 'hybrid']).optional(),
+        identityRole: z.string().optional(),
+        businessName: z.string().optional(),
+        businessDescription: z.string().optional(),
+        industry: z.string().optional(),
+        primaryGoal: z.string().optional(),
+      });
+
+      let body: z.infer<typeof bodySchema> = {};
+      try {
+        if (request.body && typeof request.body === 'object') {
+          body = bodySchema.parse(request.body);
+        }
+      } catch {
+        // Fallback gracefully if empty body or invalid fields
+      }
+
+      // 1. Update user record (mode and onboarding_completed)
+      const updates = ['onboarding_completed = true', 'updated_at = NOW()'];
+      const values: any[] = [];
+      let paramIdx = 1;
+
+      if (body.mode) {
+        updates.push(`mode = $${paramIdx++}`);
+        values.push(body.mode);
+      }
+
+      values.push(userId);
       await db.query(
-        'UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE id = $1',
-        [userId],
+        `UPDATE users SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
+        values,
       );
+
+      // 2. Persist to business_profiles (upsert default profile)
+      if (body.businessName || body.businessDescription || body.industry) {
+        const { rows: [existingProfile] } = await db.query(
+          `SELECT id FROM business_profiles WHERE user_id = $1 AND is_default = true`,
+          [userId],
+        );
+
+        if (existingProfile) {
+          await db.query(
+            `UPDATE business_profiles
+             SET company_name = COALESCE($1, company_name),
+                 industry = COALESCE($2, industry),
+                 footer_text = COALESCE($3, footer_text),
+                 updated_at = NOW()
+             WHERE id = $4`,
+            [body.businessName || null, body.industry || null, body.businessDescription || null, existingProfile.id],
+          );
+        } else {
+          await db.query(
+            `INSERT INTO business_profiles (user_id, company_name, industry, footer_text, is_default)
+             VALUES ($1, $2, $3, $4, true)
+             ON CONFLICT DO NOTHING`,
+            [userId, body.businessName || 'My Business', body.industry || null, body.businessDescription || null],
+          );
+        }
+      }
+
+      // 3. Seed business_facts for the AI intelligence engine
+      const factSeeds: { category: string; key: string; value: string }[] = [];
+      if (body.businessName) {
+        factSeeds.push({ category: 'general_info', key: 'company_name', value: body.businessName });
+      }
+      if (body.businessDescription) {
+        factSeeds.push({ category: 'general_info', key: 'business_description', value: body.businessDescription });
+      }
+      if (body.industry) {
+        factSeeds.push({ category: 'general_info', key: 'industry', value: body.industry });
+      }
+      if (body.identityRole) {
+        factSeeds.push({ category: 'general_info', key: 'user_role', value: body.identityRole });
+      }
+      if (body.primaryGoal) {
+        factSeeds.push({ category: 'company_values', key: 'primary_goal', value: body.primaryGoal });
+      }
+
+      for (const seed of factSeeds) {
+        await db.query(
+          `INSERT INTO business_facts (user_id, category, fact_key, fact_value, confidence, source, is_approved, approved_at)
+           VALUES ($1, $2, $3, $4, 1.0, 'onboarding', true, NOW())
+           ON CONFLICT DO NOTHING`,
+          [userId, seed.category, seed.key, seed.value],
+        ).catch(() => {});
+      }
+
+      // 4. Personalize default AI assistant agent
+      if (body.identityRole || body.businessName) {
+        const agentTitle = body.identityRole ? `${body.identityRole.replace('_', ' ').toUpperCase()} Assistant` : 'Personal Assistant';
+        const desc = body.businessName
+          ? `Tailored assistant for ${body.businessName} — helps manage conversations, follow-ups, and customer relations.`
+          : 'Your default AI assistant — drafts replies and handles messages.';
+
+        await db.query(
+          `UPDATE agents
+           SET role_title = $1, description = $2, updated_at = NOW()
+           WHERE user_id = $3 AND is_default = true`,
+          [agentTitle, desc, userId],
+        ).catch(() => {});
+      }
+
       return reply.send({ ok: true });
     },
   );

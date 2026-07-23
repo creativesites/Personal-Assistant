@@ -272,12 +272,14 @@ export class BaileysTransport extends WhatsAppTransport {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
-        this._resetQrTimer();
-        try {
-          const dataUrl = await QRCode.toDataURL(qr);
-          this.emitQr(dataUrl);
-        } catch (err) {
-          console.error(`[baileys:${this.userId}] QR encode error:`, err);
+        if (!this.pairingPhone) {
+          this._resetQrTimer();
+          try {
+            const dataUrl = await QRCode.toDataURL(qr);
+            this.emitQr(dataUrl);
+          } catch (err) {
+            console.error(`[baileys:${this.userId}] QR encode error:`, err);
+          }
         }
       }
 
