@@ -277,7 +277,7 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
     token ? '/api/business-facts?category=business_rule' : null, token,
   )
   const { data: insights } = useApi<StudioInsights>(token ? '/api/studio/insights' : null, token)
-  const { data: financials } = useApi<FinancialOverview>(token ? '/api/studio/financial-overview' : null, token)
+  const { data: financials, refetch: refetchFinancials, loading: financialsLoading } = useApi<FinancialOverview>(token ? '/api/studio/financial-overview' : null, token)
 
   const products  = productsData?.products  ?? []
   const suppliers = suppliersData?.suppliers ?? []
@@ -569,7 +569,18 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
           {/* Financial Overview Card */}
           {financials && (
             <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
-              <p className="text-sm font-semibold text-gray-900 mb-3">Financial Overview</p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-gray-900">Financial Overview</p>
+                <button
+                  onClick={() => refetchFinancials()}
+                  disabled={financialsLoading}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  title="Refetch revenue & outstanding metrics"
+                >
+                  <RefreshCw size={12} className={financialsLoading ? 'animate-spin text-indigo-600' : 'text-gray-400'} />
+                  Refresh
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-2xl bg-emerald-50/70 px-3 py-2.5 ring-1 ring-emerald-100">
                   <p className="text-[10px] font-semibold text-emerald-700">Cash Collected</p>
