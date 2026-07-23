@@ -244,8 +244,8 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
     });
   });
 
-  // GET /api/byok/keys — List configured keys for user
-  fastify.get('/api/byok/keys', { preHandler: authenticate }, async (request, reply) => {
+  // GET /api/byok / /api/byok/keys — List configured keys for user
+  const getKeysHandler = async (request: any, reply: any) => {
     const { userId } = request.user as { userId: string };
 
     const { rows } = await db.query(
@@ -257,7 +257,10 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
     );
 
     return reply.send({ keys: rows });
-  });
+  };
+
+  fastify.get('/api/byok', { preHandler: authenticate }, getKeysHandler);
+  fastify.get('/api/byok/keys', { preHandler: authenticate }, getKeysHandler);
 
   // POST /api/byok/keys — Save/encrypt user API key
   fastify.post('/api/byok/keys', { preHandler: authenticate }, async (request, reply) => {

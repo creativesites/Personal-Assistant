@@ -70,6 +70,7 @@ import { ServicesModule } from './_components/services-module'
 import { CustomersModule } from './_components/customers-module'
 import { BrandModule } from './_components/brand-module'
 import { SalesModule } from './_components/sales-module'
+import { KnowledgeModule } from './_components/knowledge-module'
 import { FeatureGate } from '@/components/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2356,83 +2357,6 @@ function RulesModule({ token }: { token: string | undefined }) {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// ─── Knowledge Module ─────────────────────────────────────────────────────────
-
-function KnowledgeModule({ token }: { token: string | undefined }) {
-  const { data: kbData, loading } = useApi<{ documents: KBDocument[]; total?: number }>(
-    token ? '/api/knowledge' : null, token,
-  )
-
-  const docs  = kbData?.documents ?? []
-  const total = kbData?.total ?? docs.length
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-        <div className="flex items-center gap-2 mb-1">
-          <BookOpen className="w-4 h-4 text-indigo-600" />
-          <p className="text-sm font-semibold text-indigo-900">Knowledge Base</p>
-        </div>
-        <p className="text-sm text-indigo-700">
-          Documents and URLs in your Knowledge Base are used by Zuri to answer customer questions accurately over WhatsApp.
-        </p>
-      </div>
-
-      <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="font-semibold text-gray-900">Knowledge Documents</p>
-            <p className="text-sm text-gray-500">
-              {loading ? 'Loading...' : `${total} document${total !== 1 ? 's' : ''} indexed`}
-            </p>
-          </div>
-          <Link href="/knowledge">
-            <Button variant="secondary">
-              <BookOpen className="w-4 h-4 mr-1.5" />
-              Manage KB
-            </Button>
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-10 bg-gray-100 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : docs.length === 0 ? (
-          <EmptyState
-            title="No KB documents yet"
-            description="Go to the Knowledge page to add documents and URLs."
-            action={
-              <Link href="/knowledge">
-                <Button><Plus className="w-4 h-4 mr-1.5" />Add documents</Button>
-              </Link>
-            }
-          />
-        ) : (
-          <div className="space-y-2">
-            {docs.slice(0, 5).map(doc => (
-              <div key={doc.id} className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg">
-                <FileText className="w-4 h-4 text-gray-400 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{doc.title}</p>
-                  <p className="text-xs text-gray-400">{doc.type}</p>
-                </div>
-              </div>
-            ))}
-            {docs.length > 5 && (
-              <Link href="/knowledge" className="block text-center text-sm text-indigo-600 hover:underline pt-1">
-                View all {docs.length} documents
-              </Link>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   )
 }

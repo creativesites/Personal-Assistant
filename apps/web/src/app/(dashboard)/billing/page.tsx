@@ -92,7 +92,7 @@ export default function BillingPage() {
 
   const { data: sub, loading: subLoading, refetch: refetchSub } = useApi<SubscriptionMe>('/api/subscriptions/me', token)
   const { data: catalog, loading: plansLoading } = useApi<{ plans: Plan[] }>('/api/subscription-plans', token)
-  const { data: byokKeys } = useApi<{ keys: unknown[] }>('/api/byok', token)
+  const { data: byokKeys } = useApi<{ keys: unknown[] }>('/api/byok/keys', token)
   const { data: usage } = useApi<UsageSummary>('/api/billing/usage-summary', token)
   const { data: timelineData } = useApi<{ timeline: TimelineEntry[] }>('/api/billing/timeline', token)
 
@@ -122,20 +122,6 @@ export default function BillingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, catalog])
 
-  const loading = session.status === 'loading' || subLoading
-
-  if (loading) {
-    return (
-      <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
-        <PageHeader title="Billing" />
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 max-w-2xl mx-auto w-full">
-          <SkeletonCard />
-          <SkeletonCard />
-        </div>
-      </div>
-    )
-  }
-
   const isPending = sub?.status === 'pending_payment'
   const isRejected = sub?.status === 'payment_rejected'
   const upgradeablePlans = catalog?.plans.filter((p) => p.key !== 'free') ?? []
@@ -154,6 +140,20 @@ export default function BillingPage() {
     }, 20_000)
     return () => clearInterval(timer)
   }, [isPending, refetchSub])
+
+  const loading = session.status === 'loading' || subLoading
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)]">
+        <PageHeader title="Billing" />
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 max-w-2xl mx-auto w-full">
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-full bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]">

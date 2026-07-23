@@ -494,29 +494,42 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
-      const { rows: [stats] } = await db.query<{
-        total_contacts: string
-        total_messages: string
-        total_suggestions: string
-      }>(
-        `SELECT
-           (SELECT COUNT(*) FROM contacts WHERE user_id = $1) AS total_contacts,
-           (SELECT COUNT(*) FROM messages m
-            JOIN conversations c ON m.conversation_id = c.id
-            WHERE c.user_id = $1) AS total_messages,
-           (SELECT COUNT(*) FROM suggested_replies sr
-            JOIN conversations c ON sr.conversation_id = c.id
-            WHERE c.user_id = $1) AS total_suggestions`,
-        [userId],
-      )
+      try {
+        const { rows } = await db.query<{
+          total_contacts: string
+          total_messages: string
+          total_suggestions: string
+        }>(
+          `SELECT
+             (SELECT COUNT(*) FROM contacts WHERE user_id = $1) AS total_contacts,
+             (SELECT COUNT(*) FROM messages m
+              JOIN conversations c ON m.conversation_id = c.id
+              WHERE c.user_id = $1) AS total_messages,
+             (SELECT COUNT(*) FROM suggested_replies sr
+              JOIN conversations c ON sr.conversation_id = c.id
+              WHERE c.user_id = $1) AS total_suggestions`,
+          [userId],
+        )
 
-      return reply.send({
-        stats: {
-          totalContacts: parseInt(stats.total_contacts, 10),
-          totalMessages: parseInt(stats.total_messages, 10),
-          totalSuggestions: parseInt(stats.total_suggestions, 10),
-        },
-      })
+        const stats = rows[0]
+
+        return reply.send({
+          stats: {
+            totalContacts: parseInt(stats?.total_contacts || '0', 10),
+            totalMessages: parseInt(stats?.total_messages || '0', 10),
+            totalSuggestions: parseInt(stats?.total_suggestions || '0', 10),
+          },
+        })
+      } catch (err: any) {
+        fastify.log.error({ err }, 'users/me/stats: DB query failed')
+        return reply.send({
+          stats: {
+            totalContacts: 0,
+            totalMessages: 0,
+            totalSuggestions: 0,
+          },
+        })
+      }
     },
   )
 }

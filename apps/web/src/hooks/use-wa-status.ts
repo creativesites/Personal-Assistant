@@ -43,7 +43,13 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
       const r = await fetch(`${API_URL}/api/whatsapp/status`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!r.ok || !mountedRef.current) return
+      if (!mountedRef.current) return
+
+      if (!r.ok) {
+        timerRef.current = setTimeout(poll, POLL_STABLE_MS)
+        return
+      }
+
       const data = await r.json()
       if (!mountedRef.current) return
 
