@@ -66,6 +66,11 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
               {conv.leadScore}
             </span>
           )}
+          {conv.assignedToEmail && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md" title={`Assigned to ${conv.assignedToEmail}`}>
+              👤 {conv.assignedToEmail.split('@')[0]}
+            </span>
+          )}
           {syncing && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-md">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />

@@ -118,6 +118,11 @@ export interface Conversation {
   sentiment?: 'happy' | 'neutral' | 'frustrated' | 'angry' | null
   slaMinutes?: number | null
   leadScore?: number
+  assignedTo?: string | null
+  assignedToEmail?: string | null
+  lockedBy?: string | null
+  lockedByEmail?: string | null
+  lockedAt?: string | null
 }
 
 export interface Message {

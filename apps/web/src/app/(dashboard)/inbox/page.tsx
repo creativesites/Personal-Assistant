@@ -116,6 +116,10 @@ export default function InboxPage() {
   // Presence map state
   const [presenceMap, setPresenceMap] = useState<Record<string, { status: string; lastSeenAt: string | null }>>({})
 
+  // Shared Inbox Team & Locking states
+  const [teamMembers, setTeamMembers] = useState<Array<{ userId: string; fullName: string; email: string; role: string }>>([])
+  const [selectedConvLock, setSelectedConvLock] = useState<{ lockedBy: string | null; lockedByName?: string } | null>(null)
+
   // Edit contact modal states
   const [showEditContact, setShowEditContact] = useState(false)
   const [editName, setEditName] = useState('')
@@ -313,6 +317,32 @@ export default function InboxPage() {
     } catch {}
   }, [token])
 
+  const loadTeamMembers = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{ team: { members: Array<{ userId: string; fullName: string; email: string; role: string }> } | null }>('/api/team', { token })
+      if (data.team?.members) {
+        setTeamMembers(data.team.members)
+      }
+    } catch {}
+  }, [token])
+
+  const assignConversation = useCallback(async (convId: string, assignedTo: string | null) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/conversations/${convId}/assign`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ assignedTo }),
+      })
+      const member = teamMembers.find(m => m.userId === assignedTo)
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedTo, assignedToEmail: member?.email ?? null } : c))
+      addToast({ variant: 'success', title: assignedTo ? 'Conversation assigned' : 'Assignment cleared' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to assign conversation' })
+    }
+  }, [token, teamMembers, addToast])
+
   useEffect(() => {
     const defaultTitle = 'Inbox | Zuri'
     document.title = totalUnread > 0 ? `(${totalUnread}) ${defaultTitle}` : defaultTitle
@@ -328,6 +358,7 @@ export default function InboxPage() {
     loadSyncStatus()
     loadDefaultAgent()
     loadExcludedContacts()
+    loadTeamMembers()
     const socket = getSocket(token)
     if (!socket) return
 
@@ -538,12 +569,43 @@ export default function InboxPage() {
       }
     }
 
+    const handleConversationAssigned = (payload: string) => {
+      try {
+        const data = parseSocketPayload<{ conversationId: string; assignedTo: string | null }>(payload)
+        setConversations(prev => prev.map(c => c.id === data.conversationId ? { ...c, assignedTo: data.assignedTo } : c))
+      } catch {}
+    }
+
+    const handleConversationLocked = (payload: string) => {
+      try {
+        const data = parseSocketPayload<{ conversationId: string; lockedBy: string; lockedByName?: string }>(payload)
+        if (selectedIdRef.current === data.conversationId) {
+          setSelectedConvLock({ lockedBy: data.lockedBy, lockedByName: data.lockedByName })
+        }
+        setConversations(prev => prev.map(c => c.id === data.conversationId ? { ...c, lockedBy: data.lockedBy } : c))
+      } catch {}
+    }
+
+    const handleConversationUnlocked = (payload: string) => {
+      try {
+        const data = parseSocketPayload<{ conversationId: string }>(payload)
+        if (selectedIdRef.current === data.conversationId) {
+          setSelectedConvLock(null)
+        }
+        setConversations(prev => prev.map(c => c.id === data.conversationId ? { ...c, lockedBy: null } : c))
+      } catch {}
+    }
+
+    socket.on('conversation:assigned', handleConversationAssigned)
+    socket.on('conversation:locked', handleConversationLocked)
+    socket.on('conversation:unlocked', handleConversationUnlocked)
     socket.on('presence:update', handlePresenceUpdate)
     socket.on('message:status:update', handleMessageStatusUpdate)
 
     const reconcile = () => {
       loadConversations()
       loadSyncStatus()
+      loadTeamMembers()
       if (selectedIdRef.current) {
         const active = selectedIdRef.current
         apiClient<{ messages: Message[]; contact: Contact }>(`/api/conversations/${active}/messages`, { token })
@@ -570,6 +632,9 @@ export default function InboxPage() {
       socket.off('message:new', handleNewMessage)
       socket.off('conversation:upsert', handleConversationUpsert)
       socket.off('conversation:read', handleConversationRead)
+      socket.off('conversation:assigned', handleConversationAssigned)
+      socket.off('conversation:locked', handleConversationLocked)
+      socket.off('conversation:unlocked', handleConversationUnlocked)
       socket.off('history:progress', handleSyncProgress)
       socket.off('suggestion:ready')
       socket.off('bundle:ready')
@@ -582,7 +647,7 @@ export default function InboxPage() {
       if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
       if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
     }
-  }, [token, loadConversations, loadBriefing, loadSyncStatus, loadDefaultAgent, loadExcludedContacts])
+  }, [token, loadConversations, loadBriefing, loadSyncStatus, loadDefaultAgent, loadExcludedContacts, loadTeamMembers])
 
   useEffect(() => {
     const on = () => setIsOnline(true)
@@ -623,6 +688,9 @@ export default function InboxPage() {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const selectConversation = async (convId: string) => {
+    if (token && selectedIdRef.current && selectedIdRef.current !== convId) {
+      apiClient(`/api/conversations/${selectedIdRef.current}/unlock`, { method: 'POST', token }).catch(() => {})
+    }
     selectedIdRef.current = convId
     selectedMsgIdRef.current = null
     setSelectedId(convId); setSelectedMsgId(null); setSuggestions([])
@@ -638,6 +706,21 @@ export default function InboxPage() {
     setDraft(''); setAiTab('overview'); setContextData(null); setPromises([]); setDismissedCardIds([])
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, unreadCount: 0 } : c))
     if (!token) return
+
+    apiClient<{ lockedBy?: string; lockedByName?: string }>(`/api/conversations/${convId}/lock`, { method: 'POST', token })
+      .then(d => {
+        if (d?.lockedBy) {
+          setSelectedConvLock({ lockedBy: d.lockedBy, lockedByName: d.lockedByName })
+        } else {
+          setSelectedConvLock(null)
+        }
+      })
+      .catch((err: any) => {
+        if (err?.status === 409 || err?.data?.lockedBy) {
+          setSelectedConvLock({ lockedBy: err.data.lockedBy, lockedByName: err.data.lockedByName })
+        }
+      })
+
     try {
       const data = await apiClient<{ messages: Message[]; contact: Contact }>(
         `/api/conversations/${convId}/messages`, { token }
@@ -1471,6 +1554,23 @@ export default function InboxPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
+                      {mode !== 'personal' && teamMembers.length > 0 && selectedId && (
+                        <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-xs">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Assign:</span>
+                          <select
+                            value={selectedConv?.assignedTo || ''}
+                            onChange={(e) => assignConversation(selectedId, e.target.value || null)}
+                            className="bg-transparent font-semibold text-gray-700 focus:outline-none cursor-pointer text-xs"
+                          >
+                            <option value="">Unassigned</option>
+                            {teamMembers.map(m => (
+                              <option key={m.userId} value={m.userId}>
+                                👤 {m.fullName || m.email.split('@')[0]}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     <button
                       onClick={() => setThreadSearchOpen(v => !v)}
                       className={`p-2 rounded-xl transition-all active:scale-95 ${threadSearchOpen ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
@@ -1617,6 +1717,15 @@ export default function InboxPage() {
                     onNextSearch={handleThreadSearchNext}
                     onSelectMessage={selectMessage}
                   />
+                )}
+                {selectedConvLock && selectedConvLock.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
+                  <div className="relative z-20 px-4 py-2 bg-amber-500 text-white text-xs font-semibold flex items-center justify-between shadow-md">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                      <span>🔒 {selectedConvLock.lockedByName || 'Another team member'} is currently viewing/replying to this conversation.</span>
+                    </div>
+                    <span className="text-[10px] opacity-90 uppercase tracking-wider font-bold bg-amber-600 px-2 py-0.5 rounded">Collision Warning</span>
+                  </div>
                 )}
 
                 <ReplyDock

@@ -2,9 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
-import { requireFeature } from '../lib/entitlements'
+import { requireFeature } from '../lib/entitlements';
+import { getEffectiveScope } from '../lib/org-scope';
+import { publishInboxEvent } from '../lib/inbox-events';
 
-const gate = [authenticate, requireFeature('teams')]
+const gate = [authenticate];
 
 const createTeamBody = z.object({
   name: z.string().min(1).max(255),
@@ -21,8 +23,8 @@ const changeRoleBody = z.object({
 });
 
 const assignBody = z.object({
-  assignedTo: z.string().uuid().optional(),
-  teamId: z.string().uuid().optional(),
+  assignedTo: z.string().uuid().nullable().optional(),
+  teamId: z.string().uuid().nullable().optional(),
 });
 
 const noteBody = z.object({
@@ -31,35 +33,29 @@ const noteBody = z.object({
 });
 
 export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
-  // GET /api/team — get the team the current user belongs to, with all members
+  // GET /api/team — get the team/organization members
   fastify.get(
     '/api/team',
     { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
+      const scope = await getEffectiveScope(userId);
 
-      // Find the team this user is a member of
-      const { rows: [membership] } = await db.query<{ team_id: string }>(
-        `SELECT team_id FROM team_members WHERE user_id = $1 AND accepted_at IS NOT NULL LIMIT 1`,
-        [userId],
-      );
-
-      if (!membership) {
+      if (!scope.isOrg || !scope.organizationId) {
         return reply.send({ team: null });
       }
 
-      const { rows: [team] } = await db.query<{
+      const { rows: [org] } = await db.query<{
         id: string;
         name: string;
-        description: string | null;
         owner_user_id: string;
         created_at: string;
       }>(
-        `SELECT id, name, description, owner_user_id, created_at FROM teams WHERE id = $1`,
-        [membership.team_id],
+        `SELECT id, name, owner_user_id, created_at FROM organizations WHERE id = $1`,
+        [scope.organizationId],
       );
 
-      if (!team) {
+      if (!org) {
         return reply.send({ team: null });
       }
 
@@ -73,27 +69,27 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         email: string;
       }>(
         `SELECT
-          tm.id,
-          tm.user_id,
-          tm.role,
-          tm.invited_at,
-          tm.accepted_at,
-          u.full_name,
+          om.id,
+          om.user_id,
+          om.role,
+          om.created_at AS invited_at,
+          om.created_at AS accepted_at,
+          COALESCE(u.full_name, u.email) AS full_name,
           u.email
-        FROM team_members tm
-        JOIN users u ON u.id = tm.user_id
-        WHERE tm.team_id = $1
-        ORDER BY tm.accepted_at ASC NULLS LAST, tm.invited_at ASC`,
-        [team.id],
+        FROM organization_members om
+        JOIN users u ON u.id = om.user_id
+        WHERE om.organization_id = $1 AND om.status = 'active'
+        ORDER BY om.created_at ASC`,
+        [org.id],
       );
 
       return reply.send({
         team: {
-          id: team.id,
-          name: team.name,
-          description: team.description,
-          ownerUserId: team.owner_user_id,
-          createdAt: team.created_at,
+          id: org.id,
+          name: org.name,
+          description: null,
+          ownerUserId: org.owner_user_id,
+          createdAt: org.created_at,
           members: members.map((m) => ({
             id: m.id,
             userId: m.user_id,
@@ -108,7 +104,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // POST /api/team — create a new team; creator becomes owner
+  // POST /api/team — legacy create team
   fastify.post(
     '/api/team',
     { preHandler: gate },
@@ -147,184 +143,13 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // POST /api/team/invite — invite a user by email
-  fastify.post(
-    '/api/team/invite',
-    { preHandler: gate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-
-      let body: z.infer<typeof inviteBody>;
-      try {
-        body = inviteBody.parse(request.body);
-      } catch (err: any) {
-        return reply.code(400).send({ error: 'Invalid request body', detail: err.message });
-      }
-
-      // Verify the requester owns or admins a team
-      const { rows: [requesterMembership] } = await db.query<{ team_id: string; role: string }>(
-        `SELECT team_id, role FROM team_members WHERE user_id = $1 AND accepted_at IS NOT NULL LIMIT 1`,
-        [userId],
-      );
-      if (!requesterMembership || !['owner', 'admin'].includes(requesterMembership.role)) {
-        return reply.code(403).send({ error: 'You must be a team owner or admin to invite members' });
-      }
-
-      // Look up invitee by email
-      const { rows: [invitee] } = await db.query<{ id: string }>(
-        `SELECT id FROM users WHERE email = $1`,
-        [body.email],
-      );
-      if (!invitee) {
-        return reply.code(404).send({ error: 'No user found with that email' });
-      }
-
-      // Check not already a member
-      const { rows: [existing] } = await db.query(
-        `SELECT id FROM team_members WHERE team_id = $1 AND user_id = $2`,
-        [requesterMembership.team_id, invitee.id],
-      );
-      if (existing) {
-        return reply.code(409).send({ error: 'User is already a member of this team' });
-      }
-
-      // Membership Platform Phase 8 — seat limit: the owner's plan caps how many
-      // team_members rows (accepted + pending) their team can have at once.
-      const { rows: [team] } = await db.query<{ owner_user_id: string }>(
-        `SELECT owner_user_id FROM teams WHERE id = $1`,
-        [requesterMembership.team_id],
-      );
-      if (team) {
-        const { rows: [seatInfo] } = await db.query<{ included_seats: number; member_count: string }>(
-          `SELECT sp.included_seats,
-                  (SELECT COUNT(*) FROM team_members WHERE team_id = $2) AS member_count
-             FROM subscriptions s
-             JOIN subscription_plans sp ON sp.id = s.plan_id
-            WHERE s.user_id = $1
-            ORDER BY s.created_at DESC LIMIT 1`,
-          [team.owner_user_id, requesterMembership.team_id],
-        );
-        if (seatInfo && Number(seatInfo.member_count) >= seatInfo.included_seats) {
-          return reply.code(402).send({
-            error: 'Seat limit reached for your plan',
-            upgradeRequired: { includedSeats: seatInfo.included_seats, currentSeats: Number(seatInfo.member_count) },
-          });
-        }
-      }
-
-      const { rows: [member] } = await db.query<{ id: string }>(
-        `INSERT INTO team_members (team_id, user_id, role, invited_at)
-         VALUES ($1, $2, $3, NOW())
-         RETURNING id`,
-        [requesterMembership.team_id, invitee.id, body.role],
-      );
-
-      return reply.code(201).send({ memberId: member.id, message: 'Invite sent' });
-    },
-  );
-
-  // PATCH /api/team/members/:memberId — change a member's role
-  fastify.patch(
-    '/api/team/members/:memberId',
-    { preHandler: gate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-      const { memberId } = request.params as { memberId: string };
-
-      let body: z.infer<typeof changeRoleBody>;
-      try {
-        body = changeRoleBody.parse(request.body);
-      } catch (err: any) {
-        return reply.code(400).send({ error: 'Invalid request body', detail: err.message });
-      }
-
-      // Requester must be owner/admin on the same team
-      const { rows: [requester] } = await db.query<{ team_id: string; role: string }>(
-        `SELECT team_id, role FROM team_members WHERE user_id = $1 AND accepted_at IS NOT NULL LIMIT 1`,
-        [userId],
-      );
-      if (!requester || !['owner', 'admin'].includes(requester.role)) {
-        return reply.code(403).send({ error: 'Insufficient permissions' });
-      }
-
-      const { rows: [updated] } = await db.query<{ id: string; role: string }>(
-        `UPDATE team_members SET role = $1
-         WHERE id = $2 AND team_id = $3
-         RETURNING id, role`,
-        [body.role, memberId, requester.team_id],
-      );
-      if (!updated) {
-        return reply.code(404).send({ error: 'Team member not found' });
-      }
-
-      return reply.send({ memberId: updated.id, role: updated.role });
-    },
-  );
-
-  // DELETE /api/team/members/:memberId — remove a member
-  fastify.delete(
-    '/api/team/members/:memberId',
-    { preHandler: gate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-      const { memberId } = request.params as { memberId: string };
-
-      const { rows: [requester] } = await db.query<{ team_id: string; role: string }>(
-        `SELECT team_id, role FROM team_members WHERE user_id = $1 AND accepted_at IS NOT NULL LIMIT 1`,
-        [userId],
-      );
-      if (!requester || !['owner', 'admin'].includes(requester.role)) {
-        return reply.code(403).send({ error: 'Insufficient permissions' });
-      }
-
-      const { rowCount } = await db.query(
-        `DELETE FROM team_members WHERE id = $1 AND team_id = $2`,
-        [memberId, requester.team_id],
-      );
-      if (!rowCount) {
-        return reply.code(404).send({ error: 'Team member not found' });
-      }
-
-      return reply.send({ ok: true });
-    },
-  );
-
-  // PATCH /api/team/accept — accept a pending invite for the current user
-  fastify.patch(
-    '/api/team/accept',
-    { preHandler: gate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-
-      const { rows: [member] } = await db.query<{ id: string; team_id: string }>(
-        `UPDATE team_members
-         SET accepted_at = NOW()
-         WHERE user_id = $1 AND accepted_at IS NULL
-         RETURNING id, team_id`,
-        [userId],
-      );
-      if (!member) {
-        return reply.code(404).send({ error: 'No pending invite found' });
-      }
-
-      return reply.send({ ok: true, teamId: member.team_id });
-    },
-  );
-
-  // GET /api/team/inbox — shared inbox: conversations with assignment info
+  // GET /api/team/inbox — shared inbox
   fastify.get(
     '/api/team/inbox',
     { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
-
-      const { rows: [membership] } = await db.query<{ team_id: string }>(
-        `SELECT team_id FROM team_members WHERE user_id = $1 AND accepted_at IS NOT NULL LIMIT 1`,
-        [userId],
-      );
-      if (!membership) {
-        return reply.code(403).send({ error: 'You are not part of a team' });
-      }
+      const scope = await getEffectiveScope(userId);
 
       const { rows } = await db.query(
         `SELECT
@@ -339,15 +164,17 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
           ca.team_id AS assigned_team_id,
           ca.locked_by,
           ca.locked_at,
-          au.full_name AS assigned_user_name
+          COALESCE(au.full_name, au.email) AS assigned_user_name,
+          COALESCE(lu.full_name, lu.email) AS locked_user_name
         FROM conversations c
         JOIN contacts co ON co.id = c.contact_id
         LEFT JOIN conversation_assignments ca ON ca.conversation_id = c.id
         LEFT JOIN users au ON au.id = ca.assigned_to
-        WHERE ca.team_id = $1
+        LEFT JOIN users lu ON lu.id = ca.locked_by
+        WHERE (($1::uuid IS NOT NULL AND c.organization_id = $1::uuid) OR (c.user_id = $2::uuid OR c.user_id = $3::uuid))
         ORDER BY c.last_message_at DESC NULLS LAST
         LIMIT 100`,
-        [membership.team_id],
+        [scope.organizationId, scope.ownerUserId, userId],
       );
 
       return reply.send({
@@ -367,6 +194,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
                 assignedUserName: r.assigned_user_name,
                 teamId: r.assigned_team_id,
                 lockedBy: r.locked_by,
+                lockedUserName: r.locked_user_name,
                 lockedAt: r.locked_at,
               }
             : null,
@@ -375,13 +203,14 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // POST /api/conversations/:id/assign — assign a conversation to a member/team
+  // POST /api/conversations/:id/assign — assign a conversation
   fastify.post(
     '/api/conversations/:id/assign',
     { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
+      const scope = await getEffectiveScope(userId);
 
       let body: z.infer<typeof assignBody>;
       try {
@@ -390,10 +219,12 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Invalid request body', detail: err.message });
       }
 
-      // Verify conversation belongs to user
       const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
-        [id, userId],
+        `SELECT id FROM conversations WHERE id = $1 AND (
+           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+           (user_id = $3::uuid OR user_id = $4::uuid)
+         )`,
+        [id, scope.organizationId, scope.ownerUserId, userId],
       );
       if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
 
@@ -409,21 +240,31 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         [id, body.assignedTo ?? null, body.teamId ?? null, userId],
       );
 
+      const eventPayload = { conversationId: id, assignedTo: body.assignedTo ?? null, assignedBy: userId };
+      await publishInboxEvent(scope.ownerUserId, 'conversation:assigned', eventPayload);
+      if (userId !== scope.ownerUserId) {
+        await publishInboxEvent(userId, 'conversation:assigned', eventPayload);
+      }
+
       return reply.send({ assignmentId: assignment.id });
     },
   );
 
-  // POST /api/conversations/:id/lock — lock a conversation for the current user
+  // POST /api/conversations/:id/lock — lock a conversation for collision detection
   fastify.post(
     '/api/conversations/:id/lock',
     { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
+      const scope = await getEffectiveScope(userId);
 
       const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
-        [id, userId],
+        `SELECT id FROM conversations WHERE id = $1 AND (
+           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+           (user_id = $3::uuid OR user_id = $4::uuid)
+         )`,
+        [id, scope.organizationId, scope.ownerUserId, userId],
       );
       if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
 
@@ -433,7 +274,12 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
       );
 
       if (assignment?.locked_by && assignment.locked_by !== userId) {
-        return reply.code(409).send({ error: 'Conversation is already locked by another user' });
+        const { rows: [lockedUser] } = await db.query('SELECT COALESCE(full_name, email) AS name, email FROM users WHERE id = $1', [assignment.locked_by]);
+        return reply.code(409).send({
+          error: 'Conversation is locked',
+          lockedBy: assignment.locked_by,
+          lockedByName: lockedUser?.name ?? 'Another agent',
+        });
       }
 
       await db.query(
@@ -444,50 +290,68 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         [id, userId],
       );
 
-      return reply.send({ ok: true });
-    },
-  );
+      const { rows: [currentUser] } = await db.query('SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1', [userId]);
 
-  // POST /api/conversations/:id/unlock — unlock a conversation (only if locked by current user)
-  fastify.post(
-    '/api/conversations/:id/unlock',
-    { preHandler: gate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-      const { id } = request.params as { id: string };
-
-      const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
-        [id, userId],
-      );
-      if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
-
-      const { rowCount } = await db.query(
-        `UPDATE conversation_assignments
-         SET locked_by = NULL, locked_at = NULL
-         WHERE conversation_id = $1 AND locked_by = $2`,
-        [id, userId],
-      );
-
-      if (!rowCount) {
-        return reply.code(403).send({ error: 'Conversation is not locked by you' });
+      const eventPayload = { conversationId: id, lockedBy: userId, lockedByName: currentUser?.name ?? 'An agent' };
+      await publishInboxEvent(scope.ownerUserId, 'conversation:locked', eventPayload);
+      if (userId !== scope.ownerUserId) {
+        await publishInboxEvent(userId, 'conversation:locked', eventPayload);
       }
 
       return reply.send({ ok: true });
     },
   );
 
-  // GET /api/conversations/:id/notes — list internal notes for a conversation
+  // POST /api/conversations/:id/unlock — unlock a conversation
+  fastify.post(
+    '/api/conversations/:id/unlock',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { id } = request.params as { id: string };
+      const scope = await getEffectiveScope(userId);
+
+      const { rows: [conv] } = await db.query(
+        `SELECT id FROM conversations WHERE id = $1 AND (
+           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+           (user_id = $3::uuid OR user_id = $4::uuid)
+         )`,
+        [id, scope.organizationId, scope.ownerUserId, userId],
+      );
+      if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+      await db.query(
+        `UPDATE conversation_assignments
+         SET locked_by = NULL, locked_at = NULL
+         WHERE conversation_id = $1 AND (locked_by = $2 OR $3 = 'owner' OR $3 = 'admin')`,
+        [id, userId, scope.role],
+      );
+
+      const eventPayload = { conversationId: id, unlockedBy: userId };
+      await publishInboxEvent(scope.ownerUserId, 'conversation:unlocked', eventPayload);
+      if (userId !== scope.ownerUserId) {
+        await publishInboxEvent(userId, 'conversation:unlocked', eventPayload);
+      }
+
+      return reply.send({ ok: true });
+    },
+  );
+
+  // GET /api/conversations/:id/notes — list internal notes
   fastify.get(
     '/api/conversations/:id/notes',
     { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
+      const scope = await getEffectiveScope(userId);
 
       const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
-        [id, userId],
+        `SELECT id FROM conversations WHERE id = $1 AND (
+           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+           (user_id = $3::uuid OR user_id = $4::uuid)
+         )`,
+        [id, scope.organizationId, scope.ownerUserId, userId],
       );
       if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
 
@@ -497,7 +361,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
           n.body,
           n.mentions,
           n.created_at,
-          u.full_name AS author_name
+          COALESCE(u.full_name, u.email) AS author_name
         FROM conversation_notes n
         JOIN users u ON u.id = n.author_id
         WHERE n.conversation_id = $1
@@ -508,22 +372,25 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({
         notes: rows.map((n: any) => ({
           id: n.id,
+          text: n.body,
           body: n.body,
           mentions: n.mentions,
           createdAt: n.created_at,
+          author: n.author_name,
           authorName: n.author_name,
         })),
       });
     },
   );
 
-  // POST /api/conversations/:id/notes — add an internal note
+  // POST /api/conversations/:id/notes — add internal note
   fastify.post(
     '/api/conversations/:id/notes',
     { preHandler: gate },
     async (request, reply) => {
       const { userId } = request.user as { userId: string };
       const { id } = request.params as { id: string };
+      const scope = await getEffectiveScope(userId);
 
       let body: z.infer<typeof noteBody>;
       try {
@@ -533,10 +400,15 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const { rows: [conv] } = await db.query(
-        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
-        [id, userId],
+        `SELECT id FROM conversations WHERE id = $1 AND (
+           ($2::uuid IS NOT NULL AND organization_id = $2::uuid) OR
+           (user_id = $3::uuid OR user_id = $4::uuid)
+         )`,
+        [id, scope.organizationId, scope.ownerUserId, userId],
       );
       if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+      const { rows: [author] } = await db.query('SELECT COALESCE(full_name, email) AS name FROM users WHERE id = $1', [userId]);
 
       const { rows: [note] } = await db.query<{ id: string; created_at: string }>(
         `INSERT INTO conversation_notes (conversation_id, author_id, body, mentions)
@@ -545,7 +417,22 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
         [id, userId, body.body, body.mentions ?? null],
       );
 
-      return reply.code(201).send({ note: { id: note.id, createdAt: note.created_at } });
+      const noteObject = {
+        id: note.id,
+        text: body.body,
+        body: body.body,
+        author: author?.name ?? 'An agent',
+        authorName: author?.name ?? 'An agent',
+        createdAt: note.created_at,
+      };
+
+      await publishInboxEvent(scope.ownerUserId, 'conversation:note_added', { conversationId: id, note: noteObject });
+      if (userId !== scope.ownerUserId) {
+        await publishInboxEvent(userId, 'conversation:note_added', { conversationId: id, note: noteObject });
+      }
+
+      return reply.code(201).send({ note: noteObject });
     },
   );
 }
+

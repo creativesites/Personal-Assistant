@@ -8,6 +8,7 @@ import { formatConversationRow, getInboxConversation, publishInboxEvent } from '
 import { sendWhatsAppMessage } from '../lib/whatsapp-send';
 import { actionRequestApiShape } from '../lib/advisor-actions';
 import { config } from '../config';
+import { getEffectiveScope } from '../lib/org-scope';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
   fastify.get('/api/conversations', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
+    const scope = await getEffectiveScope(userId);
 
     const { rows } = await db.query(
       `WITH latest_contact_msg AS (
@@ -37,7 +39,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       lead_scores AS (
         SELECT ci.contact_id, MAX(ci.confidence * 100) AS lead_score
         FROM contact_insights ci
-        WHERE ci.user_id = $1 AND ci.is_active = true
+        WHERE (ci.user_id = $1 OR ($2::uuid IS NOT NULL AND ci.user_id = $3::uuid)) AND ci.is_active = true
           AND (ci.insight_key ILIKE '%lead%' OR ci.insight_key ILIKE '%score%' OR ci.insight_key ILIKE '%intent%')
         GROUP BY ci.contact_id
       )
@@ -59,18 +61,27 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         lcm.intent          AS latest_intent,
         lcm.response_urgency AS latest_urgency,
         lcm.sentiment       AS latest_sentiment,
-        lcm.requires_response
+        lcm.requires_response,
+        ca.assigned_to,
+        ca.locked_by,
+        ca.locked_at,
+        u_assigned.email AS assigned_to_email,
+        u_locked.email AS locked_by_email
       FROM conversations c
       JOIN contacts co ON co.id = c.contact_id
-      LEFT JOIN relationships r   ON r.contact_id   = co.id AND r.user_id = c.user_id
+      LEFT JOIN relationships r   ON r.contact_id   = co.id AND (r.user_id = c.user_id OR r.user_id = $1)
       LEFT JOIN lead_scores ls    ON ls.contact_id  = co.id
       LEFT JOIN latest_contact_msg lcm ON lcm.conversation_id = c.id
-      WHERE c.user_id = $1 AND c.is_archived = false
+      LEFT JOIN conversation_assignments ca ON ca.conversation_id = c.id
+      LEFT JOIN users u_assigned ON u_assigned.id = ca.assigned_to
+      LEFT JOIN users u_locked ON u_locked.id = ca.locked_by
+      WHERE (($2::uuid IS NOT NULL AND c.organization_id = $2::uuid) OR (c.user_id = $1 OR c.user_id = $3::uuid))
+        AND c.is_archived = false
       ORDER BY
         CASE WHEN c.unread_count > 0 THEN 0 ELSE 1 END,
         c.last_message_at DESC NULLS LAST
       LIMIT 100`,
-      [userId],
+      [userId, scope.organizationId, scope.ownerUserId],
     );
 
     return reply.send({ conversations: rows.map(formatConversationRow) });
@@ -121,11 +132,17 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get('/api/conversations/:id/messages', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
+    const scope = await getEffectiveScope(userId);
 
     const { rows: [conv] } = await db.query(
-      'SELECT id, contact_id FROM conversations WHERE id = $1 AND user_id = $2',
-      [id, userId],
+      `SELECT c.id, c.contact_id FROM conversations c 
+       WHERE c.id = $1 AND (
+         ($2::uuid IS NOT NULL AND c.organization_id = $2::uuid) OR
+         (c.user_id = $3::uuid OR c.user_id = $4::uuid)
+       )`,
+      [id, scope.organizationId, scope.ownerUserId, userId],
     );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
 
     const [messagesResult, contactResult] = await Promise.all([
