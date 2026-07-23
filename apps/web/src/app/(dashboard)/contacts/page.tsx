@@ -80,12 +80,33 @@ function CompletenessChip({ pct }: { pct: number }) {
 }
 
 type SortKey = 'health' | 'recent' | 'name' | 'lead'
-type ViewMode = 'table' | 'grid'
+type ViewMode = 'table' | 'grid' | 'kanban'
 type StatusFilter = 'all' | 'vip' | 'key' | 'customer' | 'lead' | 'partner' | 'attention'
 type HealthFilter = 'all' | 'healthy' | 'moderate' | 'at_risk'
 type ActivityFilter = 'all' | 'today' | 'week' | 'month' | 'dormant'
 type LeadFilter = 'all' | 'hot' | 'warm' | 'cold'
 type AiFilter = 'all' | 'profiled' | 'with_insights' | 'has_action'
+
+const KANBAN_STAGES = [
+  { id: 'lead',       label: 'New Lead',     color: 'bg-amber-50 border-amber-200 text-amber-800' },
+  { id: 'contacted',  label: 'Contacted',    color: 'bg-blue-50 border-blue-200 text-blue-800' },
+  { id: 'qualified',  label: 'Qualified',    color: 'bg-indigo-50 border-indigo-200 text-indigo-800' },
+  { id: 'proposal',   label: 'Proposal Sent',color: 'bg-purple-50 border-purple-200 text-purple-800' },
+  { id: 'customer',   label: 'Won Customer', color: 'bg-green-50 border-green-200 text-green-800' },
+  { id: 'lost',       label: 'Dormant / Lost',color: 'bg-gray-50 border-gray-200 text-gray-700' },
+] as const
+
+function getContactKanbanStage(c: Contact): string {
+  const ps = (c.pipelineStage || '').toLowerCase()
+  const cs = (c.customerStatus || c.relationship.type || '').toLowerCase()
+
+  if (cs === 'customer' || ps === 'won' || ps === 'customer') return 'customer'
+  if (ps === 'proposal' || ps === 'quote' || ps === 'quotation') return 'proposal'
+  if (ps === 'qualified') return 'qualified'
+  if (ps === 'contacted') return 'contacted'
+  if (ps === 'lost' || ps === 'dormant' || cs === 'dormant') return 'lost'
+  return 'lead'
+}
 
 function formatLastSeen(ts: string | null) {
   if (!ts) return 'Never'
@@ -304,6 +325,129 @@ function AddTagModal({ token, selectedIds, onClose, onDone }: {
   )
 }
 
+function ImportCsvModal({ token, onClose, onImported }: {
+  token: string; onClose: () => void; onImported: () => void
+}) {
+  const { addToast } = useToast()
+  const [csvText, setCsvText] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleImport = async () => {
+    if (!csvText.trim()) return
+    setLoading(true)
+
+    try {
+      const lines = csvText.trim().split('\n').map(l => l.trim()).filter(Boolean)
+      if (lines.length < 2) {
+        addToast({ variant: 'error', title: 'CSV must contain a header and at least one data row' })
+        setLoading(false)
+        return
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase())
+
+      const findIdx = (keywords: string[]) =>
+        headers.findIndex(h => keywords.some(k => h.includes(k)))
+
+      const nameIdx = findIdx(['name', 'contact'])
+      const phoneIdx = findIdx(['phone', 'mobile', 'cell', 'tel', 'whatsapp'])
+      const emailIdx = findIdx(['email', 'mail'])
+      const companyIdx = findIdx(['company', 'organization', 'business'])
+      const titleIdx = findIdx(['title', 'job', 'role'])
+      const industryIdx = findIdx(['industry', 'sector'])
+      const statusIdx = findIdx(['status', 'tier', 'type'])
+      const stageIdx = findIdx(['stage', 'pipeline', 'funnel'])
+      const tagIdx = findIdx(['tag', 'tags', 'labels'])
+
+      const contactsToImport = lines.slice(1).map(line => {
+        const cols = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(c => c.replace(/^["']|["']$/g, '').trim()) || line.split(',').map(c => c.trim())
+
+        return {
+          name: nameIdx >= 0 ? cols[nameIdx] || '' : cols[0] || '',
+          phoneNumber: phoneIdx >= 0 ? cols[phoneIdx] : undefined,
+          email: emailIdx >= 0 ? cols[emailIdx] : undefined,
+          company: companyIdx >= 0 ? cols[companyIdx] : undefined,
+          jobTitle: titleIdx >= 0 ? cols[titleIdx] : undefined,
+          industry: industryIdx >= 0 ? cols[industryIdx] : undefined,
+          customerStatus: statusIdx >= 0 ? cols[statusIdx] : 'contact',
+          pipelineStage: stageIdx >= 0 ? cols[stageIdx] : 'lead',
+          tags: tagIdx >= 0 && cols[tagIdx] ? cols[tagIdx].split(';').map(t => t.trim()) : [],
+        }
+      }).filter(c => c.name || c.phoneNumber || c.email)
+
+      if (contactsToImport.length === 0) {
+        addToast({ variant: 'error', title: 'No valid rows found in CSV' })
+        setLoading(false)
+        return
+      }
+
+      const res = await apiClient<{ ok: boolean; importedCount: number }>('/api/contacts/bulk-import', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ contacts: contactsToImport })
+      })
+
+      addToast({ variant: 'success', title: `Successfully imported ${res.importedCount} contacts` })
+      onImported()
+      onClose()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message || 'Failed to import CSV' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Upload size={16} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Import Contacts CSV</h3>
+              <p className="text-xs text-gray-500">Paste raw CSV or drag & drop contact rows</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700 block mb-1">
+              CSV Content (Header row e.g. Name, Phone, Email, Company, Stage, Status, Tags)
+            </span>
+            <textarea
+              rows={8}
+              value={csvText}
+              onChange={e => setCsvText(e.target.value)}
+              placeholder={`Name, Phone, Email, Company, Stage, Status\nJohn Doe, +260971234567, john@acme.com, Acme Corp, Qualified, Customer\nJane Smith, +260977654321, jane@tech.co, Tech Ltd, Proposal, Lead`}
+              className="w-full text-xs font-mono border border-gray-200 rounded-xl p-3 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-4 bg-gray-50 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-white">
+            Cancel
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={loading || !csvText.trim()}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? 'Importing...' : 'Import Contacts'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ContactsPage() {
   const session = useZuriSession()
   const router = useRouter()
@@ -492,6 +636,93 @@ export default function ContactsPage() {
     )
   }
 
+  const [showImportCsv, setShowImportCsv] = useState(false)
+  const [bulkUpdating, setBulkUpdating] = useState(false)
+
+  const handleBulkStageChange = async (newStage: string) => {
+    if (!token || selected.size === 0 || !newStage) return
+    setBulkUpdating(true)
+    try {
+      await apiClient('/api/contacts/bulk', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          ids: Array.from(selected),
+          updates: { pipelineStage: newStage }
+        })
+      })
+      addToast({ variant: 'success', title: `Updated pipeline stage for ${selected.size} contacts` })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update stage' })
+    } finally {
+      setBulkUpdating(false)
+    }
+  }
+
+  const handleBulkStatusChange = async (newStatus: string) => {
+    if (!token || selected.size === 0 || !newStatus) return
+    setBulkUpdating(true)
+    try {
+      await apiClient('/api/contacts/bulk', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          ids: Array.from(selected),
+          updates: { customerStatus: newStatus }
+        })
+      })
+      addToast({ variant: 'success', title: `Updated status for ${selected.size} contacts` })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update status' })
+    } finally {
+      setBulkUpdating(false)
+    }
+  }
+
+  const handleSingleStageChange = async (contactId: string, newStage: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/contacts/${contactId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ pipelineStage: newStage })
+      })
+      addToast({ variant: 'success', title: 'Pipeline stage updated' })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update stage' })
+    }
+  }
+
+  const exportContactsCsv = () => {
+    if (processed.length === 0) return
+    const headers = ['Name', 'Phone', 'Email', 'Company', 'Job Title', 'Industry', 'Status', 'Pipeline Stage', 'Health Score', 'Lead Score', 'Tags']
+    const rows = processed.map(c => [
+      `"${(c.name || '').replace(/"/g, '""')}"`,
+      `"${(c.phone || '').replace(/"/g, '""')}"`,
+      `"${(c.email || '').replace(/"/g, '""')}"`,
+      `"${(c.company || '').replace(/"/g, '""')}"`,
+      `"${(c.jobTitle || '').replace(/"/g, '""')}"`,
+      `"${(c.industry || '').replace(/"/g, '""')}"`,
+      `"${c.customerStatus || c.relationship.type || ''}"`,
+      `"${c.pipelineStage || ''}"`,
+      c.relationship.healthScore ?? 70,
+      c.leadScore ?? 0,
+      `"${(c.tags || []).join(';')}"`
+    ].join(','))
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n')
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement('a')
+    link.setAttribute('href', encodedUri)
+    link.setAttribute('download', `zuri_crm_contacts_${new Date().toISOString().slice(0, 10)}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
@@ -499,15 +730,21 @@ export default function ContactsPage() {
       <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 md:px-6 py-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Contacts</h1>
-            <p className="text-xs text-gray-500 mt-0.5">{contacts.length} contact{contacts.length !== 1 ? 's' : ''}</p>
+            <h1 className="text-xl font-bold text-gray-900">Contacts & CRM Roster</h1>
+            <p className="text-xs text-gray-500 mt-0.5">{contacts.length} contact{contacts.length !== 1 ? 's' : ''} in workspace</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <Upload size={14} /> Import
+            <button
+              onClick={() => setShowImportCsv(true)}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Upload size={14} /> Import CSV
             </button>
-            <button className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-              <Download size={14} /> Export
+            <button
+              onClick={exportContactsCsv}
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Download size={14} /> Export CSV
             </button>
             <button
               onClick={() => setShowAddContact(true)}
@@ -525,7 +762,7 @@ export default function ContactsPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
-            placeholder="Search contacts, phone…"
+            placeholder="Search contacts, phone, company…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
@@ -553,29 +790,67 @@ export default function ContactsPage() {
         <div className="flex-shrink-0 flex items-center border border-gray-200 rounded-lg overflow-hidden">
           <button
             onClick={() => setViewMode('table')}
+            title="Table View"
             className={`p-2 transition-colors ${viewMode === 'table' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
             <List size={15} />
           </button>
           <button
             onClick={() => setViewMode('grid')}
+            title="Grid View"
             className={`p-2 transition-colors ${viewMode === 'grid' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
             <LayoutGrid size={15} />
+          </button>
+          <button
+            onClick={() => setViewMode('kanban')}
+            title="Kanban Pipeline Board"
+            className={`p-2 transition-colors ${viewMode === 'kanban' ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            <CheckSquare size={15} />
           </button>
         </div>
       </div>
 
       {/* Bulk actions bar */}
       {selected.size > 0 && (
-        <div className="flex-shrink-0 bg-indigo-600 px-4 md:px-6 py-2.5 flex items-center gap-3">
-          <span className="text-sm text-white font-medium">{selected.size} selected</span>
-          <div className="flex items-center gap-2 ml-auto">
+        <div className="flex-shrink-0 bg-indigo-600 px-4 md:px-6 py-2.5 flex items-center gap-3 overflow-x-auto">
+          <span className="text-xs text-white font-medium whitespace-nowrap">{selected.size} selected</span>
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            <select
+              disabled={bulkUpdating}
+              onChange={e => handleBulkStageChange(e.target.value)}
+              defaultValue=""
+              className="text-xs bg-indigo-700 text-white border border-indigo-500 rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+            >
+              <option value="" disabled>Move Stage...</option>
+              <option value="lead">New Lead</option>
+              <option value="contacted">Contacted</option>
+              <option value="qualified">Qualified</option>
+              <option value="proposal">Proposal Sent</option>
+              <option value="customer">Won Customer</option>
+              <option value="lost">Dormant / Lost</option>
+            </select>
+
+            <select
+              disabled={bulkUpdating}
+              onChange={e => handleBulkStatusChange(e.target.value)}
+              defaultValue=""
+              className="text-xs bg-indigo-700 text-white border border-indigo-500 rounded-lg px-2.5 py-1.5 focus:outline-none cursor-pointer"
+            >
+              <option value="" disabled>Set Status...</option>
+              <option value="customer">Customer</option>
+              <option value="lead">Lead</option>
+              <option value="vip">VIP</option>
+              <option value="partner">Partner</option>
+              <option value="vendor">Vendor</option>
+            </select>
+
             <button
               onClick={() => setShowAddTag(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-white border border-white/30 rounded-lg hover:bg-white/10 transition-colors"
             >
-              <Tag size={12} /> Add tag
+              <Tag size={12} /> Tag
             </button>
             <button
               onClick={archiveSelected}
@@ -820,13 +1095,22 @@ export default function ContactsPage() {
         />
       )}
 
+      {/* Import CSV modal */}
+      {showImportCsv && token && (
+        <ImportCsvModal
+          token={token}
+          onClose={() => setShowImportCsv(false)}
+          onImported={refetch}
+        />
+      )}
+
       {/* Add Tag modal */}
       {showAddTag && token && (
         <AddTagModal
           token={token}
           selectedIds={Array.from(selected)}
           onClose={() => setShowAddTag(false)}
-          onDone={refetch}
+          onDone={() => { clearSelection(); refetch() }}
         />
       )}
     </div>

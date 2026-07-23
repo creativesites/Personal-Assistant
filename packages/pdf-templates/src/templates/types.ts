@@ -21,6 +21,15 @@ export interface BusinessContext {
   logoDataUri: string | null;
   signatureDataUri: string | null;
   stampDataUri: string | null;
+  signerName?: string | null;
+  signerTitle?: string | null;
+}
+
+export interface SignatureContext {
+  signerName?: string | null;
+  signerTitle?: string | null;
+  signatureDataUri?: string | null;
+  signedAt?: string | null;
 }
 
 export interface DocumentContext {
@@ -41,6 +50,7 @@ export interface DocumentContext {
   terms: string | null;
   sections: { heading: string; body: string }[];
   structuredData?: Record<string, any>;
+  signature?: SignatureContext | null;
 }
 
 export interface ContactContext {
@@ -55,3 +65,4 @@ export interface TemplateProps {
   business: BusinessContext;
   contact: ContactContext;
 }
+

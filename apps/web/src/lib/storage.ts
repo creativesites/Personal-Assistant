@@ -40,12 +40,12 @@ export function buildPath(prefix: string, filename: string): string {
   return `${prefix}/${ts}-${safe}`
 }
 
-/** Upload a brand logo and return the public URL. */
+/** Upload a brand logo and return the public URL with cache-busting timestamp. */
 export async function uploadBrandLogo(profileId: string, file: File): Promise<string> {
   const ext = file.name.split('.').pop() ?? 'png'
-  const path = `${profileId}/logo.${ext}`
+  const path = `${profileId}/logo-${Date.now()}.${ext}`
   const { url } = await uploadFile('brands', path, file)
-  return url
+  return `${url}?t=${Date.now()}`
 }
 
 /** Upload a product image and return the public URL. */

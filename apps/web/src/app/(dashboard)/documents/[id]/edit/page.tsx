@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Save, Trash2, AlertTriangle, X } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Eye, ArrowLeft, Loader2, Save, Trash2, AlertTriangle, X } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui/toast'
@@ -11,18 +12,9 @@ import { ContactPicker, type Contact } from '../../_components/contact-picker'
 import { LineItemsEditor, type LineItem } from '../../_components/line-items-editor'
 import { TemplatePicker } from '../../_components/template-picker'
 import { BusinessProfilePicker } from '../../_components/business-profile-picker'
+import { DynamicDocFields, type DocType } from '../../_components/dynamic-doc-fields'
 
-// Full-detail document editor (see plan doc) — replaces business/page.tsx's
-// old EditDocumentModal (title/notes/raw-JSON only, draft-only). Every
-// field the backend's createBody/updateBody accepts is editable here,
-// including switching the linked contact back to a manual one and picking
-// a different Brand Profile — both real gaps the old modal had.
-//
-// Save semantics reuse the existing backend lifecycle rather than inventing
-// new mutation rules: a draft PATCHes in place; anything already generated/
-// sent/paid calls POST /revise first (a real, already-built code path that
-// clones the document forward as a new draft version) so a customer who's
-// already seen the original never has it silently mutated underneath them.
+const DocumentPreviewModal = dynamic(() => import('@/components/documents/DocumentPreviewModal'), { ssr: false })
 
 interface DocumentDetail {
   id: string
@@ -37,6 +29,7 @@ interface DocumentDetail {
     validUntil?: string | null
     dueDate?: string | null
     manualContact?: { name: string; company?: string; email?: string; phone?: string } | null
+    [key: string]: any
   } | null
   currency: string
   contactId: string | null
@@ -57,6 +50,7 @@ export default function DocumentEditPage() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   const [contactId, setContactId] = useState<string | null>(null)
   const [contactLabel, setContactLabel] = useState<string | null>(null)
@@ -74,6 +68,7 @@ export default function DocumentEditPage() {
   const [dueDate, setDueDate] = useState('')
   const [templateId, setTemplateId] = useState<string | null>(null)
   const [businessProfileId, setBusinessProfileId] = useState<string | null>(null)
+  const [dynamicValues, setDynamicValues] = useState<Record<string, any>>({})
 
   useEffect(() => {
     if (!token || !params.id) return
@@ -82,7 +77,8 @@ export default function DocumentEditPage() {
         setDoc(document)
         setContactId(document.contactId)
         setContactLabel(document.contact?.name ?? null)
-        const manual = document.structuredData?.manualContact
+        const sd = document.structuredData ?? {}
+        const manual = sd.manualContact
         if (!document.contactId && manual) {
           setManualMode(true)
           setManualName(manual.name ?? '')
@@ -90,17 +86,18 @@ export default function DocumentEditPage() {
           setManualEmail(manual.email ?? '')
           setManualPhone(manual.phone ?? '')
         }
-        setItems((document.structuredData?.items ?? []).map(it => ({
+        setItems((sd.items ?? []).map((it: any) => ({
           description: it.description, quantity: it.quantity, unitPriceCents: it.unitPriceCents,
           discountPct: it.discountPct ?? 0, taxPct: it.taxPct ?? 0,
         })))
         setCurrency(document.currency)
-        setNotes(document.structuredData?.notes ?? '')
-        setTerms(document.structuredData?.terms ?? '')
-        setValidUntil(document.structuredData?.validUntil ?? '')
-        setDueDate(document.structuredData?.dueDate ?? '')
+        setNotes(sd.notes ?? '')
+        setTerms(sd.terms ?? '')
+        setValidUntil(sd.validUntil ?? '')
+        setDueDate(sd.dueDate ?? '')
         setTemplateId(document.templateId)
         setBusinessProfileId(document.businessProfileId)
+        setDynamicValues(sd)
       })
       .catch(() => setDoc(null))
       .finally(() => setLoading(false))
@@ -118,18 +115,33 @@ export default function DocumentEditPage() {
     }
   }
 
+  function handleDynamicChange(key: string, val: any) {
+    setDynamicValues(prev => ({ ...prev, [key]: val }))
+  }
+
   async function handleSave() {
     if (!doc || !token) return
-    if (items.length === 0 || items.every(it => !it.description.trim())) {
-      addToast({ variant: 'error', title: 'Add at least one line item' })
-      return
-    }
     setSaving(true)
     try {
+      const mergedStructuredData = {
+        ...(doc.structuredData ?? {}),
+        ...dynamicValues,
+        notes: notes || undefined,
+        terms: terms || undefined,
+        validUntil: validUntil || undefined,
+        dueDate: dueDate || undefined,
+      }
+
       const body: Record<string, unknown> = {
-        items, currency, notes: notes || undefined, terms: terms || undefined,
-        validUntil: validUntil || undefined, dueDate: dueDate || undefined,
-        templateId: templateId || undefined, businessProfileId: businessProfileId ?? null,
+        items,
+        currency,
+        notes: notes || undefined,
+        terms: terms || undefined,
+        validUntil: validUntil || undefined,
+        dueDate: dueDate || undefined,
+        templateId: templateId || undefined,
+        businessProfileId: businessProfileId ?? null,
+        structuredData: mergedStructuredData,
       }
       if (manualMode) {
         body.contactId = null
@@ -195,10 +207,18 @@ export default function DocumentEditPage() {
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)]">
-      <div className="max-w-3xl mx-auto px-4 py-6 pb-28">
-        <Link href="/business" className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-gray-700 mb-4">
-          <ArrowLeft className="w-4 h-4" />Back to Business
-        </Link>
+      <div className="max-w-3xl mx-auto px-4 py-6 pb-36">
+        <div className="flex items-center justify-between mb-4">
+          <Link href="/business" className="inline-flex items-center gap-1 text-sm font-semibold text-gray-500 hover:text-gray-700">
+            <ArrowLeft className="w-4 h-4" />Back to Business
+          </Link>
+          <button
+            onClick={() => setPreviewOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors"
+          >
+            <Eye className="w-3.5 h-3.5" />Preview / Download PDF
+          </button>
+        </div>
 
         <div className="flex items-center justify-between gap-3 mb-1">
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-950">Edit {doc.documentNumber}</h1>
@@ -250,6 +270,12 @@ export default function DocumentEditPage() {
             )}
           </div>
 
+          <DynamicDocFields
+            docType={doc.documentType as DocType}
+            values={dynamicValues}
+            onChange={handleDynamicChange}
+          />
+
           <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-5">
             <LineItemsEditor items={items} onChange={setItems} currency={currency} />
           </div>
@@ -299,19 +325,49 @@ export default function DocumentEditPage() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 border-t border-gray-100 bg-white/95 backdrop-blur-xl p-4">
-        <div className="max-w-3xl mx-auto flex justify-end gap-2">
-          <Link href="/business" className="inline-flex items-center min-h-11 px-4 rounded-2xl text-sm font-bold text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50">Cancel</Link>
+      {/* Fixed action bar — z-50 md:z-30 ensures visibility over mobile bottom tab bar (z-40) */}
+      <div
+        className="fixed bottom-0 inset-x-0 z-50 md:z-30 bg-white/95 backdrop-blur-xl border-t border-gray-200/80 shadow-2xl shadow-gray-900/10 p-3 md:p-4"
+        style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2">
           <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 min-h-11 px-5 rounded-2xl bg-indigo-600 text-white text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 disabled:opacity-50"
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3.5 rounded-2xl text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 transition-colors"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {isDraft ? 'Save Changes' : 'Save as New Draft'}
+            <Eye className="w-4 h-4" />
+            <span className="hidden sm:inline">Preview PDF</span>
+            <span className="sm:hidden">Preview</span>
           </button>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/business"
+              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-2xl text-xs font-bold text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200 transition-colors"
+            >
+              Cancel
+            </Link>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-5 rounded-2xl bg-indigo-600 text-white text-xs font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 disabled:opacity-50 transition-all"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {isDraft ? 'Save Changes' : 'Save as New Draft'}
+            </button>
+          </div>
         </div>
       </div>
+
+      {previewOpen && doc && token && (
+        <DocumentPreviewModal
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          documentId={doc.id}
+          token={token}
+        />
+      )}
     </div>
   )
 }

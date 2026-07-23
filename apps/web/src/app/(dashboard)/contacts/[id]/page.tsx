@@ -928,8 +928,124 @@ interface BusinessDocSummary {
   hasPdf: boolean
 }
 
+function CrmActivityLogger({ contactId, token, onLogged }: { contactId: string; token: string; onLogged: () => void }) {
+  const { addToast } = useToast()
+  const [activityType, setActivityType] = useState('note')
+  const [content, setContent] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [activities, setActivities] = useState<any[]>([])
+
+  const fetchActivities = async () => {
+    try {
+      const res = await apiClient<{ activities: any[] }>(`/api/contacts/${contactId}/activities`, { token })
+      setActivities(res.activities || [])
+    } catch { /* ignore error */ }
+  }
+
+  useEffect(() => {
+    if (token && contactId) fetchActivities()
+  }, [token, contactId])
+
+  const submitActivity = async () => {
+    if (!content.trim() || saving) return
+    setSaving(true)
+    try {
+      await apiClient(`/api/contacts/${contactId}/activities`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ activityType, content: content.trim() })
+      })
+      addToast({ variant: 'success', title: 'CRM Activity Logged' })
+      setContent('')
+      fetchActivities()
+      onLogged()
+    } catch (err: any) {
+      addToast({ variant: 'error', title: err.message || 'Failed to log activity' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden space-y-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+        <div className="flex items-center gap-2">
+          <Activity size={14} className="text-indigo-600" />
+          <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Log CRM Activity & Notes</p>
+        </div>
+        <span className="text-xs text-gray-400">{activities.length} recorded</span>
+      </div>
+
+      <div className="p-4 space-y-3 bg-indigo-50/30">
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            { id: 'note', label: 'Note', icon: Sparkles },
+            { id: 'call', label: 'Call', icon: Phone },
+            { id: 'meeting', label: 'Meeting', icon: Calendar },
+            { id: 'email', label: 'Email', icon: Mail },
+            { id: 'quote_sent', label: 'Quote', icon: FileText },
+            { id: 'deal_stage_change', label: 'Stage Change', icon: TrendingUp },
+          ].map(t => {
+            const Icon = t.icon
+            const active = activityType === t.id
+            return (
+              <button
+                key={t.id}
+                onClick={() => setActivityType(t.id)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  active
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <Icon size={12} /> {t.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="relative">
+          <textarea
+            rows={2}
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder={`Record a ${activityType} outcome or client note...`}
+            className="w-full text-xs border border-gray-200 rounded-xl p-3 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            onClick={submitActivity}
+            disabled={!content.trim() || saving}
+            className="absolute right-2.5 bottom-3.5 px-3 py-1 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Saving...' : 'Log'}
+          </button>
+        </div>
+      </div>
+
+      {activities.length > 0 && (
+        <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto">
+          {activities.map(act => (
+            <div key={act.id} className="p-3.5 flex items-start gap-3 hover:bg-gray-50/60 transition-colors">
+              <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
+                <Activity size={13} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-900 capitalize">{act.activityType.replace(/_/g, ' ')}</span>
+                  <span className="text-[10px] text-gray-400">{formatDate(act.createdAt)}</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{act.content}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BusinessTimelinePanel({ contactId, token }: { contactId: string; token: string }) {
-  const { data: timelineData } = useApi<{ businessStage: string | null; timeline: TimelineEntry[] }>(`/api/contacts/${contactId}/business-timeline`, token)
+  const { data: timelineData, refetch } = useApi<{ businessStage: string | null; timeline: TimelineEntry[] }>(`/api/contacts/${contactId}/business-timeline`, token)
   const { data: docsData } = useApi<{ documents: BusinessDocSummary[] }>(`/api/documents?contactId=${contactId}`, token)
   const timeline = timelineData?.timeline ?? []
   const docs = docsData?.documents ?? []
@@ -951,6 +1067,8 @@ function BusinessTimelinePanel({ contactId, token }: { contactId: string; token:
 
   return (
     <div className="space-y-4">
+      <CrmActivityLogger contactId={contactId} token={token} onLogged={refetch} />
+
       {businessStage && (
         <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5">
           <RefreshCw size={14} className="text-indigo-500" />

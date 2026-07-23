@@ -25,6 +25,9 @@ const ClientPdfRenderer = dynamic(
 )
 
 import { DynamicDocFields } from '../_components/dynamic-doc-fields'
+import { SignatureSelector, type SelectedSignature } from '../_components/signature-selector'
+import { BusinessProfilePicker } from '../_components/business-profile-picker'
+import type { BusinessProfile } from '../../studio/_components/brand-module'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,10 +57,13 @@ interface FormData {
   companyPhone: string
   companyEmail: string
   companyWebsite: string
-  companyLogoUrl: string
+  companyLogoUrl: string | null
   taxId: string
+  nrcNo?: string
+  businessProfileId?: string | null
   // Banking — read-only, sourced from Brand Kit
   bankName: string
+  bankAccount?: string
   accountName: string
   accountNumber: string
   branchCode: string
@@ -267,6 +273,7 @@ export default function NewDocumentPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [documentId, setDocumentId] = useState<string | null>(null)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
+  const [selectedSignature, setSelectedSignature] = useState<SelectedSignature | null>(null)
 
   // AI Generate mode
   const [aiMode, setAiMode] = useState(false)
@@ -457,9 +464,14 @@ export default function NewDocumentPage() {
 
     const body: Record<string, unknown> = {
       documentType: form.docType,
+      businessProfileId: form.businessProfileId || undefined,
+      signatureId: selectedSignature?.id || undefined,
       currency: form.currency,
       items,
-      structuredData: form.structuredData,
+      structuredData: {
+        ...(form.structuredData || {}),
+        signature: selectedSignature || undefined,
+      },
       notes: form.notes || undefined,
       terms: form.terms || undefined,
       dueDate: form.dueDate || undefined,
@@ -800,8 +812,8 @@ export default function NewDocumentPage() {
               </div>
             )}
 
-            {/* Your company (read-only, from Brand Kit) */}
-            <CompanySection form={form} token={token} />
+            {/* Your company details & brand switcher */}
+            <CompanySection form={form} setForm={setForm} token={token} />
           </div>
         )}
 
@@ -976,6 +988,14 @@ export default function NewDocumentPage() {
                     rows={3} className={textareaCls} />
                 </Field>
               </div>
+            </div>
+
+            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
+              <SignatureSelector
+                token={token ?? undefined}
+                value={selectedSignature}
+                onChange={setSelectedSignature}
+              />
             </div>
 
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
@@ -1179,45 +1199,80 @@ export default function NewDocumentPage() {
   )
 }
 
-// ── Company Section (read-only — always sourced from Brand Kit) ──────────────
+function CompanySection({
+  form, setForm, token,
+}: {
+  form: FormData
+  setForm: React.Dispatch<React.SetStateAction<FormData>>
+  token?: string | null
+}) {
+  const [open, setOpen] = useState(true)
 
-function CompanySection({ form, token }: { form: FormData; token?: string | null }) {
-  const [open, setOpen] = useState(false)
+  const handleProfileSelect = (prof: BusinessProfile) => {
+    setForm(f => ({
+      ...f,
+      businessProfileId: prof.id,
+      companyName: prof.companyName || '',
+      companyLogoUrl: prof.logoUrl || null,
+      companyAddress: prof.address || '',
+      companyPhone: prof.phone || '',
+      companyEmail: prof.email || '',
+      companyWebsite: prof.website || '',
+      taxId: prof.taxId || (prof.bankDetails?.taxId as string) || '',
+      bankName: prof.bankDetails?.bankName as string || '',
+      bankAccount: prof.bankDetails?.accountNumber as string || '',
+      terms: prof.defaultTerms || f.terms,
+      currency: prof.defaultCurrency || f.currency,
+    }))
+  }
 
   return (
-    <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm overflow-hidden">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between p-5 text-left"
-      >
+    <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm overflow-hidden p-5 space-y-4">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-4 h-4 text-gray-600" />
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
+            <Building2 className="w-4 h-4 text-indigo-600" />
           </div>
           <div>
-            <p className="text-sm font-black text-gray-950">Your Company Details</p>
+            <p className="text-sm font-black text-gray-950">Your Company &amp; Brand Details</p>
             <p className="text-[11px] text-gray-500">
-              {form.companyName ? `${form.companyName} — from your Brand Kit` : 'Set up your Brand Kit to appear on documents'}
+              Select or edit the brand profile appearing on this document
             </p>
           </div>
         </div>
-        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+        <button onClick={() => setOpen(v => !v)}>
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
       {open && (
-        <div className="px-5 pb-5 space-y-2 border-t border-gray-50 pt-3">
-          {form.companyLogoUrl && (
-            <img src={brandAssetUrl(form.companyLogoUrl, token)} alt="Logo"
-              className="h-10 object-contain rounded-lg border border-gray-100 bg-gray-50 p-1.5 mb-2" />
-          )}
-          <p className="text-sm text-gray-700">{form.companyName || '—'}</p>
-          {form.companyAddress && <p className="text-xs text-gray-500">{form.companyAddress}</p>}
-          <p className="text-xs text-gray-500">
-            {[form.companyPhone, form.companyEmail, form.companyWebsite].filter(Boolean).join(' · ') || '—'}
-          </p>
-          {form.taxId && <p className="text-xs text-gray-500">Tax ID: {form.taxId}</p>}
-          <Link href="/business" className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 pt-2">
-            Edit in Brand Kit →
-          </Link>
+        <div className="pt-2 border-t border-gray-50 space-y-3">
+          <BusinessProfilePicker
+            token={token ?? undefined}
+            value={form.businessProfileId ?? null}
+            onChange={id => setForm(f => ({ ...f, businessProfileId: id ?? undefined }))}
+            onProfileSelect={handleProfileSelect}
+          />
+
+          <div className="bg-gray-50/80 rounded-2xl p-3 border border-gray-100 space-y-1.5 text-xs text-gray-600">
+            {form.companyLogoUrl && (
+              <img
+                src={brandAssetUrl(form.companyLogoUrl, token)}
+                alt="Logo"
+                className="h-10 object-contain rounded-lg border border-gray-200 bg-white p-1 mb-2"
+              />
+            )}
+            <p className="font-bold text-gray-900">{form.companyName || 'No business name set'}</p>
+            {form.companyAddress && <p className="text-gray-500">{form.companyAddress}</p>}
+            <p className="text-gray-500">
+              {[form.companyPhone, form.companyEmail, form.companyWebsite].filter(Boolean).join(' · ') || 'No contact details'}
+            </p>
+            {(form.taxId || form.nrcNo) && (
+              <p className="text-gray-500">
+                {[form.taxId ? `Tax ID/TPIN: ${form.taxId}` : null, form.nrcNo ? `NRC/Reg: ${form.nrcNo}` : null].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

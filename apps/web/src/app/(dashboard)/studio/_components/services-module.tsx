@@ -227,14 +227,29 @@ export function ServicesModule({ token }: { token: string | undefined }) {
               variant={showHidden ? 'primary' : 'secondary'}
               onClick={() => setShowHidden(v => !v)}
               title="Archived or discontinued services are hidden from this list by default."
+              className="min-h-[44px]"
             >
               {showHidden ? 'Hide' : 'Show'} archived ({hiddenCount})
             </Button>
           )}
-          <Button onClick={() => setShowAdd(v => !v)}>
+          <Button onClick={() => setShowAdd(v => !v)} className="min-h-[44px]">
             <Plus className="w-4 h-4 mr-1.5" />
             Add service
           </Button>
+        </div>
+      </div>
+
+      {/* Mobile-First Search Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search services by name, category, or description..."
+            className="w-full pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[40px]"
+          />
         </div>
       </div>
 
@@ -425,15 +440,15 @@ export function ServicesModule({ token }: { token: string | undefined }) {
         <div className="grid grid-cols-1 gap-4">
           {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
-      ) : services.length === 0 ? (
+      ) : filteredServices.length === 0 ? (
         <EmptyState
-          title="No services yet"
-          description="Add the things you deliver — consulting, development, subscriptions, packages."
-          action={<Button onClick={() => setShowAdd(true)}><Plus className="w-4 h-4 mr-1.5" />Add service</Button>}
+          title={searchQuery ? "No matching services" : "No services yet"}
+          description={searchQuery ? "Try refining your search terms." : "Add the things you deliver — consulting, development, subscriptions, packages."}
+          action={!searchQuery ? <Button onClick={() => setShowAdd(true)}><Plus className="w-4 h-4 mr-1.5" />Add service</Button> : undefined}
         />
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {services.map(svc => (
+          {filteredServices.map(svc => (
             <ServiceCard
               key={svc.id}
               service={svc}

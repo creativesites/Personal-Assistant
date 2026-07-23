@@ -97,6 +97,7 @@ export interface DocumentRow {
   discount_cents: number;
   tax_cents: number;
   total_cents: number;
+  signature_id?: string | null;
   structured_data: {
     items?: { description?: string; quantity?: number; unitPriceCents?: number; discountPct?: number; lineTotalCents?: number }[];
     notes?: string | null;
@@ -105,6 +106,14 @@ export interface DocumentRow {
     dueDate?: string | null;
     sections?: { heading: string; body: string }[];
     manualContact?: { name: string; company?: string; email?: string; phone?: string } | null;
+    signature?: {
+      id?: string;
+      signerName?: string;
+      signerTitle?: string;
+      signatureDataUri?: string;
+      signatureData?: string;
+      signedAt?: string;
+    } | null;
   } | null;
 }
 
@@ -141,6 +150,14 @@ export function buildDocumentContext(
     };
   });
 
+  const sig = structured.signature;
+  const signatureContext = sig ? {
+    signerName: sig.signerName ?? null,
+    signerTitle: sig.signerTitle ?? null,
+    signatureDataUri: sig.signatureDataUri || sig.signatureData || null,
+    signedAt: sig.signedAt ?? null,
+  } : null;
+
   const documentContext: DocumentContext = {
     documentType: document.document_type,
     documentNumber: document.document_number,
@@ -159,6 +176,7 @@ export function buildDocumentContext(
     terms: structured.terms ?? null,
     sections: structured.sections ?? [],
     structuredData: structured,
+    signature: signatureContext,
   };
 
   const contactContext: ContactContext = contact
@@ -172,3 +190,4 @@ export function buildDocumentContext(
 
   return { document: documentContext, contact: contactContext };
 }
+

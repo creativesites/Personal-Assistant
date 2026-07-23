@@ -233,6 +233,97 @@ export function DynamicDocFields({ docType, values, onChange }: DynamicDocFields
         </div>
       )
 
+    case 'contract':
+      return (
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3.5 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 uppercase tracking-wider">
+            <Scale className="w-4 h-4" /> Contract & Legal Agreement Specifications
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Agreement Title / Type">
+              <input type="text" placeholder="e.g. Master Services Contract" className={inputCls} value={values.contractTitle || ''} onChange={e => onChange('contractTitle', e.target.value)} />
+            </Field>
+            <Field label="Commencement / Start Date">
+              <input type="date" className={inputCls} value={values.startDate || ''} onChange={e => onChange('startDate', e.target.value)} />
+            </Field>
+            <Field label="Expiry / Termination Date">
+              <input type="date" className={inputCls} value={values.endDate || ''} onChange={e => onChange('endDate', e.target.value)} />
+            </Field>
+            <Field label="Contract Value / Total Consideration">
+              <input type="text" placeholder="e.g. ZMW 150,000 / $10,000" className={inputCls} value={values.contractValue || ''} onChange={e => onChange('contractValue', e.target.value)} />
+            </Field>
+            <Field label="Governing Jurisdiction / Law">
+              <input type="text" placeholder="e.g. Laws of Republic of Zambia" className={inputCls} value={values.governingLaw || 'Republic of Zambia'} onChange={e => onChange('governingLaw', e.target.value)} />
+            </Field>
+            <Field label="Termination Notice Period">
+              <input type="text" placeholder="e.g. 30 days written notice" className={inputCls} value={values.noticePeriod || '30 days written notice'} onChange={e => onChange('noticePeriod', e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Scope of Work & Deliverables Summary">
+            <textarea rows={3} placeholder="Detailed summary of contractual scope, terms, and obligations..." className={inputCls} value={values.scopeSummary || ''} onChange={e => onChange('scopeSummary', e.target.value)} />
+          </Field>
+        </div>
+      )
+
+    case 'statement_of_work':
+      return (
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3.5 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 uppercase tracking-wider">
+            <FileText className="w-4 h-4" /> Statement of Work (SOW) Scope & Milestones
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Project / SOW Title">
+              <input type="text" placeholder="e.g. Mobile App Redesign SOW #1" className={inputCls} value={values.sowTitle || ''} onChange={e => onChange('sowTitle', e.target.value)} />
+            </Field>
+            <Field label="Target Completion Date">
+              <input type="date" className={inputCls} value={values.completionDate || ''} onChange={e => onChange('completionDate', e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Project Objectives & Key Deliverables">
+            <textarea rows={3} placeholder="List main deliverables, milestones, and acceptance criteria..." className={inputCls} value={values.deliverables || ''} onChange={e => onChange('deliverables', e.target.value)} />
+          </Field>
+        </div>
+      )
+
+    case 'proposal':
+      return (
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3.5 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 uppercase tracking-wider">
+            <BookOpen className="w-4 h-4" /> Commercial Proposal Details
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Proposal Title">
+              <input type="text" placeholder="e.g. Enterprise Cloud Migration Proposal" className={inputCls} value={values.proposalTitle || ''} onChange={e => onChange('proposalTitle', e.target.value)} />
+            </Field>
+            <Field label="Proposal Validity Period">
+              <input type="text" placeholder="e.g. Valid for 30 days" className={inputCls} value={values.validityPeriod || 'Valid for 30 days'} onChange={e => onChange('validityPeriod', e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Executive Summary & Proposed Solution">
+            <textarea rows={3} placeholder="Overview of client challenges and proposed solution..." className={inputCls} value={values.executiveSummary || ''} onChange={e => onChange('executiveSummary', e.target.value)} />
+          </Field>
+        </div>
+      )
+
+    case 'invoice':
+    case 'quotation':
+    case 'receipt':
+      return (
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3.5 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 uppercase tracking-wider">
+            <DollarSign className="w-4 h-4" /> Billing & Payment Details
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Payment Method / Instructions">
+              <input type="text" placeholder="e.g. Bank Transfer / Airtel Money / MTN Money" className={inputCls} value={values.paymentMethod || ''} onChange={e => onChange('paymentMethod', e.target.value)} />
+            </Field>
+            <Field label="Reference / Transaction #">
+              <input type="text" placeholder="e.g. TXN-884920" className={inputCls} value={values.referenceNumber || ''} onChange={e => onChange('referenceNumber', e.target.value)} />
+            </Field>
+          </div>
+        </div>
+      )
+
     default:
       return null
   }

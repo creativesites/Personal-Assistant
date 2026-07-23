@@ -13,6 +13,7 @@ import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { uploadBrandLogo } from '@/lib/storage'
 import { TemplatePicker } from '@/app/(dashboard)/documents/_components/template-picker'
+import { SignaturesModule } from './signatures-module'
 
 // Reusable named Brand Profiles (see plan doc / CLAUDE.md's Business
 // Workspace section) — the default profile card + edit form below is
@@ -39,6 +40,8 @@ export interface BusinessProfile {
   phone: string | null
   email: string | null
   website: string | null
+  taxId?: string | null
+  nrcNo?: string | null
   bankDetails: Record<string, string>
   mobileMoney: Record<string, string>
   defaultCurrency: string | null
@@ -62,6 +65,8 @@ export type ProfileForm = {
   phone: string
   email: string
   website: string
+  taxId: string
+  nrcNo: string
   footerText: string
   defaultTerms: string
   paymentInstructions: string
@@ -72,7 +77,7 @@ export type ProfileForm = {
 
 export const BLANK_FORM: ProfileForm = {
   name: '', companyName: '', tagline: '', industry: '', themeColor: '#4F46E5', accentColor: '#818CF8',
-  brandVoice: '', companyValues: '', address: '', phone: '', email: '', website: '', footerText: '',
+  brandVoice: '', companyValues: '', address: '', phone: '', email: '', website: '', taxId: '', nrcNo: '', footerText: '',
   defaultTerms: '', paymentInstructions: '', defaultCurrency: 'ZMW', defaultTaxRate: 0, defaultTemplateId: null,
 }
 
@@ -90,6 +95,8 @@ export function profileToForm(p: BusinessProfile): ProfileForm {
     phone: p.phone ?? '',
     email: p.email ?? '',
     website: p.website ?? '',
+    taxId: p.taxId ?? (p.bankDetails?.taxId as string | undefined) ?? '',
+    nrcNo: p.nrcNo ?? (p.bankDetails?.nrcNo as string | undefined) ?? '',
     footerText: p.footerText ?? '',
     defaultTerms: p.defaultTerms ?? '',
     paymentInstructions: p.paymentInstructions ?? '',
@@ -128,6 +135,14 @@ export function BrandProfileFields({
       <div>
         <label className="block text-xs text-gray-500 mb-1">Default Currency</label>
         <input value={form.defaultCurrency} onChange={e => setForm(f => ({ ...f, defaultCurrency: e.target.value.toUpperCase() }))} placeholder="ZMW" maxLength={3} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Tax ID / TPIN (Zambia default)</label>
+        <input value={form.taxId} onChange={e => setForm(f => ({ ...f, taxId: e.target.value }))} placeholder="e.g. 1001234567" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">NRC / Reg No (Zambia default)</label>
+        <input value={form.nrcNo} onChange={e => setForm(f => ({ ...f, nrcNo: e.target.value }))} placeholder="e.g. 123456/11/1 or Reg #12024000" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
       </div>
       <div>
         <label className="block text-xs text-gray-500 mb-1">Phone</label>
@@ -509,6 +524,7 @@ export function BrandModule({ token }: { token: string | undefined }) {
       )}
 
       <OtherBrandProfiles token={token} />
+      <SignaturesModule token={token} businessProfileId={profile?.id} />
     </div>
   )
 }

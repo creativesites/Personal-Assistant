@@ -462,160 +462,150 @@ export default function BusinessPage() {
           />
         ) : (
           <div className="max-w-3xl mx-auto space-y-3">
-            {documents.map(doc => (
-              <div key={doc.id} className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 px-4 py-3.5">
-                <div className="flex items-center gap-3">
-                  {doc.contact ? (
-                    <Link href={`/contacts/${doc.contact.id}`} className="flex-shrink-0">
-                      <Avatar name={doc.contact.name} src={doc.contact.avatarUrl ?? undefined} size="sm" />
-                    </Link>
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0"><FileText className="w-4 h-4 text-gray-400" /></div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{doc.contact?.name ?? 'No contact'}</span>
-                      <span className="text-xs text-gray-400">{doc.documentNumber}</span>
-                      {doc.aiGenerated && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5">
-                          <Sparkles className="w-2.5 h-2.5" />AI
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 truncate">{doc.title}</p>
-                  </div>
-                  {doc.viewCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400" title={`${doc.viewCount} view(s)`}>
-                      <Eye className="w-3 h-3" />{doc.viewCount}
-                    </span>
-                  )}
-                  <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
-                  <button
-                    onClick={() => openPreview(doc.id)}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-indigo-600 transition-colors"
-                    title="View / Download PDF"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    View
-                  </button>
-                  <Link
-                    href={`/documents/${doc.id}/edit`}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-gray-700 transition-colors"
-                    title="Edit document"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </Link>
-                  {doc.status === 'draft' && (
-                    deleteConfirmId === doc.id ? (
-                      <div className="flex items-center gap-1 text-xs">
-                        <button onClick={() => deleteDocument(doc.id)} disabled={deletingId === doc.id} className="font-semibold text-red-600 hover:underline">
-                          {deletingId === doc.id ? '…' : 'Yes'}
-                        </button>
-                        <button onClick={() => setDeleteConfirmId(null)} className="text-gray-400 hover:underline">No</button>
-                      </div>
+            {documents.map((doc: any) => (
+              <div key={doc.id} className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:border-gray-200 transition-all space-y-3">
+                {/* Header: Contact & Status */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {doc.contact ? (
+                      <Link href={`/contacts/${doc.contact.id}`} className="flex-shrink-0">
+                        <Avatar name={doc.contact.name} src={doc.contact.avatarUrl ?? undefined} size="sm" />
+                      </Link>
                     ) : (
-                      <button
-                        onClick={() => setDeleteConfirmId(doc.id)}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-red-500 transition-colors"
-                        title="Delete draft"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )
-                  )}
+                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-4 h-4 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-bold text-gray-900 truncate">{doc.contact?.name ?? 'No Contact'}</span>
+                        {doc.aiGenerated && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5">
+                            <Sparkles className="w-2.5 h-2.5" />AI
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-400">{doc.documentNumber} · {new Date(doc.createdAt).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {doc.viewCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded-lg" title={`${doc.viewCount} view(s)`}>
+                        <Eye className="w-3 h-3" />{doc.viewCount}
+                      </span>
+                    )}
+                    <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
+                  </div>
+                </div>
+
+                {/* Main info: Title & Total */}
+                <div className="flex items-baseline justify-between gap-3 pt-1 border-t border-gray-50">
+                  <p className="text-sm font-semibold text-gray-900 line-clamp-1">{doc.title}</p>
+                  <span className="text-base font-black text-gray-950 flex-shrink-0">{formatMoney(doc.totalCents, doc.currency)}</span>
                 </div>
 
                 {doc.aiSummary && (
-                  <p className="text-xs text-gray-500 leading-relaxed mt-2 bg-gray-50 rounded-lg px-2.5 py-1.5">{doc.aiSummary}</p>
+                  <p className="text-xs text-gray-600 leading-relaxed bg-gray-50/80 rounded-xl p-2.5 border border-gray-100">{doc.aiSummary}</p>
                 )}
 
                 {qualityResults[doc.id] && (
-                  <div className="mt-2 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
-                    <p className="text-xs font-semibold text-amber-800">Quality: {qualityResults[doc.id].score}/10</p>
+                  <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-2.5">
+                    <p className="text-xs font-bold text-amber-900">Quality Score: {qualityResults[doc.id].score}/10</p>
                     {qualityResults[doc.id].issues.length > 0 && (
-                      <ul className="text-[11px] text-amber-700 list-disc list-inside mt-0.5">
+                      <ul className="text-[11px] text-amber-800 list-disc list-inside mt-1 space-y-0.5">
                         {qualityResults[doc.id].issues.map((issue, i) => <li key={i}>{issue}</li>)}
                       </ul>
                     )}
                     {qualityResults[doc.id].recommendation && (
-                      <p className="text-[11px] text-amber-700 mt-0.5">{qualityResults[doc.id].recommendation}</p>
+                      <p className="text-[11px] text-amber-800 mt-1 font-medium">{qualityResults[doc.id].recommendation}</p>
                     )}
                   </div>
                 )}
 
-                <div className="flex items-center justify-between mt-3">
-                  <span className="text-sm font-semibold text-gray-900">{formatMoney(doc.totalCents, doc.currency)}</span>
-                  <div className="flex items-center gap-2">
-                    {/* Always show preview/download via client-side modal */}
+                {/* Touch-Friendly Action Bar */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
+                  {/* Primary action */}
+                  <button
+                    onClick={() => openPreview(doc.id)}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />Preview &amp; PDF
+                  </button>
+
+                  <Link
+                    href={`/documents/${doc.id}/edit`}
+                    className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-gray-500" />Edit
+                  </Link>
+
+                  {doc.contact && (
                     <button
-                      onClick={() => openPreview(doc.id)}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                      onClick={() => sendViaWhatsApp(doc.id)}
+                      disabled={sendingId === doc.id}
+                      className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 disabled:opacity-50 transition-colors"
                     >
-                      <Download className="w-3.5 h-3.5" />Preview & Download
+                      {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send WA
                     </button>
-                    {doc.contact && (
+                  )}
+
+                  {/* Secondary actions */}
+                  <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+                    {CONVERSION_TARGETS[doc.documentType] && (
                       <button
-                        onClick={() => sendViaWhatsApp(doc.id)}
-                        disabled={sendingId === doc.id}
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg px-3 py-1.5"
+                        onClick={() => convertDocument(doc)}
+                        disabled={convertingId === doc.id}
+                        className="inline-flex items-center justify-center gap-1 min-h-[40px] px-2.5 rounded-xl text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200/60 disabled:opacity-50"
+                        title={`Convert to ${CONVERSION_TARGETS[doc.documentType]}`}
                       >
-                        {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send
+                        {convertingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightCircle className="w-3.5 h-3.5 text-indigo-600" />}
+                        <span className="hidden sm:inline">To {CONVERSION_TARGETS[doc.documentType]}</span>
                       </button>
                     )}
-                    {doc.shareToken && (
-                      <button onClick={() => copyShareLink(doc)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
-                        <Link2 className="w-3.5 h-3.5" />Copy Link
-                      </button>
+
+                    <button
+                      onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)}
+                      className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-xl text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200/60"
+                      title="AI Document Assistant"
+                    >
+                      <MessageSquare className="w-4 h-4 text-indigo-600" />
+                    </button>
+
+                    <select
+                      value=""
+                      disabled={statusUpdatingId === doc.id}
+                      onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
+                      className="min-h-[40px] text-xs text-gray-700 bg-gray-50 border border-gray-200/80 rounded-xl px-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium disabled:opacity-50"
+                    >
+                      <option value="">Status…</option>
+                      {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+
+                    {doc.status === 'draft' && (
+                      deleteConfirmId === doc.id ? (
+                        <div className="flex items-center gap-1 text-xs bg-red-50 p-1 rounded-xl border border-red-100">
+                          <button onClick={() => deleteDocument(doc.id)} disabled={deletingId === doc.id} className="font-bold text-red-600 px-2 py-1">
+                            {deletingId === doc.id ? '…' : 'Confirm'}
+                          </button>
+                          <button onClick={() => setDeleteConfirmId(null)} className="text-gray-500 px-1 py-1">X</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirmId(doc.id)}
+                          className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Delete draft"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )
                     )}
-                    <button onClick={() => openPreview(doc.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
-                      <RefreshCw className="w-3.5 h-3.5" />{doc.hasPdf ? 'Regenerate' : 'Sync PDF'}
-                    </button>
-                    <button onClick={() => checkQuality(doc.id)} disabled={checkingQualityId === doc.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50">
-                      {checkingQualityId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}Check Quality
-                    </button>
-                    <button onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)} className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700">
-                      <MessageSquare className="w-3.5 h-3.5" />AI Assistant
-                    </button>
                   </div>
                 </div>
 
                 {chatOpenId === doc.id && token && (
                   <DocumentChatPanel documentId={doc.id} token={token} onChanged={loadDocuments} />
                 )}
-
-                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-gray-50">
-                  {CONVERSION_TARGETS[doc.documentType] ? (
-                    <button
-                      onClick={() => convertDocument(doc)}
-                      disabled={convertingId === doc.id}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                    >
-                      {convertingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightCircle className="w-3.5 h-3.5" />}
-                      Convert to {CONVERSION_TARGETS[doc.documentType][0].toUpperCase() + CONVERSION_TARGETS[doc.documentType].slice(1)}
-                    </button>
-                  ) : null}
-                  {['generated', 'sent', 'viewed'].includes(doc.status) && (
-                    <button
-                      onClick={() => setStatus(doc.id, 'paid')}
-                      disabled={statusUpdatingId === doc.id}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg px-2.5 py-1.5 disabled:opacity-50 transition-colors"
-                    >
-                      {statusUpdatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                      Mark Paid
-                    </button>
-                  )}
-                  <div className="ml-auto">
-                    <select
-                      value=""
-                      disabled={statusUpdatingId === doc.id}
-                      onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
-                      className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:opacity-50"
-                    >
-                      <option value="">Update status…</option>
-                      {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
-                  </div>
-                </div>
               </div>
             ))}
           </div>

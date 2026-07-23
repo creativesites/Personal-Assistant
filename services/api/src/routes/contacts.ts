@@ -580,6 +580,188 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ ok: true });
   });
 
+  // ── Bulk update contacts ───────────────────────────────────────────────────
+  fastify.patch('/api/contacts/bulk', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { ids, updates } = request.body as {
+      ids: string[];
+      updates: {
+        pipelineStage?: string;
+        customerStatus?: string;
+        importanceTier?: number;
+      };
+    };
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return reply.code(400).send({ error: 'ids array required' });
+    }
+
+    if (updates.pipelineStage || updates.customerStatus) {
+      const sets: string[] = [];
+      const values: unknown[] = [userId, ids];
+      let idx = 3;
+
+      if (updates.pipelineStage !== undefined) {
+        sets.push(`pipeline_stage = $${idx++}`);
+        values.push(updates.pipelineStage);
+      }
+      if (updates.customerStatus !== undefined) {
+        sets.push(`customer_status = $${idx++}`);
+        values.push(updates.customerStatus);
+      }
+      sets.push('updated_at = NOW()');
+
+      await db.query(
+        `UPDATE contacts SET ${sets.join(', ')} WHERE user_id = $1 AND id = ANY($2::uuid[])`,
+        values,
+      );
+    }
+
+    if (updates.importanceTier !== undefined) {
+      await db.query(
+        `UPDATE relationships SET importance_tier = $1, updated_at = NOW()
+         WHERE user_id = $2 AND contact_id = ANY($3::uuid[])`,
+        [updates.importanceTier, userId, ids],
+      );
+    }
+
+    return reply.send({ ok: true, updatedCount: ids.length });
+  });
+
+  // ── Bulk import contacts ───────────────────────────────────────────────────
+  fastify.post('/api/contacts/bulk-import', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { contacts } = request.body as {
+      contacts: Array<{
+        name: string;
+        phoneNumber?: string;
+        email?: string;
+        company?: string;
+        jobTitle?: string;
+        industry?: string;
+        notes?: string;
+        customerStatus?: string;
+        pipelineStage?: string;
+        tags?: string[];
+      }>;
+    };
+
+    if (!contacts || !Array.isArray(contacts) || contacts.length === 0) {
+      return reply.code(400).send({ error: 'contacts array required' });
+    }
+
+    let createdCount = 0;
+    for (const item of contacts) {
+      if (!item.name && !item.phoneNumber && !item.email) continue;
+
+      const cleanPhone = item.phoneNumber ? item.phoneNumber.replace(/\D/g, '') : null;
+      const jid = cleanPhone ? `${cleanPhone}@c.us` : `import_${Date.now()}_${Math.random().toString(36).substring(2, 7)}@c.us`;
+
+      const { rows: [contact] } = await db.query(
+        `INSERT INTO contacts (
+           user_id, whatsapp_jid, display_name, phone_number, email, company,
+           job_title, industry, notes, customer_status, pipeline_stage
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (user_id, whatsapp_jid) DO UPDATE SET
+           display_name = COALESCE(EXCLUDED.display_name, contacts.display_name),
+           email = COALESCE(EXCLUDED.email, contacts.email),
+           company = COALESCE(EXCLUDED.company, contacts.company),
+           job_title = COALESCE(EXCLUDED.job_title, contacts.job_title),
+           customer_status = COALESCE(EXCLUDED.customer_status, contacts.customer_status),
+           pipeline_stage = COALESCE(EXCLUDED.pipeline_stage, contacts.pipeline_stage),
+           updated_at = NOW()
+         RETURNING id`,
+        [
+          userId,
+          jid,
+          item.name || cleanPhone || 'Imported Contact',
+          cleanPhone ? `+${cleanPhone}` : null,
+          item.email || null,
+          item.company || null,
+          item.jobTitle || null,
+          item.industry || null,
+          item.notes || null,
+          item.customerStatus || 'contact',
+          item.pipelineStage || 'lead',
+        ],
+      );
+
+      if (contact?.id) {
+        createdCount++;
+        await db.query(
+          `INSERT INTO relationships (user_id, contact_id, health_score, health_trend, importance_tier)
+           VALUES ($1, $2, 75, 'stable', 3)
+           ON CONFLICT (user_id, contact_id) DO NOTHING`,
+          [userId, contact.id],
+        );
+
+        if (item.tags && Array.isArray(item.tags)) {
+          for (const tag of item.tags) {
+            const cleanTag = tag.trim().toLowerCase();
+            if (cleanTag) {
+              await db.query(
+                `INSERT INTO contact_tags (user_id, contact_id, tag)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT DO NOTHING`,
+                [userId, contact.id, cleanTag],
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return reply.status(201).send({ ok: true, importedCount: createdCount });
+  });
+
+  // ── CRM Activity Logging ───────────────────────────────────────────────────
+  fastify.get('/api/contacts/:id/activities', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows } = await db.query(
+      `SELECT id, key as title, value as description, confidence, supporting_text as metadata, created_at
+       FROM contact_insights
+       WHERE contact_id = $1 AND user_id = $2 AND insight_category = 'crm_activity'
+       ORDER BY created_at DESC LIMIT 50`,
+      [id, userId],
+    );
+
+    return reply.send({
+      activities: rows.map(r => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        metadata: r.metadata,
+        createdAt: r.created_at,
+      })),
+    });
+  });
+
+  fastify.post('/api/contacts/:id/activities', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { activityType, title, description } = request.body as {
+      activityType?: 'call' | 'meeting' | 'email' | 'note' | 'deal_stage';
+      title: string;
+      description?: string;
+    };
+
+    if (!title) {
+      return reply.code(400).send({ error: 'title is required' });
+    }
+
+    const { rows: [activity] } = await db.query(
+      `INSERT INTO contact_insights (user_id, contact_id, insight_category, key, value, confidence, supporting_text)
+       VALUES ($1, $2, 'crm_activity', $3, $4, 1.0, $5)
+       RETURNING id, created_at`,
+      [userId, id, title, description || '', activityType || 'note'],
+    );
+
+    return reply.status(201).send({ activity });
+  });
+
   // ── Get promises detected in messages with this contact ───────────────────
   fastify.get('/api/contacts/:id/promises', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };

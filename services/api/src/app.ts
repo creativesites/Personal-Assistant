@@ -38,6 +38,7 @@ import { diagnosticsRoutes } from './routes/diagnostics';
 import { businessProfileRoutes } from './routes/business-profile';
 import { businessProfilesRoutes } from './routes/business-profiles';
 import { documentsRoutes } from './routes/documents';
+import signaturesRoutes from './routes/signatures';
 import { recurringDocumentsRoutes } from './routes/recurring-documents';
 import { suppliersRoutes } from './routes/suppliers';
 import { studioRoutes } from './routes/studio';
@@ -149,6 +150,7 @@ export async function buildApp() {
   await fastify.register(businessProfileRoutes);
   await fastify.register(businessProfilesRoutes);
   await fastify.register(documentsRoutes);
+  await fastify.register(signaturesRoutes);
   await fastify.register(recurringDocumentsRoutes);
   await fastify.register(suppliersRoutes);
   await fastify.register(studioRoutes);
