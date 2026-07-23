@@ -5,6 +5,7 @@ import litellm
 import structlog
 from ..config import settings
 from .model_router import get_active_model, report_usage, force_advance
+from .byok_resolver import resolve_ai_context
 from .token_usage import (
     log_usage as log_token_usage,
     estimate_tokens_from_text,
@@ -158,6 +159,32 @@ class AIClient:
     ):
         """Call litellm with automatic pool advance on hard errors (403, quota, etc).
         After 3 consecutive hard failures on dashscope, falls back to Gemini."""
+        # 1. Resolve BYOK context if user_id is provided
+        byok_ctx = await resolve_ai_context(user_id, requested_model=model)
+        if byok_ctx and byok_ctx.get('is_byok') and byok_ctx.get('api_key'):
+            byok_key = byok_ctx['api_key']
+            byok_model = _normalize_model(byok_ctx['model'])
+            log.info('using_byok_provider', user_id=user_id, provider=byok_ctx['provider'], model=byok_model)
+            kwargs: dict = dict(
+                model=byok_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=byok_key,
+            )
+            if json_mode:
+                kwargs['response_format'] = {'type': 'json_object'}
+            try:
+                response = await litellm.acompletion(**kwargs)
+                await self._log_token_usage(
+                    byok_model, messages, response, service=service, feature=feature, user_id=user_id,
+                )
+                return byok_model, response
+            except Exception as exc:
+                log.error('byok_completion_failed', user_id=user_id, provider=byok_ctx['provider'], error=str(exc))
+                # If auto fallback enabled or user's key fails, continue to system failover
+                log.info('falling_back_to_system_pool', user_id=user_id)
+
         attempted: set[str] = set()
         consecutive_hard_failures = 0
         _GEMINI_FALLBACK_AFTER = 3
@@ -210,6 +237,7 @@ class AIClient:
                     m, messages, response, service=service, feature=feature, user_id=user_id,
                 )
                 return m, response
+
             except Exception as exc:
                 log.error('ai_completion_failed', model=m, error=str(exc))
                 if _is_hard_error(exc):

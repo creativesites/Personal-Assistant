@@ -1864,7 +1864,28 @@ export default function SettingsPage() {
 
                 {/* ── Intelligence tab ── */}
                 {currentTab === 'intelligence' && (
-                  <div className="space-y-4 pt-2">
+                  <div className="space-y-6 pt-2">
+                    {/* Featured Production BYOK Hub Card */}
+                    <div className="bg-gradient-to-r from-indigo-900 via-slate-900 to-purple-950 rounded-2xl p-6 text-white border border-indigo-700/40 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+                      <div className="space-y-2">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                          Production BYOK System
+                        </div>
+                        <h3 className="text-xl font-extrabold text-white">Bring Your Own AI Account</h3>
+                        <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+                          Connect Google Gemini, OpenAI, or Anthropic Claude. Full key encryption, real-time latency diagnostics, zero markup, and custom spending limit controls.
+                        </p>
+                      </div>
+
+                      <Link
+                        href="/settings/ai"
+                        className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-950 hover:bg-slate-100 font-extrabold text-xs rounded-xl shadow-lg transition-all shrink-0"
+                      >
+                        Configure BYOK AI Keys <ChevronRight className="w-4 h-4" />
+                      </Link>
+                    </div>
+
                     {/* AI Model Preference */}
                     <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl border border-indigo-100 p-5">
                       <div className="flex items-center gap-2.5 mb-4">
@@ -1876,6 +1897,7 @@ export default function SettingsPage() {
                           <p className="text-[11px] text-gray-500">Choose your preferred AI provider and model for all Zuri intelligence features</p>
                         </div>
                       </div>
+
 
                       <div className="space-y-3">
                         <div>
