@@ -107,6 +107,9 @@ interface ChatMessage {
 }
 
 interface SearchResult {
+  chunk_id?: string
+  chunk_index?: number
+  token_count?: number
   document_id: string
   document_title: string
   content: string
@@ -237,6 +240,13 @@ export default function KnowledgeBasePage() {
   const [scrapeCategory, setScrapeCategory] = useState('general')
   const [scrapingUrl, setScrapingUrl] = useState(false)
 
+  // Chunk Editing State
+  const [editingChunk, setEditingChunk] = useState<{ id: string; chunkIndex: number; content: string; documentTitle?: string } | null>(null)
+  const [editingChunkContent, setEditingChunkContent] = useState('')
+  const [savingChunk, setSavingChunk] = useState(false)
+  const [docChunks, setDocChunks] = useState<{ id: string; chunkIndex: number; content: string; tokenCount: number; updatedAt: string }[]>([])
+  const [loadingDocChunks, setLoadingDocChunks] = useState(false)
+
   // Search & Q&A Studio State
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -251,6 +261,43 @@ export default function KnowledgeBasePage() {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
   }, [])
+
+  const loadDocChunks = useCallback(async (docId: string) => {
+    if (!token) return
+    setLoadingDocChunks(true)
+    try {
+      const data = await apiClient<{ chunks: { id: string; chunkIndex: number; content: string; tokenCount: number; updatedAt: string }[] }>(`/api/knowledge/documents/${docId}/chunks`, { token })
+      setDocChunks(data.chunks || [])
+    } catch {
+      setDocChunks([])
+    } finally {
+      setLoadingDocChunks(false)
+    }
+  }, [token])
+
+  const handleSaveChunkEdit = async () => {
+    if (!token || !editingChunk || !editingChunkContent.trim()) return
+    setSavingChunk(true)
+    try {
+      await apiClient(`/api/knowledge/chunks/${editingChunk.id}`, {
+        method: 'PUT',
+        token,
+        body: JSON.stringify({ content: editingChunkContent.trim() }),
+      })
+      showToast('Chunk updated & vector re-embedded!', 'success')
+      setEditingChunk(null)
+      if (selectedDoc?.id) {
+        loadDocChunks(selectedDoc.id)
+      }
+      if (searchQuery.trim()) {
+        handleKnowledgeSearch()
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update chunk', 'error')
+    } finally {
+      setSavingChunk(false)
+    }
+  }
 
   // ── Load All Memory Engine Data ──────────────────────────────────────────────
 
@@ -925,21 +972,31 @@ export default function KnowledgeBasePage() {
         </div>
       )}
 
-      {/* ── TAB 6: SEARCH & Q&A STUDIO ───────────────────────────────────────── */}
+      {/* ── TAB 6: TEST KNOWLEDGE BASE & RAG PLAYGROUND ────────────────────── */}
       {activeTab === 'studio' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
-          {/* Hybrid Semantic Search */}
+          {/* Hybrid Semantic Search & Retrieved Vector Inspector */}
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
-            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <Search className="w-4 h-4 text-indigo-600" /> Hybrid Semantic Search
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Search className="w-4 h-4 text-indigo-600" /> Vector RAG Search & Chunk Inspector
+              </h2>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                pgvector 1536-D
+              </span>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Query vector chunks in real time to verify retrieval match scores. Edit any chunk text to instantly re-embed vectors in PostgreSQL.
+            </p>
+
             <div className="flex gap-2">
               <input
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') handleKnowledgeSearch() }}
-                placeholder="Search across all business memories, docs & facts..."
+                placeholder="Ask e.g. What is our price for Pro Tier?"
                 className="flex-1 border border-gray-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <button
@@ -947,17 +1004,71 @@ export default function KnowledgeBasePage() {
                 disabled={searchLoading}
                 className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
               >
-                {searchLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} Search
+                {searchLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />} Test Search
               </button>
             </div>
 
-            <div className="space-y-3 max-h-[400px] overflow-y-auto">
-              {searchResults.map((res, idx) => (
-                <div key={idx} className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-1 text-xs">
-                  <p className="font-bold text-gray-900">{res.document_title}</p>
-                  <p className="text-gray-600 leading-relaxed font-mono text-[11px]">{res.content}</p>
+            <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+              {searchResults.length === 0 ? (
+                <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
+                  <Database className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                  Run a query above to inspect exact retrieved chunks, similarity scores, and metadata.
                 </div>
-              ))}
+              ) : (
+                searchResults.map((res, idx) => {
+                  const matchPct = (res.score * 100).toFixed(1)
+                  return (
+                    <div key={idx} className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs hover:border-indigo-300 transition-all">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-gray-900">{res.document_title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-gray-400 capitalize">{res.source_type} • {res.category || 'general'}</span>
+                            {res.chunk_index !== undefined && (
+                              <span className="text-[10px] font-mono text-gray-500 bg-gray-200/60 px-1.5 py-0.2 rounded">
+                                Chunk #{res.chunk_index + 1}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold font-numeric ${
+                            res.score >= 0.85
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : res.score >= 0.70
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                          }`}>
+                            {matchPct}% Match
+                          </span>
+
+                          {res.chunk_id && (
+                            <button
+                              onClick={() => {
+                                setEditingChunk({
+                                  id: res.chunk_id!,
+                                  chunkIndex: res.chunk_index ?? 0,
+                                  content: res.content,
+                                  documentTitle: res.document_title,
+                                })
+                                setEditingChunkContent(res.content)
+                              }}
+                              className="px-2 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
+                            >
+                              <Edit3 className="w-3 h-3 text-indigo-600" /> Edit Chunk
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-gray-700 leading-relaxed font-mono text-[11px] bg-white p-2.5 rounded-lg border border-gray-200 whitespace-pre-wrap">
+                        {res.content}
+                      </p>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
 
@@ -1190,6 +1301,123 @@ export default function KnowledgeBasePage() {
               >
                 {scrapingUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
                 {scrapingUrl ? 'Crawling...' : 'Crawl Page'}
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* Edit Vector Chunk Modal */}
+      {editingChunk && (
+        <ModalWrapper onClose={() => setEditingChunk(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-indigo-600" /> Edit Chunk #{editingChunk.chunkIndex + 1}
+                </h2>
+                <p className="text-[11px] text-gray-400 truncate max-w-xs">{editingChunk.documentTitle || 'Knowledge Chunk'}</p>
+              </div>
+              <button onClick={() => setEditingChunk(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
+                <span>Text Content</span>
+                <span>{editingChunkContent.split(/\s+/).filter(Boolean).length} words</span>
+              </div>
+              <textarea
+                value={editingChunkContent}
+                onChange={e => setEditingChunkContent(e.target.value)}
+                rows={8}
+                className="w-full border border-gray-200 rounded-xl p-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono leading-relaxed"
+                placeholder="Edit the chunk text to correct pricing or policy facts..."
+              />
+              <p className="text-[11px] text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-100">
+                Saving will re-generate the vector embedding via AI models and update pgvector so RAG answers reflect the updated facts immediately.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <button onClick={() => setEditingChunk(null)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveChunkEdit}
+                disabled={savingChunk || !editingChunkContent.trim()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                {savingChunk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                {savingChunk ? 'Re-embedding Vector...' : 'Save & Re-embed Vector'}
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* Selected Document Details & Vector Chunks Inspector Modal */}
+      {selectedDoc && (
+        <ModalWrapper onClose={() => setSelectedDoc(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <TypeIcon type={selectedDoc.sourceType} className="w-5 h-5" />
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900">{selectedDoc.title}</h2>
+                  <p className="text-[11px] text-gray-400 capitalize">{selectedDoc.sourceType} • {selectedDoc.category || 'general'} • {selectedDoc.chunkCount} vector chunks</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedDoc(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-indigo-600" /> Vector Chunks ({docChunks.length})
+              </h3>
+
+              {loadingDocChunks ? (
+                <div className="py-12 text-center text-gray-400 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> Loading document chunks...
+                </div>
+              ) : docChunks.length === 0 ? (
+                <div className="py-8 text-center text-gray-400 bg-gray-50 rounded-xl">
+                  No vector chunks generated for this document yet.
+                </div>
+              ) : (
+                docChunks.map((chunk) => (
+                  <div key={chunk.id} className="p-3 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-bold text-gray-900 font-mono">Chunk #{chunk.chunkIndex + 1} ({chunk.tokenCount} tokens)</span>
+                      <button
+                        onClick={() => {
+                          setEditingChunk({
+                            id: chunk.id,
+                            chunkIndex: chunk.chunkIndex,
+                            content: chunk.content,
+                            documentTitle: selectedDoc.title,
+                          })
+                          setEditingChunkContent(chunk.content)
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-gray-100 border border-gray-200 text-indigo-600 rounded-lg font-bold flex items-center gap-1 transition-all"
+                      >
+                        <Edit3 className="w-3 h-3" /> Edit Chunk
+                      </button>
+                    </div>
+                    <p className="font-mono text-[11px] text-gray-700 whitespace-pre-wrap bg-white p-2.5 rounded-lg border border-gray-200">
+                      {chunk.content}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-gray-100">
+              <button onClick={() => setSelectedDoc(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold">
+                Close
               </button>
             </div>
           </div>

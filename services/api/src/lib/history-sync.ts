@@ -68,7 +68,17 @@ async function runSync(job: SyncJob): Promise<void> {
       break;
     }
 
-    // Fetch the next conversation to process (immune to reordering because we filter out processed_conversation_ids)
+    const isSkipped = await redis.get(`history:skip:${userId}`).catch(() => null);
+    if (isSkipped) {
+      console.log(`[history-sync] sync Job ${syncJobId} skipped by user flag for user ${userId}`);
+      await db.query(
+        `UPDATE sync_jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [syncJobId],
+      );
+      break;
+    }
+
+    // Fetch the next conversation to process (only conversations active in last 30 days)
     const { rows: [conv] } = await db.query<{
       id: string; whatsapp_chat_id: string; contact_id: string; last_message_at: string | null
     }>(
@@ -78,6 +88,7 @@ async function runSync(job: SyncJob): Promise<void> {
        JOIN sync_jobs sj ON sj.id = $1
        WHERE c.user_id = $2 
          AND co.is_group = false
+         AND (c.last_message_at IS NULL OR c.last_message_at >= NOW() - INTERVAL '30 days')
          AND NOT (c.id = ANY(COALESCE(sj.processed_conversation_ids, '{}'::uuid[])))
        ORDER BY c.last_message_at DESC NULLS LAST
        LIMIT 1`,

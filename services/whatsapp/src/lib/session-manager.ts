@@ -278,24 +278,56 @@ export class SessionManager {
 
     transport.on('historical_batch', async (msgs: NormalisedMessage[]) => {
       const PROGRESS_EVERY = 50;
+      const BATCH_YIELD_SIZE = 500;
+      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+      const cutoffTimeMs = Date.now() - THIRTY_DAYS_MS;
       // How many of the most-recent messages per conversation to queue for AI analysis.
-      // All messages are written to DB; only the last N are sent for profiling.
       const ANALYSE_RECENT_PER_CHAT = 30;
 
-      console.log(`[session] historical batch: ${msgs.length} messages for ${userId}`);
+      console.log(`[session] historical batch received: ${msgs.length} messages for ${userId}`);
 
-      // ── Step 1: write all messages to DB, track unique conversations ─────────
+      // Check if user requested skip before starting
+      const isSkippedInitial = await this.redis.get(`history:skip:${userId}`).catch(() => null);
+      if (isSkippedInitial) {
+        console.log(`[session] historical sync skipped by user preference for ${userId}`);
+        await this.redis.publish(
+          `history:progress:${userId}`,
+          JSON.stringify({ status: 'cancelled', phase: 'skipped', message: 'Historical sync skipped by user' }),
+        ).catch(() => {});
+        return;
+      }
+
+      // ── Step 1: write all messages to DB in micro-batches with event-loop yielding ─
       // Map<conversationId, contactId> — last write wins (newest message's contactId).
-      // Group conversations are still written and displayed — they're just never
-      // added here, so step 2 never queues them for AI analysis (no token spend
-      // on groups; see CLAUDE.md "Groups").
       const convMap = new Map<string, string>();
+      const lastMessageTimeMap = new Map<string, number>();
+
+      let wasCancelled = false;
 
       for (let i = 0; i < msgs.length; i++) {
+        // Every BATCH_YIELD_SIZE messages, yield to event loop and check skip signal
+        if (i > 0 && i % BATCH_YIELD_SIZE === 0) {
+          const skipCheck = await this.redis.get(`history:skip:${userId}`).catch(() => null);
+          if (skipCheck) {
+            console.log(`[session] historical sync cancelled during import at msg ${i}/${msgs.length} for ${userId}`);
+            wasCancelled = true;
+            break;
+          }
+          // Yield to event loop to keep server responsive
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+
         try {
-          const result = await this.handler.writeHistoricalMessage(userId, msgs[i]);
+          const msg = msgs[i];
+          const result = await this.handler.writeHistoricalMessage(userId, msg);
           if (result) {
-            if (!result.isGroup) convMap.set(result.conversationId, result.contactId);
+            if (!result.isGroup) {
+              convMap.set(result.conversationId, result.contactId);
+              const existingTs = lastMessageTimeMap.get(result.conversationId) || 0;
+              if (msg.timestampMs > existingTs) {
+                lastMessageTimeMap.set(result.conversationId, msg.timestampMs);
+              }
+            }
             await this.handler.publishConversationUpsert(userId, result.conversationId);
           }
         } catch (err) {
@@ -312,19 +344,49 @@ export class SessionManager {
               totalMessages: msgs.length,
               processed: i + 1,
               total: msgs.length,
+              percentage: Math.round(((i + 1) / msgs.length) * 100),
             }),
           ).catch(() => { /* ignore */ });
         }
       }
 
-      // ── Step 2: queue ONE analysis job per conversation ──────────────────────
-      // The intelligence service fetches the last ANALYSE_RECENT_PER_CHAT messages
-      // itself; we just tell it which conversation to process.
+      if (wasCancelled) {
+        await this.redis.publish(
+          `history:progress:${userId}`,
+          JSON.stringify({ status: 'cancelled', phase: 'skipped', message: 'Historical sync cancelled' }),
+        ).catch(() => {});
+        return;
+      }
+
+      // ── Step 2: queue ONE analysis job per RECENT conversation (active within last 30 days) ─
       const intelligenceUrl = process.env['INTELLIGENCE_SERVICE_URL'] ?? 'http://localhost:8000';
       const internalSecret = process.env['INTERNAL_API_SECRET'] ?? '';
 
-      let analysed = 0;
+      // Filter out stale conversations older than 30 days to avoid wasting AI tokens
+      const activeConvs: [string, string][] = [];
+      let skippedStale = 0;
+
       for (const [conversationId, contactId] of convMap) {
+        const lastTs = lastMessageTimeMap.get(conversationId) || 0;
+        if (lastTs > 0 && lastTs < cutoffTimeMs) {
+          skippedStale++;
+        } else {
+          activeConvs.push([conversationId, contactId]);
+        }
+      }
+
+      console.log(`[session] AI analysis scope for ${userId}: ${activeConvs.length} active convs (<30 days), ${skippedStale} stale convs skipped`);
+
+      let analysed = 0;
+      for (const [conversationId, contactId] of activeConvs) {
+        // Check for cancel/skip signal between conversation analysis calls
+        const skipCheck = await this.redis.get(`history:skip:${userId}`).catch(() => null);
+        if (skipCheck) {
+          console.log(`[session] historical analysis cancelled mid-run for ${userId}`);
+          wasCancelled = true;
+          break;
+        }
+
         try {
           await this.redis.publish(
             `history:progress:${userId}`,
@@ -333,11 +395,13 @@ export class SessionManager {
               phase: 'analysing',
               conversationId,
               processedConversations: analysed,
-              totalConversations: convMap.size,
+              totalConversations: activeConvs.length,
               processedMessages: msgs.length,
               totalMessages: msgs.length,
+              percentage: activeConvs.length > 0 ? Math.round(((analysed + 1) / activeConvs.length) * 100) : 100,
             }),
           ).catch(() => { /* ignore */ });
+
           await fetch(`${intelligenceUrl}/internal/conversations/${conversationId}/analyse-history`, {
             method: 'POST',
             headers: {
@@ -353,21 +417,25 @@ export class SessionManager {
         }
       }
 
+      const finalStatus = wasCancelled ? 'cancelled' : 'completed';
+      const finalPhase = wasCancelled ? 'skipped' : 'complete';
+
       await this.redis.publish(
         `history:progress:${userId}`,
         JSON.stringify({
-          status: 'completed',
-          phase: 'complete',
+          status: finalStatus,
+          phase: finalPhase,
           processedConversations: analysed,
-          totalConversations: convMap.size,
+          totalConversations: activeConvs.length,
           processedMessages: msgs.length,
           totalMessages: msgs.length,
+          skippedStaleConversations: skippedStale,
         }),
       ).catch(() => { /* ignore */ });
 
       console.log(
-        `[session] historical sync complete for ${userId}: ` +
-        `${msgs.length} messages written, ${analysed}/${convMap.size} conversations queued for analysis`,
+        `[session] historical sync ${finalStatus} for ${userId}: ` +
+        `${msgs.length} messages written, ${analysed}/${activeConvs.length} conversations analyzed (${skippedStale} stale skipped)`,
       );
     });
 

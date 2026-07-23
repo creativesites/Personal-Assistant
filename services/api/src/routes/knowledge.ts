@@ -1064,4 +1064,73 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       })
     },
   )
+
+  // ── GET /api/knowledge/documents/:id/chunks ─────────────────────────────────
+  fastify.get(
+    '/api/knowledge/documents/:id/chunks',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const { rows } = await db.query<{
+        id: string
+        chunk_index: number
+        content: string
+        token_count: number
+        updated_at: string
+      }>(
+        `SELECT id, chunk_index, content, token_count, updated_at
+         FROM kb_chunks
+         WHERE document_id = $1 AND user_id = $2
+         ORDER BY chunk_index ASC`,
+        [id, userId],
+      )
+
+      return reply.send({
+        chunks: rows.map(r => ({
+          id: r.id,
+          chunkIndex: r.chunk_index,
+          content: r.content,
+          tokenCount: r.token_count,
+          updatedAt: r.updated_at,
+        })),
+      })
+    },
+  )
+
+  // ── PUT /api/knowledge/chunks/:id ───────────────────────────────────────────
+  fastify.put(
+    '/api/knowledge/chunks/:id',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+      const { id } = request.params as { id: string }
+
+      const body = request.body as { content?: string }
+      if (!body.content || !body.content.trim()) {
+        return reply.code(400).send({ error: 'Content is required' })
+      }
+
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+
+      try {
+        const res = await fetch(`${intelligenceUrl}/internal/knowledge/chunks/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, content: body.content.trim() }),
+        })
+
+        if (!res.ok) {
+          const text = await res.text()
+          return reply.code(502).send({ error: 'Failed to update chunk embedding', detail: text })
+        }
+
+        const data = await res.json() as { ok: boolean; chunk: unknown }
+        return reply.send(data)
+      } catch (err: any) {
+        return reply.code(502).send({ error: 'Intelligence service unreachable', detail: err.message })
+      }
+    },
+  )
 }

@@ -31,7 +31,7 @@ type FilterId = typeof FILTERS[number]['id']
 interface SyncState {
   active: boolean
   done: boolean
-  phase: 'idle' | 'importing' | 'analysing' | 'complete' | 'failed' | 'cancelled'
+  phase: 'idle' | 'importing' | 'analysing' | 'complete' | 'failed' | 'cancelled' | 'skipped'
   jobId?: string | null
   processedMessages?: number
   totalMessages?: number
@@ -533,6 +533,13 @@ export default function InboxPage() {
     const handleSyncProgress = (payload?: string | Partial<SyncState> & { status?: string; processed?: number; total?: number }) => {
       const data = payload ? parseSocketPayload<Partial<SyncState> & { status?: string; processed?: number; total?: number }>(payload) : {}
       const done = data.status === 'completed' || data.phase === 'complete'
+      const cancelled = data.status === 'cancelled' || (data.phase as string) === 'skipped'
+      if (cancelled) {
+        setSyncing(false)
+        setSyncDone(false)
+        setSyncState(prev => ({ ...prev, active: false, phase: 'cancelled' }))
+        return
+      }
       setSyncState(prev => ({
         ...prev,
         active: !done,
@@ -895,6 +902,14 @@ export default function InboxPage() {
     await apiClient(`/api/suggestions/${id}/dismiss`, { method: 'POST', token })
     setSuggestions(prev => prev.filter(s => s.id !== id))
     setActionLoading(null)
+  }
+
+  const cancelSync = async () => {
+    if (!token) return
+    setSyncing(false)
+    setSyncDone(false)
+    setSyncState(prev => ({ ...prev, active: false, phase: 'cancelled' }))
+    await apiClient('/api/inbox/sync-cancel', { method: 'POST', token }).catch(() => {})
   }
 
   const regenerate = async () => {
@@ -1512,6 +1527,7 @@ export default function InboxPage() {
             setSyncDone(false)
             setSyncState(prev => ({ ...prev, done: false }))
           }}
+          onSkip={cancelSync}
         />
 
         {/* Search */}

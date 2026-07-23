@@ -9,6 +9,7 @@ import { sendWhatsAppMessage } from '../lib/whatsapp-send';
 import { actionRequestApiShape } from '../lib/advisor-actions';
 import { config } from '../config';
 import { getEffectiveScope } from '../lib/org-scope';
+import { redis } from '../lib/redis';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -125,6 +126,30 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         updatedAt: job.updated_at,
       },
     });
+  });
+
+  // ── POST /api/inbox/sync-cancel ───────────────────────────────────────────
+
+  fastify.post('/api/inbox/sync-cancel', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+
+    await redis.set(`history:skip:${userId}`, '1', 'EX', 86400);
+
+    await db.query(
+      `UPDATE sync_jobs SET status = 'cancelled', updated_at = NOW() WHERE user_id = $1 AND status = 'running'`,
+      [userId],
+    );
+
+    await redis.publish(
+      `history:progress:${userId}`,
+      JSON.stringify({
+        status: 'cancelled',
+        phase: 'skipped',
+        message: 'Historical sync skipped by user',
+      }),
+    ).catch(() => {});
+
+    return reply.send({ ok: true, message: 'Historical sync cancelled/skipped' });
   });
 
   // ── GET /api/conversations/:id/messages ────────────────────────────────────

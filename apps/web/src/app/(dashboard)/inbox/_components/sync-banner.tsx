@@ -13,17 +13,19 @@ export function SyncBanner({
   totalConversations,
   currentChatName,
   onDismiss,
+  onSkip,
 }: {
   syncing: boolean
   done: boolean
   convCount: number
-  phase?: 'idle' | 'importing' | 'analysing' | 'complete' | 'failed' | 'cancelled'
+  phase?: 'idle' | 'importing' | 'analysing' | 'complete' | 'failed' | 'cancelled' | 'skipped'
   processedMessages?: number
   totalMessages?: number
   processedConversations?: number
   totalConversations?: number
   currentChatName?: string | null
   onDismiss: () => void
+  onSkip?: () => void
 }) {
   if (!syncing && !done) return null
 
@@ -48,6 +50,12 @@ export function SyncBanner({
     )
   }
 
+  const countReadout = totalMessages && processedMessages != null
+    ? `${processedMessages.toLocaleString()} of ${totalMessages.toLocaleString()} messages`
+    : totalConversations && processedConversations != null
+      ? `${processedConversations.toLocaleString()} of ${totalConversations.toLocaleString()} chats`
+      : null
+
   return (
     <div className="px-3 py-2.5 bg-indigo-50 border-b border-indigo-100">
       <div className="flex items-center justify-between mb-1.5">
@@ -55,15 +63,22 @@ export function SyncBanner({
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse flex-shrink-0" />
           <span className="text-xs font-semibold text-indigo-800">{label}</span>
         </div>
-        {percent != null ? (
-          <span className="text-[10px] text-indigo-500 font-medium tabular-nums">
-            {percent}%
-          </span>
-        ) : convCount > 0 && (
-          <span className="text-[10px] text-indigo-500 font-medium tabular-nums">
-            {convCount.toLocaleString()} conv{convCount !== 1 ? 's' : ''}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {percent != null && (
+            <span className="text-[10px] text-indigo-600 font-bold tabular-nums">
+              {percent}%
+            </span>
+          )}
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 px-1.5 py-0.5 rounded transition-colors"
+              title="Stop importing historical messages and skip to live messages"
+            >
+              Skip Import
+            </button>
+          )}
+        </div>
       </div>
       <div className="h-1 bg-indigo-100 rounded-full overflow-hidden relative">
         {percent != null ? (
@@ -72,8 +87,13 @@ export function SyncBanner({
           <div className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-indigo-300 via-indigo-500 to-indigo-300 rounded-full animate-[indeterminate_1.4s_ease-in-out_infinite]" />
         )}
       </div>
-      <p className="text-[10px] text-indigo-500 mt-1.5 leading-none">
-        {currentChatName ? `${phase === 'analysing' ? 'Analysing' : 'Importing'} ${currentChatName}` : 'Loading conversations as we go — keep working normally'}
+      <p className="text-[10px] text-indigo-600 mt-1.5 leading-none flex justify-between items-center">
+        <span>
+          {currentChatName ? `${phase === 'analysing' ? 'Analysing' : 'Importing'} ${currentChatName}` : 'Loading conversations in batches...'}
+        </span>
+        {countReadout && (
+          <span className="font-medium text-indigo-500">{countReadout}</span>
+        )}
       </p>
     </div>
   )
