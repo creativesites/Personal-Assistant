@@ -424,49 +424,114 @@ export default function SingleJobPage({ params }: { params: Promise<{ id: string
                 )}
 
                 {/* TAB 4: Readiness Checklist */}
-                {activeTab === 'readiness' && (
-                  <div className="space-y-6 max-w-2xl">
-                    <div className="p-5 bg-indigo-50/60 border border-indigo-100 rounded-2xl">
-                      <div className="flex justify-between items-center mb-2">
-                        <h4 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
-                          <ShieldCheck className="w-5 h-5 text-indigo-600" /> Application Readiness Score
-                        </h4>
-                        <span className="text-sm font-bold text-indigo-600">{readinessPct}% Complete</span>
-                      </div>
-                      <div className="w-full bg-indigo-200 h-2.5 rounded-full overflow-hidden">
-                        <div className="bg-indigo-600 h-full transition-all duration-300" style={{ width: `${readinessPct}%` }} />
-                      </div>
-                    </div>
+                {activeTab === 'readiness' && (() => {
+                  const factualChecks = [
+                    {
+                      key: 'jobDescription',
+                      label: 'Job Specification & Requirements Ingested',
+                      passed: Boolean(opp.description && opp.description.length > 50),
+                      desc: opp.description ? `${opp.description.length} chars ingested` : 'No detailed description',
+                    },
+                    {
+                      key: 'companyIdentified',
+                      label: 'Target Company & Org Profile Identified',
+                      passed: Boolean(opp.companyOrOrg),
+                      desc: opp.companyOrOrg ? opp.companyOrOrg : 'Company name missing',
+                    },
+                    {
+                      key: 'workspaceLinked',
+                      label: 'Application Workspace & Task Tracker Linked',
+                      passed: Boolean(opp.projectId),
+                      desc: opp.projectId ? 'Project workspace created' : 'Click "Create Application Project" to link workspace',
+                    },
+                    {
+                      key: 'salaryIdentified',
+                      label: 'Salary & Compensation Benchmark Specified',
+                      passed: Boolean(opp.salaryRangeCents?.max),
+                      desc: opp.salaryRangeCents?.max ? `$${(opp.salaryRangeCents.max / 100).toLocaleString()}/yr` : 'Salary range not listed',
+                    },
+                    {
+                      key: 'resumeReady',
+                      label: 'Tailored Resume / CV Verified',
+                      passed: Boolean(readiness.resumeReady),
+                      desc: readiness.resumeReady ? 'Resume attached & verified' : 'Requires resume upload/tailoring',
+                    },
+                    {
+                      key: 'coverLetterReady',
+                      label: 'Cover Letter Drafted or Hand-written',
+                      passed: Boolean(readiness.coverLetterReady),
+                      desc: readiness.coverLetterReady ? 'Cover letter ready' : 'Write or generate in CV & Cover Letter tab',
+                    },
+                    {
+                      key: 'contactDetailsVerified',
+                      label: 'Contact Email / Phone Confirmed',
+                      passed: Boolean(opp.contactEmail || opp.contactPhone),
+                      desc: opp.contactEmail || opp.contactPhone || 'No direct contact listed',
+                    },
+                  ]
 
-                    <div className="space-y-2">
-                      {[
-                        { key: 'resumeReady', label: 'Tailored Resume generated & verified' },
-                        { key: 'coverLetterReady', label: 'Cover Letter drafted & customized' },
-                        { key: 'referencesReady', label: 'Professional references list attached' },
-                        { key: 'portfolioReady', label: 'Portfolio / GitHub projects updated & linked' },
-                        { key: 'certificatesReady', label: 'Relevant certifications verified' },
-                        { key: 'linkedinUpdated', label: 'LinkedIn profile headline & experience aligned' },
-                        { key: 'contactDetailsVerified', label: 'Email, phone & location confirmed' },
-                      ].map((item) => (
-                        <label
-                          key={item.key}
-                          onClick={() => toggleReadinessItem(item.key)}
-                          className="flex items-center gap-3 p-3.5 bg-white border border-slate-200 rounded-2xl cursor-pointer hover:border-indigo-300 transition shadow-2xs"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={!!readiness[item.key]}
-                            onChange={() => {}}
-                            className="w-4 h-4 text-indigo-600 rounded-md focus:ring-indigo-500"
-                          />
-                          <span className={`text-sm font-medium ${readiness[item.key] ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                            {item.label}
-                          </span>
-                        </label>
-                      ))}
+                  const passedCount = factualChecks.filter(c => c.passed).length
+                  const factualPct = Math.round((passedCount / factualChecks.length) * 100)
+
+                  return (
+                    <div className="space-y-6 max-w-2xl">
+                      <div className="p-5 bg-indigo-50/60 border border-indigo-100 rounded-2xl">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
+                            <ShieldCheck className="w-5 h-5 text-indigo-600" /> Factual Application Readiness
+                          </h4>
+                          <span className="text-sm font-black text-indigo-600">{factualPct}% Ready</span>
+                        </div>
+                        <div className="w-full bg-indigo-200 h-2.5 rounded-full overflow-hidden">
+                          <div className="bg-indigo-600 h-full transition-all duration-300" style={{ width: `${factualPct}%` }} />
+                        </div>
+                        <p className="text-xs text-indigo-800/80 mt-2">
+                          {passedCount} of {factualChecks.length} factual requirements verified for this application.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        {factualChecks.map((item) => (
+                          <div
+                            key={item.key}
+                            className={`flex items-start justify-between p-3.5 border rounded-2xl transition ${
+                              item.passed ? 'bg-emerald-50/40 border-emerald-200/80' : 'bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5">
+                                {item.passed ? (
+                                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                                ) : (
+                                  <AlertCircle className="w-5 h-5 text-amber-500" />
+                                )}
+                              </div>
+                              <div>
+                                <p className={`text-sm font-bold ${item.passed ? 'text-slate-900' : 'text-slate-800'}`}>
+                                  {item.label}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-0.5">{item.desc}</p>
+                              </div>
+                            </div>
+
+                            {item.key in readiness && (
+                              <button
+                                onClick={() => toggleReadinessItem(item.key)}
+                                className={`text-xs font-semibold px-2.5 py-1 rounded-lg border transition ${
+                                  readiness[item.key]
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {readiness[item.key] ? 'Verified' : 'Mark Verified'}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {/* TAB 5: Company Intelligence */}
                 {activeTab === 'company-intel' && token && (

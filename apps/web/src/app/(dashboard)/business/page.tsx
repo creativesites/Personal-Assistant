@@ -776,7 +776,16 @@ function NewDocumentModal({ token, onClose, onCreated }: { token: string | null 
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-xl z-10">
-          <h2 className="text-sm font-bold text-gray-900">New Document</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-bold text-gray-900">New Document</h2>
+            <Link
+              href="/documents/new"
+              onClick={onClose}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-full transition-colors flex items-center gap-1"
+            >
+              Full Studio →
+            </Link>
+          </div>
           <button onClick={onClose}><X className="w-5 h-5 text-gray-400 hover:text-gray-600" /></button>
         </div>
 

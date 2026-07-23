@@ -45,7 +45,7 @@ interface LineItem {
   taxRate: string
 }
 
-interface FormData {
+interface DocumentFormData {
   docType: DocType
   docNumber: string
   issueDate: string
@@ -282,7 +282,7 @@ export default function NewDocumentPage() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiLimitReached, setAiLimitReached] = useState(false)
 
-  const [form, setForm] = useState<FormData>({
+  const [form, setForm] = useState<DocumentFormData>({
     docType: 'invoice',
     docNumber: `INV-${String(Date.now()).slice(-6)}`,
     issueDate: todayStr(),
@@ -299,7 +299,7 @@ export default function NewDocumentPage() {
     structuredData: {},
   })
 
-  const set = useCallback(<K extends keyof FormData>(key: K, val: FormData[K]) => {
+  const set = useCallback(<K extends keyof DocumentFormData>(key: K, val: DocumentFormData[K]) => {
     setForm(f => ({ ...f, [key]: val }))
   }, [])
 
@@ -576,6 +576,7 @@ export default function NewDocumentPage() {
 
   const pdfFileName = `${form.docNumber || form.docType}.pdf`
   const docLabel = form.docType.charAt(0).toUpperCase() + form.docType.slice(1)
+  const isNonBillingDoc = ['nda', 'msa', 'contract', 'proposal', 'statement_of_work', 'service_agreement', 'delivery_note', 'account_statement', 'expense_report'].includes(form.docType)
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -817,16 +818,29 @@ export default function NewDocumentPage() {
           </div>
         )}
 
-        {/* ── STEP 2: Line Items ──────────────────────────────────────────── */}
+        {/* ── STEP 2: Doc Specifications & Dynamic Fields ──────────────────── */}
         {step === 2 && (
           <div className="space-y-5">
+            {/* Dynamic Type-Specific Fields */}
+            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5 space-y-4">
+              <h2 className="text-sm font-black text-gray-950 flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
+                {docLabel} Specifications
+              </h2>
+              <DynamicDocFields
+                docType={form.docType}
+                values={form.structuredData || {}}
+                onChange={setStructuredDataField}
+              />
+            </div>
+
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-black text-gray-950 flex items-center gap-2">
                   <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
                     <FileText className="w-3 h-3" />
                   </span>
-                  Services / Products
+                  {isNonBillingDoc ? 'Itemized Schedule / Deliverables / Fees (Optional)' : 'Services / Products & Line Items'}
                 </h2>
                 <div className="flex items-center gap-2">
                   <label className="text-[11px] text-gray-500 font-semibold">Currency</label>
@@ -836,6 +850,12 @@ export default function NewDocumentPage() {
                   </select>
                 </div>
               </div>
+
+              {isNonBillingDoc && (
+                <p className="text-xs text-gray-500 mb-3 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                  Note: For contracts, NDAs, proposals, and agreements, itemized fee breakdowns are optional. Leave blank if overall contract consideration is set in the fields above.
+                </p>
+              )}
 
               <div className="hidden md:grid grid-cols-[1fr_80px_110px_80px_36px] gap-2 px-1 mb-1.5">
                 {['Description', 'Qty', 'Unit Price', 'Tax %', ''].map(h => (
@@ -849,7 +869,7 @@ export default function NewDocumentPage() {
                     <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1 md:hidden">Description</p>
                       <input value={li.description} onChange={e => updateLine(li.id, 'description', e.target.value)}
-                        placeholder={`Item ${i + 1} — e.g. Web design, 1 month support`}
+                        placeholder={`Item ${i + 1} — e.g. Scope milestone, Deliverable #1`}
                         className={inputCls} />
                     </div>
                     <div>
@@ -884,15 +904,6 @@ export default function NewDocumentPage() {
                 <button onClick={addLine}
                   className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 text-sm font-semibold transition-colors">
                   <Plus className="w-4 h-4" />Add line item
-                </button>
-                <span className="text-gray-300">|</span>
-                <button
-                  type="button"
-                  onClick={() => setCatalogModalOpen(true)}
-                  className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-all shadow-sm active:scale-[0.98]"
-                >
-                  <Package className="w-3.5 h-3.5 text-indigo-600" />
-                  Select from Product / Service Catalog
                 </button>
               </div>
             </div>
@@ -940,16 +951,9 @@ export default function NewDocumentPage() {
           </div>
         )}
 
-        {/* ── STEP 3: Details ─────────────────────────────────────────────── */}
+        {/* ── STEP 3: Details & Terms ─────────────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-5">
-            {/* Dynamic Type-Specific Fields */}
-            <DynamicDocFields
-              docType={form.docType}
-              values={form.structuredData || {}}
-              onChange={setStructuredDataField}
-            />
-
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
                 <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
@@ -1202,8 +1206,8 @@ export default function NewDocumentPage() {
 function CompanySection({
   form, setForm, token,
 }: {
-  form: FormData
-  setForm: React.Dispatch<React.SetStateAction<FormData>>
+  form: DocumentFormData
+  setForm: React.Dispatch<React.SetStateAction<DocumentFormData>>
   token?: string | null
 }) {
   const [open, setOpen] = useState(true)

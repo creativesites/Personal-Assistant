@@ -46,12 +46,25 @@ export function JobCoverLetterStudio({
   const { addToast } = useToast()
 
   // State
-  const [mode, setMode] = useState<'generate' | 'edit'>('generate')
+  const [mode, setMode] = useState<'generate' | 'manual' | 'edit'>('generate')
   const [tone, setTone] = useState('professional')
   const [recipientName, setRecipientName] = useState('Hiring Manager')
   const [company, setCompany] = useState(companyName || '')
   const [instructions, setInstructions] = useState('')
   const [generating, setGenerating] = useState(false)
+
+  // Handle Paste From Clipboard
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) {
+        setLetterBody(text)
+        addToast({ variant: 'success', title: 'Pasted from clipboard!' })
+      }
+    } catch {
+      addToast({ variant: 'info', title: 'Clipboard permission required', description: 'Paste text directly into the box.' })
+    }
+  }
 
   // Letter Content
   const [letterBody, setLetterBody] = useState('')
@@ -208,18 +221,26 @@ export function JobCoverLetterStudio({
         </div>
 
         {/* Mode Switcher */}
-        <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/60 text-xs font-semibold">
+        <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/60 text-xs font-semibold overflow-x-auto max-w-full">
           <button
             onClick={() => setMode('generate')}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
+            className={`px-3 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap ${
               mode === 'generate' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             AI Generator
           </button>
           <button
+            onClick={() => setMode('manual')}
+            className={`px-3 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap ${
+              mode === 'manual' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Manual Write / Paste
+          </button>
+          <button
             onClick={() => setMode('edit')}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
+            className={`px-3 py-1.5 rounded-lg transition-all shrink-0 whitespace-nowrap ${
               mode === 'edit' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -299,6 +320,87 @@ export function JobCoverLetterStudio({
             >
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
               Generate Tailored Cover Letter
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODE 2: MANUAL WRITE & PASTE CANVAS */}
+      {mode === 'manual' && (
+        <div className="space-y-6">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Custom / Hand-written Cover Letter</h4>
+              <p className="text-xs text-slate-500 mt-0.5">Write or paste your own cover letter without AI generation.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handlePasteClipboard}
+                className="px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+              >
+                <Copy className="w-3.5 h-3.5 text-slate-500" /> Paste from Clipboard
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">Recipient Name / Title</label>
+              <input
+                type="text"
+                value={recipientName}
+                onChange={(e) => setRecipientName(e.target.value)}
+                placeholder="e.g. Hiring Manager"
+                className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700">Company Name</label>
+              <input
+                type="text"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="Company Name"
+                className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-700">Cover Letter Body</label>
+              <div className="text-[11px] font-medium text-slate-400">
+                {letterBody.trim() ? letterBody.trim().split(/\s+/).filter(Boolean).length : 0} words · {letterBody.length} characters
+              </div>
+            </div>
+            <textarea
+              value={letterBody}
+              onChange={(e) => setLetterBody(e.target.value)}
+              placeholder="Paste or write your custom cover letter here..."
+              rows={12}
+              className="w-full p-4 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-sans"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-slate-700">Sign-off</label>
+            <input
+              type="text"
+              value={signOff}
+              onChange={(e) => setSignOff(e.target.value)}
+              placeholder="Sincerely, [Your Name]"
+              className="w-full px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              onClick={handleSaveDocument}
+              disabled={saving || !letterBody.trim()}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md shadow-indigo-100 transition disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Cover Letter
             </button>
           </div>
         </div>
