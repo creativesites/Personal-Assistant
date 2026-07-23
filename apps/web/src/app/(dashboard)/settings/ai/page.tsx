@@ -12,7 +12,7 @@ import {
   Building, ChevronRight, Sliders, AlertCircle, Info, RefreshCw as RotateCcw
 } from 'lucide-react'
 
-export const OPENAI_MODELS = [
+const OPENAI_MODELS = [
   { id: "gpt-5.6", name: "GPT-5.6 (Sol)", recommended: true },
   { id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
   { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
@@ -21,7 +21,7 @@ export const OPENAI_MODELS = [
   { id: "o3", name: "o3" }
 ]
 
-export const GEMINI_MODELS = [
+const GEMINI_MODELS = [
   { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", recommended: true },
   { id: "gemini-3.5-pro", name: "Gemini 3.5 Pro" },
   { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
@@ -31,13 +31,13 @@ export const GEMINI_MODELS = [
   { id: "gemini-flash-cyber", name: "Gemini Flash Cyber" }
 ]
 
-export const CLAUDE_MODELS = [
+const CLAUDE_MODELS = [
   { id: "claude-opus-5", name: "Claude Opus 5", recommended: true },
   { id: "claude-sonnet-5", name: "Claude Sonnet 5" },
   { id: "claude-haiku-5", name: "Claude Haiku 5" }
 ]
 
-export const QWEN_MODELS = [
+const QWEN_MODELS = [
   { id: "qwen-3.8-max", name: "Qwen 3.8 Max", recommended: true },
   { id: "qwen-3.8", name: "Qwen 3.8" },
   { id: "qwen-3.7-max", name: "Qwen 3.7 Max" },
