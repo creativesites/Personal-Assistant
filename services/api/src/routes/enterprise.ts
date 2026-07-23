@@ -544,74 +544,7 @@ export async function enterpriseRoutes(fastify: FastifyInstance): Promise<void> 
   );
 
   // ─── BYOK (Bring Your Own Key) ─────────────────────────────────────────────────
-
-  // GET /api/byok — list active BYOK providers (never return the key)
-  fastify.get(
-    '/api/byok',
-    { preHandler: authenticate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-
-      const { rows } = await db.query(
-        `SELECT id, provider, created_at, updated_at
-         FROM byok_keys
-         WHERE user_id = $1
-         ORDER BY provider ASC`,
-        [userId],
-      );
-
-      return reply.send({ keys: rows });
-    },
-  );
-
-  // POST /api/byok — add or update a BYOK key
-  fastify.post(
-    '/api/byok',
-    { preHandler: authenticate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-
-      let body: z.infer<typeof byokBody>;
-      try {
-        body = byokBody.parse(request.body);
-      } catch (err: any) {
-        return reply.code(400).send({ error: 'Invalid request body', detail: err.message });
-      }
-
-      // PLACEHOLDER encryption: base64 encode the key.
-      // TODO: production should use AES-256-GCM with a server-managed KMS key
-      // (XOR with JWT_SECRET is not cryptographically sound for production use).
-      const encryptedKey = Buffer.from(body.api_key).toString('base64');
-
-      const { rows: [entry] } = await db.query<{ id: string; updated_at: string }>(
-        `INSERT INTO byok_keys (user_id, provider, encrypted_key)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (user_id, provider) DO UPDATE
-           SET encrypted_key = EXCLUDED.encrypted_key,
-               updated_at = NOW()
-         RETURNING id, updated_at`,
-        [userId, body.provider, encryptedKey],
-      );
-
-      return reply.code(201).send({ key: { id: entry.id, provider: body.provider, updatedAt: entry.updated_at } });
-    },
-  );
-
-  // DELETE /api/byok/:provider — remove a BYOK key
-  fastify.delete(
-    '/api/byok/:provider',
-    { preHandler: authenticate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string };
-      const { provider } = request.params as { provider: string };
-
-      const { rowCount } = await db.query(
-        `DELETE FROM byok_keys WHERE user_id = $1 AND provider = $2`,
-        [userId, provider],
-      );
-      if (!rowCount) return reply.code(404).send({ error: 'BYOK key not found' });
-
-      return reply.send({ ok: true });
-    },
-  );
+  // Note: Old base64 BYOK endpoints have been removed to avoid route collision.
+  // The new cryptographically secure BYOK routing system is fully implemented in routes/byok.ts.
 }
+
