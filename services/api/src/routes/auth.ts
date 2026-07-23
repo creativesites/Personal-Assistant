@@ -501,13 +501,19 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           total_suggestions: string
         }>(
           `SELECT
-             (SELECT COUNT(*) FROM contacts WHERE user_id = $1) AS total_contacts,
+             (SELECT COUNT(*) FROM contacts WHERE user_id = $1 AND archived_at IS NULL) AS total_contacts,
              (SELECT COUNT(*) FROM messages m
               JOIN conversations c ON m.conversation_id = c.id
               WHERE c.user_id = $1) AS total_messages,
-             (SELECT COUNT(*) FROM suggested_replies sr
-              JOIN conversations c ON sr.conversation_id = c.id
-              WHERE c.user_id = $1) AS total_suggestions`,
+             ((SELECT COUNT(*) FROM message_analyses ma
+               JOIN messages m ON ma.message_id = m.id
+               JOIN conversations c ON m.conversation_id = c.id
+               WHERE c.user_id = $1) +
+              (SELECT COUNT(*) FROM suggested_replies sr
+               JOIN conversations c ON sr.conversation_id = c.id
+               WHERE c.user_id = $1) +
+              (SELECT COUNT(*) FROM documents WHERE user_id = $1) +
+              (SELECT COUNT(*) FROM opportunities WHERE user_id = $1)) AS total_suggestions`,
           [userId],
         )
 
