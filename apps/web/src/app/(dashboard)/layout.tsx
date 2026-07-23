@@ -16,7 +16,7 @@ import {
   Bot, BookOpen, AlertTriangle, HeartPulse,
   Sparkles, Brain, Calendar, Bell, CreditCard, Settings, User,
   Wrench, LogOut, Smartphone, Menu, X, Search,
-  WifiOff, Loader2, ChevronLeft, ChevronRight, ChevronDown, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase, Rss
+  WifiOff, Loader2, ChevronLeft, ChevronRight, ChevronDown, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase, Rss, Building2
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -69,6 +69,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Send,
     showForModes: ['business', 'hybrid'],
     items: [
+      { href: '/organization', label: ' Organization & Teams ', icon: Building2 },
       { href: '/studio', label: ' Business Knowledge Hub ', icon: Send },
       { href: '/business', label: ' Invoices & Documents ', icon: FileText },
     ],

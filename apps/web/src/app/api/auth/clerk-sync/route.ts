@@ -2,7 +2,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
-  const { userId } = await auth()
+  const { userId, orgId, orgRole, orgSlug } = await auth()
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -23,8 +23,15 @@ export async function POST() {
   const apiUrl = process.env.API_URL || 'http://localhost:3000'
   const internalSecret = process.env.INTERNAL_API_SECRET || ''
 
-  const payload = { clerkUserId: userId, email, name }
-  console.log('[clerk-sync] sending to API:', { apiUrl, email, hasSecret: !!internalSecret, secretPrefix: internalSecret.slice(0, 8) })
+  const payload = {
+    clerkUserId: userId,
+    email,
+    name,
+    clerkOrgId: orgId || null,
+    orgRole: orgRole || null,
+    orgSlug: orgSlug || null,
+  }
+  console.log('[clerk-sync] sending to API:', { apiUrl, email, orgId, orgRole, hasSecret: !!internalSecret, secretPrefix: internalSecret.slice(0, 8) })
 
   const res = await fetch(`${apiUrl}/api/auth/clerk-sync`, {
     method: 'POST',

@@ -13,6 +13,13 @@ export type PlanFamily = 'free' | 'personal' | 'professional' | 'business' | 'en
 
 // Module-level cache keyed by Clerk userId so it survives re-renders
 // but clears automatically when a different user signs in.
+export type OrgDetails = {
+  id: string
+  clerkOrgId: string
+  name: string
+  role: string
+} | null
+
 const _store: {
   userId: string
   token: string
@@ -20,6 +27,8 @@ const _store: {
   marketingAccess: MarketingAccess
   isAdmin: boolean
   planFamily: PlanFamily
+  isCompanyManaged: boolean
+  organization: OrgDetails
 } = {
   userId: '',
   token: '',
@@ -27,32 +36,30 @@ const _store: {
   marketingAccess: 'none',
   isAdmin: false,
   planFamily: 'free',
+  isCompanyManaged: false,
+  organization: null,
 }
 
-// A subscription/plan change (checkout approved, admin adjustment, a
-// referral/promo credit) happens server-side and asynchronously — there is
-// no client-side action to hang a "refetch now" off. Before this, planFamily
-// (and isAdmin) were only ever set once per browser session, on the very
-// first clerk-sync call; every FeatureGate mounted afterwards kept reading
-// that stale snapshot from the module-level _store until a hard reload
-// re-ran this module from scratch. mode/marketingAccess already had a
-// pub/sub path for an explicit same-tab update (Settings' toggle); nothing
-// covered the "it changed on the server while I was looking at this page"
-// case at all. `_snapshotSubscribers` now covers all four fields, and a
-// single module-level poll/visibility watcher keeps `_store` itself fresh
-// so every mounted useZuriSession() instance self-heals without needing to
-// know why the value changed.
 type SessionSnapshot = {
   mode: WorkspaceMode
   marketingAccess: MarketingAccess
   isAdmin: boolean
   planFamily: PlanFamily
+  isCompanyManaged: boolean
+  organization: OrgDetails
 }
 type SnapshotSubscriber = (snapshot: SessionSnapshot) => void
 const _snapshotSubscribers = new Set<SnapshotSubscriber>()
 
 function snapshotFromStore(): SessionSnapshot {
-  return { mode: _store.mode, marketingAccess: _store.marketingAccess, isAdmin: _store.isAdmin, planFamily: _store.planFamily }
+  return {
+    mode: _store.mode,
+    marketingAccess: _store.marketingAccess,
+    isAdmin: _store.isAdmin,
+    planFamily: _store.planFamily,
+    isCompanyManaged: _store.isCompanyManaged,
+    organization: _store.organization,
+  }
 }
 
 function notifySnapshotSubscribers() {
@@ -65,6 +72,11 @@ type ModeSubscriber = (mode: WorkspaceMode) => void
 const _modeSubscribers = new Set<ModeSubscriber>()
 
 export function setStoredMode(mode: WorkspaceMode) {
+  // Governance Lock: company-managed users cannot switch away from 'business'
+  if (_store.isCompanyManaged && mode !== 'business') {
+    console.warn('[Zuri Governance] Personal workspace mode is restricted while active in a company organization.')
+    return
+  }
   _store.mode = mode
   _modeSubscribers.forEach((fn) => fn(mode))
   notifySnapshotSubscribers()
@@ -98,6 +110,8 @@ async function resyncFromServer(): Promise<void> {
     _store.marketingAccess = (data.user?.marketingAccess as MarketingAccess) ?? _store.marketingAccess
     _store.isAdmin = data.user?.isAdmin ?? _store.isAdmin
     _store.planFamily = (data.user?.planFamily as PlanFamily) ?? _store.planFamily
+    _store.isCompanyManaged = data.user?.isCompanyManaged ?? false
+    _store.organization = data.user?.organization ?? null
     notifySnapshotSubscribers()
   } catch {
     // best-effort — the next interval tick or visibility change tries again
@@ -145,6 +159,12 @@ export function useZuriSession() {
   const [planFamily, setPlanFamily] = useState<PlanFamily>(
     user?.id && _store.userId === user.id ? _store.planFamily : 'free',
   )
+  const [isCompanyManaged, setIsCompanyManaged] = useState<boolean>(
+    user?.id && _store.userId === user.id ? _store.isCompanyManaged : false,
+  )
+  const [organization, setOrganization] = useState<OrgDetails>(
+    user?.id && _store.userId === user.id ? _store.organization : null,
+  )
   const [syncFailed, setSyncFailed] = useState(false)
   const pending = useRef(false)
 
@@ -162,16 +182,15 @@ export function useZuriSession() {
     return () => { _marketingAccessSubscribers.delete(sub) }
   }, [])
 
-  // Subscribe to the shared snapshot (mode/marketingAccess/isAdmin/planFamily)
-  // so a background resync — this tab regaining focus, the periodic
-  // interval, or another mounted instance's own initial fetch — updates
-  // this instance too, without a page reload.
+  // Subscribe to the shared snapshot (mode/marketingAccess/isAdmin/planFamily/isCompanyManaged/organization)
   useEffect(() => {
     const sub: SnapshotSubscriber = (snap) => {
       setMode(snap.mode)
       setMarketingAccess(snap.marketingAccess)
       setIsAdmin(snap.isAdmin)
       setPlanFamily(snap.planFamily)
+      setIsCompanyManaged(snap.isCompanyManaged)
+      setOrganization(snap.organization)
     }
     _snapshotSubscribers.add(sub)
     return () => { _snapshotSubscribers.delete(sub) }
@@ -185,6 +204,8 @@ export function useZuriSession() {
       setMode(_store.mode)
       setMarketingAccess(_store.marketingAccess)
       setPlanFamily(_store.planFamily)
+      setIsCompanyManaged(_store.isCompanyManaged)
+      setOrganization(_store.organization)
       return
     }
     if (pending.current) return
@@ -202,11 +223,15 @@ export function useZuriSession() {
           _store.marketingAccess = (data.user?.marketingAccess as MarketingAccess) ?? 'none'
           _store.isAdmin = data.user?.isAdmin ?? false
           _store.planFamily = (data.user?.planFamily as PlanFamily) ?? 'free'
+          _store.isCompanyManaged = data.user?.isCompanyManaged ?? false
+          _store.organization = data.user?.organization ?? null
           setToken(data.token)
           setMode(_store.mode)
           setMarketingAccess(_store.marketingAccess)
           setIsAdmin(_store.isAdmin)
           setPlanFamily(_store.planFamily)
+          setIsCompanyManaged(_store.isCompanyManaged)
+          setOrganization(_store.organization)
         } else {
           setSyncFailed(true)
         }
@@ -224,9 +249,6 @@ export function useZuriSession() {
   if (!isLoaded) return { data: null, status: 'loading' as const }
   if (!isSignedIn) return { data: null, status: 'unauthenticated' as const }
 
-  // Clerk confirms user is signed in — return authenticated immediately.
-  // accessToken is null when backend sync is still in progress or unavailable.
-  // Pages that need the token should check session.accessToken before calling the API.
   return {
     data: {
       accessToken: token,
@@ -235,6 +257,8 @@ export function useZuriSession() {
       marketingAccess,
       isAdmin,
       planFamily,
+      isCompanyManaged,
+      organization,
       user: {
         id: user!.id,
         email: user!.emailAddresses[0]?.emailAddress ?? '',

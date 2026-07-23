@@ -73,6 +73,7 @@ import { adminRevenueRoutes } from './routes/admin-revenue';
 import { privacyRoutes } from './routes/privacy';
 import { byokRoutes } from './routes/byok';
 import { salesErpRoutes } from './routes/sales-erp';
+import { organizationRoutes } from './routes/organization';
 import { readOnlyModeGuard } from './lib/entitlements';
 
 export async function buildApp() {
@@ -129,6 +130,7 @@ export async function buildApp() {
   await fastify.register(agentRoutes);
   await fastify.register(analyticsRoutes);
   await fastify.register(teamRoutes);
+  await fastify.register(organizationRoutes);
   await fastify.register(broadcastsRoutes);
   await fastify.register(enterpriseRoutes);
   await fastify.register(mediaRoutes);

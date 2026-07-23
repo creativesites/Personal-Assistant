@@ -16,6 +16,9 @@ const clerkSyncBody = z.object({
   clerkUserId: z.string().min(1),
   email: z.string().email(),
   name: z.string().min(1).max(255),
+  clerkOrgId: z.string().nullable().optional(),
+  orgRole: z.string().nullable().optional(),
+  orgSlug: z.string().nullable().optional(),
 });
 
 const registerBody = z.object({
@@ -45,6 +48,8 @@ type UserRow = {
   marketing_access: string
   is_admin: boolean
   onboarding_completed: boolean
+  is_company_managed: boolean
+  current_organization_id: string | null
   timezone?: string
 }
 
@@ -57,7 +62,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(403).send({ error: 'Forbidden' })
     }
 
-    let body: { clerkUserId: string; email: string; name: string }
+    let body: z.infer<typeof clerkSyncBody>
     try {
       body = clerkSyncBody.parse(request.body)
     } catch (err: any) {
@@ -65,17 +70,27 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Invalid request body', detail: err.message })
     }
 
-    const { clerkUserId, email, name } = body
+    const { clerkUserId, email, name, clerkOrgId, orgRole, orgSlug } = body
 
     try {
       let { rows: [user] } = await db.query<UserRow>(
-        'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, COALESCE(marketing_access, \'none\') AS marketing_access, is_admin, onboarding_completed FROM users WHERE clerk_user_id = $1',
+        `SELECT id, email, full_name, COALESCE(mode, 'business') AS mode,
+                COALESCE(marketing_access, 'none') AS marketing_access,
+                is_admin, onboarding_completed,
+                COALESCE(is_company_managed, false) AS is_company_managed,
+                current_organization_id
+         FROM users WHERE clerk_user_id = $1`,
         [clerkUserId],
       )
 
       if (!user) {
         const { rows: [existing] } = await db.query<UserRow>(
-          'SELECT id, email, full_name, COALESCE(mode, \'business\') AS mode, COALESCE(marketing_access, \'none\') AS marketing_access, is_admin, onboarding_completed FROM users WHERE email = $1',
+          `SELECT id, email, full_name, COALESCE(mode, 'business') AS mode,
+                  COALESCE(marketing_access, 'none') AS marketing_access,
+                  is_admin, onboarding_completed,
+                  COALESCE(is_company_managed, false) AS is_company_managed,
+                  current_organization_id
+           FROM users WHERE email = $1`,
           [email],
         )
 
@@ -86,21 +101,12 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           const { rows: [created] } = await db.query<UserRow>(
             `INSERT INTO users (email, full_name, clerk_user_id)
              VALUES ($1, $2, $3)
-             RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode, COALESCE(marketing_access, 'none') AS marketing_access, is_admin, onboarding_completed`,
+             RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode,
+                       COALESCE(marketing_access, 'none') AS marketing_access,
+                       is_admin, onboarding_completed, false AS is_company_managed, NULL AS current_organization_id`,
             [email, name || 'User', clerkUserId],
           )
           await Promise.all([
-            // Membership Platform Phase 1 (docs/MEMBERSHIP_PLATFORM_PLAN.md
-            // §3) — a 7-day trial on the 'free' plan row, with
-            // current_period_end actually set (previously only
-            // trial_ends_at was written, so the lifecycle worker's
-            // `current_period_end < NOW()` check never fired and trials
-            // never expired). The four daily counters are granted at
-            // 999999 directly here rather than from the free plan's real
-            // small caps — "all Premium features for 7 days" — the
-            // lifecycle worker's daily reset (Phase 4) knows to keep
-            // regranting 999999 while status='trialing' and only falls
-            // back to the free plan's real caps once the trial ends.
             db.query(
               `INSERT INTO subscriptions (
                  user_id, plan, status, trial_ends_at, current_period_start, current_period_end,
@@ -123,9 +129,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
               `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true) ON CONFLICT DO NOTHING`,
               [created.id],
             ),
-            // Default Assistant agent (docs/AUTO_REPLY_AGENTS_PLAN.md §2) —
-            // every user has exactly one auto-reply agent from day one; the
-            // Settings/Inbox auto-reply controls edit this row directly.
             db.query(
               `INSERT INTO agents
                  (user_id, name, agent_type, description, trust_level, is_active,
@@ -140,13 +143,91 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         }
       }
 
+      // Organization Sync Logic
+      let orgDetails: { id: string; clerkOrgId: string; name: string; role: string } | null = null
+
+      if (clerkOrgId) {
+        // Upsert organization
+        const orgName = orgSlug ? orgSlug.replace(/[-_]/g, ' ').toUpperCase() : 'Company Workspace'
+        const { rows: [org] } = await db.query<{ id: string; name: string; clerk_org_id: string }>(
+          `INSERT INTO organizations (clerk_org_id, name, slug, owner_user_id)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (clerk_org_id) DO UPDATE SET
+             slug = COALESCE(EXCLUDED.slug, organizations.slug),
+             updated_at = NOW()
+           RETURNING id, name, clerk_org_id`,
+          [clerkOrgId, orgName, orgSlug ?? null, user.id],
+        )
+
+        // Standardize Clerk role strings (org:admin -> admin, org:member -> member, etc.)
+        let normalizedRole = 'member'
+        if (orgRole) {
+          if (orgRole.includes('admin') || orgRole.includes('owner')) normalizedRole = 'admin'
+          else if (orgRole.includes('viewer')) normalizedRole = 'viewer'
+        }
+
+        // Upsert membership
+        await db.query(
+          `INSERT INTO organization_members (organization_id, user_id, role, status)
+           VALUES ($1, $2, $3, 'active')
+           ON CONFLICT (organization_id, user_id) DO UPDATE SET
+             role = EXCLUDED.role,
+             status = 'active',
+             updated_at = NOW()`,
+          [org.id, user.id, normalizedRole],
+        )
+
+        // Lock user mode to business and mark as company-managed
+        await db.query(
+          `UPDATE users SET current_organization_id = $1, is_company_managed = true, mode = 'business', updated_at = NOW() WHERE id = $2`,
+          [org.id, user.id],
+        )
+
+        user.mode = 'business'
+        user.is_company_managed = true
+        user.current_organization_id = org.id
+        orgDetails = { id: org.id, clerkOrgId: org.clerk_org_id, name: org.name, role: normalizedRole }
+      } else {
+        // Check if user is a member of ANY active company org in Zuri DB
+        const { rows: [activeMem] } = await db.query<{
+          organization_id: string
+          role: string
+          org_name: string
+          clerk_org_id: string
+        }>(
+          `SELECT om.organization_id, om.role, o.name AS org_name, o.clerk_org_id
+           FROM organization_members om
+           JOIN organizations o ON om.organization_id = o.id
+           WHERE om.user_id = $1 AND om.status = 'active'
+           LIMIT 1`,
+          [user.id],
+        )
+
+        if (activeMem) {
+          await db.query(
+            `UPDATE users SET current_organization_id = $1, is_company_managed = true, mode = 'business', updated_at = NOW() WHERE id = $2`,
+            [activeMem.organization_id, user.id],
+          )
+          user.mode = 'business'
+          user.is_company_managed = true
+          user.current_organization_id = activeMem.organization_id
+          orgDetails = { id: activeMem.organization_id, clerkOrgId: activeMem.clerk_org_id, name: activeMem.org_name, role: activeMem.role }
+        } else if (user.is_company_managed) {
+          // No active org membership remaining -> unlock company management constraint
+          await db.query(
+            `UPDATE users SET current_organization_id = NULL, is_company_managed = false, updated_at = NOW() WHERE id = $1`,
+            [user.id],
+          )
+          user.is_company_managed = false
+          user.current_organization_id = null
+        }
+      }
+
       const token = fastify.jwt.sign(
-        { userId: user.id, isAdmin: user.is_admin ?? false },
+        { userId: user.id, isAdmin: user.is_admin ?? false, orgId: user.current_organization_id },
         { expiresIn: '30d' },
       )
 
-      // Membership Platform Phase 6 — planFamily on the session payload so
-      // the frontend can gate (FeatureGate) without a round-trip per page.
       const planFamily = await getEffectivePlanFamily(user.id)
 
       return reply.send({
@@ -160,6 +241,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           isAdmin: user.is_admin ?? false,
           onboardingCompleted: user.onboarding_completed,
           planFamily,
+          isCompanyManaged: user.is_company_managed,
+          organization: orgDetails,
         },
       })
     } catch (err: any) {
@@ -391,15 +474,33 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         mode: string;
         marketing_access: string;
         onboarding_completed: boolean;
+        is_company_managed: boolean;
+        current_organization_id: string | null;
       }>(
         `SELECT id, email, full_name, timezone, COALESCE(mode, 'hybrid') AS mode,
-                COALESCE(marketing_access, 'none') AS marketing_access, onboarding_completed
+                COALESCE(marketing_access, 'none') AS marketing_access, onboarding_completed,
+                COALESCE(is_company_managed, false) AS is_company_managed,
+                current_organization_id
          FROM users WHERE id = $1`,
         [userId]
       );
 
       if (!user) {
         return reply.code(404).send({ error: 'User not found' });
+      }
+
+      let orgDetails = null
+      if (user.current_organization_id) {
+        const { rows: [org] } = await db.query<{ id: string; clerk_org_id: string; name: string; role: string }>(
+          `SELECT o.id, o.clerk_org_id, o.name, om.role
+           FROM organizations o
+           JOIN organization_members om ON om.organization_id = o.id
+           WHERE o.id = $1 AND om.user_id = $2 AND om.status = 'active'`,
+          [user.current_organization_id, userId],
+        )
+        if (org) {
+          orgDetails = { id: org.id, clerkOrgId: org.clerk_org_id, name: org.name, role: org.role }
+        }
       }
 
       return reply.send({
@@ -411,6 +512,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           mode: user.mode,
           marketingAccess: resolveMarketingAccess(user.marketing_access),
           onboardingCompleted: user.onboarding_completed,
+          isCompanyManaged: user.is_company_managed,
+          organization: orgDetails,
         },
       });
     }
@@ -427,6 +530,18 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         body = updateMeBody.parse(request.body)
       } catch (err: any) {
         return reply.code(400).send({ error: 'Invalid request body', detail: err.message })
+      }
+
+      // Verify company governance restriction
+      const { rows: [currentUser] } = await db.query<{ is_company_managed: boolean }>(
+        `SELECT COALESCE(is_company_managed, false) AS is_company_managed FROM users WHERE id = $1`,
+        [userId],
+      )
+
+      if (currentUser?.is_company_managed && body.mode && body.mode !== 'business') {
+        return reply.code(403).send({
+          error: 'Your account is managed by your company organization. Workspace mode is locked to business.',
+        })
       }
 
       const updates: string[] = []
@@ -464,9 +579,10 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         marketing_access: string
         timezone: string
         onboarding_completed: boolean
+        is_company_managed: boolean
       }>(
         `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}
-         RETURNING id, email, full_name, mode, marketing_access, timezone, onboarding_completed`,
+         RETURNING id, email, full_name, mode, marketing_access, timezone, onboarding_completed, COALESCE(is_company_managed, false) AS is_company_managed`,
         values,
       )
 
