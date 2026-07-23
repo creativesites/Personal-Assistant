@@ -1047,9 +1047,18 @@ function CrmActivityLogger({ contactId, token, onLogged }: { contactId: string; 
 function BusinessTimelinePanel({ contactId, token }: { contactId: string; token: string }) {
   const { data: timelineData, refetch } = useApi<{ businessStage: string | null; timeline: TimelineEntry[] }>(`/api/contacts/${contactId}/business-timeline`, token)
   const { data: docsData } = useApi<{ documents: BusinessDocSummary[] }>(`/api/documents?contactId=${contactId}`, token)
+  const { data: ledgerData } = useApi<{
+    customerLifetimeValueCents: number
+    openInvoicesCents: number
+    receipts: Array<{ id: string; receiptNumber: string; amountCents: number; paidAt: string }>
+  }>(`/api/contacts/${contactId}/financial-ledger`, token)
+
   const timeline = timelineData?.timeline ?? []
   const docs = docsData?.documents ?? []
   const businessStage = timelineData?.businessStage ?? null
+  const clvCents = ledgerData?.customerLifetimeValueCents ?? 0
+  const openInvoicesCents = ledgerData?.openInvoicesCents ?? 0
+  const receipts = ledgerData?.receipts ?? []
 
   const downloadPdf = async (doc: BusinessDocSummary) => {
     try {
@@ -1067,6 +1076,30 @@ function BusinessTimelinePanel({ contactId, token }: { contactId: string; token:
 
   return (
     <div className="space-y-4">
+      {/* Customer Financial Ledger & CLV Card */}
+      <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-xl p-4 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-indigo-200 uppercase tracking-wider">Customer Financial Summary</span>
+          <span className="text-[10px] font-bold bg-indigo-500/30 text-indigo-300 px-2 py-0.5 rounded border border-indigo-400/20">
+            CLV Score
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 pt-1">
+          <div>
+            <span className="text-xs text-indigo-300 block">Lifetime Spent</span>
+            <span className="text-xl font-bold text-white">
+              {(clvCents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })}
+            </span>
+          </div>
+          <div>
+            <span className="text-xs text-indigo-300 block">Open Invoices</span>
+            <span className="text-xl font-bold text-amber-300">
+              {(openInvoicesCents / 100).toLocaleString(undefined, { style: 'currency', currency: 'ZMW' })}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <CrmActivityLogger contactId={contactId} token={token} onLogged={refetch} />
 
       {businessStage && (

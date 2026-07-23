@@ -69,12 +69,14 @@ import { CatalogModule } from './_components/catalog-module'
 import { ServicesModule } from './_components/services-module'
 import { CustomersModule } from './_components/customers-module'
 import { BrandModule } from './_components/brand-module'
+import { SalesModule } from './_components/sales-module'
 import { FeatureGate } from '@/components/ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Module =
   | 'overview'
+  | 'sales'
   | 'catalog'
   | 'services'
   | 'customers'
@@ -247,7 +249,8 @@ function reliabilityVariant(score: number): 'error' | 'warning' | 'success' {
 
 const MODULES: { id: Module; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'overview',   label: 'Overview',   Icon: Home },
-  { id: 'catalog',    label: 'Catalog',    Icon: ShoppingCart },
+  { id: 'sales',      label: 'Sales & Orders', Icon: ShoppingCart },
+  { id: 'catalog',    label: 'Catalog',    Icon: Package },
   { id: 'services',   label: 'Services',   Icon: Wrench },
   { id: 'customers',  label: 'Customers',  Icon: Users2 },
   { id: 'inventory',  label: 'Inventory',  Icon: Package },
@@ -2838,6 +2841,7 @@ function StudioPageInner() {
   function renderModule() {
     switch (activeModule) {
       case 'overview':  return <OverviewModule  token={token} initialPrompt={askPrompt} onConsumedPrompt={() => setAskPrompt(null)} />
+      case 'sales':     return <SalesModule     token={token ?? null} />
       case 'catalog':   return <CatalogModule   token={token} />
       case 'services':  return <ServicesModule   token={token} />
       case 'customers': return <CustomersModule  token={token} />

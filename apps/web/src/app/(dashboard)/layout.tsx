@@ -583,24 +583,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [session.data?.accessToken, addToast])
 
-  useEffect(() => {
-    // Only redirect if session is authenticated, wa status has been loaded (not 'unknown'),
-    // and they are not connected.
-    if (session.status === 'authenticated' && wa.status !== 'unknown' && !wa.connected) {
-      // Don't redirect if we are on pages where they might need to go (e.g., /onboarding, /profile, /settings, /billing, /diagnostics)
-      const allowedPathsWithoutWA = [
-        '/onboarding',
-        '/profile',
-        '/settings',
-        '/billing',
-        '/diagnostics',
-      ]
-      const isAllowed = allowedPathsWithoutWA.some(p => pathname === p || pathname.startsWith(p))
-      if (!isAllowed) {
-        router.push('/onboarding')
-      }
-    }
-  }, [session.status, wa.status, wa.connected, pathname, router])
+  // Note: We no longer force-redirect users to /onboarding if WhatsApp is disconnected.
+  // Users can freely explore the app, view CRM data, create documents, and connect WhatsApp at any time.
 
   useEffect(() => {
     setIsNavigating(false)
@@ -723,6 +707,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }`}
       >
         <SubscriptionStatusBanner token={session.data?.accessToken} />
+        {!wa.connected && wa.status !== 'unknown' && pathname !== '/onboarding' && (
+          <div className="bg-gradient-to-r from-amber-500/15 via-indigo-500/15 to-purple-500/15 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-xs text-amber-900 bg-amber-50/80 backdrop-blur-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <Smartphone className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span className="truncate font-medium">
+                WhatsApp is disconnected. Connect to enable automated message ingestion and live AI reply drafts.
+              </span>
+            </div>
+            <Link href="/onboarding" className="font-bold text-indigo-600 hover:text-indigo-800 flex-shrink-0 ml-3 underline underline-offset-2">
+              Connect WhatsApp →
+            </Link>
+          </div>
+        )}
         {children}
       </main>
 
