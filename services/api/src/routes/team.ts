@@ -252,7 +252,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
            LEFT JOIN users au ON au.id = ca.assigned_to
            LEFT JOIN users lu ON lu.id = ca.locked_by
            WHERE ca.conversation_id = $1
-           FOR UPDATE`,
+           FOR UPDATE OF ca`,
           [id],
         );
 
@@ -364,7 +364,7 @@ export async function teamRoutes(fastify: FastifyInstance): Promise<void> {
            FROM conversation_assignments ca
            LEFT JOIN users lu ON lu.id = ca.locked_by
            WHERE ca.conversation_id = $1
-           FOR UPDATE`,
+           FOR UPDATE OF ca`,
           [id],
         );
 

@@ -413,6 +413,54 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
             [userId, body.businessName || 'My Business', body.industry || null, body.businessDescription || null],
           );
         }
+
+        // 2b. Ensure Organization Workspace exists for Business mode
+        try {
+          const orgName = body.businessName?.trim() || 'My Business Workspace';
+          const { rows: [existingMember] } = await db.query<{ organization_id: string }>(
+            `SELECT organization_id FROM organization_members WHERE user_id = $1 AND status = 'active' LIMIT 1`,
+            [userId]
+          );
+
+          if (!existingMember) {
+            const slug = (body.businessName?.trim() || 'workspace')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .slice(0, 30) + '-' + userId.slice(0, 6);
+
+            const { rows: [newOrg] } = await db.query<{ id: string }>(
+              `INSERT INTO organizations (name, slug)
+               VALUES ($1, $2)
+               RETURNING id`,
+              [orgName, slug]
+            );
+
+            if (newOrg) {
+              await db.query(
+                `INSERT INTO organization_members (organization_id, user_id, role, status)
+                 VALUES ($1, $2, 'owner', 'active')
+                 ON CONFLICT DO NOTHING`,
+                [newOrg.id, userId]
+              );
+
+              await db.query(
+                `UPDATE users SET current_organization_id = $1 WHERE id = $2`,
+                [newOrg.id, userId]
+              );
+            }
+          } else if (body.businessName?.trim()) {
+            await db.query(
+              `UPDATE organizations SET name = $1, updated_at = NOW() WHERE id = $2`,
+              [body.businessName.trim(), existingMember.organization_id]
+            );
+            await db.query(
+              `UPDATE users SET current_organization_id = COALESCE(current_organization_id, $1) WHERE id = $2`,
+              [existingMember.organization_id, userId]
+            );
+          }
+        } catch (orgErr) {
+          fastify.log.error({ orgErr }, 'onboarding-complete: failed to bind organization workspace');
+        }
       }
 
       // 3. Seed business_facts for the AI intelligence engine
@@ -630,7 +678,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
                JOIN conversations c ON m.conversation_id = c.id
                WHERE c.user_id = $1) +
               (SELECT COUNT(*) FROM suggested_replies sr
-               JOIN conversations c ON sr.conversation_id = c.id
+               JOIN messages m ON sr.message_id = m.id
+               JOIN conversations c ON m.conversation_id = c.id
                WHERE c.user_id = $1) +
               (SELECT COUNT(*) FROM documents WHERE user_id = $1) +
               (SELECT COUNT(*) FROM opportunities WHERE user_id = $1)) AS total_suggestions`,

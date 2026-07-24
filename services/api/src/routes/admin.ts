@@ -223,7 +223,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         `SELECT
            (SELECT COUNT(*) FROM contacts WHERE user_id = $1) AS contacts,
            (SELECT COUNT(*) FROM messages m JOIN conversations c ON m.conversation_id = c.id WHERE c.user_id = $1) AS messages,
-           (SELECT COUNT(*) FROM suggested_replies sr JOIN conversations c ON sr.conversation_id = c.id WHERE c.user_id = $1) AS suggestions`,
+           (SELECT COUNT(*) FROM suggested_replies sr JOIN messages m ON sr.message_id = m.id JOIN conversations c ON m.conversation_id = c.id WHERE c.user_id = $1) AS suggestions`,
         [id],
       )
 

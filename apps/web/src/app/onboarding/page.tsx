@@ -813,12 +813,22 @@ export default function OnboardingPage() {
 
                       {connectMode === 'qr' && isQrReady && !isConnectingPhase && (
                         <div className="flex flex-col items-center gap-3">
-                          <div className="w-48 h-48 bg-white p-2.5 rounded-2xl shadow-sm border border-slate-100 relative">
+                          <div className="w-48 h-48 bg-white p-2.5 rounded-2xl shadow-sm border border-slate-100 relative group">
                             <img src={qrData!} alt="WhatsApp QR Code" className="w-full h-full rounded-xl" />
                           </div>
-                          <span className="text-[11px] text-slate-500 font-mono bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
-                            Expires in {fmtTime(qrSecondsLeft)} {qrRefreshing && '(Refreshing…)'}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-slate-500 font-mono bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+                              Expires in {fmtTime(qrSecondsLeft)} {qrRefreshing && '(Refreshing…)'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => startConnection()}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 px-2 py-1 rounded-full transition-colors"
+                              title="Force generate fresh QR code"
+                            >
+                              🔄 Refresh QR
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -826,11 +836,14 @@ export default function OnboardingPage() {
                         <div className="w-full space-y-4">
                           {!linkCodeData ? (
                             <div className="space-y-3 text-left">
-                              <label className="block text-xs font-bold text-slate-700">Enter Phone Number with Country Code</label>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-700">Enter Phone Number with Country Code</label>
+                                <p className="text-[10px] text-slate-400 mt-0.5">e.g. 260971234567 (include country code, no + or leading 0)</p>
+                              </div>
                               <div className="space-y-2">
                                 <input
                                   type="tel"
-                                  placeholder="+263 77 123 4567"
+                                  placeholder="260971234567"
                                   value={phoneNumber}
                                   onChange={(e) => setPhoneNumber(e.target.value)}
                                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
