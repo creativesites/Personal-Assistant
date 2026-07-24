@@ -26,6 +26,30 @@ _OVERLAP_WORDS = 40
 _MAX_CHUNK_WORDS = 350
 
 
+def _strip_html(html: str) -> str:
+    """
+    Strips script/style tags, removes all HTML tags, decodes standard HTML entities,
+    and consolidates whitespace for a clean text representation of HTML pages.
+    """
+    # Remove script and style elements completely
+    html = re.sub(r'<(script|style)\b[^>]*>([\s\S]*?)</\1>', ' ', html, flags=re.IGNORECASE)
+    # Remove HTML comments
+    html = re.sub(r'<!--[\s\S]*?-->', ' ', html)
+    # Replace common block elements with newlines to preserve paragraph boundaries
+    html = re.sub(r'</?(p|div|h[1-6]|li|tr|br|section|article)\b[^>]*>', '\n', html, flags=re.IGNORECASE)
+    # Remove all remaining HTML tags
+    html = re.sub(r'<[^>]+>', ' ', html)
+    # Decode basic HTML entities
+    html = html.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').replace('&quot;', '"').replace('&#39;', "'")
+    # Clean up whitespace and empty lines
+    cleaned_lines = []
+    for line in html.splitlines():
+        line_clean = re.sub(r'\s+', ' ', line).strip()
+        if line_clean:
+            cleaned_lines.append(line_clean)
+    return '\n'.join(cleaned_lines)
+
+
 def _split_into_chunks(text: str) -> list[str]:
     """
     Semantic chunker with sliding-window overlap and structural table/CSV preservation.

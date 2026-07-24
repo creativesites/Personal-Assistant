@@ -616,6 +616,22 @@ export default function AISettingsPage() {
               </div>
             </div>
 
+            {/* Active Saved Key Error Banner */}
+            {currentSavedKey && currentSavedKey.status === 'invalid' && currentSavedKey.last_error_message && (
+              <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-900 text-xs leading-relaxed transition-all animate-fadeIn">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1 w-full">
+                    <p className="font-bold text-sm">Active Key Error Detected</p>
+                    <p className="font-semibold text-red-800">{currentSavedKey.last_error_message}</p>
+                    <p className="text-[11px] text-red-700/80">
+                      Your configured api key for <span className="font-bold uppercase">{selectedProviderId}</span> is currently failing. Please update your API key above or check with your provider.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Test Connection Diagnostic Result Banner */}
             {testResult && (
               <div className={`p-4 rounded-xl border text-xs leading-relaxed transition-all animate-fadeIn ${
@@ -629,11 +645,19 @@ export default function AISettingsPage() {
                   ) : (
                     <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   )}
-                  <div className="space-y-1">
+                  <div className="space-y-1 w-full">
                     <p className="font-bold text-sm">
                       {testResult.ok ? 'Connection Validated' : 'Connection Guidance'}
                     </p>
                     <p>{testResult.friendlyMessage}</p>
+                    {testResult.rawError && (
+                      <div className="mt-2">
+                        <span className="text-[10px] text-amber-800/80 font-bold block uppercase tracking-wider mb-1">Raw Provider Error Response</span>
+                        <pre className="font-mono text-[10px] bg-red-950/10 border border-red-500/10 text-red-950 p-2 rounded-lg max-h-32 overflow-y-auto break-all whitespace-pre-wrap">
+                          {testResult.rawError}
+                        </pre>
+                      </div>
+                    )}
                     {testResult.latencyMs && (
                       <div className="flex items-center gap-4 text-[11px] font-semibold text-slate-600 pt-1">
                         <span>Latency: {testResult.latencyMs}ms</span>

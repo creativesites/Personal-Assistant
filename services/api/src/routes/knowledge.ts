@@ -464,8 +464,8 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       const { rows: [doc] } = await db.query<{ id: string; created_at: string }>(
-        `INSERT INTO kb_documents (user_id, title, source_type, source_url, category, tags, status)
-         VALUES ($1, $2, 'url', $3, $4, $5, 'processing')
+        `INSERT INTO kb_documents (user_id, title, source_type, source_url, category, tags, word_count, status)
+         VALUES ($1, $2, 'url', $3, $4, $5, 0, 'processing')
          RETURNING id, created_at`,
         [
           userId,
@@ -647,7 +647,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       await fs.writeFile(storagePath, buf)
 
       const rawContent = isTxt ? buf.toString('utf-8') : null
-      const wordCount = rawContent ? rawContent.split(/\s+/).filter(Boolean).length : null
+      const wordCount = rawContent ? rawContent.split(/\s+/).filter(Boolean).length : 0
 
       const { rows: [doc] } = await db.query<{ id: string; created_at: string }>(
         `INSERT INTO kb_documents

@@ -36,7 +36,7 @@ async def resolve_ai_context(
     default_context: ResolvedAIContext = {
         'api_key': None,
         'provider': 'google',
-        'model': requested_model or 'gemini/gemini-2.5-flash',
+        'model': requested_model or 'gemini/gemini-3.5-flash',
         'is_byok': False,
         'daily_budget_usd': 0.0,
         'monthly_budget_usd': 0.0,
@@ -69,7 +69,7 @@ async def resolve_ai_context(
             model = (
                 requested_model
                 or (settings_row['preferred_model'] if settings_row else None)
-                or 'gemini/gemini-2.5-flash'
+                or 'gemini/gemini-3.5-flash'
             )
             daily_budget = float(settings_row['daily_budget_usd']) if settings_row else 0.0
             monthly_budget = float(settings_row['monthly_budget_usd']) if settings_row else 0.0
@@ -131,7 +131,7 @@ async def resolve_ai_context(
                     elif provider == 'anthropic':
                         model = 'anthropic/claude-3-5-sonnet-20241022'
                     elif provider == 'google':
-                        model = 'gemini/gemini-2.5-flash'
+                        model = 'gemini/gemini-3.5-flash'
                     elif provider == 'dashscope':
                         model = 'dashscope/qwen-max'
 

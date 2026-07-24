@@ -100,6 +100,15 @@ function OnboardingContent() {
   const [userStarted, setUserStarted] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState('')
   const [phoneError, setPhoneError] = useState<string | null>(null)
+  const [syncJob, setSyncJob] = useState<{
+    status: string
+    totalConversations: number
+    processedConversations: number
+    totalMessages: number
+    processedMessages: number
+    currentChatName: string | null
+    errorMessage: string | null
+  } | null>(null)
 
   // Step 3: Team Email Invites
   const [inviteRows, setInviteRows] = useState<{ email: string; role: 'admin' | 'member' | 'viewer' }[]>([
@@ -305,6 +314,31 @@ function OnboardingContent() {
     await startConnection(digits)
   }
 
+  const handleSwitchConnectMode = async (newMode: 'qr' | 'phone') => {
+    if (newMode === connectMode) return
+    setConnectMode(newMode)
+
+    if (userStarted || sessionInitiated || isStarting) {
+      setUserStarted(false)
+      setQrData(null)
+      setLinkCodeData(null)
+      lastQrRef.current = null
+      markSessionInitiated(false)
+      setConnectError(null)
+
+      if (token) {
+        try {
+          await apiClient('/api/whatsapp/connect', {
+            method: 'DELETE',
+            token,
+          })
+        } catch {
+          // ignore best-effort disconnect
+        }
+      }
+    }
+  }
+
   // Handle Team Member Invites in Step 3
   const handleSendTeamInvites = async () => {
     if (!token) return
@@ -410,9 +444,37 @@ function OnboardingContent() {
     setIsSkippingStep(false)
   }
 
+  // Poll live historical sync status when connected
   // ── Derived state for WhatsApp ──────────────────────────────────────────
   const backendStatus = waStatus?.status ?? null
   const isConnected = waStatus?.connected === true
+
+  useEffect(() => {
+    if (!token || !isConnected) {
+      setSyncJob(null)
+      return
+    }
+
+    let cancelled = false
+    const fetchSyncStatus = async () => {
+      try {
+        const data = await apiClient<{ sync: any }>('/api/inbox/sync-status', { token })
+        if (!cancelled && data?.sync) {
+          setSyncJob(data.sync)
+        }
+      } catch {
+        // ignore errors
+      }
+    }
+
+    fetchSyncStatus()
+    const id = setInterval(fetchSyncStatus, 2500)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [token, isConnected])
+
   const isQrReady = userStarted && connectMode === 'qr' && backendStatus === 'qr_pending' && !!qrData
   const isLinkCodeReady = userStarted && connectMode === 'phone' && (backendStatus === 'link_code_pending' || !!linkCodeData)
   const isConnectingPhase = isStarting || (userStarted && (
@@ -724,7 +786,7 @@ function OnboardingContent() {
             <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200 max-w-md mx-auto">
               <button
                 type="button"
-                onClick={() => setConnectMode('qr')}
+                onClick={() => handleSwitchConnectMode('qr')}
                 className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
                   connectMode === 'qr'
                     ? 'bg-white text-slate-900 shadow-sm'
@@ -736,7 +798,7 @@ function OnboardingContent() {
               </button>
               <button
                 type="button"
-                onClick={() => setConnectMode('phone')}
+                onClick={() => handleSwitchConnectMode('phone')}
                 className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
                   connectMode === 'phone'
                     ? 'bg-white text-slate-900 shadow-sm'
@@ -749,18 +811,87 @@ function OnboardingContent() {
             </div>
 
             {/* Main Pairing Display Box */}
-            <div className="flex flex-col items-center justify-center p-6 sm:p-8 rounded-2xl bg-slate-50 border border-slate-200/80 min-h-[260px] text-center">
+            <div className="flex flex-col items-center justify-center p-6 sm:p-8 rounded-2xl bg-slate-50 border border-slate-200/80 min-h-[260px] text-center w-full">
               {isConnected ? (
-                <div className="space-y-4">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto">
-                    <CheckCircle2 className="w-8 h-8" />
+                <div className="space-y-5 w-full max-w-md">
+                  <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-100/80 rounded-2xl p-4 text-left">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-800">WhatsApp Session Online!</h4>
+                      <p className="text-[11px] text-emerald-600 font-mono mt-0.5">
+                        {waStatus?.phone || 'Connected Phone'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-base font-bold text-emerald-700">WhatsApp Session Online!</h3>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Linked as <span className="text-slate-900 font-mono font-bold">{waStatus?.phone || 'Connected Phone'}</span>
-                    </p>
-                  </div>
+
+                  {syncJob && (
+                    <div className="bg-white border border-slate-200/80 rounded-2xl p-5 text-left shadow-sm space-y-4 w-full animate-fade-in">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">Historical Message Sync</h4>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Building living psychological profiles & relationship timelines...
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                          {syncJob.status === 'processing' ? 'Syncing' : syncJob.status === 'completed' ? 'Synced' : 'Connecting'}
+                        </span>
+                      </div>
+
+                      {/* Progress Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-600">
+                          <span>Progress</span>
+                          <span>
+                            {syncJob.totalConversations > 0
+                              ? `${Math.min(100, Math.round((syncJob.processedConversations / syncJob.totalConversations) * 100))}%`
+                              : '0%'}
+                          </span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
+                          <div
+                            className="h-full bg-indigo-600 rounded-full transition-all duration-500 ease-out"
+                            style={{
+                              width: `${
+                                syncJob.totalConversations > 0
+                                  ? Math.min(100, Math.round((syncJob.processedConversations / syncJob.totalConversations) * 100))
+                                  : 0
+                              }%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Sync Metrics Grid */}
+                      <div className="grid grid-cols-2 gap-3 pt-1">
+                        <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100">
+                          <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Chats Synced</span>
+                          <span className="text-xs font-black text-slate-900 mt-1 block">
+                            {syncJob.processedConversations} <span className="text-slate-400 font-normal">/ {syncJob.totalConversations}</span>
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-2.5 border border-slate-100">
+                          <span className="text-[9px] text-slate-500 font-bold block uppercase tracking-wider">Messages Scanned</span>
+                          <span className="text-xs font-black text-slate-900 mt-1 block">
+                            {syncJob.processedMessages || 0}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Current Chat Processing Status */}
+                      {syncJob.currentChatName && (
+                        <div className="flex items-center gap-2 text-[10px] text-slate-600 pt-1">
+                          <span className="animate-spin rounded-full h-2.5 w-2.5 border border-slate-300 border-t-indigo-600 shrink-0" />
+                          <span className="truncate">
+                            Importing: <strong className="text-slate-800">{syncJob.currentChatName}</strong>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : connectMode === 'qr' ? (
                 isQrReady ? (

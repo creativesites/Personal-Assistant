@@ -1308,7 +1308,7 @@ export default function SettingsPage() {
 
   // AI model preference — stored locally, applied via API call headers when backend supports per-user routing
   const [aiProvider, setAiProvider] = useState<string>('gemini')
-  const [aiModel, setAiModel] = useState<string>('gemini/gemini-2.5-flash')
+  const [aiModel, setAiModel] = useState<string>('gemini/gemini-3.5-flash')
   const [aiPrefSaved, setAiPrefSaved] = useState(false)
 
   useEffect(() => {
@@ -1335,8 +1335,8 @@ export default function SettingsPage() {
       value: 'gemini',
       label: 'Google Gemini',
       models: [
-        { value: 'gemini/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)' },
-        { value: 'gemini/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        { value: 'gemini/gemini-3.5-flash', label: 'Gemini 3.5 Flash (Recommended)' },
+        { value: 'gemini/gemini-3.5-pro', label: 'Gemini 3.5 Pro' },
         { value: 'gemini/gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
         { value: 'gemini/gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
       ],

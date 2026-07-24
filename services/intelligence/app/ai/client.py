@@ -55,7 +55,12 @@ _USE_ALIBABA_CUSTOM_ENDPOINT = bool(
 
 
 def _normalize_model(model: str) -> str:
-    """Ensure provider prefix is present for Gemini models used via AI Studio."""
+    """Ensure provider prefix is present for Gemini models used via AI Studio.
+    Maps deprecated/deactivated Gemini 2.5 models to Gemini 3.5 models."""
+    if model in ('gemini-2.5-flash', 'gemini/gemini-2.5-flash'):
+        return 'gemini/gemini-3.5-flash'
+    if model in ('gemini-2.5-pro', 'gemini/gemini-2.5-pro'):
+        return 'gemini/gemini-3.5-pro'
     if model.startswith('gemini-'):
         return f'gemini/{model}'
     return model

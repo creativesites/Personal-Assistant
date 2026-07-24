@@ -829,9 +829,12 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
         if (!agent) return reply.code(404).send({ error: 'Agent not found' })
       }
 
+      const contentText = body.raw_content || ''
+      const wordCount = contentText.split(/\s+/).filter(Boolean).length
+
       const { rows: [doc] } = await db.query<{ id: string; created_at: string }>(
-        `INSERT INTO kb_documents (user_id, agent_id, title, source_type, source_url, raw_content, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'processing')
+        `INSERT INTO kb_documents (user_id, agent_id, title, source_type, source_url, raw_content, word_count, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing')
          RETURNING id, created_at`,
         [
           userId,
@@ -840,6 +843,7 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           body.source_type,
           body.source_url ?? null,
           body.raw_content ?? null,
+          wordCount,
         ],
       )
 

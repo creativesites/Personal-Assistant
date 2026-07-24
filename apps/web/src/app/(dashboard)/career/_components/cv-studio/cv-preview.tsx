@@ -3,17 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api'
 import type { CareerProfile } from './use-career-profile'
-
-// CV Studio §9 — Live Preview. A lightweight HTML/CSS mirror of the
-// "Professional" template's layout (single-column, ATS-plain) — not a PDF
-// round-trip per keystroke. career_profiles fields (personal details/
-// summary) update instantly since they're passed down from the wizard's
-// already-live local state; the per-entry-table sections (employment,
-// education, etc.) refetch when `refreshKey` changes, i.e. right after a
-// save in any of those steps — an honest simplification of true per-
-// keystroke reactivity for data that lives in nine separate tables, not a
-// PDF re-render on every keystroke (that's what §5/§9's real render
-// pipeline is for, Phase 5+).
+import type { CvTemplateKey, CvDensityMode } from './template-toolbar'
 
 interface EntryItem { id: string; [key: string]: unknown }
 
@@ -41,12 +31,25 @@ function dateRange(start: unknown, end: unknown, isCurrent?: unknown) {
 }
 
 export function CvPreview({
-  token, profile, projectLinks, refreshKey,
+  token,
+  profile,
+  projectLinks,
+  refreshKey,
+  templateKey = 'modern',
+  densityMode = 'comfortable',
+  showPageBreaks = true,
+  isEditable = true,
+  onUpdateProfileField,
 }: {
   token: string
   profile: CareerProfile | null
   projectLinks: { projectId: string; projectTitle?: string; customDescriptionOverride?: string | null }[]
   refreshKey: number
+  templateKey?: CvTemplateKey
+  densityMode?: CvDensityMode
+  showPageBreaks?: boolean
+  isEditable?: boolean
+  onUpdateProfileField?: (field: keyof CareerProfile, value: any) => void
 }) {
   const [data, setData] = useState<PreviewData>(EMPTY)
 
@@ -75,119 +78,258 @@ export function CvPreview({
   const contactLine = [profile.location, profile.phone, profile.githubUrl, profile.linkedinUrl, profile.portfolioUrl]
     .filter(Boolean).join(' · ')
 
+  // Density styles
+  const densityStyles = {
+    comfortable: {
+      padding: 'p-8',
+      fontSize: 'text-[13px]',
+      leading: 'leading-relaxed',
+      sectionSpacing: 'mb-4',
+      itemSpacing: 'mb-2.5',
+      headingSize: 'text-[11px]',
+    },
+    compact: {
+      padding: 'p-6',
+      fontSize: 'text-[12px]',
+      leading: 'leading-snug',
+      sectionSpacing: 'mb-3',
+      itemSpacing: 'mb-2',
+      headingSize: 'text-[10px]',
+    },
+    'fit-1-page': {
+      padding: 'p-5',
+      fontSize: 'text-[11px]',
+      leading: 'leading-tight',
+      sectionSpacing: 'mb-2',
+      itemSpacing: 'mb-1.5',
+      headingSize: 'text-[10px]',
+    },
+  }[densityMode]
+
+  // Template typography & colors
+  const isExecutive = templateKey === 'executive'
+  const isTech = templateKey === 'tech'
+
+  const fontClass = isExecutive
+    ? 'font-serif text-slate-900'
+    : isTech
+    ? 'font-sans text-slate-900'
+    : 'font-sans text-slate-800'
+
+  const headingClass = isExecutive
+    ? `${densityStyles.headingSize} font-bold uppercase tracking-wider text-slate-900 border-b border-slate-300 pb-0.5 mb-1.5`
+    : isTech
+    ? `${densityStyles.headingSize} font-black uppercase tracking-wider text-indigo-700 mb-1 border-l-2 border-indigo-600 pl-2`
+    : `${densityStyles.headingSize} font-bold uppercase tracking-wide text-indigo-600 mb-1`
+
+  const editableHover = isEditable
+    ? 'hover:outline hover:outline-2 hover:outline-indigo-400 hover:outline-dashed rounded px-0.5 transition-all cursor-text'
+    : ''
+
   return (
-    <div className="bg-white rounded-[1.25rem] shadow-sm shadow-gray-200/70 border border-gray-100 p-6 sm:p-8 text-[13px] leading-relaxed text-gray-800 font-serif">
-      <div className="text-center border-b border-gray-200 pb-4 mb-4">
-        <h1 className="text-xl font-bold text-gray-950">{profile.headline || 'Your Professional Title'}</h1>
-        {contactLine && <p className="text-[11px] text-gray-500 mt-1">{contactLine}</p>}
+    <div className="relative">
+      <div
+        className={`bg-white rounded-2xl shadow-sm border border-slate-200/90 ${densityStyles.padding} ${densityStyles.fontSize} ${densityStyles.leading} ${fontClass}`}
+      >
+        {/* Header */}
+        <div className={`text-center border-b border-slate-200 ${densityStyles.sectionSpacing} pb-3`}>
+          <h1
+            contentEditable={isEditable}
+            suppressContentEditableWarning
+            onBlur={(e) => onUpdateProfileField?.('fullName', e.currentTarget.textContent || '')}
+            className={`text-2xl font-black text-slate-950 tracking-tight ${editableHover}`}
+            title={isEditable ? 'Click to edit Full Name directly' : undefined}
+          >
+            {profile.fullName || 'Your Full Name'}
+          </h1>
+
+          <p
+            contentEditable={isEditable}
+            suppressContentEditableWarning
+            onBlur={(e) => onUpdateProfileField?.('headline', e.currentTarget.textContent || '')}
+            className={`text-xs font-semibold text-slate-700 mt-0.5 ${editableHover}`}
+            title={isEditable ? 'Click to edit Professional Title' : undefined}
+          >
+            {profile.headline || 'Your Professional Title'}
+          </p>
+
+          {contactLine && <p className="text-[11px] text-slate-500 mt-1">{contactLine}</p>}
+        </div>
+
+        {/* Summary */}
+        <section className={densityStyles.sectionSpacing}>
+          <h2 className={headingClass}>Summary</h2>
+          <p
+            contentEditable={isEditable}
+            suppressContentEditableWarning
+            onBlur={(e) => onUpdateProfileField?.('summary', e.currentTarget.textContent || '')}
+            className={`text-slate-800 ${editableHover}`}
+            title={isEditable ? 'Click to edit Summary inline' : undefined}
+          >
+            {profile.summary || 'Click here to write your professional summary...'}
+          </p>
+        </section>
+
+        {/* Employment */}
+        {data.employment.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Employment History</h2>
+            {data.employment.map((e) => (
+              <div key={e.id} className={densityStyles.itemSpacing}>
+                <div className="flex justify-between font-bold text-slate-950">
+                  <span>{String(e.title)} — {String(e.employer)}</span>
+                  <span className="text-slate-500 font-normal">{dateRange(e.startDate, e.endDate, e.isCurrent)}</span>
+                </div>
+                {!!e.achievements && Array.isArray(e.achievements) && e.achievements.length > 0 && (
+                  <ul className="list-disc list-inside mt-0.5 space-y-0.5 text-slate-700">
+                    {(e.achievements as string[]).map((a, i) => (
+                      <li
+                        key={i}
+                        contentEditable={isEditable}
+                        suppressContentEditableWarning
+                        className={editableHover}
+                        title={isEditable ? 'Click to edit bullet point inline' : undefined}
+                      >
+                        {a}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!e.achievements || (Array.isArray(e.achievements) && e.achievements.length === 0 && e.responsibilities) ? (
+                  <p className={`text-slate-700 mt-0.5 ${editableHover}`} contentEditable={isEditable} suppressContentEditableWarning>
+                    {String(e.responsibilities ?? '')}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* Education */}
+        {data.education.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Education</h2>
+            {data.education.map((e) => (
+              <div key={e.id} className="flex justify-between font-medium text-slate-900 mb-1">
+                <span>{String(e.qualification ?? '')}{e.programme ? `, ${e.programme}` : ''} — {String(e.institution)}</span>
+                <span className="text-slate-500 font-normal">{e.endDate ? String(e.endDate).slice(0, 4) : ''}</span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* Certifications */}
+        {data.certifications.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Certifications</h2>
+            {data.certifications.map((c) => (
+              <p key={c.id} className="text-slate-800">
+                <strong className="text-slate-950">{String(c.name)}</strong>{c.issuer ? ` — ${c.issuer}` : ''}
+              </p>
+            ))}
+          </section>
+        )}
+
+        {/* Skills */}
+        {data.skillGroups.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Skills</h2>
+            {isTech ? (
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {data.skillGroups.flatMap((g) => (g.skills as string[]) || []).map((skill, idx) => (
+                  <span key={idx} className="bg-slate-100 border border-slate-200 text-slate-800 font-semibold px-2 py-0.5 rounded-md text-[10px]">
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              data.skillGroups.map((g) => (
+                <p key={g.id} className="text-slate-800">
+                  <strong className="text-slate-950">{String(g.groupName)}:</strong> {(g.skills as string[]).join(', ')}
+                </p>
+              ))
+            )}
+          </section>
+        )}
+
+        {/* Projects */}
+        {projectLinks.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Projects</h2>
+            {projectLinks.map((p) => (
+              <p key={p.projectId} className="text-slate-800 font-medium">
+                {p.customDescriptionOverride || p.projectTitle}
+              </p>
+            ))}
+          </section>
+        )}
+
+        {/* Awards */}
+        {data.awards.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Awards</h2>
+            {data.awards.map((a) => (
+              <p key={a.id} className="text-slate-800">
+                <strong className="text-slate-950">{String(a.title)}</strong>{a.issuer ? ` — ${a.issuer}` : ''}
+              </p>
+            ))}
+          </section>
+        )}
+
+        {/* Volunteer */}
+        {data.volunteer.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Volunteer Work</h2>
+            {data.volunteer.map((v) => (
+              <p key={v.id} className="text-slate-800">
+                {String(v.role ?? '')} — {String(v.organisation)}
+              </p>
+            ))}
+          </section>
+        )}
+
+        {/* Memberships */}
+        {data.memberships.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Professional Memberships</h2>
+            {data.memberships.map((m) => (
+              <p key={m.id} className="text-slate-800">{String(m.institution)}</p>
+            ))}
+          </section>
+        )}
+
+        {/* Publications */}
+        {data.publications.length > 0 && (
+          <section className={densityStyles.sectionSpacing}>
+            <h2 className={headingClass}>Publications</h2>
+            {data.publications.map((p) => (
+              <p key={p.id} className="text-slate-800">{String(p.title)}</p>
+            ))}
+          </section>
+        )}
+
+        {/* References */}
+        <section>
+          <h2 className={headingClass}>References</h2>
+          {profile.referencesMode === 'available_on_request' || data.references.length === 0 ? (
+            <p className="text-slate-700 italic">Available on request</p>
+          ) : (
+            data.references.map((r) => (
+              <p key={r.id} className="text-slate-800">
+                {String(r.name)}{r.company ? `, ${r.company}` : ''}
+              </p>
+            ))
+          )}
+        </section>
       </div>
 
-      {profile.summary && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Summary</h2>
-          <p>{profile.summary}</p>
-        </section>
+      {/* Visual Page Break Line Indicator (A4 Page 1 ~1050px height) */}
+      {showPageBreaks && (
+        <div className="absolute top-[1050px] inset-x-0 border-b-2 border-dashed border-rose-400 pointer-events-none flex items-center justify-between px-3 py-0.5 bg-rose-50/80 text-[10px] font-bold text-rose-700 z-10 rounded-md shadow-sm">
+          <span>📄 Page 1 Boundary (A4/US Letter Limit)</span>
+          <span>End of Page 1</span>
+        </div>
       )}
-
-      {data.employment.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Employment History</h2>
-          {data.employment.map(e => (
-            <div key={e.id} className="mb-2">
-              <div className="flex justify-between font-semibold text-gray-900">
-                <span>{String(e.title)} — {String(e.employer)}</span>
-                <span className="text-gray-500 font-normal">{dateRange(e.startDate, e.endDate, e.isCurrent)}</span>
-              </div>
-              {!!e.achievements && Array.isArray(e.achievements) && e.achievements.length > 0 && (
-                <ul className="list-disc list-inside">
-                  {(e.achievements as string[]).map((a, i) => <li key={i}>{a}</li>)}
-                </ul>
-              )}
-              {!e.achievements || (Array.isArray(e.achievements) && e.achievements.length === 0 && e.responsibilities) ? (
-                <p>{String(e.responsibilities ?? '')}</p>
-              ) : null}
-            </div>
-          ))}
-        </section>
-      )}
-
-      {data.education.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Education</h2>
-          {data.education.map(e => (
-            <div key={e.id} className="flex justify-between mb-1">
-              <span>{String(e.qualification ?? '')}{e.programme ? `, ${e.programme}` : ''} — {String(e.institution)}</span>
-              <span className="text-gray-500">{e.endDate ? String(e.endDate).slice(0, 4) : ''}</span>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {data.certifications.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Certifications</h2>
-          {data.certifications.map(c => (
-            <p key={c.id}>{String(c.name)}{c.issuer ? ` — ${c.issuer}` : ''}</p>
-          ))}
-        </section>
-      )}
-
-      {data.skillGroups.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Skills</h2>
-          {data.skillGroups.map(g => (
-            <p key={g.id}><span className="font-semibold">{String(g.groupName)}:</span> {(g.skills as string[]).join(', ')}</p>
-          ))}
-        </section>
-      )}
-
-      {projectLinks.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Projects</h2>
-          {projectLinks.map(p => (
-            <p key={p.projectId}>{p.customDescriptionOverride || p.projectTitle}</p>
-          ))}
-        </section>
-      )}
-
-      {data.awards.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Awards</h2>
-          {data.awards.map(a => <p key={a.id}>{String(a.title)}{a.issuer ? ` — ${a.issuer}` : ''}</p>)}
-        </section>
-      )}
-
-      {data.volunteer.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Volunteer Work</h2>
-          {data.volunteer.map(v => <p key={v.id}>{String(v.role ?? '')} — {String(v.organisation)}</p>)}
-        </section>
-      )}
-
-      {data.memberships.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Professional Memberships</h2>
-          {data.memberships.map(m => <p key={m.id}>{String(m.institution)}</p>)}
-        </section>
-      )}
-
-      {data.publications.length > 0 && (
-        <section className="mb-4">
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Publications</h2>
-          {data.publications.map(p => <p key={p.id}>{String(p.title)}</p>)}
-        </section>
-      )}
-
-      <section>
-        <h2 className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">References</h2>
-        {profile.referencesMode === 'available_on_request' || data.references.length === 0 ? (
-          <p>Available on request</p>
-        ) : (
-          data.references.map(r => (
-            <p key={r.id}>{String(r.name)}{r.company ? `, ${r.company}` : ''}</p>
-          ))
-        )}
-      </section>
     </div>
   )
 }

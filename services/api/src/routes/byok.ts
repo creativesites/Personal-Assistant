@@ -49,9 +49,17 @@ function translateProviderError(errorMsg: string, statusCode?: number): string {
 
 const saveKeyBody = z.object({
   provider: z.string().min(1).max(50),
-  api_key: z.string().min(1),
+  api_key: z.string().optional(),
+  apiKey: z.string().optional(),
   team_id: z.string().uuid().optional(),
-});
+}).refine(data => data.api_key || data.apiKey, {
+  message: 'api_key or apiKey is required',
+  path: ['api_key']
+}).transform(data => ({
+  provider: data.provider,
+  api_key: (data.api_key || data.apiKey)!,
+  team_id: data.team_id,
+}));
 
 const saveSettingsBody = z.object({
   default_provider: z.string().default('google'),
@@ -407,8 +415,8 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
         const models = data?.models || [];
         modelsCount = models.length;
         isSuccess = true;
-        friendlyMessage = `Successfully connected to Google Gemini! ${modelsCount} models available. Recommended model: Gemini 2.5 Flash.`;
-        metadata = { modelsCount, recommended_model: 'gemini/gemini-2.5-flash', latencyMs };
+        friendlyMessage = `Successfully connected to Google Gemini! ${modelsCount} models available. Recommended model: Gemini 3.5 Flash.`;
+        metadata = { modelsCount, recommended_model: 'gemini/gemini-3.5-flash', latencyMs };
       } else if (provider === 'openai') {
         const res = await fetch('https://api.openai.com/v1/models', {
           headers: { Authorization: `Bearer ${rawKey}` },
@@ -522,10 +530,10 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({
       settings: settings || {
         default_provider: 'google',
-        preferred_model: 'gemini/gemini-2.5-flash',
-        reasoning_model: 'gemini/gemini-2.5-pro',
-        fast_model: 'gemini/gemini-2.5-flash',
-        vision_model: 'gemini/gemini-2.5-flash',
+        preferred_model: 'gemini/gemini-3.5-flash',
+        reasoning_model: 'gemini/gemini-3.5-pro',
+        fast_model: 'gemini/gemini-3.5-flash',
+        vision_model: 'gemini/gemini-3.5-flash',
         temperature: 0.7,
         max_output_length: 2048,
         streaming_enabled: true,
