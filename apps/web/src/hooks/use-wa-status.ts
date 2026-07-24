@@ -41,6 +41,7 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
   const isConnectedRef = useRef(false)
+  const pollIdRef = useRef(0)
 
   const clearDisconnectTimer = () => {
     if (disconnectTimerRef.current) {
@@ -50,13 +51,18 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
   }
 
   const poll = useCallback(async () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
     if (!token || !mountedRef.current) return
 
+    const currentPollId = ++pollIdRef.current
     try {
       const r = await fetch(`${API_URL}/api/whatsapp/status`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!mountedRef.current) return
+      if (!mountedRef.current || currentPollId !== pollIdRef.current) return
 
       if (!r.ok) {
         timerRef.current = setTimeout(poll, POLL_STABLE_MS)
@@ -64,7 +70,7 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
       }
 
       const data = await r.json()
-      if (!mountedRef.current) return
+      if (!mountedRef.current || currentPollId !== pollIdRef.current) return
 
       const isConn = data.connected === true
 
@@ -109,7 +115,7 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
       const next = TRANSITIONAL.includes(data.status) ? POLL_ACTIVE_MS : POLL_STABLE_MS
       timerRef.current = setTimeout(poll, next)
     } catch {
-      if (!mountedRef.current) return
+      if (!mountedRef.current || currentPollId !== pollIdRef.current) return
       timerRef.current = setTimeout(poll, POLL_STABLE_MS)
     }
   }, [token])

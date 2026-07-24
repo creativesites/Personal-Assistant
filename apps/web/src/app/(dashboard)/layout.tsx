@@ -753,7 +753,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }`}
       >
         <SubscriptionStatusBanner token={session.data?.accessToken} />
-        {!wa.connected && wa.status !== 'unknown' && pathname !== '/onboarding' && (
+        {!wa.connected && wa.status !== 'unknown' && wa.status !== 'connecting' && pathname !== '/onboarding' && (
           <div className="bg-gradient-to-r from-rose-500/15 via-amber-500/15 to-indigo-500/15 border-b border-rose-500/20 px-4 py-2.5 flex items-center justify-between text-xs text-rose-950 bg-rose-50/90 backdrop-blur-sm shadow-sm">
             <div className="flex items-center gap-2.5 min-w-0">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500 flex-shrink-0 animate-ping" />
