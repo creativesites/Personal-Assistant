@@ -67,9 +67,8 @@ export default function OnboardingPage() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const [qrSecondsLeft, setQrSecondsLeft] = useState(QR_TTL_SECONDS)
   const [qrRefreshing, setQrRefreshing] = useState(false)
-  const [connectMode, setConnectMode] = useState<'choose' | 'qr' | 'phone'>('qr')
+  const [connectMode, setConnectMode] = useState<'qr' | 'phone'>('qr')
   const [userStarted, setUserStarted] = useState(false)
-  const [showPhoneInput, setShowPhoneInput] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState('')
   const [phoneError, setPhoneError] = useState<string | null>(null)
 
@@ -210,8 +209,6 @@ export default function OnboardingPage() {
           wasActiveRef.current = false
           markSessionInitiated(false)
           setUserStarted(false)
-          setConnectMode('choose')
-          setShowPhoneInput(false)
         }
 
         if (s.status === 'error') {
@@ -222,8 +219,6 @@ export default function OnboardingPage() {
           wasActiveRef.current = false
           markSessionInitiated(false)
           setUserStarted(false)
-          setConnectMode('choose')
-          setShowPhoneInput(false)
         }
       } catch {
         // silently ignore poll errors
@@ -258,7 +253,6 @@ export default function OnboardingPage() {
         markSessionInitiated(true)
       } else {
         setConnectError(err instanceof Error ? err.message : 'Failed to start connection')
-        setConnectMode('choose')
       }
     } finally {
       setIsStarting(false)
@@ -364,10 +358,10 @@ export default function OnboardingPage() {
     }
   }
 
-  // Finish onboarding and route to dashboard
+  // Finish onboarding and route directly to /inbox so historical sync displays live in real-time
   const handleCompleteOnboarding = async () => {
     await saveContextToBackend()
-    router.push('/dashboard')
+    router.push('/inbox')
   }
 
   // Confirm skipping a step
@@ -395,33 +389,30 @@ export default function OnboardingPage() {
     (connectMode === 'phone' && !linkCodeData)
   ))
   const hasError = backendStatus === 'error' || !!connectError
-  const isIdle = waStatus !== null && !isConnectingPhase && !hasError && !isQrReady && !isLinkCodeReady && !isConnected
-  const isFirstLoad = waStatus === null && !connectError
-  const showChooser = (isIdle || isFirstLoad) && connectMode === 'choose' && !isStarting && !sessionInitiated
 
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-white flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       {/* Top Header */}
-      <header className="border-b border-white/10 px-6 py-4 backdrop-blur-md bg-slate-950/60 sticky top-0 z-20">
+      <header className="border-b border-slate-200/80 px-4 sm:px-6 py-4 backdrop-blur-md bg-white/85 sticky top-0 z-20 shadow-sm shadow-slate-100/50">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center font-bold text-white shadow-lg shadow-indigo-500/30">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-bold text-white shadow-md shadow-indigo-600/20">
               Z
             </div>
             <div>
-              <span className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-300">
+              <span className="font-bold text-xl tracking-tight text-slate-900">
                 Zuri
               </span>
-              <span className="text-[10px] text-indigo-400 block font-medium -mt-1">
-                WhatsApp Relationship OS
+              <span className="text-[10px] text-indigo-600 block font-semibold -mt-1 uppercase tracking-wider">
+                Relationship OS
               </span>
             </div>
           </div>
           <button
             onClick={() => setSkipModalStep(step)}
-            className="text-xs text-gray-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg border border-white/10"
+            className="text-xs text-slate-500 hover:text-slate-900 transition-colors bg-slate-100 hover:bg-slate-200/80 px-3.5 py-1.5 rounded-lg border border-slate-200 font-medium"
           >
             Skip step →
           </button>
@@ -429,15 +420,15 @@ export default function OnboardingPage() {
       </header>
 
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12">
-        {/* Step Indicator Header */}
+        {/* Step Indicator Header (Mobile-friendly layout) */}
         <div className="w-full max-w-2xl mb-8">
-          <div className="flex items-center justify-between relative">
-            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-white/10 -translate-y-1/2 z-0" />
+          <div className="flex items-center justify-between relative px-2">
+            <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-slate-200 -translate-y-1/2 z-0" />
             {[
-              { num: 1, label: 'Profile & Team' },
-              { num: 2, label: 'WhatsApp Pairing' },
-              { num: 3, label: 'Invite Team' },
-              { num: 4, label: 'Verify Pipe' },
+              { num: 1, label: 'Profile' },
+              { num: 2, label: 'WhatsApp' },
+              { num: 3, label: 'Team' },
+              { num: 4, label: 'Verify' },
             ].map((s) => {
               const active = step === s.num
               const done = step > s.num
@@ -446,15 +437,15 @@ export default function OnboardingPage() {
                   <div
                     className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-xs transition-all ${
                       done
-                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/10'
                         : active
-                        ? 'bg-indigo-500 text-white ring-4 ring-indigo-500/20 shadow-lg shadow-indigo-500/40 scale-105'
-                        : 'bg-slate-800 text-gray-400 border border-white/10'
+                        ? 'bg-indigo-600 text-white ring-4 ring-indigo-100 shadow-md shadow-indigo-600/20 scale-105'
+                        : 'bg-white text-slate-400 border border-slate-200'
                     }`}
                   >
                     {done ? <CheckIcon className="w-5 h-5" /> : s.num}
                   </div>
-                  <span className={`text-[11px] font-medium text-center hidden sm:block ${active ? 'text-indigo-400 font-bold' : done ? 'text-emerald-400' : 'text-gray-400'}`}>
+                  <span className={`text-[10px] sm:text-xs font-semibold text-center ${active ? 'text-indigo-600 font-bold' : done ? 'text-emerald-600' : 'text-slate-400'}`}>
                     {s.label}
                   </span>
                 </div>
@@ -465,12 +456,12 @@ export default function OnboardingPage() {
 
         {/* ── STEP 1: Profile & Team Size ─────────────────────────────────── */}
         {step === 1 && (
-          <div className="w-full max-w-2xl bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="w-full max-w-2xl bg-white border border-slate-200/85 rounded-2xl p-5 sm:p-8 shadow-sm shadow-slate-100/80 space-y-6">
             <div className="text-center space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-100 to-indigo-300">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
                 Welcome to Zuri 👋
               </h1>
-              <p className="text-xs sm:text-sm text-gray-400 max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
                 Set up your WhatsApp Relationship Operating System for your business and team.
               </p>
             </div>
@@ -502,59 +493,59 @@ export default function OnboardingPage() {
                   onClick={() => setSelectedIntent(item.id as any)}
                   className={`flex flex-col text-left p-4 rounded-xl border transition-all relative overflow-hidden ${
                     selectedIntent === item.id
-                      ? 'bg-indigo-600/20 border-indigo-500/80 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
-                      : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                      ? 'bg-indigo-50/50 border-indigo-500/80 shadow-sm ring-1 ring-indigo-500/30'
+                      : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <span className="text-2xl mb-2">{item.icon}</span>
-                  <p className="font-bold text-xs text-white">{item.title}</p>
-                  <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">{item.desc}</p>
+                  <p className="font-bold text-xs text-slate-900">{item.title}</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{item.desc}</p>
                 </button>
               ))}
             </div>
 
-            <div className="space-y-4 pt-2 border-t border-white/10">
+            <div className="space-y-4 pt-2 border-t border-slate-100">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">Company / Business Name</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Company / Business Name</label>
                   <input
                     type="text"
                     placeholder="e.g. Acme Solar Solutions"
                     value={businessName}
                     onChange={(e) => setBusinessName(e.target.value)}
-                    className="w-full bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">Industry</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Industry</label>
                   <input
                     type="text"
-                    placeholder="e.g. Clean Energy / Retail / Professional Services"
+                    placeholder="e.g. Clean Energy / Professional Services"
                     value={industry}
                     onChange={(e) => setIndustry(e.target.value)}
-                    className="w-full bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1.5">What do you do or offer?</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">What do you do or offer?</label>
                 <textarea
                   rows={2}
                   placeholder="e.g. We install residential and commercial solar systems, issue quotes, and handle customer service."
                   value={businessDescription}
                   onChange={(e) => setBusinessDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500 resize-none"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">Your Role</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Your Role</label>
                   <select
                     value={identityRole}
                     onChange={(e) => setIdentityRole(e.target.value)}
-                    className="w-full bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   >
                     <option value="business_owner">Business Owner / Founder</option>
                     <option value="sales_pro">Sales / Account Manager</option>
@@ -565,11 +556,11 @@ export default function OnboardingPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1.5">Team Size</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Team Size</label>
                   <select
                     value={teamSize}
                     onChange={(e) => setTeamSize(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   >
                     <option value="1">1 (Solo / Individual)</option>
                     <option value="2-5">2 – 5 members (Small Team)</option>
@@ -580,11 +571,11 @@ export default function OnboardingPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1.5">Primary Goal</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Primary Goal</label>
                 <select
                   value={primaryGoal}
                   onChange={(e) => setPrimaryGoal(e.target.value)}
-                  className="w-full bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                 >
                   <option value="increase_sales">Close more sales & automated follow-ups</option>
                   <option value="team_coordination">Coordinate team WhatsApp inbox & agent routing</option>
@@ -594,26 +585,26 @@ export default function OnboardingPage() {
               </div>
 
               {/* AI Engine & BYOK Transparency Card */}
-              <div className="bg-indigo-950/60 border border-indigo-500/30 rounded-xl p-4 space-y-3">
+              <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-4 space-y-3">
                 <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm flex-shrink-0">
                     🤖
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold text-indigo-200">AI Intelligence Engine & Usage Credits</h4>
-                      <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                      <h4 className="text-xs font-bold text-indigo-900">AI Intelligence Engine & Usage Credits</h4>
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 border border-emerald-200/50 px-2 py-0.5 rounded-full">
                         500 Included Drafts / Mo
                       </span>
                     </div>
-                    <p className="text-[11px] text-gray-300 mt-1 leading-relaxed">
+                    <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
                       Zuri uses AI to draft replies and analyze customer intent. You can use our included credits (500 messages/month) or connect your own OpenAI/Anthropic/Google key for unlimited usage.
                     </p>
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-indigo-500/20">
-                  <label className="block text-[11px] font-semibold text-gray-300 mb-1.5">
+                <div className="pt-2 border-t border-indigo-100">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
                     Execution Mode
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -622,12 +613,12 @@ export default function OnboardingPage() {
                       onClick={() => setAiEngineMode('zuri_included')}
                       className={`px-3 py-2.5 rounded-lg text-left border transition-all ${
                         aiEngineMode === 'zuri_included'
-                          ? 'bg-indigo-600/30 border-indigo-400 ring-1 ring-indigo-400/50'
-                          : 'bg-slate-950/60 border-white/10 hover:border-white/20'
+                          ? 'bg-white border-indigo-500 ring-1 ring-indigo-500/30 shadow-sm'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      <p className="font-semibold text-xs text-white">Use Zuri Included Credits</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">500 msgs/mo · Zero setup required</p>
+                      <p className="font-semibold text-xs text-slate-900">Use Zuri Included Credits</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">500 msgs/mo · Zero setup required</p>
                     </button>
 
                     <button
@@ -635,23 +626,23 @@ export default function OnboardingPage() {
                       onClick={() => setAiEngineMode('byok')}
                       className={`px-3 py-2.5 rounded-lg text-left border transition-all ${
                         aiEngineMode === 'byok'
-                          ? 'bg-indigo-600/30 border-indigo-400 ring-1 ring-indigo-400/50'
-                          : 'bg-slate-950/60 border-white/10 hover:border-white/20'
+                          ? 'bg-white border-indigo-500 ring-1 ring-indigo-500/30 shadow-sm'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      <p className="font-semibold text-xs text-white">Connect Own AI Key (BYOK)</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Unlimited usage · Pay AI provider directly</p>
+                      <p className="font-semibold text-xs text-slate-900">Connect Own AI Key (BYOK)</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Unlimited usage · Pay AI provider directly</p>
                     </button>
                   </div>
 
                   {aiEngineMode === 'byok' && (
-                    <div className="mt-3 space-y-2.5 bg-slate-950 p-3 rounded-lg border border-white/15">
+                    <div className="mt-3 space-y-2.5 bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-semibold text-gray-300">Provider</label>
+                        <label className="text-[11px] font-semibold text-slate-700">Provider</label>
                         <select
                           value={byokProvider}
                           onChange={(e) => setByokProvider(e.target.value as any)}
-                          className="bg-slate-900 border border-white/15 text-[11px] text-gray-200 rounded px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          className="bg-white border border-slate-200 text-[11px] text-slate-800 rounded px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                         >
                           <option value="google">Google Gemini</option>
                           <option value="openai">OpenAI (GPT-4o)</option>
@@ -660,16 +651,16 @@ export default function OnboardingPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[11px] font-semibold text-gray-300 mb-1">API Key</label>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">API Key</label>
                         <input
                           type="password"
                           placeholder={byokProvider === 'google' ? 'AIzaSy...' : byokProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
                           value={byokKey}
                           onChange={(e) => setByokKey(e.target.value)}
-                          className="w-full bg-slate-900 border border-white/15 rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                          className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
                         />
                       </div>
-                      <p className="text-[10px] text-gray-400">
+                      <p className="text-[10px] text-slate-500">
                         🔒 Encrypted and stored securely. Used exclusively for your workspace's AI execution.
                       </p>
                     </div>
@@ -678,15 +669,15 @@ export default function OnboardingPage() {
               </div>
 
               {/* Data Safety & Privacy Guarantee Card */}
-              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-800">
                   <span className="text-base">🛡️</span>
                   <span>"You're Safe Here" — Data Privacy & Zero-Training Guarantee</span>
                 </div>
-                <p className="text-[11px] text-gray-300 leading-relaxed">
+                <p className="text-[11px] text-slate-600 leading-relaxed">
                   Your team's WhatsApp messages and customer data remain 100% private to your workspace. We store conversation data in AES-256 encrypted database partitions and <strong>never sell, share, or train AI models</strong> on your private chats.
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-emerald-200/90 font-medium pt-1 border-t border-emerald-500/20">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-emerald-700 font-medium pt-1 border-t border-emerald-100">
                   <div className="flex items-center gap-1">
                     <span>🔒</span> AES-256 Encrypted
                   </div>
@@ -713,10 +704,10 @@ export default function OnboardingPage() {
 
             </div>
 
-            <div className="pt-4 flex items-center justify-between border-t border-white/10">
+            <div className="pt-4 flex items-center justify-between border-t border-slate-200">
               <button
                 onClick={() => setSkipModalStep(1)}
-                className="text-xs text-gray-400 hover:text-white underline underline-offset-4"
+                className="text-xs text-slate-400 hover:text-slate-700 underline underline-offset-4"
               >
                 Skip for now
               </button>
@@ -730,7 +721,7 @@ export default function OnboardingPage() {
                   }
                 }}
                 disabled={isSavingContext}
-                className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25 flex items-center gap-2"
+                className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all shadow-md shadow-indigo-500/10 flex items-center gap-2"
               >
                 {isSavingContext ? <Spinner className="w-4 h-4 text-white" /> : 'Continue to WhatsApp Pairing →'}
               </button>
@@ -740,169 +731,225 @@ export default function OnboardingPage() {
 
         {/* ── STEP 2: WhatsApp Pairing ────────────────────────────────────── */}
         {step === 2 && (
-          <div className="w-full max-w-2xl bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-6 sm:p-8 border-b border-white/10">
+          <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-2xl shadow-sm shadow-slate-100/80 overflow-hidden">
+            <div className="p-5 sm:p-8 border-b border-slate-200/80 bg-slate-50/50">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">Pair your WhatsApp account</h2>
-                  <p className="text-xs text-gray-400 leading-relaxed">
+                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-1">Pair your WhatsApp account</h2>
+                  <p className="text-xs text-slate-500 leading-relaxed">
                     Connect your WhatsApp number so Zuri can ingest messages, generate reply drafts, and route leads to your team.
                   </p>
                 </div>
                 {isConnected && (
-                  <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-semibold flex items-center gap-1.5 flex-shrink-0">
-                    <CheckIcon className="w-3.5 h-3.5" /> Connected
+                  <span className="px-3 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-xs font-semibold flex items-center gap-1.5 flex-shrink-0">
+                    <CheckIcon className="w-3.5 h-3.5 text-emerald-600" /> Connected
                   </span>
                 )}
               </div>
             </div>
 
-            <div className="p-6 sm:p-8 space-y-6">
-              {!userStarted && !isConnected && (
-                <div className="text-center py-4 space-y-4">
-                  <p className="text-sm text-gray-300">Ready to pair your phone with Zuri?</p>
-                  <div className="flex justify-center gap-3">
-                    <button
-                      onClick={() => { setConnectMode('qr'); startConnection() }}
-                      disabled={isStarting}
-                      className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/30 flex items-center gap-2"
-                    >
-                      {isStarting ? <Spinner className="w-4 h-4 text-white" /> : '📷 Display QR Code'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* QR display & Step-by-Step Instructions */}
-              {userStarted && !isConnected && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-center">
-                    {/* Left: QR / Code Box */}
-                    <div className="sm:col-span-6 flex flex-col items-center justify-center p-4 bg-slate-950/60 rounded-2xl border border-white/10 text-center min-h-[220px]">
-                      {isConnectingPhase && (
-                        <div className="flex flex-col items-center gap-3 py-6">
-                          <Spinner className="w-8 h-8 text-indigo-400" />
-                          <p className="text-xs text-gray-400">Generating WhatsApp session…</p>
-                        </div>
-                      )}
-
-                      {isQrReady && (
-                        <div className="flex flex-col items-center gap-3">
-                          <div className="w-48 h-48 bg-white p-2.5 rounded-2xl shadow-2xl relative">
-                            <img src={qrData!} alt="WhatsApp QR Code" className="w-full h-full rounded-xl" />
-                          </div>
-                          <span className="text-[11px] text-indigo-300 font-mono">
-                            Expires in {fmtTime(qrSecondsLeft)} {qrRefreshing && '(Refreshing…)'}
-                          </span>
-                        </div>
-                      )}
-
-                      {isLinkCodeReady && (
-                        <div className="space-y-3 py-4">
-                          <p className="text-xs text-gray-400">Enter this code in WhatsApp:</p>
-                          <div className="bg-indigo-500/20 border border-indigo-500/40 px-5 py-3 rounded-xl font-mono text-2xl font-bold tracking-widest text-indigo-300">
-                            {linkCodeData}
-                          </div>
-                        </div>
-                      )}
-
-                      {hasError && (
-                        <div className="space-y-3 p-3">
-                          <p className="text-xs text-red-400">{connectError || 'Session failed'}</p>
-                          <button
-                            onClick={() => startConnection()}
-                            className="px-4 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg"
-                          >
-                            Retry Pairing
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right: Explicit Step-by-Step Instructions */}
-                    <div className="sm:col-span-6 space-y-4">
-                      <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                        <span>📱</span> How to scan with your phone:
-                      </h3>
-                      <ol className="space-y-2.5 text-xs text-gray-300">
-                        <li className="flex items-start gap-2.5 bg-white/5 p-2.5 rounded-xl border border-white/5">
-                          <span className="w-5 h-5 bg-indigo-500/30 text-indigo-300 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">1</span>
-                          <span>Open <strong>WhatsApp</strong> on your primary phone</span>
-                        </li>
-                        <li className="flex items-start gap-2.5 bg-white/5 p-2.5 rounded-xl border border-white/5">
-                          <span className="w-5 h-5 bg-indigo-500/30 text-indigo-300 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">2</span>
-                          <span>Tap <strong>Menu (⋮)</strong> or <strong>Settings (⚙️)</strong> → <strong>Linked Devices</strong></span>
-                        </li>
-                        <li className="flex items-start gap-2.5 bg-white/5 p-2.5 rounded-xl border border-white/5">
-                          <span className="w-5 h-5 bg-indigo-500/30 text-indigo-300 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">3</span>
-                          <span>Tap <strong>Link a Device</strong> and point your camera at the QR code</span>
-                        </li>
-                      </ol>
-
-                      {/* Phone Code Toggle */}
-                      {!showPhoneInput ? (
-                        <button
-                          onClick={() => setShowPhoneInput(true)}
-                          className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium underline"
-                        >
-                          Having camera trouble? Link with phone number code instead
-                        </button>
-                      ) : (
-                        <div className="p-3 bg-white/5 rounded-xl border border-white/10 space-y-2">
-                          <p className="text-[11px] text-gray-300">Enter WhatsApp Phone Number:</p>
-                          <div className="flex gap-2">
-                            <input
-                              type="tel"
-                              placeholder="+263 77 123 4567"
-                              value={phoneNumber}
-                              onChange={(e) => setPhoneNumber(e.target.value)}
-                              className="flex-1 bg-slate-950 border border-white/15 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                            />
-                            <button
-                              onClick={startWithPhoneCode}
-                              className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg"
-                            >
-                              Get Code
-                            </button>
-                          </div>
-                          {phoneError && <p className="text-[10px] text-red-400">{phoneError}</p>}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+            <div className="p-5 sm:p-8 space-y-6">
+              {/* Method Selector Tabs */}
+              {!isConnected && (
+                <div className="flex border-b border-slate-200 pb-px">
+                  <button
+                    onClick={() => {
+                      setConnectMode('qr')
+                      setConnectError(null)
+                      // If not already started or in an error/disconnect state, trigger QR connection
+                      if (!userStarted || backendStatus === 'disconnected' || backendStatus === 'error') {
+                        startConnection()
+                      }
+                    }}
+                    className={`flex-1 pb-3 text-sm font-semibold text-center border-b-2 transition-all ${
+                      connectMode === 'qr'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-400 hover:text-slate-800'
+                    }`}
+                  >
+                    📷 Link with QR Code
+                  </button>
+                  <button
+                    onClick={() => {
+                      setConnectMode('phone')
+                      setConnectError(null)
+                    }}
+                    className={`flex-1 pb-3 text-sm font-semibold text-center border-b-2 transition-all ${
+                      connectMode === 'phone'
+                        ? 'border-indigo-600 text-indigo-600'
+                        : 'border-transparent text-slate-400 hover:text-slate-800'
+                    }`}
+                  >
+                    🔢 Link with Pairing Code
+                  </button>
                 </div>
               )}
 
               {/* Connected success state */}
               {isConnected && (
-                <div className="p-6 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-center space-y-3">
-                  <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full mx-auto flex items-center justify-center text-xl font-bold">
+                <div className="p-6 bg-emerald-50 border border-emerald-200 rounded-2xl text-center space-y-3">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full mx-auto flex items-center justify-center text-xl font-bold">
                     ✓
                   </div>
-                  <h3 className="font-bold text-base text-white">WhatsApp successfully paired!</h3>
-                  <p className="text-xs text-gray-300">
-                    Connected phone number: <span className="font-mono text-emerald-300 font-bold">{waStatus?.phone || 'Active WhatsApp Line'}</span>
+                  <h3 className="font-bold text-base text-slate-900">WhatsApp successfully paired!</h3>
+                  <p className="text-xs text-slate-600 font-medium">
+                    Connected phone number: <span className="font-mono text-emerald-700 font-bold bg-emerald-100/50 px-2 py-0.5 rounded">{waStatus?.phone || 'Active WhatsApp Line'}</span>
                   </p>
                 </div>
               )}
 
-              <div className="pt-4 flex items-center justify-between border-t border-white/10">
+              {/* QR display & Step-by-Step Instructions */}
+              {!isConnected && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-start">
+                    {/* Left: QR / Code Box */}
+                    <div className="sm:col-span-6 flex flex-col items-center justify-center p-5 bg-slate-50 rounded-2xl border border-slate-200 text-center min-h-[250px] relative">
+                      {isConnectingPhase && (
+                        <div className="flex flex-col items-center gap-3 py-6">
+                          <Spinner className="w-8 h-8 text-indigo-600" />
+                          <p className="text-xs text-slate-500 font-medium">Generating secure pairing tunnel...</p>
+                        </div>
+                      )}
+
+                      {connectMode === 'qr' && isQrReady && !isConnectingPhase && (
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-48 h-48 bg-white p-2.5 rounded-2xl shadow-sm border border-slate-100 relative">
+                            <img src={qrData!} alt="WhatsApp QR Code" className="w-full h-full rounded-xl" />
+                          </div>
+                          <span className="text-[11px] text-slate-500 font-mono bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+                            Expires in {fmtTime(qrSecondsLeft)} {qrRefreshing && '(Refreshing…)'}
+                          </span>
+                        </div>
+                      )}
+
+                      {connectMode === 'phone' && !isConnectingPhase && (
+                        <div className="w-full space-y-4">
+                          {!linkCodeData ? (
+                            <div className="space-y-3 text-left">
+                              <label className="block text-xs font-bold text-slate-700">Enter Phone Number with Country Code</label>
+                              <div className="space-y-2">
+                                <input
+                                  type="tel"
+                                  placeholder="+263 77 123 4567"
+                                  value={phoneNumber}
+                                  onChange={(e) => setPhoneNumber(e.target.value)}
+                                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
+                                />
+                                <button
+                                  onClick={startWithPhoneCode}
+                                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+                                >
+                                  Generate Pairing Code 🔢
+                                </button>
+                              </div>
+                              {phoneError && <p className="text-[10px] text-red-500 font-semibold">{phoneError}</p>}
+                            </div>
+                          ) : (
+                            isLinkCodeReady && (
+                              <div className="space-y-3.5 py-2">
+                                <p className="text-xs text-slate-500 font-medium">Enter this 8-character pairing code in WhatsApp:</p>
+                                <div className="bg-white border border-indigo-200 shadow-sm px-6 py-4 rounded-2xl font-mono text-3xl font-extrabold tracking-widest text-indigo-600 flex items-center justify-center">
+                                  {linkCodeData}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setLinkCodeData(null)
+                                    setPhoneNumber('')
+                                  }}
+                                  className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold underline block mx-auto"
+                                >
+                                  Use a different phone number
+                                </button>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      )}
+
+                      {hasError && !isConnectingPhase && (
+                        <div className="space-y-3.5 p-3">
+                          <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full mx-auto flex items-center justify-center font-bold text-lg">
+                            !
+                          </div>
+                          <p className="text-xs text-slate-600 font-semibold max-w-[200px] leading-relaxed mx-auto">
+                            {connectError || 'Session failed to connect.'}
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              onClick={() => {
+                                setConnectError(null)
+                                if (connectMode === 'phone' && phoneNumber) {
+                                  startWithPhoneCode()
+                                } else {
+                                  startConnection()
+                                }
+                              }}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                            >
+                              Retry Connection
+                            </button>
+                            <button
+                              onClick={() => {
+                                setConnectError(null)
+                                setConnectMode(connectMode === 'qr' ? 'phone' : 'qr')
+                              }}
+                              className="text-[10px] text-slate-500 hover:text-slate-800 underline font-medium"
+                            >
+                              Try the other linking method
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column: Step-by-Step Guidance */}
+                    <div className="sm:col-span-6 space-y-4">
+                      <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                        <span>📱</span> {connectMode === 'qr' ? 'How to link with QR code:' : 'How to link with Pairing Code:'}
+                      </h3>
+                      <ol className="space-y-2.5 text-xs text-slate-600">
+                        <li className="flex items-start gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <span className="w-5 h-5 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">1</span>
+                          <span>Open <strong>WhatsApp</strong> on your mobile phone</span>
+                        </li>
+                        <li className="flex items-start gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                          <span className="w-5 h-5 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">2</span>
+                          <span>Tap <strong>Menu (⋮)</strong> or <strong>Settings (⚙️)</strong> → <strong>Linked Devices</strong></span>
+                        </li>
+                        {connectMode === 'qr' ? (
+                          <li className="flex items-start gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <span className="w-5 h-5 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">3</span>
+                            <span>Tap <strong>Link a Device</strong> and scan the QR code on the left</span>
+                          </li>
+                        ) : (
+                          <li className="flex items-start gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <span className="w-5 h-5 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold text-[10px] flex-shrink-0">3</span>
+                            <span>Tap <strong>Link with phone number instead</strong> and enter the 8-character code on the left</span>
+                          </li>
+                        )}
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex items-center justify-between border-t border-slate-200">
                 <button
                   onClick={() => setStep(1)}
-                  className="text-xs text-gray-400 hover:text-white"
+                  className="text-xs text-slate-500 hover:text-slate-850 font-medium"
                 >
                   ← Back to Profile
                 </button>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setSkipModalStep(2)}
-                    className="text-xs text-gray-400 hover:text-white underline underline-offset-4"
+                    className="text-xs text-slate-400 hover:text-slate-700 underline underline-offset-4"
                   >
                     Skip for now
                   </button>
                   <button
                     onClick={() => setStep(3)}
-                    className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25"
+                    className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/10"
                   >
                     Continue to Invite Team →
                   </button>
@@ -914,17 +961,17 @@ export default function OnboardingPage() {
 
         {/* ── STEP 3: Invite Team Members ─────────────────────────────────── */}
         {step === 3 && (
-          <div className="w-full max-w-2xl bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-2xl p-5 sm:p-8 shadow-sm shadow-slate-100/80 space-y-6">
             <div className="space-y-1">
-              <h2 className="text-xl sm:text-2xl font-bold text-white">Invite your team to Zuri</h2>
-              <p className="text-xs text-gray-400">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Invite your team to Zuri</h2>
+              <p className="text-xs text-slate-500">
                 Zuri connects your team to a shared WhatsApp inbox so agents can collaborate, lock conversations, and send AI-assisted replies.
               </p>
             </div>
 
             {/* Email invite inputs */}
             <div className="space-y-3">
-              <label className="block text-xs font-semibold text-gray-300">Team Member Emails & Roles</label>
+              <label className="block text-xs font-semibold text-slate-700">Team Member Emails & Roles</label>
               {inviteRows.map((row, idx) => (
                 <div key={idx} className="flex items-center gap-3">
                   <input
@@ -936,7 +983,7 @@ export default function OnboardingPage() {
                       updated[idx].email = e.target.value
                       setInviteRows(updated)
                     }}
-                    className="flex-1 bg-slate-950 border border-white/15 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   />
                   <select
                     value={row.role}
@@ -945,7 +992,7 @@ export default function OnboardingPage() {
                       updated[idx].role = e.target.value as any
                       setInviteRows(updated)
                     }}
-                    className="bg-slate-950 border border-white/15 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   >
                     <option value="member">Agent (Member)</option>
                     <option value="admin">Admin</option>
@@ -957,34 +1004,34 @@ export default function OnboardingPage() {
               <div className="flex items-center justify-between pt-1">
                 <button
                   onClick={() => setInviteRows(prev => [...prev, { email: '', role: 'member' }])}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1"
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
                 >
                   + Add another team member
                 </button>
                 <button
                   onClick={handleSendTeamInvites}
                   disabled={isSendingInvites || !inviteRows.some(r => r.email.trim())}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
                 >
                   {isSendingInvites ? <Spinner className="w-3.5 h-3.5 text-white" /> : 'Send Invitations ✉️'}
                 </button>
               </div>
 
-              {inviteSuccessMsg && <p className="text-xs text-emerald-400 mt-2">{inviteSuccessMsg}</p>}
-              {inviteError && <p className="text-xs text-red-400 mt-2">{inviteError}</p>}
+              {inviteSuccessMsg && <p className="text-xs text-emerald-600 mt-2 font-semibold">{inviteSuccessMsg}</p>}
+              {inviteError && <p className="text-xs text-red-500 mt-2 font-semibold">{inviteError}</p>}
             </div>
 
             {/* Invited Roster list */}
             {invitedMembers.length > 0 && (
-              <div className="space-y-2 pt-3 border-t border-white/10">
-                <p className="text-xs font-semibold text-gray-300">Sent Invitations:</p>
+              <div className="space-y-2 pt-3 border-t border-slate-100">
+                <p className="text-xs font-semibold text-slate-700">Sent Invitations:</p>
                 <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                   {invitedMembers.map((m, i) => (
-                    <div key={i} className="flex items-center justify-between bg-white/5 px-3 py-2 rounded-xl text-xs border border-white/5">
-                      <span className="text-white font-medium">{m.email}</span>
+                    <div key={i} className="flex items-center justify-between bg-slate-50 px-3 py-2 rounded-xl text-xs border border-slate-200">
+                      <span className="text-slate-900 font-medium">{m.email}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] uppercase text-gray-400 font-mono bg-white/5 px-2 py-0.5 rounded">{m.role}</span>
-                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{m.status}</span>
+                        <span className="text-[10px] uppercase text-slate-500 font-mono bg-slate-200 px-2 py-0.5 rounded">{m.role}</span>
+                        <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">{m.status}</span>
                       </div>
                     </div>
                   ))}
@@ -992,23 +1039,23 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            <div className="pt-4 flex items-center justify-between border-t border-white/10">
+            <div className="pt-4 flex items-center justify-between border-t border-slate-200">
               <button
                 onClick={() => setStep(2)}
-                className="text-xs text-gray-400 hover:text-white"
+                className="text-xs text-slate-500 hover:text-slate-850"
               >
                 ← Back to WhatsApp
               </button>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSkipModalStep(3)}
-                  className="text-xs text-gray-400 hover:text-white underline underline-offset-4"
+                  className="text-xs text-slate-400 hover:text-slate-700 underline underline-offset-4"
                 >
                   Skip for now
                 </button>
                 <button
                   onClick={() => setStep(4)}
-                  className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25"
+                  className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/10"
                 >
                   Continue to Pipe Check →
                 </button>
@@ -1019,66 +1066,66 @@ export default function OnboardingPage() {
 
         {/* ── STEP 4: Test Message & Pipe Verification ───────────────────── */}
         {step === 4 && (
-          <div className="w-full max-w-2xl bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="w-full max-w-2xl bg-white border border-slate-200 rounded-2xl p-5 sm:p-8 shadow-sm shadow-slate-100/80 space-y-6">
             <div className="space-y-1">
-              <h2 className="text-xl sm:text-2xl font-bold text-white">Verify your WhatsApp pipe</h2>
-              <p className="text-xs text-gray-400">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Verify your WhatsApp pipe</h2>
+              <p className="text-xs text-slate-500">
                 Confirm your intelligence system health and verify message delivery before entering your live dashboard.
               </p>
             </div>
 
             {/* Health & Diagnostic Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3.5 bg-white/5 border border-white/10 rounded-xl space-y-1">
-                <span className="text-xs text-gray-400 block font-medium">1. WhatsApp Session</span>
-                <p className={`text-xs font-bold flex items-center gap-1.5 ${isConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-xs text-slate-500 block font-medium">1. WhatsApp Session</span>
+                <p className={`text-xs font-bold flex items-center gap-1.5 ${isConnected ? 'text-emerald-600' : 'text-amber-605'}`}>
                   <span className="w-2 h-2 rounded-full bg-current animate-ping" />
                   {isConnected ? 'Active & Paired' : 'Not Connected'}
                 </p>
               </div>
 
-              <div className="p-3.5 bg-white/5 border border-white/10 rounded-xl space-y-1">
-                <span className="text-xs text-gray-400 block font-medium">2. AI Intelligence Engine</span>
-                <p className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-xs text-slate-500 block font-medium">2. AI Intelligence Engine</span>
+                <p className="text-xs font-bold text-emerald-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   Gemini / Qwen Active
                 </p>
               </div>
 
-              <div className="p-3.5 bg-white/5 border border-white/10 rounded-xl space-y-1">
-                <span className="text-xs text-gray-400 block font-medium">3. Shared Inbox Queue</span>
-                <p className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <span className="text-xs text-slate-500 block font-medium">3. Shared Inbox Queue</span>
+                <p className="text-xs font-bold text-emerald-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   Redis Pipeline Online
                 </p>
               </div>
             </div>
 
             {/* Test Message Box */}
-            <div className="p-5 bg-slate-950/60 border border-white/15 rounded-2xl space-y-4">
-              <h3 className="text-xs font-bold text-white flex items-center gap-2">
+            <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl space-y-4">
+              <h3 className="text-xs font-bold text-slate-900 flex items-center gap-2">
                 <span>⚡</span> Send Verification Ping:
               </h3>
 
               <div className="space-y-3">
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">Target Phone Number</label>
+                  <label className="block text-[11px] text-slate-600 mb-1 font-semibold">Target Phone Number</label>
                   <input
                     type="tel"
                     placeholder="+263771234567 or leave default"
                     value={testPhone}
                     onChange={(e) => setTestPhone(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">Test Message Body</label>
+                  <label className="block text-[11px] text-slate-600 mb-1 font-semibold">Test Message Body</label>
                   <input
                     type="text"
                     value={testMessage}
                     onChange={(e) => setTestMessage(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500"
                   />
                 </div>
 
@@ -1086,41 +1133,41 @@ export default function OnboardingPage() {
                   <button
                     onClick={handleTestPipe}
                     disabled={isTestingPipe || !isConnected}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-lg transition-all flex items-center gap-2"
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-750 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
                   >
                     {isTestingPipe ? <Spinner className="w-4 h-4 text-white" /> : '⚡ Send Test Message'}
                   </button>
 
                   {!isConnected && (
-                    <span className="text-[11px] text-amber-400">Pair WhatsApp in Step 2 to send live ping</span>
+                    <span className="text-[11px] text-amber-600 font-semibold">Pair WhatsApp in Step 2 to send live ping</span>
                   )}
                 </div>
 
                 {pipeVerified && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 font-semibold flex items-center gap-2">
-                    <CheckIcon className="w-4 h-4 text-emerald-400" />
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
+                    <CheckIcon className="w-4 h-4 text-emerald-600" />
                     Pipe verified successfully! Test message enqueued and system operational.
                   </div>
                 )}
 
                 {testError && (
-                  <p className="text-xs text-red-400">{testError}</p>
+                  <p className="text-xs text-red-500 font-semibold">{testError}</p>
                 )}
               </div>
             </div>
 
-            <div className="pt-4 flex items-center justify-between border-t border-white/10">
+            <div className="pt-4 flex items-center justify-between border-t border-slate-200">
               <button
                 onClick={() => setStep(3)}
-                className="text-xs text-gray-400 hover:text-white"
+                className="text-xs text-slate-500 hover:text-slate-800"
               >
                 ← Back to Invites
               </button>
               <button
                 onClick={handleCompleteOnboarding}
-                className="px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all shadow-xl shadow-emerald-500/30 flex items-center gap-2"
+                className="px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm rounded-xl hover:from-emerald-600 hover:to-teal-750 transition-all shadow-md shadow-emerald-500/10 flex items-center gap-2"
               >
-                Complete Setup & Launch Dashboard 🚀
+                Complete Setup & Launch Inbox 🚀
               </button>
             </div>
           </div>
@@ -1129,14 +1176,14 @@ export default function OnboardingPage() {
 
       {/* ── Skip Consequence Alert Modal ────────────────────────────────────── */}
       {skipModalStep !== null && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-white/15 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center gap-3 text-amber-400 font-bold text-base">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <div className="flex items-center gap-3 text-amber-600 font-bold text-base">
               <span className="text-2xl">⚠️</span>
               <h3>Are you sure you want to skip this step?</h3>
             </div>
 
-            <p className="text-xs text-gray-300 leading-relaxed">
+            <p className="text-xs text-slate-600 leading-relaxed">
               {skipModalStep === 1 && (
                 'Skipping business profile customization means Zuri will use generic default reply templates until you set up your profile in Settings.'
               )}
@@ -1147,20 +1194,20 @@ export default function OnboardingPage() {
                 'Skipping team invitations means your team members won\'t receive access invites right now. You can invite them later from Organization & Teams.'
               )}
               {skipModalStep === 4 && (
-                'Skipping message delivery verification will take you straight to your dashboard without verifying live pipe transmission.'
+                'Skipping message delivery verification will take you straight to your shared inbox without verifying live pipe transmission.'
               )}
             </p>
 
             <div className="pt-2 flex items-center justify-end gap-3">
               <button
                 onClick={() => setSkipModalStep(null)}
-                className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl"
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200"
               >
                 Cancel
               </button>
               <button
                 onClick={() => executeSkip(skipModalStep)}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl shadow-lg"
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl shadow-md"
               >
                 Yes, Skip Step →
               </button>

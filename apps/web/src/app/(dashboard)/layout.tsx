@@ -649,6 +649,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Note: We no longer force-redirect users to /onboarding if WhatsApp is disconnected.
   // Users can freely explore the app, view CRM data, create documents, and connect WhatsApp at any time.
 
+  // Force redirect to /onboarding if user has not completed onboarding
+  useEffect(() => {
+    if (session.status === 'authenticated' && session.data?.user?.onboardingCompleted === false) {
+      if (pathname !== '/onboarding') {
+        router.push('/onboarding')
+      }
+    }
+  }, [session.status, session.data, pathname, router])
+
   useEffect(() => {
     setIsNavigating(false)
     setSidebarOpen(false)

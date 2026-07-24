@@ -281,10 +281,11 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       // Primary UPSERT attempt
       const { rows } = await db.query<{ id: string; updated_at: string }>(
-        `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, key_hint, is_active, status)
-         VALUES ($1, $2, $3, $4, $5, true, 'untested')
+        `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, api_key_encrypted, key_hint, is_active, status)
+         VALUES ($1, $2, $3, $4, $4, $5, true, 'untested')
          ON CONFLICT (user_id, provider) WHERE team_id IS NULL DO UPDATE
            SET encrypted_key = EXCLUDED.encrypted_key,
+               api_key_encrypted = EXCLUDED.api_key_encrypted,
                key_hint = EXCLUDED.key_hint,
                is_active = true,
                status = 'untested',
@@ -303,7 +304,7 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
       if (existing.length > 0) {
         const { rows: updated } = await db.query<{ id: string; updated_at: string }>(
           `UPDATE user_ai_keys 
-           SET encrypted_key = $1, key_hint = $2, is_active = true, status = 'untested', updated_at = NOW()
+           SET encrypted_key = $1, api_key_encrypted = $1, key_hint = $2, is_active = true, status = 'untested', updated_at = NOW()
            WHERE id = $3
            RETURNING id, updated_at`,
           [encryptedKey, hint, existing[0].id]
@@ -311,8 +312,8 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
         entry = updated[0];
       } else {
         const { rows: inserted } = await db.query<{ id: string; updated_at: string }>(
-          `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, key_hint, is_active, status)
-           VALUES ($1, $2, $3, $4, $5, true, 'untested')
+          `INSERT INTO user_ai_keys (user_id, team_id, provider, encrypted_key, api_key_encrypted, key_hint, is_active, status)
+           VALUES ($1, $2, $3, $4, $4, $5, true, 'untested')
            RETURNING id, updated_at`,
           [userId, body.team_id ?? null, body.provider, encryptedKey, hint]
         );

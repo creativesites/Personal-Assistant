@@ -29,6 +29,7 @@ const _store: {
   planFamily: PlanFamily
   isCompanyManaged: boolean
   organization: OrgDetails
+  onboardingCompleted: boolean
 } = {
   userId: '',
   token: '',
@@ -38,6 +39,7 @@ const _store: {
   planFamily: 'free',
   isCompanyManaged: false,
   organization: null,
+  onboardingCompleted: false,
 }
 
 type SessionSnapshot = {
@@ -47,6 +49,7 @@ type SessionSnapshot = {
   planFamily: PlanFamily
   isCompanyManaged: boolean
   organization: OrgDetails
+  onboardingCompleted: boolean
 }
 type SnapshotSubscriber = (snapshot: SessionSnapshot) => void
 const _snapshotSubscribers = new Set<SnapshotSubscriber>()
@@ -59,6 +62,7 @@ function snapshotFromStore(): SessionSnapshot {
     planFamily: _store.planFamily,
     isCompanyManaged: _store.isCompanyManaged,
     organization: _store.organization,
+    onboardingCompleted: _store.onboardingCompleted,
   }
 }
 
@@ -165,6 +169,9 @@ export function useZuriSession() {
   const [organization, setOrganization] = useState<OrgDetails>(
     user?.id && _store.userId === user.id ? _store.organization : null,
   )
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean>(
+    user?.id && _store.userId === user.id ? _store.onboardingCompleted : false,
+  )
   const [syncFailed, setSyncFailed] = useState(false)
   const pending = useRef(false)
 
@@ -182,7 +189,7 @@ export function useZuriSession() {
     return () => { _marketingAccessSubscribers.delete(sub) }
   }, [])
 
-  // Subscribe to the shared snapshot (mode/marketingAccess/isAdmin/planFamily/isCompanyManaged/organization)
+  // Subscribe to the shared snapshot (mode/marketingAccess/isAdmin/planFamily/isCompanyManaged/organization/onboardingCompleted)
   useEffect(() => {
     const sub: SnapshotSubscriber = (snap) => {
       setMode(snap.mode)
@@ -191,6 +198,7 @@ export function useZuriSession() {
       setPlanFamily(snap.planFamily)
       setIsCompanyManaged(snap.isCompanyManaged)
       setOrganization(snap.organization)
+      setOnboardingCompleted(snap.onboardingCompleted)
     }
     _snapshotSubscribers.add(sub)
     return () => { _snapshotSubscribers.delete(sub) }
@@ -206,6 +214,7 @@ export function useZuriSession() {
       setPlanFamily(_store.planFamily)
       setIsCompanyManaged(_store.isCompanyManaged)
       setOrganization(_store.organization)
+      setOnboardingCompleted(_store.onboardingCompleted)
       return
     }
     if (pending.current) return
@@ -225,6 +234,7 @@ export function useZuriSession() {
           _store.planFamily = (data.user?.planFamily as PlanFamily) ?? 'free'
           _store.isCompanyManaged = data.user?.isCompanyManaged ?? false
           _store.organization = data.user?.organization ?? null
+          _store.onboardingCompleted = data.user?.onboardingCompleted ?? false
           setToken(data.token)
           setMode(_store.mode)
           setMarketingAccess(_store.marketingAccess)
@@ -232,6 +242,7 @@ export function useZuriSession() {
           setPlanFamily(_store.planFamily)
           setIsCompanyManaged(_store.isCompanyManaged)
           setOrganization(_store.organization)
+          setOnboardingCompleted(_store.onboardingCompleted)
         } else {
           setSyncFailed(true)
         }
@@ -263,6 +274,7 @@ export function useZuriSession() {
         id: user!.id,
         email: user!.emailAddresses[0]?.emailAddress ?? '',
         name: user!.fullName ?? '',
+        onboardingCompleted,
       },
     },
     status: 'authenticated' as const,
