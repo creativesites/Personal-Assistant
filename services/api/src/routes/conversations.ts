@@ -1637,7 +1637,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     }
 
     try {
-      await fetch(`${config.whatsappServiceUrl}/internal/sessions/${userId}/presence`, {
+      await fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/${userId}/presence`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ presence, jid: rows[0].whatsapp_jid }),
@@ -1646,56 +1646,6 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     } catch (err) {
       return reply.send({ updated: false });
     }
-  });
-
-  // ── GET /api/conversations/:id/notes ──────────────────────────────────────────
-  fastify.get('/api/conversations/:id/notes', { preHandler: authenticate }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const { rows } = await db.query(
-      `SELECT
-         n.id,
-         n.conversation_id,
-         n.text,
-         n.created_at,
-         COALESCE(u.full_name, u.email) AS author,
-         u.id AS author_id,
-         u.email AS author_email
-       FROM conversation_internal_notes n
-       LEFT JOIN users u ON u.id = n.author_id
-       WHERE n.conversation_id = $1
-       ORDER BY n.created_at ASC`,
-      [id]
-    );
-    return reply.send({ notes: rows });
-  });
-
-  // ── POST /api/conversations/:id/notes ─────────────────────────────────────────
-  fastify.post('/api/conversations/:id/notes', { preHandler: authenticate }, async (request, reply) => {
-    const { userId, organizationId } = request.user as { userId: string; organizationId?: string };
-    const { id } = request.params as { id: string };
-    const { text } = z.object({ text: z.string().min(1) }).parse(request.body);
-
-    const { rows } = await db.query(
-      `INSERT INTO conversation_internal_notes (conversation_id, organization_id, author_id, text)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, conversation_id, text, created_at`,
-      [id, organizationId || null, userId, text]
-    );
-
-    const userRes = await db.query(`SELECT full_name, email FROM users WHERE id = $1`, [userId]);
-    const authorName = userRes.rows[0]?.full_name || userRes.rows[0]?.email || 'Team Member';
-
-    const note = {
-      id: rows[0].id,
-      conversationId: rows[0].conversation_id,
-      text: rows[0].text,
-      createdAt: rows[0].created_at,
-      author: authorName,
-      authorId: userId,
-    };
-
-    io.emit('note:created', note);
-    return reply.status(201).send({ note });
   });
 
   // ── DELETE /api/conversations/notes/:noteId ───────────────────────────────────

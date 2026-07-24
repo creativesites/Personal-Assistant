@@ -2083,10 +2083,10 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col h-full overflow-hidden bg-white">
 
         {/* ── Nav bar ── */}
-        <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+        <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 z-20">
           <Link href="/contacts" className="text-gray-500 hover:text-gray-800 transition-colors">
             <ChevronLeft size={20} />
           </Link>
@@ -2129,131 +2129,139 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               <span className="hidden md:inline">Analyze Relationship</span>
             </button>
             <Link href="/inbox"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors lg:hidden">
               <MessageSquare size={14} />
               <span className="hidden sm:inline">Message</span>
             </Link>
           </div>
         </div>
 
-        {/* ── Hero ── */}
-        <div className="flex-shrink-0 bg-white border-b border-gray-100 px-4 py-4 sm:px-6">
-          <div className="flex items-start gap-4">
-            {/* Left: health ring with avatar inside */}
-            <div className="flex flex-col items-center gap-1 flex-shrink-0">
-              <HealthRing score={contact.relationship.healthScore} />
-              <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${trend.bg} ${trend.cls}`}>
-                <TrendIcon size={9} /> {trend.label}
-              </span>
-            </div>
-
-            {/* Right: name + details */}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold text-gray-900 leading-tight">{contact.name}</h1>
-
-              {/* Company line */}
-              {contact.company && (
-                <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1 truncate">
-                  <Building2 size={12} className="flex-shrink-0 text-gray-400" />
-                  {contact.company}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}
-                </p>
-              )}
-
-              {/* Phone — only show if not same as name */}
-              {contact.phoneNumber && !phoneHidden && (
-                <a href={`tel:${contact.phoneNumber}`} className="text-sm text-indigo-600 hover:underline mt-0.5 block">
-                  {formatPhone(contact.phoneNumber)}
-                </a>
-              )}
-
-              {/* Status badges */}
-              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                <Badge variant={statusBadgeVariant(contact.customerStatus)} className="capitalize text-[11px]">
-                  {contact.customerStatus}
-                </Badge>
-                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 capitalize">
-                  <TierIcon size={11} className="text-indigo-400" />
-                  {tierLabel}
-                </span>
-                {contact.pipelineStage && (
-                  <span className="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                    {contact.pipelineStage}
+        <div className="flex flex-1 overflow-hidden relative">
+          
+          {/* ── Left Column (Executive Cockpit) ── */}
+          <div className="flex-1 flex flex-col min-w-0 bg-gray-50/30 overflow-y-auto relative z-0">
+            {/* ── Hero ── */}
+            <div className="flex-shrink-0 bg-white border-b border-gray-100 px-4 py-6 sm:px-8">
+              <div className="max-w-4xl mx-auto flex items-start gap-5">
+                {/* Left: health ring with avatar inside */}
+                <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+                  <HealthRing score={contact.relationship.healthScore} />
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${trend.bg} ${trend.cls}`}>
+                    <TrendIcon size={10} /> {trend.label}
                   </span>
+                </div>
+
+                {/* Right: name + details */}
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-2xl font-bold text-gray-900 leading-tight tracking-tight">{contact.name}</h1>
+
+                  {/* Company line */}
+                  {contact.company && (
+                    <p className="text-sm text-gray-500 mt-1 flex items-center gap-1.5 truncate">
+                      <Building2 size={14} className="flex-shrink-0 text-gray-400" />
+                      {contact.company}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}
+                    </p>
+                  )}
+
+                  {/* Phone — only show if not same as name */}
+                  {contact.phoneNumber && !phoneHidden && (
+                    <a href={`tel:${contact.phoneNumber}`} className="text-sm font-medium text-indigo-600 hover:underline mt-0.5 block">
+                      {formatPhone(contact.phoneNumber)}
+                    </a>
+                  )}
+
+                  {/* Status badges */}
+                  <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                    <Badge variant={statusBadgeVariant(contact.customerStatus)} className="capitalize text-xs font-semibold px-2 py-0.5">
+                      {contact.customerStatus}
+                    </Badge>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 capitalize bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                      <TierIcon size={12} className="text-indigo-500" />
+                      {tierLabel}
+                    </span>
+                    {contact.pipelineStage && (
+                      <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                        {contact.pipelineStage}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Completeness bar */}
+                  <div className="mt-3.5 max-w-sm">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Profile completeness</span>
+                      {completeness < 100 && (
+                        <button onClick={() => setShowEdit(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 hover:underline transition-colors">Fill in →</button>
+                      )}
+                    </div>
+                    <CompletenessBar pct={completeness} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats row */}
+              <div className="max-w-4xl mx-auto flex items-center justify-around mt-6 pt-4 border-t border-gray-100">
+                <div className="text-center">
+                  <p className="text-xl font-bold text-gray-900 tabular-nums leading-none">{contact.stats.totalMessages}</p>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mt-1.5">msgs</p>
+                </div>
+                <div className="w-px h-8 bg-gray-200" />
+                <div className="text-center">
+                  <p className="text-base font-bold text-gray-700 leading-none">
+                    {contact.relationship.lastInteractionAt ? timeAgo(contact.relationship.lastInteractionAt) : '—'}
+                  </p>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mt-1.5">last contact</p>
+                </div>
+                <div className="w-px h-8 bg-gray-200" />
+                <div className="text-center">
+                  <p className="text-xl font-bold text-gray-900 tabular-nums leading-none">{contact.insights.length}</p>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mt-1.5">AI insights</p>
+                </div>
+                {contact.leadScore > 0 && mode !== 'personal' && (
+                  <>
+                    <div className="w-px h-8 bg-gray-200" />
+                    <div className="text-center">
+                      <p className={`text-xl font-bold tabular-nums leading-none ${contact.leadScore >= 70 ? 'text-green-600' : contact.leadScore >= 40 ? 'text-amber-600' : 'text-gray-400'}`}>
+                        {contact.leadScore}
+                      </p>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mt-1.5">score</p>
+                    </div>
+                  </>
                 )}
               </div>
 
-              {/* Completeness bar */}
-              <div className="mt-2.5">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] text-gray-400 uppercase tracking-wide font-medium">Profile completeness</span>
-                  {completeness < 100 && (
-                    <button onClick={() => setShowEdit(true)} className="text-[10px] text-indigo-500 hover:underline">Fill in →</button>
-                  )}
+              {/* Why the health score is what it is — always tell them why */}
+              {contact.healthHistory[0]?.changeReason && (
+                <div className="max-w-4xl mx-auto flex items-start gap-2 mt-4 pt-4 border-t border-gray-100">
+                  <Lightbulb size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm font-medium text-gray-600 leading-snug">{contact.healthHistory[0].changeReason}</p>
                 </div>
-                <CompletenessBar pct={completeness} />
+              )}
+            </div>
+
+            {/* ── Autopilot Control Panel ── */}
+            <div className="px-4 sm:px-8 pt-6 pb-2 max-w-4xl mx-auto w-full">
+              <AutopilotControlPanel contactId={contact.id} />
+            </div>
+
+            {/* ── Tab bar ── */}
+            <div className="flex-shrink-0 bg-white border-y border-gray-200 sticky top-0 z-10 px-4 sm:px-8 mt-4 shadow-sm">
+              <div ref={tabBarRef} className="flex overflow-x-auto max-w-4xl mx-auto" style={{ scrollbarWidth: 'none' }}>
+                {TABS.map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className={`flex-shrink-0 px-5 py-3.5 text-sm font-bold border-b-2 transition-colors whitespace-nowrap ${
+                      activeTab === tab.id
+                        ? 'border-indigo-600 text-indigo-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                    }`}>
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
 
-          {/* Stats row */}
-          <div className="flex items-center justify-around mt-4 pt-3 border-t border-gray-50">
-            <div className="text-center">
-              <p className="text-base font-bold text-gray-900 tabular-nums">{contact.stats.totalMessages}</p>
-              <p className="text-[10px] text-gray-400 leading-tight mt-0.5">msgs</p>
-            </div>
-            <div className="w-px h-7 bg-gray-100" />
-            <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700">
-                {contact.relationship.lastInteractionAt ? timeAgo(contact.relationship.lastInteractionAt) : '—'}
-              </p>
-              <p className="text-[10px] text-gray-400 leading-tight mt-0.5">last contact</p>
-            </div>
-            <div className="w-px h-7 bg-gray-100" />
-            <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700">{contact.insights.length}</p>
-              <p className="text-[10px] text-gray-400 leading-tight mt-0.5">AI insights</p>
-            </div>
-            {contact.leadScore > 0 && mode !== 'personal' && (
-              <>
-                <div className="w-px h-7 bg-gray-100" />
-                <div className="text-center">
-                  <p className={`text-sm font-bold tabular-nums ${contact.leadScore >= 70 ? 'text-green-600' : contact.leadScore >= 40 ? 'text-amber-600' : 'text-gray-400'}`}>
-                    {contact.leadScore}
-                  </p>
-                  <p className="text-[10px] text-gray-400 leading-tight mt-0.5">score</p>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Why the health score is what it is — always tell them why */}
-          {contact.healthHistory[0]?.changeReason && (
-            <div className="flex items-start gap-1.5 mt-3 pt-3 border-t border-gray-50">
-              <Lightbulb size={12} className="text-amber-400 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-gray-500 leading-snug">{contact.healthHistory[0].changeReason}</p>
-            </div>
-          )}
-        </div>
-
-        {/* ── Tab bar ── */}
-        <div className="flex-shrink-0 bg-white border-b border-gray-200 sticky top-0 z-10">
-          <div ref={tabBarRef} className="flex overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            {TABS.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-indigo-600 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-800'
-                }`}>
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Tab content ── */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl mx-auto p-4 space-y-4 pb-8">
+            {/* ── Tab content ── */}
+            <div className="flex-1 p-4 sm:px-8 py-6 max-w-4xl mx-auto w-full space-y-4 pb-12">
 
             {/* ══ PROFILE TAB ══ */}
             {activeTab === 'profile' && (
@@ -2702,13 +2710,15 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               <ClocksPanel contactId={contact.id} token={token!} />
             )}
 
-            {/* ══ MESSAGES TAB ══ */}
-            {activeTab === 'messages' && (
-              <MessagesTab contactId={contact.id} token={token!} />
-            )}
-
+            </div>
+          </div>
+          
+          {/* ── Right Column (Message Thread) ── */}
+          <div className="hidden lg:flex w-[400px] xl:w-[450px] flex-shrink-0 flex-col bg-gray-50 border-l border-gray-200 relative z-10 shadow-xl">
+            <MessagesTab contactId={contact.id} token={token!} />
           </div>
         </div>
+
       </div>
 
       {/* Archive button — bottom of page on mobile */}

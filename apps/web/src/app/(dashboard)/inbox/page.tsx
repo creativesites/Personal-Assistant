@@ -17,6 +17,7 @@ import { ChampagneConfettiCanvas, CelebrationBanner } from '@/components/ui/cele
 import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
+import { MediaLightbox, type LightboxItem } from './_components/media-lightbox'
 import { StatusStoriesBar } from './_components/status-stories-bar'
 import { StatusViewerModal } from './_components/status-viewer-modal'
 import { PostStatusModal } from './_components/post-status-modal'
