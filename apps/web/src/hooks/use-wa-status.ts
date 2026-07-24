@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getSocket } from '@/lib/socket'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 
@@ -18,6 +19,7 @@ export interface WAStatus {
   connected: boolean
   phone: string | null
   lastConnectedAt: string | null
+  refetchStatus: () => Promise<void>
 }
 
 const POLL_ACTIVE_MS  = 8_000   // while connecting/QR pending — check often
@@ -31,6 +33,7 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
     connected: false,
     phone: null,
     lastConnectedAt: null,
+    refetchStatus: async () => {},
   })
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -58,6 +61,7 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
         connected: data.connected === true,
         phone: data.phone ?? null,
         lastConnectedAt: data.lastConnectedAt ?? null,
+        refetchStatus: poll,
       })
 
       // Schedule next poll — shorter interval while transitional
@@ -71,7 +75,47 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
 
   useEffect(() => {
     mountedRef.current = true
-    if (token) poll()
+    if (token) {
+      poll()
+
+      const socket = getSocket(token)
+      if (socket) {
+        const handleConnected = (payloadStr?: string) => {
+          let phone: string | null = null;
+          if (payloadStr) {
+            try {
+              const p = typeof payloadStr === 'string' ? JSON.parse(payloadStr) : payloadStr;
+              phone = p.phoneNumber ?? null;
+            } catch { /* ignore */ }
+          }
+          setStatus(prev => ({
+            ...prev,
+            status: 'connected',
+            connected: true,
+            phone: phone ?? prev.phone,
+            lastConnectedAt: new Date().toISOString(),
+          }))
+          poll()
+        }
+
+        const handleDisconnected = () => {
+          setStatus(prev => ({
+            ...prev,
+            status: 'disconnected',
+            connected: false,
+          }))
+          poll()
+        }
+
+        socket.on('whatsapp:connected', handleConnected)
+        socket.on('whatsapp:disconnected', handleDisconnected)
+
+        return () => {
+          socket.off('whatsapp:connected', handleConnected)
+          socket.off('whatsapp:disconnected', handleDisconnected)
+        }
+      }
+    }
     return () => {
       mountedRef.current = false
       if (timerRef.current) clearTimeout(timerRef.current)

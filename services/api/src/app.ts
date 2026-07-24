@@ -74,6 +74,7 @@ import { privacyRoutes } from './routes/privacy';
 import { byokRoutes } from './routes/byok';
 import { salesErpRoutes } from './routes/sales-erp';
 import { organizationRoutes } from './routes/organization';
+import { milestonesRoutes } from './routes/milestones';
 import { readOnlyModeGuard } from './lib/entitlements';
 
 export async function buildApp() {
@@ -188,6 +189,7 @@ export async function buildApp() {
   await fastify.register(billingRoutes);
   await fastify.register(byokRoutes);
   await fastify.register(salesErpRoutes);
+  await fastify.register(milestonesRoutes);
 
   return fastify;
 }

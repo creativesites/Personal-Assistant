@@ -21,6 +21,8 @@ const envSchema = z.object({
   // checkout. Not a per-user field like business_profiles.mobile_money.
   MOBILE_MONEY_AIRTEL_NUMBER: z.string().default('0979046745'),
   MOBILE_MONEY_MTN_NUMBER: z.string().default('0762368105'),
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().default('Zuri Alerts <alerts@zuri-ai.app>'),
 });
 
 export const config = envSchema.parse(process.env);

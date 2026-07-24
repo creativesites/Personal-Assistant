@@ -9,6 +9,7 @@ import { startSocialPublishWorker } from './workers/social-publish-worker';
 import { startRecurringDocumentsWorker } from './workers/recurring-documents-worker';
 import { startSubscriptionLifecycleWorker } from './workers/subscription-lifecycle-worker';
 import { startDunningReminderWorker } from './workers/dunning-reminder-worker';
+import { startDisconnectChecker, stopDisconnectChecker } from './lib/disconnect-checker';
 
 async function main() {
   const app = await buildApp();
@@ -42,8 +43,12 @@ async function main() {
   const dunningReminderWorker = startDunningReminderWorker(app.log);
   app.log.info('Dunning reminder worker running');
 
+  startDisconnectChecker();
+  app.log.info('WhatsApp disconnect checker running');
+
   const shutdown = async () => {
     app.log.info('Shutting down...');
+    stopDisconnectChecker();
     socialPublishWorker.stop();
     recurringDocumentsWorker.stop();
     subscriptionLifecycleWorker.stop();

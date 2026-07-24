@@ -91,16 +91,32 @@ export function MarketingFooter() {
           ))}
         </div>
 
+        {/* Trust Badges */}
+        <div className="py-4 my-6 border-y border-gray-100 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500 font-medium">
+          <div className="flex items-center gap-1.5">
+            <span>🔒</span> AES-256 Encrypted & Isolated Partitions
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span>🛡️</span> GDPR & Privacy Compliant
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span>🤖</span> Zero Model Training on WhatsApp Data
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span>👤</span> Human-in-the-Loop Approval Required
+          </div>
+        </div>
+
         {/* Bottom bar */}
-        <div className="border-t border-gray-200 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-gray-400">
             © 2026 Zuri. All rights reserved.
           </p>
           <div className="flex items-center gap-5 text-xs">
-            <Link href="/privacy" className="text-gray-500 hover:text-indigo-600 transition-colors">
+            <Link href="/privacy" className="text-gray-500 hover:text-indigo-600 font-semibold transition-colors">
               Privacy Policy
             </Link>
-            <Link href="/terms" className="text-gray-500 hover:text-indigo-600 transition-colors">
+            <Link href="/terms" className="text-gray-500 hover:text-indigo-600 font-semibold transition-colors">
               Terms of Service
             </Link>
             <span className="text-gray-400">Built in Zambia 🇿🇲</span>

@@ -10,7 +10,7 @@ import {
   Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2,
   UserCircle, SlidersHorizontal, Brain, Bot, Database, ShieldCheck,
   Building2, Link2, ChevronRight, Palette, Upload,
-  RefreshCw, Sparkles, X, CheckCircle,
+  RefreshCw, Sparkles, X, CheckCircle, Download, Trash2,
 } from 'lucide-react'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
@@ -93,11 +93,12 @@ interface BusinessProfile {
   numbering: Record<string, { prefix: string; next: number }>
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
     <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden transition-all hover:shadow-md hover:border-slate-300/80">
       <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
         <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{title}</p>
+        {description && <p className="text-xs text-slate-500 mt-0.5 font-normal leading-relaxed">{description}</p>}
       </div>
       <div className="divide-y divide-slate-100/80">{children}</div>
     </div>
@@ -787,6 +788,91 @@ export default function SettingsPage() {
   const [selectedPrivacyAssistantContactIds, setSelectedPrivacyAssistantContactIds] = useState<string[]>([])
   const [applyingBulkPrivacy, setApplyingBulkPrivacy] = useState(false)
 
+  // Data Portability & Account Deletion Grace Period
+  const [accountDeletionStatus, setAccountDeletionStatus] = useState<{
+    isScheduled: boolean
+    scheduledDeletionAt: string | null
+    daysRemaining: number
+  }>({ isScheduled: false, scheduledDeletionAt: null, daysRemaining: 0 })
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [downloadingExport, setDownloadingExport] = useState<string | null>(null)
+
+  const loadAccountDeletionStatus = async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{
+        isScheduled: boolean
+        scheduledDeletionAt: string | null
+        daysRemaining: number
+      }>('/api/privacy/account-status', { token })
+      setAccountDeletionStatus(data)
+    } catch { /* ignore */ }
+  }
+
+  const handleDownloadExport = async (endpoint: string, filename: string) => {
+    if (!token) return
+    setDownloadingExport(filename)
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+      const res = await fetch(`${apiUrl}${endpoint}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (!res.ok) throw new Error('Export request failed')
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      addToast({ variant: 'success', title: `Downloaded ${filename}` })
+    } catch {
+      addToast({ variant: 'error', title: 'Export failed. Please try again.' })
+    } finally {
+      setDownloadingExport(null)
+    }
+  }
+
+  const handleRequestAccountDeletion = async () => {
+    if (!token) return
+    setDeletingAccount(true)
+    try {
+      const data = await apiClient<{ ok: boolean; scheduledDeletionAt: string; daysRemaining: number }>(
+        '/api/privacy/delete-account-request',
+        { method: 'POST', token }
+      )
+      setAccountDeletionStatus({
+        isScheduled: true,
+        scheduledDeletionAt: data.scheduledDeletionAt,
+        daysRemaining: data.daysRemaining
+      })
+      setShowDeleteAccountModal(false)
+      addToast({
+        variant: 'success',
+        title: 'Account scheduled for deletion in 7 days',
+        description: 'You can cancel this request at any time during the 7-day grace period.'
+      })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to request account deletion' })
+    } finally {
+      setDeletingAccount(false)
+    }
+  }
+
+  const handleCancelAccountDeletion = async () => {
+    if (!token) return
+    try {
+      await apiClient('/api/privacy/cancel-account-deletion', { method: 'POST', token })
+      setAccountDeletionStatus({ isScheduled: false, scheduledDeletionAt: null, daysRemaining: 0 })
+      addToast({ variant: 'success', title: 'Account deletion canceled', description: 'Your workspace remains active.' })
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to cancel account deletion' })
+    }
+  }
+
   const loadExclusions = async () => {
     if (!token || exclusionsLoaded) return
     setExclusionsLoaded(true)
@@ -1309,6 +1395,7 @@ export default function SettingsPage() {
     } else if (activeTab === 'privacy' && !retentionLoaded) {
       loadRetention()
       loadPrivacyExclusions()
+      loadAccountDeletionStatus()
     } else if (activeTab === 'connected_accounts' && !socialLoaded) {
       loadSocialAccounts()
     } else if (activeTab === 'brand_kit' && !brandKitLoaded) {
@@ -2918,6 +3005,117 @@ export default function SettingsPage() {
                         </button>
                       </div>
                     </Section>
+
+                    {/* Data Portability & Workspace Export Section */}
+                    <Section
+                      title="Data Portability & Workspace Export"
+                      description="Your data is 100% yours. Download complete archives of your contacts, message history, documents, and AI voice profiles anytime. No vendor lock-in."
+                    >
+                      <div className="p-5 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {/* Full JSON Export */}
+                          <div className="p-4 bg-indigo-50/60 border border-indigo-100 rounded-xl space-y-2 flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 font-bold text-xs text-indigo-900">
+                                <span>📦</span> Full Workspace Export
+                              </div>
+                              <p className="text-[11px] text-gray-600 mt-1">
+                                Complete backup of CRM contacts, conversations, documents, AI facts & catalog (JSON).
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDownloadExport('/api/export/full-workspace', 'zuri_workspace_export.json')}
+                              disabled={!!downloadingExport}
+                              className="w-full text-xs font-semibold py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors shadow-xs disabled:opacity-50 mt-2"
+                            >
+                              {downloadingExport === 'zuri_workspace_export.json' ? 'Downloading...' : 'Download Backup (JSON)'}
+                            </button>
+                          </div>
+
+                          {/* Contacts CSV Export */}
+                          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2 flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 font-bold text-xs text-gray-900">
+                                <span>📊</span> CRM Contacts (CSV)
+                              </div>
+                              <p className="text-[11px] text-gray-600 mt-1">
+                                Clean CSV of lead scores, phone numbers, stages, and custom fields for Excel/CRM import.
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDownloadExport('/api/export/contacts.csv', 'zuri_contacts.csv')}
+                              disabled={!!downloadingExport}
+                              className="w-full text-xs font-semibold py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg transition-colors shadow-xs disabled:opacity-50 mt-2"
+                            >
+                              {downloadingExport === 'zuri_contacts.csv' ? 'Downloading...' : 'Export Contacts (CSV)'}
+                            </button>
+                          </div>
+
+                          {/* Conversations CSV Export */}
+                          <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-2 flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 font-bold text-xs text-gray-900">
+                                <span>💬</span> Message History (CSV)
+                              </div>
+                              <p className="text-[11px] text-gray-600 mt-1">
+                                Summary of conversations, last previews, assignment logs, and message timestamps.
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => handleDownloadExport('/api/export/conversations.csv', 'zuri_conversations.csv')}
+                              disabled={!!downloadingExport}
+                              className="w-full text-xs font-semibold py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg transition-colors shadow-xs disabled:opacity-50 mt-2"
+                            >
+                              {downloadingExport === 'zuri_conversations.csv' ? 'Downloading...' : 'Export Conversations (CSV)'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </Section>
+
+                    {/* Account Deletion & Purge with 7-Day Grace Period */}
+                    <Section
+                      title="Account Deletion & Data Purge (7-Day Grace Period)"
+                      description="Permanently delete your workspace, WhatsApp sessions, AI models, and customer records with a 7-day cancellation safety buffer."
+                    >
+                      <div className="p-5">
+                        {accountDeletionStatus.isScheduled ? (
+                          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-4">
+                            <div className="space-y-1">
+                              <p className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                Deletion Scheduled in {accountDeletionStatus.daysRemaining} Days
+                              </p>
+                              <p className="text-[11px] text-amber-800">
+                                Your account and workspace data will be permanently purged on{' '}
+                                <strong>{new Date(accountDeletionStatus.scheduledDeletionAt!).toLocaleDateString()}</strong>.
+                              </p>
+                            </div>
+                            <button
+                              onClick={handleCancelAccountDeletion}
+                              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex-shrink-0"
+                            >
+                              Cancel Deletion
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="space-y-0.5">
+                              <p className="text-xs font-bold text-rose-700">Delete Account & Purge Workspace</p>
+                              <p className="text-[11px] text-gray-500">
+                                Request full account deletion. You will have a 7-day grace period to change your mind before data is destroyed.
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => setShowDeleteAccountModal(true)}
+                              className="px-4 py-2 border border-rose-200 hover:bg-rose-50 text-rose-600 text-xs font-semibold rounded-xl transition-colors flex-shrink-0"
+                            >
+                              Request Deletion
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </Section>
                   </div>
                 )}
               </>
@@ -3063,6 +3261,17 @@ export default function SettingsPage() {
         confirmLabel="Clear everything"
         destructive
         loading={clearingAll}
+      />
+
+      <ConfirmModal
+        open={showDeleteAccountModal}
+        onClose={() => setShowDeleteAccountModal(false)}
+        onConfirm={handleRequestAccountDeletion}
+        title="Schedule Account Deletion?"
+        description="Are you sure you want to request account deletion? Your workspace data, CRM contacts, documents, and WhatsApp sessions will be scheduled for permanent deletion in 7 days. You can cancel this request at any time during the 7-day grace period."
+        confirmLabel="Schedule Account Deletion (7-Day Buffer)"
+        destructive
+        loading={deletingAccount}
       />
     </div>
   )

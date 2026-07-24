@@ -72,21 +72,51 @@ export default function LoginPage() {
               </div>
             </div>
           </div>
+          {/* Security & Privacy Badges — "You're Safe Here" */}
+          <div className="bg-white/80 backdrop-blur border border-indigo-100 rounded-2xl p-4 space-y-2.5 shadow-sm">
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-900">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Enterprise Data Safety & Privacy Guarantee</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600 font-medium">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs">🔒</span> AES-256 Encrypted
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs">🛡️</span> GDPR Compliant
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs">🤖</span> Zero AI Model Training
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs">👤</span> Human-In-Loop Approval
+              </div>
+            </div>
+          </div>
+
         </div>
 
         {/* Bottom: trust, back to home */}
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-gray-400 border-t border-gray-100 pt-4">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-green-500" />
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
             <span>Your conversations are encrypted and private. Zuri never sends messages without your approval.</span>
           </div>
-          <Link
-            href="/"
-            className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium transition-colors flex-shrink-0"
-          >
-            <Home className="w-4 h-4" />
-            Home
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/privacy"
+              className="text-gray-500 hover:text-indigo-600 font-medium transition-colors underline decoration-dotted"
+            >
+              Privacy Policy
+            </Link>
+            <Link
+              href="/"
+              className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium transition-colors flex-shrink-0"
+            >
+              <Home className="w-4 h-4" />
+              Home
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -130,6 +160,20 @@ export default function LoginPage() {
                 }
               }}
             />
+          </div>
+
+          {/* Under-form Trust Bar */}
+          <div className="w-full mt-4 p-3.5 bg-gray-50 border border-gray-200 rounded-xl text-center space-y-1">
+            <div className="flex items-center justify-center gap-2 text-xs font-bold text-gray-700">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>SOC 2 Ready Architecture & Workspace Isolation</span>
+            </div>
+            <p className="text-[11px] text-gray-500">
+              Your conversations are never trained on or shared. Read our{' '}
+              <Link href="/privacy" className="text-indigo-600 font-semibold underline hover:text-indigo-800">
+                Privacy Policy
+              </Link>.
+            </p>
           </div>
 
         </div>

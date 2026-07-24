@@ -642,6 +642,16 @@ function OrganizationHubInner() {
               </select>
             </div>
 
+            {/* Privacy & Shared Inbox Disclosure Notice */}
+            <div className="p-3 bg-indigo-50/80 border border-indigo-100 rounded-xl space-y-1">
+              <p className="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
+                <span>🛡️</span> Shared Inbox & Privacy Guarantee Notice
+              </p>
+              <p className="text-[11px] text-indigo-800/90 leading-snug">
+                Invited members will receive access to your company's business WhatsApp messages. <strong>Personal chats, sensitive contacts, and private messages are automatically filtered out.</strong>
+              </p>
+            </div>
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => { setShowInviteModal(false); setInviteError(null) }}

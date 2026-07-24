@@ -40,6 +40,8 @@ import { useWAStatus } from '@/hooks/use-wa-status'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, HealthBar, SkeletonCard, useToast } from '@/components/ui'
 import { TrainYourAiWidget } from './_components/train-your-ai-widget'
+import { ExecutiveRoiSummary } from '@/components/executive-roi-summary'
+import { ExecutiveAchievements } from './_components/executive-achievements'
 
 interface Conversation {
   id: string
@@ -482,6 +484,10 @@ export default function DashboardPage() {
               )
             })}
           </div>
+
+          {/* Executive ROI & Gamification Impact Section */}
+          <ExecutiveRoiSummary />
+          <ExecutiveAchievements />
 
           {/* Train Your AI Knowledge Engine Widget */}
           {token && <TrainYourAiWidget token={token} />}

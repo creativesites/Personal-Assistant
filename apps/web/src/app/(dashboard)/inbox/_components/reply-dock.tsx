@@ -20,6 +20,8 @@ import {
 // Dynamic import to prevent SSR/hydration mismatch with emoji-picker-react
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false })
 
+import { unlockMilestone } from '@/lib/celebrations'
+
 interface Suggestion {
   id: string
   text: string
@@ -138,6 +140,7 @@ export function ReplyDock({
   const handleSend = () => {
     if (!draft.trim() && !selectedFile) return
     const textToSend = draft
+    unlockMilestone('first_team_reply', { detail: 'Sent message collaboratively' })
     onDraftChange('')
     onSendDraft(textToSend, selectedFile)
     setSelectedFile(null)

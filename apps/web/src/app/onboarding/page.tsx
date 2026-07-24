@@ -676,6 +676,41 @@ export default function OnboardingPage() {
                   )}
                 </div>
               </div>
+
+              {/* Data Safety & Privacy Guarantee Card */}
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+                  <span className="text-base">🛡️</span>
+                  <span>"You're Safe Here" — Data Privacy & Zero-Training Guarantee</span>
+                </div>
+                <p className="text-[11px] text-gray-300 leading-relaxed">
+                  Your team's WhatsApp messages and customer data remain 100% private to your workspace. We store conversation data in AES-256 encrypted database partitions and <strong>never sell, share, or train AI models</strong> on your private chats.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-emerald-200/90 font-medium pt-1 border-t border-emerald-500/20">
+                  <div className="flex items-center gap-1">
+                    <span>🔒</span> AES-256 Encrypted
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>🏢</span> Workspace Partitioned
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>🤖</span> Zero Model Training
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>👤</span> Human-in-Loop Approval
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>🗑️</span> Purge Data Anytime
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>📦</span> Export Data Anytime
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>📜</span> GDPR Compliant
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             <div className="pt-4 flex items-center justify-between border-t border-white/10">

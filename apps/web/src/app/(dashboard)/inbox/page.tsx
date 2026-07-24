@@ -6,12 +6,14 @@ import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
   Flame, Activity, Brain, WifiOff, UserX, ChevronDown, Users,
-  Pencil,
+  Pencil, HelpCircle, ShieldCheck, CheckCircle2,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { Avatar, EmptyState, SkeletonListItem, useToast, Modal, Input, Button } from '@/components/ui'
+import { useCelebration } from '@/hooks/use-celebration'
+import { ChampagneConfettiCanvas, CelebrationBanner } from '@/components/ui/celebration-effects'
 import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import type { AIInsight } from './_components/inline-ai-card'
@@ -80,6 +82,8 @@ export default function InboxPage() {
   const searchParams = useSearchParams()
   const urlContactId = searchParams?.get('contactId')
   const urlConvId = searchParams?.get('conversationId')
+
+  const { activeCelebration, clearCelebration } = useCelebration()
 
   // Data
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -268,6 +272,25 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
+
+  // Team Member 60-Second Onboarding Tutorial Modal
+  const [showTutorialModal, setShowTutorialModal] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const seen = localStorage.getItem('zuri_team_inbox_tutorial_seen')
+      if (!seen) {
+        setShowTutorialModal(true)
+      }
+    }
+  }, [])
+
+  const closeTutorialModal = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('zuri_team_inbox_tutorial_seen', 'true')
+    }
+    setShowTutorialModal(false)
+  }
 
   const totalUnread = conversations.reduce((s, c) => s + c.unreadCount, 0)
 
@@ -1420,6 +1443,16 @@ export default function InboxPage() {
 
   return (
     <div className="flex h-full overflow-hidden bg-stone-50">
+      {activeCelebration && (
+        <>
+          <ChampagneConfettiCanvas />
+          <CelebrationBanner
+            milestone={activeCelebration.milestone}
+            customData={activeCelebration.customData}
+            onDismiss={clearCelebration}
+          />
+        </>
+      )}
 
       {/* Offline banner */}
       {!isOnline && (
@@ -1451,11 +1484,19 @@ export default function InboxPage() {
             </button>
             <a
               href="/inbox/queue"
-              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 rounded-lg transition-colors"
             >
               <Zap size={12} />
               Queue
             </a>
+            <button
+              onClick={() => setShowTutorialModal(true)}
+              title="Shared Inbox Guide & Privacy Rules"
+              className="flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-1.5 rounded-lg transition-colors"
+            >
+              <HelpCircle size={12} />
+              Guide
+            </button>
           </div>
         </div>
 
@@ -2012,6 +2053,103 @@ export default function InboxPage() {
             placeholder="Phone Number (e.g. 27712345678)"
             helper="Use digits only. Updating this will automatically regenerate their JID."
           />
+        </div>
+      </Modal>
+
+      {/* Team Member Shared Inbox Tutorial & Privacy Guide Modal */}
+      <Modal
+        open={showTutorialModal}
+        onClose={closeTutorialModal}
+        title="Welcome to the Shared Team Inbox 👋"
+        description="A 60-second guide on how your company's shared WhatsApp workspace works and keeps personal chats private."
+        size="lg"
+        footer={
+          <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-100 rounded-b-2xl">
+            <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Personal messages are strictly filtered out</span>
+            </div>
+            <Button variant="primary" onClick={closeTutorialModal}>
+              Got It, Let's Go! 🚀
+            </Button>
+          </div>
+        }
+      >
+        <div className="px-6 py-4 space-y-5">
+          {/* Card 1: Shared Inbox Purpose */}
+          <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+              💬
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-gray-900">What is this Shared Inbox?</h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                You are accessing your company's official business WhatsApp workspace. All customer inquiries, leads, and sales orders land here so team members can respond seamlessly together.
+              </p>
+            </div>
+          </div>
+
+          {/* Card 2: Privacy Guarantee & Personal Messages */}
+          <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+              🔒
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-gray-900">Personal & Private Messages Are Filtered Out</h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Your company's owner/admin configures strict privacy rules. <strong>Personal WhatsApp chats, non-business messages, and private contacts are automatically filtered out and hidden from team members.</strong> You will only see business conversations.
+              </p>
+            </div>
+          </div>
+
+          {/* Card 3: Color-Coding Assignment Guide */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">Conversation Status & Color Guide</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                  Green = Unassigned
+                </div>
+                <p className="text-[11px] text-emerald-900/80 leading-snug">
+                  Unclaimed lead/question. Click <strong>"Assign to Me"</strong> to take ownership.
+                </p>
+              </div>
+
+              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-800">
+                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                  Blue = Assigned to You
+                </div>
+                <p className="text-[11px] text-indigo-900/80 leading-snug">
+                  Active thread owned by you. AI reply drafts are tailored for your responses.
+                </p>
+              </div>
+
+              <div className="p-3 bg-gray-100 border border-gray-200 rounded-xl space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+                  <span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block"></span>
+                  Gray = Teammate
+                </div>
+                <p className="text-[11px] text-gray-600 leading-snug">
+                  Managed by a colleague. Collision warning prevents double-replying.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: AI Reply Suggestions */}
+          <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+              ⚡
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-gray-900">AI Reply Drafts & Human Approvals</h4>
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Zuri automatically analyzes customer questions and drafts suggested replies or quotes in the dock. <strong>Zero messages leave without your review and approval.</strong>
+              </p>
+            </div>
+          </div>
         </div>
       </Modal>
     </div>

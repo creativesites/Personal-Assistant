@@ -95,8 +95,9 @@ export class SessionManager {
       try {
         await this.redis.del(`wa:qr:${userId}`);
         await this.db.query(
-          `UPDATE whatsapp_instances
+          `UPDATE whatsapp_instances 
            SET status = 'connected', phone_number = $1, last_connected_at = NOW(),
+               disconnected_at = NULL, disconnect_alert_sent_at = NULL,
                qr_code = NULL, qr_expires_at = NULL, updated_at = NOW()
            WHERE id = $2`,
           [phoneNumber, instanceId],
@@ -183,7 +184,9 @@ export class SessionManager {
         else if (reason === 'timeout') dbStatus = 'disconnected';
 
         await this.db.query(
-          `UPDATE whatsapp_instances SET status = $1, updated_at = NOW() WHERE id = $2`,
+          `UPDATE whatsapp_instances 
+           SET status = $1, disconnected_at = COALESCE(disconnected_at, NOW()), updated_at = NOW() 
+           WHERE id = $2`,
           [dbStatus, instanceId],
         );
         await this.redis.publish(`whatsapp:disconnected:${userId}`, userId);

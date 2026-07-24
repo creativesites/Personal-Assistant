@@ -9,6 +9,7 @@ import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
 import { CommandPalette } from '@/components/command-palette'
 import { SubscriptionStatusBanner } from '@/components/subscription-status-banner'
+import { WAReconnectModal } from '@/app/(dashboard)/_components/wa-reconnect-modal'
 import { useToast } from '@/components/ui/toast'
 import { getSocket } from '@/lib/socket'
 import { useSocketStatus } from '@/hooks/use-socket-status'
@@ -221,12 +222,12 @@ function NavLink({
   )
 }
 
-function WAStatusWidget({ wa, onNav, isMinimized = false }: { wa: WAStatus; onNav: () => void; isMinimized?: boolean }) {
+function WAStatusWidget({ wa, onNav, onOpenReconnect, isMinimized = false }: { wa: WAStatus; onNav: () => void; onOpenReconnect?: () => void; isMinimized?: boolean }) {
   if (wa.status === 'connected') {
     return (
       <div className={`flex items-center justify-between rounded-xl bg-gray-800/30 border border-gray-800/40 ${isMinimized ? 'p-2 justify-center' : 'px-3 py-2.5 gap-2'}`}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="WhatsApp Connected" />
           {!isMinimized && (
             <div className="min-w-0">
               <p className="text-xs font-bold text-emerald-400 leading-tight">Connected</p>
@@ -243,15 +244,35 @@ function WAStatusWidget({ wa, onNav, isMinimized = false }: { wa: WAStatus; onNa
     )
   }
 
+  const isConnecting = wa.status === 'connecting' || wa.status === 'qr_pending' || wa.status === 'link_code_pending'
+
   return (
-    <Link
-      href="/onboarding"
-      onClick={onNav}
-      className={`flex items-center rounded-xl bg-gray-800/20 hover:bg-gray-800/40 transition-colors ${isMinimized ? 'p-2 justify-center w-10 h-10 mx-auto' : 'gap-2.5 px-3 py-2.5'}`}
+    <button
+      onClick={() => {
+        onNav()
+        if (onOpenReconnect) onOpenReconnect()
+      }}
+      className={`w-full flex items-center justify-between rounded-xl bg-gray-800/20 hover:bg-gray-800/50 border border-gray-800/40 transition-colors text-left ${isMinimized ? 'p-2 justify-center w-10 h-10 mx-auto' : 'px-3 py-2.5 gap-2.5'}`}
     >
-      <Smartphone className={`flex-shrink-0 ${wa.status === 'error' ? 'text-rose-400' : wa.status === 'disconnected' ? 'text-gray-500' : 'text-amber-400 animate-pulse'}`} size={16} />
-      {!isMinimized && <span className="text-xs font-semibold text-gray-400 truncate">Connect WhatsApp</span>}
-    </Link>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+          isConnecting ? 'bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]'
+        }`} />
+        {!isMinimized && (
+          <div className="min-w-0">
+            <p className={`text-xs font-bold leading-tight ${isConnecting ? 'text-amber-400' : 'text-rose-400'}`}>
+              {isConnecting ? 'Connecting...' : 'Disconnected'}
+            </p>
+            <p className="text-[10px] text-gray-500 font-medium truncate leading-tight mt-0.5">Tap to reconnect</p>
+          </div>
+        )}
+      </div>
+      {!isMinimized && (
+        <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 rounded-md px-1.5 py-0.5 flex-shrink-0">
+          Reconnect
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -267,6 +288,7 @@ function SidebarContents({
   onNavStart,
   onSignOut,
   onOpenSearch,
+  onOpenReconnect,
   isMinimized = false,
   unreadNotificationsCount = 0,
 }: {
@@ -279,6 +301,7 @@ function SidebarContents({
   onNavStart: (href: string) => void
   onSignOut: () => void
   onOpenSearch: () => void
+  onOpenReconnect?: () => void
   isMinimized?: boolean
   unreadNotificationsCount?: number
 }) {
@@ -402,7 +425,7 @@ function SidebarContents({
       </nav>
 
       <div className="p-3 border-t border-gray-800/60 space-y-2 flex-shrink-0 bg-gray-900/50 backdrop-blur-md">
-        <WAStatusWidget wa={wa} onNav={onNav} isMinimized={isMinimized} />
+        <WAStatusWidget wa={wa} onNav={onNav} onOpenReconnect={onOpenReconnect} isMinimized={isMinimized} />
         <button
           onClick={onSignOut}
           title={isMinimized ? "Sign Out" : undefined}
@@ -576,6 +599,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileNavMinimized, setMobileNavMinimized] = useState(false)
   const [isNavigating, setIsNavigating] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [reconnectModalOpen, setReconnectModalOpen] = useState(false)
   const wa = useWAStatus(session.data?.accessToken)
 
   const { addToast } = useToast()
@@ -735,6 +759,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           onNavStart={startNavigation}
           onSignOut={handleSignOut}
           onOpenSearch={() => setSearchOpen(true)}
+          onOpenReconnect={() => setReconnectModalOpen(true)}
           isMinimized={isMinimized}
           unreadNotificationsCount={unreadNotifications}
         />
@@ -748,16 +773,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         <SubscriptionStatusBanner token={session.data?.accessToken} />
         {!wa.connected && wa.status !== 'unknown' && pathname !== '/onboarding' && (
-          <div className="bg-gradient-to-r from-amber-500/15 via-indigo-500/15 to-purple-500/15 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-xs text-amber-900 bg-amber-50/80 backdrop-blur-sm">
-            <div className="flex items-center gap-2 min-w-0">
-              <Smartphone className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <span className="truncate font-medium">
-                WhatsApp is disconnected. Connect to enable automated message ingestion and live AI reply drafts.
+          <div className="bg-gradient-to-r from-rose-500/15 via-amber-500/15 to-indigo-500/15 border-b border-rose-500/20 px-4 py-2.5 flex items-center justify-between text-xs text-rose-950 bg-rose-50/90 backdrop-blur-sm shadow-sm">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 flex-shrink-0 animate-ping" />
+              <span className="truncate font-semibold text-rose-900">
+                ⚠️ WhatsApp disconnected — check your phone&apos;s internet connection or scan QR code to reconnect.
               </span>
             </div>
-            <Link href="/onboarding" className="font-bold text-indigo-600 hover:text-indigo-800 flex-shrink-0 ml-3 underline underline-offset-2">
-              Connect WhatsApp →
-            </Link>
+            <button
+              onClick={() => setReconnectModalOpen(true)}
+              className="font-bold text-xs bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg shadow-sm flex-shrink-0 ml-3 transition-colors flex items-center gap-1.5"
+            >
+              <Zap className="w-3.5 h-3.5 fill-current" />
+              <span>⚡ Reconnect WhatsApp</span>
+            </button>
           </div>
         )}
         {children}
@@ -775,10 +804,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onRestore={() => setMobileNavMinimized(false)}
       />
 
-      {/* Cmd+K command palette (docs/RELATIONSHIP_OS_PLAN.md §11) — also
-          openable via the visible Search buttons in the sidebar and mobile
-          bottom tab bar above, since Cmd+K alone had no discoverable trigger. */}
+      {/* Cmd+K command palette */}
       <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+
+      {/* 1-Click WhatsApp Reconnect Modal */}
+      <WAReconnectModal open={reconnectModalOpen} onClose={() => setReconnectModalOpen(false)} />
     </div>
   )
 }
