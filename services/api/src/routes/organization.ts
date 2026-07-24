@@ -493,4 +493,270 @@ export async function organizationRoutes(fastify: FastifyInstance): Promise<void
       return reply.send({ logs });
     },
   );
+
+  // POST /api/organization/create — Initialize new company organization directly
+  fastify.post(
+    '/api/organization/create',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const createOrgBody = z.object({
+        name: z.string().min(1).max(255),
+        slug: z.string().max(255).optional(),
+      });
+
+      let body: z.infer<typeof createOrgBody>;
+      try {
+        body = createOrgBody.parse(request.body);
+      } catch (err: any) {
+        return reply.code(400).send({ error: 'Invalid organization details', detail: err.message });
+      }
+
+      // Check if user already belongs to an active organization
+      const existingOrgCtx = await getUserOrgContext(userId);
+      if (existingOrgCtx) {
+        return reply.code(400).send({
+          error: `You already belong to company organization "${existingOrgCtx.org_name}". Leave or remove yourself before creating a new organization.`,
+        });
+      }
+
+      const generatedClerkOrgId = `org_zuri_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const slug = body.slug || body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+      // Create organization
+      const { rows: [org] } = await db.query<{
+        id: string;
+        clerk_org_id: string;
+        name: string;
+        slug: string | null;
+        plan_family: string;
+        max_seats: number;
+        created_at: string;
+      }>(
+        `INSERT INTO organizations (clerk_org_id, name, slug, owner_user_id, plan_family, max_seats)
+         VALUES ($1, $2, $3, $4, 'business', 10)
+         RETURNING id, clerk_org_id, name, slug, plan_family, max_seats, created_at`,
+        [generatedClerkOrgId, body.name.trim(), slug, userId],
+      );
+
+      // Add user as Owner
+      await db.query(
+        `INSERT INTO organization_members (organization_id, user_id, role, status)
+         VALUES ($1, $2, 'owner', 'active')
+         ON CONFLICT (organization_id, user_id) DO UPDATE SET
+           role = 'owner', status = 'active', updated_at = NOW()`,
+        [org.id, userId],
+      );
+
+      // Lock user to company governance and business mode
+      await db.query(
+        `UPDATE users SET current_organization_id = $1, is_company_managed = true, mode = 'business', updated_at = NOW() WHERE id = $2`,
+        [org.id, userId],
+      );
+
+      // Insert Audit Log
+      await db.query(
+        `INSERT INTO organization_audit_logs (organization_id, actor_user_id, action, metadata)
+         VALUES ($1, $2, 'organization_created', $3)`,
+        [org.id, userId, JSON.stringify({ name: org.name, slug: org.slug })],
+      );
+
+      return reply.code(201).send({
+        organization: {
+          id: org.id,
+          clerkOrgId: org.clerk_org_id,
+          name: org.name,
+          slug: org.slug,
+          planFamily: org.plan_family,
+          maxSeats: org.max_seats,
+          userRole: 'owner',
+          createdAt: org.created_at,
+        },
+      });
+    },
+  );
+
+  // GET /api/organization/teams/:teamId/members — List sub-team members
+  fastify.get(
+    '/api/organization/teams/:teamId/members',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { teamId } = request.params as { teamId: string };
+      const orgCtx = await getUserOrgContext(userId);
+
+      if (!orgCtx) {
+        return reply.code(403).send({ error: 'No active organization found' });
+      }
+
+      const { rows: members } = await db.query<{
+        id: string;
+        user_id: string;
+        role: string;
+        full_name: string;
+        email: string;
+        joined_at: string;
+      }>(
+        `SELECT
+           otm.id,
+           otm.user_id,
+           otm.role,
+           u.full_name,
+           u.email,
+           otm.created_at AS joined_at
+         FROM organization_team_members otm
+         JOIN users u ON otm.user_id = u.id
+         JOIN organization_teams ot ON otm.team_id = ot.id
+         WHERE otm.team_id = $1 AND ot.organization_id = $2
+         ORDER BY otm.role = 'lead' DESC, u.full_name ASC`,
+        [teamId, orgCtx.organization_id],
+      );
+
+      return reply.send({
+        members: members.map(m => ({
+          id: m.id,
+          userId: m.user_id,
+          role: m.role,
+          fullName: m.full_name,
+          email: m.email,
+          joinedAt: m.joined_at,
+        })),
+      });
+    },
+  );
+
+  // POST /api/organization/teams/:teamId/members — Add member to sub-team
+  fastify.post(
+    '/api/organization/teams/:teamId/members',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { teamId } = request.params as { teamId: string };
+      const orgCtx = await getUserOrgContext(userId);
+
+      if (!orgCtx || !['owner', 'admin'].includes(orgCtx.role)) {
+        return reply.code(403).send({ error: 'Only owners or admins can modify team membership' });
+      }
+
+      const body = teamMemberBody.parse(request.body);
+
+      // Ensure user belongs to the company organization
+      const { rows: [orgMem] } = await db.query<{ id: string }>(
+        `SELECT id FROM organization_members WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
+        [orgCtx.organization_id, body.userId],
+      );
+
+      if (!orgMem) {
+        return reply.code(400).send({ error: 'User is not an active member of this company organization' });
+      }
+
+      await db.query(
+        `INSERT INTO organization_team_members (team_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (team_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+        [teamId, body.userId, body.role],
+      );
+
+      return reply.code(201).send({ ok: true, message: 'Member added to sub-team.' });
+    },
+  );
+
+  // DELETE /api/organization/teams/:teamId/members/:targetUserId — Remove member from sub-team
+  fastify.delete(
+    '/api/organization/teams/:teamId/members/:targetUserId',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { teamId, targetUserId } = request.params as { teamId: string; targetUserId: string };
+      const orgCtx = await getUserOrgContext(userId);
+
+      if (!orgCtx || !['owner', 'admin'].includes(orgCtx.role)) {
+        return reply.code(403).send({ error: 'Only owners or admins can modify team membership' });
+      }
+
+      await db.query(
+        `DELETE FROM organization_team_members
+         WHERE team_id = $1 AND user_id = $2
+         AND team_id IN (SELECT id FROM organization_teams WHERE organization_id = $3)`,
+        [teamId, targetUserId, orgCtx.organization_id],
+      );
+
+      return reply.send({ ok: true, message: 'Member removed from sub-team.' });
+    },
+  );
+
+  // PATCH /api/organization/teams/:teamId — Update department name, description, lead
+  fastify.patch(
+    '/api/organization/teams/:teamId',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { teamId } = request.params as { teamId: string };
+      const orgCtx = await getUserOrgContext(userId);
+
+      if (!orgCtx || !['owner', 'admin'].includes(orgCtx.role)) {
+        return reply.code(403).send({ error: 'Only owners or admins can update team details' });
+      }
+
+      const updateTeamBody = z.object({
+        name: z.string().min(1).max(100).optional(),
+        description: z.string().max(500).optional(),
+        leadUserId: z.string().uuid().nullable().optional(),
+      });
+
+      const body = updateTeamBody.parse(request.body);
+
+      const updates: string[] = ['updated_at = NOW()'];
+      const values: any[] = [];
+      let idx = 1;
+
+      if (body.name) {
+        updates.push(`name = $${idx++}`);
+        values.push(body.name.trim());
+      }
+      if (body.description !== undefined) {
+        updates.push(`description = $${idx++}`);
+        values.push(body.description ? body.description.trim() : null);
+      }
+      if (body.leadUserId !== undefined) {
+        updates.push(`lead_user_id = $${idx++}`);
+        values.push(body.leadUserId);
+      }
+
+      values.push(teamId, orgCtx.organization_id);
+
+      const { rows: [updated] } = await db.query<{ id: string; name: string; description: string | null; lead_user_id: string | null }>(
+        `UPDATE organization_teams SET ${updates.join(', ')} WHERE id = $${idx++} AND organization_id = $${idx} RETURNING id, name, description, lead_user_id`,
+        values,
+      );
+
+      if (!updated) {
+        return reply.code(404).send({ error: 'Department team not found' });
+      }
+
+      return reply.send({ team: updated });
+    },
+  );
+
+  // DELETE /api/organization/teams/:teamId — Delete sub-team
+  fastify.delete(
+    '/api/organization/teams/:teamId',
+    { preHandler: gate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string };
+      const { teamId } = request.params as { teamId: string };
+      const orgCtx = await getUserOrgContext(userId);
+
+      if (!orgCtx || !['owner', 'admin'].includes(orgCtx.role)) {
+        return reply.code(403).send({ error: 'Only owners or admins can delete teams' });
+      }
+
+      await db.query(
+        `DELETE FROM organization_teams WHERE id = $1 AND organization_id = $2`,
+        [teamId, orgCtx.organization_id],
+      );
+
+      return reply.send({ ok: true, message: 'Department team successfully deleted.' });
+    },
+  );
 }

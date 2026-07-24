@@ -2,6 +2,7 @@
 import React from 'react';
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import type { TemplateProps } from './types';
+import { DocContent } from './DocContent';
 
 const styles = StyleSheet.create({
   page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', padding: 0 },
@@ -72,7 +73,15 @@ export default function Modern({ document, business, contact }: TemplateProps) {
         <View style={styles.content}>
           <View style={styles.metaGrid}>
             <View style={styles.metaBlock}>
-              <Text style={[styles.metaLabel, { color: themeColor }]}>Billed To</Text>
+              <Text style={[styles.metaLabel, { color: themeColor }]}>
+                {['nda', 'contract', 'msa', 'service_agreement', 'statement_of_work', 'proposal'].includes(document.documentType)
+                  ? 'Prepared For / Counterparty'
+                  : document.documentType === 'delivery_note'
+                  ? 'Deliver To'
+                  : document.documentType === 'purchase_order'
+                  ? 'Vendor / Supplier'
+                  : 'Billed To'}
+              </Text>
               <Text style={[styles.metaValue, { fontFamily: 'Helvetica-Bold' }]}>{contact.name}</Text>
               {contact.company ? <Text style={styles.metaValue}>{contact.company}</Text> : null}
               {contact.email ? <Text style={styles.metaValue}>{contact.email}</Text> : null}
@@ -96,78 +105,23 @@ export default function Modern({ document, business, contact }: TemplateProps) {
             </View>
           </View>
 
-          {document.sections.map((sec, i) => (
-            <View key={i} style={styles.section}>
-              <Text style={[styles.sectionLabel, { color: themeColor }]}>{sec.heading}</Text>
-              <Text style={styles.sectionBody}>{sec.body}</Text>
-            </View>
-          ))}
+          <DocContent document={document} business={business} contact={contact} />
 
-          {document.hasItems ? (
-            <>
-              <View style={styles.table}>
-                <View style={[styles.tableHeader, { backgroundColor: themeColor }]}>
-                  <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Description</Text></View>
-                  <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
-                  <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Unit Price</Text></View>
-                  {document.hasDiscounts ? (
-                    <View style={styles.colDiscount}><Text style={styles.tableHeaderCell}>Discount</Text></View>
-                  ) : null}
-                  <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
-                </View>
-                {document.lineItems.map((item, i) => (
-                  <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
-                    <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
-                    <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
-                    <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
-                    {document.hasDiscounts ? (
-                      <View style={styles.colDiscount}><Text style={styles.cellText}>{item.discountLabel}</Text></View>
-                    ) : null}
-                    <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.totals}>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Subtotal</Text>
-                  <Text style={styles.totalValue}>{document.subtotal}</Text>
-                </View>
-                {document.discount ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Discount</Text>
-                    <Text style={styles.totalValue}>-{document.discount}</Text>
-                  </View>
-                ) : null}
-                {document.tax ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Tax</Text>
-                    <Text style={styles.totalValue}>{document.tax}</Text>
-                  </View>
-                ) : null}
-                <View style={[styles.grandRow, { borderTopColor: themeColor }]}>
-                  <Text style={[styles.grandLabel, { color: themeColor }]}>Total</Text>
-                  <Text style={[styles.grandValue, { color: themeColor }]}>{document.total}</Text>
-                </View>
-              </View>
-            </>
-          ) : null}
-
-          {document.notes ? (
+          {document.notes && !['nda', 'contract', 'msa', 'service_agreement', 'delivery_note'].includes(document.documentType) ? (
             <View style={styles.section}>
               <Text style={[styles.sectionLabel, { color: themeColor }]}>Notes</Text>
               <Text style={styles.sectionBody}>{document.notes}</Text>
             </View>
           ) : null}
 
-          {document.terms ? (
+          {document.terms && !['nda', 'contract', 'msa', 'service_agreement'].includes(document.documentType) ? (
             <View style={styles.section}>
               <Text style={[styles.sectionLabel, { color: themeColor }]}>Terms &amp; Conditions</Text>
               <Text style={styles.sectionBody}>{document.terms}</Text>
             </View>
           ) : null}
 
-          {hasPayment ? (
+          {hasPayment && !['nda', 'contract', 'msa', 'service_agreement', 'delivery_note'].includes(document.documentType) ? (
             <View style={styles.section}>
               <Text style={[styles.sectionLabel, { color: themeColor }]}>Payment</Text>
               <View style={styles.paymentGrid}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -17,7 +17,12 @@ import {
   Trash2,
   UserCheck,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  X,
+  Settings,
+  ChevronRight,
+  ShieldAlert,
+  Briefcase
 } from 'lucide-react'
 import { FeatureGate } from '@/components/ui'
 
@@ -39,6 +44,15 @@ interface OrgTeam {
   leadUserId: string | null
   leadName: string | null
   memberCount: number
+}
+
+interface TeamMember {
+  id: string
+  userId: string
+  role: string
+  fullName: string
+  email: string
+  joinedAt: string
 }
 
 interface AuditLog {
@@ -109,6 +123,11 @@ function OrganizationHubInner() {
   const auditLogs = auditData?.logs ?? []
   const maxSeats = membersData?.maxSeats || org?.maxSeats || 10
 
+  // Create Org State (when org is null)
+  const [newOrgName, setNewOrgName] = useState('')
+  const [creatingOrg, setCreatingOrg] = useState(false)
+  const [createOrgError, setCreateOrgError] = useState<string | null>(null)
+
   // Modals state
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -121,10 +140,43 @@ function OrganizationHubInner() {
   const [newTeamDesc, setNewTeamNameDesc] = useState('')
   const [creatingTeam, setCreatingTeam] = useState(false)
 
+  // Manage Department Sub-team Modal
+  const [selectedTeam, setSelectedTeam] = useState<OrgTeam | null>(null)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [loadingTeamMembers, setLoadingTeamMembers] = useState(false)
+  const [editTeamName, setEditTeamName] = useState('')
+  const [editTeamDesc, setEditTeamDesc] = useState('')
+  const [editLeadUserId, setEditLeadUserId] = useState<string | null>(null)
+  const [addMemberUserId, setAddMemberUserId] = useState('')
+  const [updatingTeam, setUpdatingTeam] = useState(false)
+
   const [orgNameInput, setOrgNameInput] = useState(org?.name || '')
   const [updatingSettings, setUpdatingSettings] = useState(false)
 
+  useEffect(() => {
+    if (org?.name) setOrgNameInput(org.name)
+  }, [org?.name])
+
   const isOwnerOrAdmin = org?.userRole === 'owner' || org?.userRole === 'admin'
+
+  // Handle Initializing Company Org directly
+  const handleCreateOrg = async () => {
+    if (!token || !newOrgName.trim()) return
+    setCreatingOrg(true)
+    setCreateOrgError(null)
+    try {
+      await apiClient('/api/organization/create', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ name: newOrgName.trim() }),
+      })
+      await Promise.all([refetchOrg(), refetchMembers(), refetchTeams()])
+    } catch (err: any) {
+      setCreateOrgError(err.message || 'Failed to create organization')
+    } finally {
+      setCreatingOrg(false)
+    }
+  }
 
   const handleInvite = async () => {
     if (!token || !inviteEmail.trim()) return
@@ -190,6 +242,87 @@ function OrganizationHubInner() {
     }
   }
 
+  // Manage Department Methods
+  const openManageTeam = async (t: OrgTeam) => {
+    setSelectedTeam(t)
+    setEditTeamName(t.name)
+    setEditTeamDesc(t.description || '')
+    setEditLeadUserId(t.leadUserId)
+    setAddMemberUserId('')
+    if (!token) return
+    setLoadingTeamMembers(true)
+    try {
+      const res = await apiClient<{ members: TeamMember[] }>(`/api/organization/teams/${t.id}/members`, { token })
+      setTeamMembers(res.members || [])
+    } catch (err) {
+      console.error('Failed to load team members', err)
+    } finally {
+      setLoadingTeamMembers(false)
+    }
+  }
+
+  const handleSaveTeamDetails = async () => {
+    if (!token || !selectedTeam) return
+    setUpdatingTeam(true)
+    try {
+      await apiClient(`/api/organization/teams/${selectedTeam.id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          name: editTeamName.trim(),
+          description: editTeamDesc.trim() || undefined,
+          leadUserId: editLeadUserId,
+        }),
+      })
+      await refetchTeams()
+      setSelectedTeam(null)
+    } catch (err: any) {
+      alert(err.message || 'Failed to update department details')
+    } finally {
+      setUpdatingTeam(false)
+    }
+  }
+
+  const handleAddTeamMember = async () => {
+    if (!token || !selectedTeam || !addMemberUserId) return
+    try {
+      await apiClient(`/api/organization/teams/${selectedTeam.id}/members`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ userId: addMemberUserId, role: 'member' }),
+      })
+      setAddMemberUserId('')
+      const res = await apiClient<{ members: TeamMember[] }>(`/api/organization/teams/${selectedTeam.id}/members`, { token })
+      setTeamMembers(res.members || [])
+      await refetchTeams()
+    } catch (err: any) {
+      alert(err.message || 'Failed to add member to team')
+    }
+  }
+
+  const handleRemoveTeamMember = async (targetUserId: string) => {
+    if (!token || !selectedTeam) return
+    try {
+      await apiClient(`/api/organization/teams/${selectedTeam.id}/members/${targetUserId}`, { method: 'DELETE', token })
+      const res = await apiClient<{ members: TeamMember[] }>(`/api/organization/teams/${selectedTeam.id}/members`, { token })
+      setTeamMembers(res.members || [])
+      await refetchTeams()
+    } catch (err: any) {
+      alert(err.message || 'Failed to remove member from team')
+    }
+  }
+
+  const handleDeleteTeam = async () => {
+    if (!token || !selectedTeam || !confirm(`Are you sure you want to delete the department "${selectedTeam.name}"?`)) return
+    try {
+      await apiClient(`/api/organization/teams/${selectedTeam.id}`, { method: 'DELETE', token })
+      setSelectedTeam(null)
+      await refetchTeams()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete department')
+    }
+  }
+
   const handleUpdateOrgSettings = async () => {
     if (!token || !orgNameInput.trim()) return
     setUpdatingSettings(true)
@@ -219,6 +352,79 @@ function OrganizationHubInner() {
     )
   }
 
+  // NO ORGANIZATION CREATED YET
+  if (!org) {
+    return (
+      <div className="flex-1 bg-gray-50 px-4 md:px-8 py-6 pt-16 pb-20 md:pt-6 md:pb-6 overflow-y-auto">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <div className="bg-gradient-to-r from-indigo-900 via-slate-900 to-purple-900 rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden text-center space-y-6">
+            <div className="w-16 h-16 bg-indigo-500/20 border border-indigo-400/30 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+              <Building2 className="w-8 h-8 text-indigo-300" />
+            </div>
+
+            <div className="space-y-2 max-w-xl mx-auto">
+              <span className="bg-indigo-500/30 text-indigo-200 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider border border-indigo-400/20">
+                Business & Team Governance
+              </span>
+              <h1 className="text-3xl font-extrabold tracking-tight text-white">Initialize Your Company Organization</h1>
+              <p className="text-indigo-200/80 text-sm leading-relaxed">
+                Empower your workforce with a shared business inbox, multi-user seat management, department routing, and enterprise account isolation.
+              </p>
+            </div>
+
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/10 text-left max-w-lg mx-auto space-y-4">
+              {createOrgError && (
+                <div className="p-3 bg-rose-500/20 border border-rose-400/30 text-rose-200 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-300" /> {createOrgError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-indigo-200 mb-1.5 uppercase tracking-wide">Company / Organization Name</label>
+                <input
+                  type="text"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  placeholder="e.g. Acme Corporation, Global Logistics Ltd"
+                  className="w-full text-sm bg-slate-900/80 border border-indigo-400/30 rounded-xl px-4 py-3 text-white placeholder-indigo-300/40 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                />
+              </div>
+
+              <button
+                disabled={creatingOrg || !newOrgName.trim()}
+                onClick={handleCreateOrg}
+                className="w-full py-3.5 bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-indigo-500/30 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {creatingOrg ? (
+                  <span>Initializing Workspace...</span>
+                ) : (
+                  <>
+                    <Briefcase className="w-4 h-4" /> Initialize Company Workspace
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/10 text-xs text-indigo-200/70 text-left">
+              <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1"><Users className="w-3.5 h-3.5 text-indigo-400" /> Shared Inbox</p>
+                <p className="text-[11px]">Route business WhatsApp leads across sales and support agents with live locks.</p>
+              </div>
+              <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Governance</p>
+                <p className="text-[11px]">Enforce strict workspace isolation and personal chat privacy automatically.</p>
+              </div>
+              <div className="p-3 bg-white/5 rounded-xl border border-white/5 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1"><FolderGit2 className="w-3.5 h-3.5 text-purple-400" /> Departments</p>
+                <p className="text-[11px]">Divide your organization into specialized sub-teams with assigned department leads.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 bg-gray-50 px-4 md:px-8 py-6 pt-16 pb-20 md:pt-6 md:pb-6 overflow-y-auto">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -240,7 +446,7 @@ function OrganizationHubInner() {
               </div>
               <h1 className="text-2xl font-extrabold tracking-tight text-white flex items-center gap-2">
                 <Building2 className="w-7 h-7 text-indigo-400" />
-                {org?.name || 'Company Organization Hub'}
+                {org.name}
               </h1>
               <p className="text-indigo-200/80 text-sm max-w-xl">
                 Clerk Organization Integration · Multi-user Team Roster · Centralized Governance & Seat Control
@@ -250,7 +456,7 @@ function OrganizationHubInner() {
             {isOwnerOrAdmin && (
               <button
                 onClick={() => setShowInviteModal(true)}
-                className="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-indigo-500/30 flex items-center gap-2 self-start md:self-auto"
+                className="bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-indigo-500/30 flex items-center gap-2 self-start md:self-auto cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
                 Invite Team Member
@@ -272,7 +478,7 @@ function OrganizationHubInner() {
             </div>
             <div>
               <p className="text-indigo-200/60 uppercase font-semibold">Your Org Role</p>
-              <p className="text-lg font-bold text-indigo-300 capitalize mt-0.5">{org?.userRole || 'Member'}</p>
+              <p className="text-lg font-bold text-indigo-300 capitalize mt-0.5">{org.userRole || 'Member'}</p>
             </div>
             <div>
               <p className="text-indigo-200/60 uppercase font-semibold">Governance Mode</p>
@@ -298,7 +504,7 @@ function OrganizationHubInner() {
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
                   active
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -333,7 +539,7 @@ function OrganizationHubInner() {
               {isOwnerOrAdmin && (
                 <button
                   onClick={() => setShowInviteModal(true)}
-                  className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                  className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-semibold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" /> Add Member
                 </button>
@@ -395,7 +601,7 @@ function OrganizationHubInner() {
                         {isOwnerOrAdmin && !isSelf && m.role !== 'owner' && (
                           <button
                             onClick={() => handleRemoveMember(m.id, m.fullName || m.email)}
-                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             title="Remove from company"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -423,7 +629,7 @@ function OrganizationHubInner() {
               {isOwnerOrAdmin && (
                 <button
                   onClick={() => setShowCreateTeamModal(true)}
-                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1.5"
+                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" /> Create Department
                 </button>
@@ -453,7 +659,12 @@ function OrganizationHubInner() {
                     </div>
                     <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
                       <span>Lead: <strong className="text-gray-700">{t.leadName || 'Unassigned'}</strong></span>
-                      <span className="text-indigo-600 font-semibold cursor-pointer hover:underline">Manage Sub-team →</span>
+                      <button
+                        onClick={() => openManageTeam(t)}
+                        className="text-indigo-600 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        Manage Sub-team <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -499,11 +710,11 @@ function OrganizationHubInner() {
               <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Active Organization ID:</span>
-                  <span className="font-mono font-semibold text-gray-900">{org?.id || 'N/A'}</span>
+                  <span className="font-mono font-semibold text-gray-900">{org.id}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Clerk Organization Identifier:</span>
-                  <span className="font-mono font-semibold text-gray-900">{org?.clerkOrgId || 'N/A'}</span>
+                  <span className="font-mono font-semibold text-gray-900">{org.clerkOrgId}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Workspace Lock Status:</span>
@@ -579,11 +790,11 @@ function OrganizationHubInner() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Clerk Organization ID</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Organization Identifier</label>
                 <input
                   type="text"
                   disabled
-                  value={org?.clerkOrgId || ''}
+                  value={org.clerkOrgId}
                   className="w-full text-sm border border-gray-200 bg-gray-50 rounded-xl px-3.5 py-2.5 text-gray-500 font-mono"
                 />
               </div>
@@ -592,7 +803,7 @@ function OrganizationHubInner() {
                 <button
                   disabled={updatingSettings}
                   onClick={handleUpdateOrgSettings}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-sm disabled:opacity-50"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-sm disabled:opacity-50 cursor-pointer"
                 >
                   {updatingSettings ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -607,7 +818,10 @@ function OrganizationHubInner() {
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-bold text-gray-900">Invite Colleague to Company</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Invite Colleague to Company</h2>
+              <button onClick={() => setShowInviteModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
             <p className="text-xs text-gray-500">
               Entering their email will attach them to your company organization and lock their account to Business mode.
             </p>
@@ -655,14 +869,14 @@ function OrganizationHubInner() {
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => { setShowInviteModal(false); setInviteError(null) }}
-                className="flex-1 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                className="flex-1 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 disabled={inviting || !inviteEmail.trim()}
                 onClick={handleInvite}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm disabled:opacity-50"
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 {inviting ? 'Inviting...' : 'Send Invite'}
               </button>
@@ -675,7 +889,10 @@ function OrganizationHubInner() {
       {showCreateTeamModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-bold text-gray-900">Create Sub-team / Department</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Create Sub-team / Department</h2>
+              <button onClick={() => setShowCreateTeamModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
 
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Department Name</label>
@@ -702,17 +919,150 @@ function OrganizationHubInner() {
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setShowCreateTeamModal(false)}
-                className="flex-1 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                className="flex-1 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 disabled={creatingTeam || !newTeamName.trim()}
                 onClick={handleCreateTeam}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm disabled:opacity-50"
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm disabled:opacity-50 cursor-pointer"
               >
                 {creatingTeam ? 'Creating...' : 'Create Department'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Manage Sub-Team / Department */}
+      {selectedTeam && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Department: {selectedTeam.name}</h2>
+                <p className="text-xs text-gray-500">Manage department lead and sub-team members</p>
+              </div>
+              <button onClick={() => setSelectedTeam(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Department Name</label>
+                <input
+                  type="text"
+                  value={editTeamName}
+                  onChange={(e) => setEditTeamName(e.target.value)}
+                  className="w-full text-sm border border-gray-300 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={editTeamDesc}
+                  onChange={(e) => setEditTeamDesc(e.target.value)}
+                  rows={2}
+                  className="w-full text-sm border border-gray-300 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">Department Lead</label>
+                <select
+                  value={editLeadUserId || ''}
+                  onChange={(e) => setEditLeadUserId(e.target.value || null)}
+                  className="w-full text-sm border border-gray-300 rounded-xl px-3.5 py-2 focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Unassigned</option>
+                  {members.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.fullName || m.email} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Department Roster */}
+              <div className="pt-3 border-t border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-gray-900">Sub-Team Roster ({teamMembers.length})</h3>
+                </div>
+
+                {/* Add Member Selector */}
+                <div className="flex gap-2">
+                  <select
+                    value={addMemberUserId}
+                    onChange={(e) => setAddMemberUserId(e.target.value)}
+                    className="flex-1 text-xs border border-gray-300 rounded-xl px-3 py-2 bg-white"
+                  >
+                    <option value="">Select company member to add...</option>
+                    {members
+                      .filter((m) => !teamMembers.some((tm) => tm.userId === m.userId))
+                      .map((m) => (
+                        <option key={m.userId} value={m.userId}>
+                          {m.fullName || m.email}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    disabled={!addMemberUserId}
+                    onClick={handleAddTeamMember}
+                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {loadingTeamMembers ? (
+                  <div className="text-gray-400 py-3 text-center">Loading department members...</div>
+                ) : teamMembers.length === 0 ? (
+                  <div className="text-gray-400 py-3 text-center bg-gray-50 rounded-xl">No members in this department yet.</div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {teamMembers.map((tm) => (
+                      <div key={tm.id} className="flex items-center justify-between p-2.5 bg-gray-50 rounded-xl">
+                        <div>
+                          <p className="font-bold text-gray-900">{tm.fullName || tm.email}</p>
+                          <p className="text-[10px] text-gray-500">{tm.email}</p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveTeamMember(tm.userId)}
+                          className="text-gray-400 hover:text-rose-600 p-1 cursor-pointer"
+                          title="Remove from department"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+              <button
+                onClick={handleDeleteTeam}
+                className="px-3 py-2 text-rose-600 hover:bg-rose-50 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Delete Department
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelectedTeam(null)}
+                  className="px-4 py-2 border border-gray-300 text-xs font-semibold text-gray-700 rounded-xl hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={updatingTeam || !editTeamName.trim()}
+                  onClick={handleSaveTeamDetails}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {updatingTeam ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
