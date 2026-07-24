@@ -1,3 +1,5 @@
+'use client'
+
 import { useState, useEffect } from 'react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
