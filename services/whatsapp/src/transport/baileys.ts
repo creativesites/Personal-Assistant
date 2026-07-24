@@ -149,9 +149,71 @@ export class BaileysTransport extends WhatsAppTransport {
     this._status = 'idle';
   }
 
-  async sendText(jid: string, text: string): Promise<void> {
+  async sendText(
+    jid: string,
+    text: string,
+    options?: { quotedWaMessageId?: string; quotedBody?: string }
+  ): Promise<void> {
     if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
-    await this.sock.sendMessage(jid, { text });
+    if (options?.quotedWaMessageId) {
+      const quoteObj = {
+        key: {
+          remoteJid: jid,
+          fromMe: false,
+          id: options.quotedWaMessageId,
+        },
+        message: {
+          conversation: options.quotedBody || '',
+        },
+      };
+      await this.sock.sendMessage(jid, { text }, { quoted: quoteObj as any });
+    } else {
+      await this.sock.sendMessage(jid, { text });
+    }
+  }
+
+  async sendReaction(
+    jid: string,
+    emoji: string,
+    targetWaMessageId: string,
+    fromMe: boolean
+  ): Promise<void> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    await this.sock.sendMessage(jid, {
+      react: {
+        text: emoji,
+        key: {
+          remoteJid: jid,
+          fromMe,
+          id: targetWaMessageId,
+        },
+      },
+    });
+  }
+
+  async deleteMessage(
+    jid: string,
+    waMessageId: string,
+    fromMe: boolean
+  ): Promise<void> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    await this.sock.sendMessage(jid, {
+      delete: {
+        remoteJid: jid,
+        fromMe,
+        id: waMessageId,
+      },
+    });
+  }
+
+  async fetchProfilePictureUrl(jid: string): Promise<string | null> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+    try {
+      const url = await this.sock.profilePictureUrl(jid, 'image');
+      return url || null;
+    } catch {
+      return null;
+    }
   }
 
   // Business Workspace document delivery — see docs/BUSINESS_WORKSPACE_PLAN.md §5.

@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { BusinessContext, DocumentContext, ContactContext } from '@zuri/pdf-templates';
+import { db } from '../db';
 
 // Node-side port of services/intelligence/app/services/document_renderer.py's
 // format_money()/_file_to_data_uri()/build_business_context()/
@@ -45,6 +46,8 @@ export async function fileToDataUri(storagePath: string | null | undefined): Pro
 }
 
 export interface BusinessProfileRow {
+  id?: string;
+  user_id?: string;
   company_name: string | null;
   address: string | null;
   phone: string | null;
@@ -62,11 +65,65 @@ export interface BusinessProfileRow {
   stamp_storage_path: string | null;
 }
 
-export async function buildBusinessContext(businessProfile: BusinessProfileRow | null): Promise<BusinessContext> {
+export async function buildBusinessContext(
+  businessProfile: BusinessProfileRow | null,
+  signatureId?: string | null,
+): Promise<BusinessContext> {
   const bank = businessProfile?.bank_details ?? {};
   const mobileMoney = businessProfile?.mobile_money ?? {};
   const bankLine = [bank.bankName, bank.accountName, bank.accountNumber].filter(Boolean).join(', ');
   const mobileMoneyLine = [mobileMoney.provider, mobileMoney.number].filter(Boolean).join(', ');
+
+  let signatureDataUri = await fileToDataUri(businessProfile?.signature_storage_path);
+  let signerName: string | null = null;
+  let signerTitle: string | null = null;
+
+  // Resolve custom brand signature from database if signatureId is provided
+  if (signatureId) {
+    try {
+      const { rows: [sig] } = await db.query(
+        'SELECT signature_data, signer_name, signer_title FROM brand_signatures WHERE id = $1',
+        [signatureId]
+      );
+      if (sig) {
+        signatureDataUri = sig.signature_data;
+        signerName = sig.signer_name;
+        signerTitle = sig.signer_title;
+      }
+    } catch (err) {
+      // safe fallback
+    }
+  } else if (businessProfile) {
+    try {
+      // Auto-apply profile-specific default signature if any
+      if (businessProfile.id) {
+        const { rows: [profileSig] } = await db.query(
+          'SELECT signature_data, signer_name, signer_title FROM brand_signatures WHERE business_profile_id = $1 AND is_default = true LIMIT 1',
+          [businessProfile.id]
+        );
+        if (profileSig) {
+          signatureDataUri = profileSig.signature_data;
+          signerName = profileSig.signer_name;
+          signerTitle = profileSig.signer_title;
+        }
+      }
+      
+      // Fallback to user-wide default signature if still not set
+      if (!signerName && businessProfile.user_id) {
+        const { rows: [userSig] } = await db.query(
+          'SELECT signature_data, signer_name, signer_title FROM brand_signatures WHERE user_id = $1 AND is_default = true LIMIT 1',
+          [businessProfile.user_id]
+        );
+        if (userSig) {
+          signatureDataUri = userSig.signature_data;
+          signerName = userSig.signer_name;
+          signerTitle = userSig.signer_title;
+        }
+      }
+    } catch (err) {
+      // safe fallback
+    }
+  }
 
   return {
     companyName: businessProfile?.company_name ?? null,
@@ -82,8 +139,10 @@ export async function buildBusinessContext(businessProfile: BusinessProfileRow |
     bankDetails: bankLine || null,
     mobileMoney: mobileMoneyLine || null,
     logoDataUri: await fileToDataUri(businessProfile?.logo_storage_path),
-    signatureDataUri: await fileToDataUri(businessProfile?.signature_storage_path),
+    signatureDataUri,
     stampDataUri: await fileToDataUri(businessProfile?.stamp_storage_path),
+    signerName,
+    signerTitle,
   };
 }
 

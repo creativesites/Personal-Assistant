@@ -161,7 +161,7 @@ export async function getDocumentRenderContext(documentId: string, userId: strin
   }
 
   const { businessProfile, contact, layoutKey } = await resolveRenderInputs(document, userId);
-  const business = await buildBusinessContext(businessProfile);
+  const business = await buildBusinessContext(businessProfile, document.signature_id);
   const { document: documentContext, contact: contactContext } = buildDocumentContext(document, contact);
 
   return { documentType: document.document_type, templateKey: layoutKey, document: documentContext, business, contact: contactContext };

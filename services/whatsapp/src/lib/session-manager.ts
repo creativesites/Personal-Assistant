@@ -475,10 +475,44 @@ export class SessionManager {
     console.log(`[session-manager] all sessions stopped.`);
   }
 
-  async sendMessage(userId: string, jid: string, text: string): Promise<void> {
+  async sendMessage(
+    userId: string,
+    jid: string,
+    text: string,
+    options?: { quotedWaMessageId?: string; quotedBody?: string }
+  ): Promise<void> {
     const entry = this.sessions.get(userId);
     if (!entry) throw new Error(`No active session for user ${userId}`);
-    await entry.transport.sendText(jid, text);
+    await entry.transport.sendText(jid, text, options);
+  }
+
+  async sendReaction(
+    userId: string,
+    jid: string,
+    emoji: string,
+    targetWaMessageId: string,
+    fromMe: boolean
+  ): Promise<void> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    await entry.transport.sendReaction(jid, emoji, targetWaMessageId, fromMe);
+  }
+
+  async deleteMessage(
+    userId: string,
+    jid: string,
+    waMessageId: string,
+    fromMe: boolean
+  ): Promise<void> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    await entry.transport.deleteMessage(jid, waMessageId, fromMe);
+  }
+
+  async fetchProfilePicture(userId: string, jid: string): Promise<string | null> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    return await entry.transport.fetchProfilePictureUrl(jid);
   }
 
   async sendDocument(

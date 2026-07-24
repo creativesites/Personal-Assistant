@@ -84,6 +84,7 @@ export function MessageThread({
   onReply,
   onForward,
   onReact,
+  onDelete,
 }: {
   messages: InboxMessage[]
   loading: boolean
@@ -106,6 +107,7 @@ export function MessageThread({
   onReply?: (msg: InboxMessage) => void
   onForward?: (msg: InboxMessage) => void
   onReact?: (msgId: string, emoji: string) => void
+  onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
@@ -240,6 +242,7 @@ export function MessageThread({
                     onReply={onReply}
                     onForward={onForward}
                     onReact={onReact}
+                    onDelete={onDelete}
                   />
                   {msgCards.length > 0 && (
                     <div className="py-2.5 px-2 space-y-2">

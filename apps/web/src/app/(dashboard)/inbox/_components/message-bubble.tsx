@@ -29,7 +29,8 @@ import {
   Maximize2,
   CornerUpLeft,
   CornerUpRight,
-  Smile
+  Smile,
+  Trash2
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ export interface MessageBubbleProps {
   onReply?: (msg: InboxMessage) => void
   onForward?: (msg: InboxMessage) => void
   onReact?: (msgId: string, emoji: string) => void
+  onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
   allMessages?: InboxMessage[]
   highlighted?: boolean
 }
@@ -458,6 +460,7 @@ function ActionBar({
   onReply,
   onForward,
   onReact,
+  onDelete,
 }: { 
   msg: InboxMessage
   onCopy?: (text: string) => void
@@ -468,10 +471,13 @@ function ActionBar({
   onReply?: (msg: InboxMessage) => void
   onForward?: (msg: InboxMessage) => void
   onReact?: (msgId: string, emoji: string) => void
+  onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
 }) {
   const [showPicker, setShowPicker] = useState(false)
+  const [showDeleteMenu, setShowDeleteMenu] = useState(false)
   const [copied, setCopied] = useState(false)
   const isAssistant = msg.senderType === 'assistant'
+  const isUser = msg.senderType === 'user'
   const quickEmojis = ['👍', '❤️', '😂', '🔥', '🎉']
 
   const handleCopy = useCallback(() => {
@@ -511,7 +517,7 @@ function ActionBar({
       {onReact && (
         <div className="relative">
           <button
-            onClick={() => setShowPicker(!showPicker)}
+            onClick={() => { setShowPicker(!showPicker); setShowDeleteMenu(false) }}
             className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400 transition-colors"
             title="React"
           >
@@ -540,6 +546,37 @@ function ActionBar({
       >
         {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
       </button>
+
+      {/* Delete button */}
+      {onDelete && (
+        <div className="relative">
+          <button
+            onClick={() => { setShowDeleteMenu(!showDeleteMenu); setShowPicker(false) }}
+            className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/50 text-slate-600 hover:text-red-600 dark:text-slate-300 dark:hover:text-red-400 transition-colors"
+            title="Delete message"
+          >
+            <Trash2 size={14} />
+          </button>
+          {showDeleteMenu && (
+            <div className="absolute bottom-full right-0 mb-1.5 w-44 p-1 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex flex-col gap-0.5 z-50 animate-in fade-in zoom-in duration-150">
+              <button
+                onClick={() => { onDelete(msg, false); setShowDeleteMenu(false) }}
+                className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+              >
+                Delete for me
+              </button>
+              {isUser && (
+                <button
+                  onClick={() => { onDelete(msg, true); setShowDeleteMenu(false) }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-xl text-xs font-semibold text-red-600 dark:text-red-400 transition-colors"
+                >
+                  Delete for everyone
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {isAssistant && onRegenerate && (
         <button
@@ -604,11 +641,13 @@ function ActionBar({
 function QuotedMessage({ 
   quotedId, 
   quotedMsg, 
-  onClick 
+  onClick,
+  isUserBubble
 }: { 
   quotedId: string; 
   quotedMsg?: InboxMessage; 
-  onClick?: () => void 
+  onClick?: () => void;
+  isUserBubble?: boolean;
 }) {
   const senderLabel = quotedMsg 
     ? (quotedMsg.senderDisplayName || (quotedMsg.senderType === 'user' ? 'You' : 'Contact'))
@@ -621,19 +660,27 @@ function QuotedMessage({
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-2 p-2 px-3 rounded-xl bg-black/10 dark:bg-white/10 border-l-[4px] border-l-indigo-600 dark:border-l-indigo-400 
-                 hover:bg-black/15 dark:hover:bg-white/15 transition-all text-left w-full mb-2 text-xs select-none shadow-2xs group/quote"
+      className={`flex items-start gap-2 p-2 px-3 rounded-xl border-l-[4px] 
+                 transition-all text-left w-full max-w-full min-w-0 overflow-hidden mb-2 text-xs select-none shadow-2xs group/quote ${
+                   isUserBubble 
+                     ? 'bg-black/10 dark:bg-black/35 border-l-emerald-800 dark:border-l-emerald-400 hover:bg-black/15'
+                     : 'bg-slate-100 dark:bg-slate-800/80 border-l-indigo-600 dark:border-l-indigo-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
+                 }`}
     >
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1 mb-0.5">
-          <p className="text-[11px] font-extrabold tracking-wide text-indigo-900 dark:text-indigo-200 uppercase truncate">
+      <div className="flex-1 min-w-0 max-w-full overflow-hidden">
+        <div className="flex items-center justify-between gap-1 mb-0.5 min-w-0">
+          <p className={`text-[11px] font-extrabold tracking-wide uppercase truncate min-w-0 ${
+            isUserBubble ? 'text-emerald-950 dark:text-emerald-200' : 'text-indigo-900 dark:text-indigo-300'
+          }`}>
             {senderLabel}
           </p>
-          <span className="text-[10px] text-slate-600 dark:text-slate-600 font-mono opacity-0 group-hover/quote:opacity-100 transition-opacity">
+          <span className="text-[10px] text-slate-600 dark:text-slate-400 font-mono opacity-0 group-hover/quote:opacity-100 transition-opacity shrink-0">
             Jump →
           </span>
         </div>
-        <p className="text-xs text-slate-750 font-semibold truncate leading-snug">
+        <p className={`text-xs font-semibold leading-snug line-clamp-2 break-words max-w-full ${
+          isUserBubble ? 'text-slate-950 dark:text-emerald-50' : 'text-slate-900 dark:text-slate-100'
+        }`}>
           {bodyText}
         </p>
       </div>
@@ -662,6 +709,7 @@ export function MessageBubble({
   onReply,
   onForward,
   onReact,
+  onDelete,
   allMessages,
   highlighted,
 }: MessageBubbleProps) {
@@ -808,11 +856,14 @@ export function MessageBubble({
               {msg.quotedMessageId && (() => {
                 const quotedMsg = allMessages?.find(m => m.id === msg.quotedMessageId)
                 return (
-                  <QuotedMessage 
-                    quotedId={msg.quotedMessageId} 
-                    quotedMsg={quotedMsg}
-                    onClick={() => onQuoteClick?.(msg.quotedMessageId!)} 
-                  />
+                  <div className="w-full max-w-full min-w-0 overflow-hidden">
+                    <QuotedMessage 
+                      quotedId={msg.quotedMessageId} 
+                      quotedMsg={quotedMsg}
+                      onClick={() => onQuoteClick?.(msg.quotedMessageId!)} 
+                      isUserBubble={isUser}
+                    />
+                  </div>
                 )
               })()}
 
@@ -950,6 +1001,7 @@ export function MessageBubble({
               onReply={onReply}
               onForward={onForward}
               onReact={onReact}
+              onDelete={onDelete}
             />
           </div>
         </div>

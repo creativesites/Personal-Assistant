@@ -1432,4 +1432,39 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
 
     return reply.send({ ok: true, primaryContactId: id, mergedContactId: duplicateContactId });
   });
+
+  // ── POST /api/contacts/:id/refresh-avatar ──────────────────────────────────
+  fastify.post('/api/contacts/:id/refresh-avatar', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [contact] } = await db.query(
+      `SELECT c.id, c.whatsapp_jid, c.avatar_url FROM contacts c WHERE c.id = $1 AND c.user_id = $2`,
+      [id, userId]
+    );
+
+    if (!contact) return reply.code(404).send({ error: 'Contact not found' });
+
+    // Call WhatsApp service to fetch profile picture
+    try {
+      const waRes = await fetch(`${process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3001'}/session/${userId}/profile-picture/${encodeURIComponent(contact.whatsapp_jid)}`, {
+        headers: { 'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '' }
+      });
+
+      if (waRes.ok) {
+        const data = await waRes.json() as { avatarUrl?: string | null };
+        if (data.avatarUrl) {
+          await db.query(
+            `UPDATE contacts SET avatar_url = $1, avatar_last_fetched_at = NOW() WHERE id = $2`,
+            [data.avatarUrl, id]
+          );
+          return reply.send({ ok: true, avatarUrl: data.avatarUrl });
+        }
+      }
+    } catch (err: any) {
+      request.log.error(err, 'Failed to fetch profile picture from WhatsApp service');
+    }
+
+    return reply.send({ ok: true, avatarUrl: contact.avatar_url ?? null });
+  });
 }

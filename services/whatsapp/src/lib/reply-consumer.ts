@@ -22,12 +22,36 @@ export function startReplyConsumer(
   return new Worker<SendReplyJob>(
     QUEUE_NAMES.SEND_REPLY,
     async (job) => {
-      const { userId, recipientJid, text, suggestedReplyId, mediaPath, mediaMimeType, mediaFileName } = job.data;
+      const {
+        userId,
+        recipientJid,
+        text,
+        suggestedReplyId,
+        mediaPath,
+        mediaMimeType,
+        mediaFileName,
+        quotedWaMessageId,
+        quotedBody,
+        reactionEmoji,
+        reactionTargetWaMessageId,
+        reactionFromMe,
+        deleteWaMessageId,
+        deleteFromMe,
+      } = job.data;
 
-      if (mediaPath && mediaMimeType && mediaFileName) {
+      if (reactionEmoji !== undefined && reactionTargetWaMessageId) {
+        await sessionManager.sendReaction(userId, recipientJid, reactionEmoji, reactionTargetWaMessageId, reactionFromMe ?? false);
+      } else if (deleteWaMessageId) {
+        await sessionManager.deleteMessage(userId, recipientJid, deleteWaMessageId, deleteFromMe ?? false);
+      } else if (mediaPath && mediaMimeType && mediaFileName) {
         await sessionManager.sendDocument(userId, recipientJid, mediaPath, mediaMimeType, mediaFileName, text || undefined);
       } else {
-        await sessionManager.sendMessage(userId, recipientJid, text);
+        await sessionManager.sendMessage(
+          userId,
+          recipientJid,
+          text,
+          quotedWaMessageId ? { quotedWaMessageId, quotedBody } : undefined
+        );
       }
 
       if (suggestedReplyId) {

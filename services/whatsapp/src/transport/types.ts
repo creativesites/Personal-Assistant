@@ -64,7 +64,29 @@ export abstract class WhatsAppTransport extends EventEmitter {
   abstract stop(): Promise<void>;
 
   /** Send a text message to a JID. */
-  abstract sendText(jid: string, text: string): Promise<void>;
+  abstract sendText(
+    jid: string,
+    text: string,
+    options?: { quotedWaMessageId?: string; quotedBody?: string }
+  ): Promise<void>;
+
+  /** Send a reaction emoji to a message. */
+  abstract sendReaction(
+    jid: string,
+    emoji: string,
+    targetWaMessageId: string,
+    fromMe: boolean
+  ): Promise<void>;
+
+  /** Delete a message (revoke for everyone). */
+  abstract deleteMessage(
+    jid: string,
+    waMessageId: string,
+    fromMe: boolean
+  ): Promise<void>;
+
+  /** Fetch a contact's profile picture URL from WhatsApp. */
+  abstract fetchProfilePictureUrl(jid: string): Promise<string | null>;
 
   /** Send a document (e.g. a generated quotation/invoice PDF) to a JID. */
   abstract sendDocument(jid: string, filePath: string, mimetype: string, fileName: string, caption?: string): Promise<void>;

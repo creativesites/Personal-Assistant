@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, ArrowRight, Check, FileText, FileCheck, BookOpen, File,
   Search, X, Plus, Trash2, ChevronDown, Download, Building2, User,
-  CreditCard, StickyNote, Eye, Loader2, AlertCircle, Sparkles, Bot, Package,
+  CreditCard, StickyNote, Eye, Loader2, AlertCircle, Sparkles, Bot, Package, PenTool,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
@@ -274,6 +274,8 @@ export default function NewDocumentPage() {
   const [documentId, setDocumentId] = useState<string | null>(null)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const [selectedSignature, setSelectedSignature] = useState<SelectedSignature | null>(null)
+  const [requireSignatures, setRequireSignatures] = useState<boolean>(true)
+  const [signingParties, setSigningParties] = useState<'both' | 'provider' | 'client' | 'none'>('both')
 
   // AI Generate mode
   const [aiMode, setAiMode] = useState(false)
@@ -302,6 +304,13 @@ export default function NewDocumentPage() {
   const set = useCallback(<K extends keyof DocumentFormData>(key: K, val: DocumentFormData[K]) => {
     setForm(f => ({ ...f, [key]: val }))
   }, [])
+
+  // Automatically configure signature requirements based on document type
+  useEffect(() => {
+    const isAgreement = ['nda', 'contract', 'msa', 'service_agreement', 'proposal', 'statement_of_work'].includes(form.docType)
+    setRequireSignatures(isAgreement)
+    setSigningParties(isAgreement ? 'both' : 'none')
+  }, [form.docType])
 
   const setStructuredDataField = useCallback((key: string, val: any) => {
     setForm(f => ({
@@ -465,12 +474,14 @@ export default function NewDocumentPage() {
     const body: Record<string, unknown> = {
       documentType: form.docType,
       businessProfileId: form.businessProfileId || undefined,
-      signatureId: selectedSignature?.id || undefined,
+      signatureId: (requireSignatures && (signingParties === 'both' || signingParties === 'provider')) ? (selectedSignature?.id || null) : null,
       currency: form.currency,
       items,
       structuredData: {
         ...(form.structuredData || {}),
-        signature: selectedSignature || undefined,
+        signature: (requireSignatures && (signingParties === 'both' || signingParties === 'provider')) ? selectedSignature : undefined,
+        requireSignatures,
+        signingParties: requireSignatures ? signingParties : 'none',
       },
       notes: form.notes || undefined,
       terms: form.terms || undefined,
@@ -508,7 +519,7 @@ export default function NewDocumentPage() {
     } finally {
       setSaving(false)
     }
-  }, [token, form, selectedContactId, saving, documentId, selectedSignature])
+  }, [token, form, selectedContactId, saving, documentId, selectedSignature, requireSignatures, signingParties])
 
   // Generate with AI — calls /api/documents/ai-generate and fills form
   const generateWithAI = useCallback(async () => {
@@ -1004,12 +1015,63 @@ export default function NewDocumentPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
-              <SignatureSelector
-                token={token ?? undefined}
-                value={selectedSignature}
-                onChange={setSelectedSignature}
-              />
+            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-black text-gray-950 flex items-center gap-1.5">
+                    <PenTool className="w-4 h-4 text-indigo-600" />
+                    E-Signatures &amp; Compliance
+                  </h2>
+                  <p className="text-[11px] text-gray-500">Configure signature capture rules for this document</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={requireSignatures}
+                    onChange={(e) => setRequireSignatures(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                </label>
+              </div>
+
+              {requireSignatures && (
+                <div className="space-y-4 pt-3 border-t border-gray-50 animate-fadeIn">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Who needs to sign?</label>
+                    <div className="grid grid-cols-3 gap-1 bg-gray-50 p-1 rounded-xl">
+                      {(['both', 'provider', 'client'] as const).map((party) => {
+                        const label = party === 'both' ? 'Both Parties' : party === 'provider' ? 'Me Only' : 'Client Only'
+                        const active = signingParties === party
+                        return (
+                          <button
+                            key={party}
+                            type="button"
+                            onClick={() => setSigningParties(party)}
+                            className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                              active
+                                ? 'bg-white text-indigo-600 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-800'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {(signingParties === 'both' || signingParties === 'provider') && (
+                    <div className="pt-2 animate-fadeIn">
+                      <SignatureSelector
+                        token={token ?? undefined}
+                        value={selectedSignature}
+                        onChange={setSelectedSignature}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">

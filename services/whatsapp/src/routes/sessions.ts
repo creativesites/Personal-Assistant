@@ -65,6 +65,16 @@ export function sessionRoutes(sessionManager: SessionManager) {
       return reply.send({ sent: true });
     });
 
+    fastify.get('/session/:userId/profile-picture/:jid', async (request, reply) => {
+      const { userId, jid } = request.params as { userId: string; jid: string };
+      try {
+        const avatarUrl = await sessionManager.fetchProfilePicture(userId, decodeURIComponent(jid));
+        return reply.send({ userId, jid, avatarUrl });
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
+    });
+
     fastify.get('/internal/sessions/:userId/catalog/products', async (request, reply) => {
       const { userId } = userIdParam.parse(request.params);
       const { limit, cursor } = z.object({

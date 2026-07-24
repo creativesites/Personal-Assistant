@@ -6,7 +6,7 @@ import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
   Flame, Activity, Brain, WifiOff, UserX, ChevronDown, Users,
-  Pencil, HelpCircle, ShieldCheck, CheckCircle2,
+  Pencil, HelpCircle, ShieldCheck, CheckCircle2, RefreshCw, Trash2
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
@@ -16,6 +16,7 @@ import { useCelebration } from '@/hooks/use-celebration'
 import { ChampagneConfettiCanvas, CelebrationBanner } from '@/components/ui/celebration-effects'
 import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
+import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
 import type { AIInsight } from './_components/inline-ai-card'
 import { ConvRow } from './_components/conversation-row'
 import { DailyBriefing } from './_components/daily-briefing'
@@ -176,6 +177,7 @@ export default function InboxPage() {
   // Quoted reply & message forwarding states
   const [replyingToMessage, setReplyingToMessage] = useState<any | null>(null)
   const [forwardingMessage, setForwardingMessage] = useState<any | null>(null)
+  const [groupDrawerOpen, setGroupDrawerOpen] = useState(false)
 
   // Analysis
   const [analysing, setAnalysing] = useState(false)
@@ -1016,6 +1018,49 @@ export default function InboxPage() {
       }
     } catch {
       addToast({ variant: 'error', title: 'Forwarding Failed', description: 'Could not forward message' })
+    }
+  }
+
+  const handleDeleteMessage = async (msg: any, deleteForEveryone: boolean) => {
+    if (!selectedId || !token || !msg?.id) return
+    try {
+      await apiClient(`/api/conversations/${selectedId}/messages/${msg.id}`, {
+        method: 'DELETE',
+        token,
+        body: JSON.stringify({ deleteForEveryone }),
+      })
+      addToast({
+        variant: 'success',
+        title: 'Message Deleted',
+        description: deleteForEveryone ? 'Deleted for everyone' : 'Deleted for you',
+      })
+      setMessages(prev =>
+        deleteForEveryone
+          ? prev.map(m => m.id === msg.id ? { ...m, body: 'This message was deleted', messageType: 'deleted' } : m)
+          : prev.filter(m => m.id !== msg.id)
+      )
+    } catch {
+      addToast({ variant: 'error', title: 'Deletion Failed', description: 'Could not delete message' })
+    }
+  }
+
+  const handleRefreshAvatar = async () => {
+    if (!selectedConv?.contact?.id || !token) return
+    try {
+      const res = await apiClient<{ avatarUrl: string | null }>(
+        `/api/contacts/${selectedConv.contact.id}/refresh-avatar`,
+        { method: 'POST', token }
+      )
+      if (res.avatarUrl) {
+        addToast({ variant: 'success', title: 'Avatar Updated', description: 'Contact profile picture refreshed' })
+        setConversations(prev =>
+          prev.map(c => c.id === selectedId ? { ...c, contact: { ...c.contact, avatarUrl: res.avatarUrl } } : c)
+        )
+      } else {
+        addToast({ variant: 'info', title: 'No Avatar', description: 'Contact has no public profile picture on WhatsApp' })
+      }
+    } catch {
+      addToast({ variant: 'error', title: 'Refresh Failed', description: 'Could not refresh profile picture' })
     }
   }
 
@@ -1891,6 +1936,22 @@ export default function InboxPage() {
                     >
                       <ExternalLink size={17} strokeWidth={2} />
                     </a>
+                    {contact.isGroup && (
+                      <button
+                        onClick={() => setGroupDrawerOpen(true)}
+                        className="p-2 text-neutral-400 hover:text-indigo-600 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
+                        title="Group Participants & Info"
+                      >
+                        <Users size={17} strokeWidth={2} />
+                      </button>
+                    )}
+                    <button
+                      onClick={handleRefreshAvatar}
+                      className="p-2 text-neutral-400 hover:text-indigo-600 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
+                      title="Refresh profile picture"
+                    >
+                      <RefreshCw size={17} strokeWidth={2} />
+                    </button>
                     <button
                       className="p-2 text-neutral-400 hover:text-amber-600 rounded-xl hover:bg-amber-50 transition-all active:scale-95"
                       title="Archive conversation"
@@ -2270,6 +2331,18 @@ export default function InboxPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Group Participants Drawer */}
+      {selectedConv?.contact?.isGroup && (
+        <GroupParticipantsDrawer
+          open={groupDrawerOpen}
+          onClose={() => setGroupDrawerOpen(false)}
+          conversationId={selectedId || ''}
+          groupName={selectedConv.contact.name || selectedConv.contact.phone || 'WhatsApp Group'}
+          groupAvatar={selectedConv.contact.avatarUrl ?? null}
+          token={token}
+        />
       )}
     </div>
   )

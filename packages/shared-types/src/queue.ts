@@ -37,6 +37,14 @@ export interface SendReplyJob {
   suggestedReplyId: string | null;
   recipientJid: string;
   text: string;
+  quotedMessageId?: string;
+  quotedWaMessageId?: string;
+  quotedBody?: string;
+  reactionEmoji?: string;
+  reactionTargetWaMessageId?: string;
+  reactionFromMe?: boolean;
+  deleteWaMessageId?: string;
+  deleteFromMe?: boolean;
   // Optional document attachment — see docs/BUSINESS_WORKSPACE_PLAN.md §5.
   // `text` is still sent as the caption when these are set.
   mediaPath?: string;

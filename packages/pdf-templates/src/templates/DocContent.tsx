@@ -53,6 +53,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   // 1. LEGAL & AGREEMENTS (NDA, Contract, MSA, Service Agreement)
   if (['nda', 'contract', 'msa', 'service_agreement'].includes(dt)) {
     const isNda = dt === 'nda';
+    const requireSignatures = document.structuredData?.requireSignatures !== false;
+    const signingParties = document.structuredData?.signingParties || 'both';
     return (
       <View style={{ marginTop: 10 }}>
         {/* Parties Header Card */}
@@ -233,29 +235,35 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         ) : null}
 
         {/* Two-Party Formal Signature Blocks */}
-        <View style={styles.twoPartyRow}>
-          <View style={styles.partySigBlock}>
-            <Text style={styles.label}>For {business.companyName || 'Your Business'}</Text>
-            <View style={styles.sigLine}>
-              {business.signatureDataUri ? <Image src={business.signatureDataUri} style={styles.sigImage} /> : null}
-            </View>
-            <Text style={styles.sigTitle}>{business.signerName || 'Authorized Signatory'}</Text>
-            <Text style={styles.sigSub}>{business.signerTitle || 'Executive Representative'}</Text>
-            <Text style={styles.sigSub}>Date: {document.issueDate}</Text>
-          </View>
+        {requireSignatures && signingParties !== 'none' ? (
+          <View style={styles.twoPartyRow}>
+            {(signingParties === 'both' || signingParties === 'provider') ? (
+              <View style={styles.partySigBlock}>
+                <Text style={styles.label}>For {business.companyName || 'Your Business'}</Text>
+                <View style={styles.sigLine}>
+                  {business.signatureDataUri ? <Image src={business.signatureDataUri} style={styles.sigImage} /> : null}
+                </View>
+                <Text style={styles.sigTitle}>{business.signerName || 'Authorized Signatory'}</Text>
+                <Text style={styles.sigSub}>{business.signerTitle || 'Executive Representative'}</Text>
+                <Text style={styles.sigSub}>Date: {document.issueDate}</Text>
+              </View>
+            ) : null}
 
-          <View style={styles.partySigBlock}>
-            <Text style={styles.label}>For {contact.company || contact.name}</Text>
-            <View style={styles.sigLine}>
-              {document.signature?.signatureDataUri ? (
-                <Image src={document.signature.signatureDataUri} style={styles.sigImage} />
-              ) : null}
-            </View>
-            <Text style={styles.sigTitle}>{document.signature?.signerName || contact.name}</Text>
-            <Text style={styles.sigSub}>{document.signature?.signerTitle || 'Authorized Client Signatory'}</Text>
-            <Text style={styles.sigSub}>Date: {document.signature?.signedAt || '_________________'}</Text>
+            {(signingParties === 'both' || signingParties === 'client') ? (
+              <View style={styles.partySigBlock}>
+                <Text style={styles.label}>For {contact.company || contact.name}</Text>
+                <View style={styles.sigLine}>
+                  {document.signature?.signatureDataUri ? (
+                    <Image src={document.signature.signatureDataUri} style={styles.sigImage} />
+                  ) : null}
+                </View>
+                <Text style={styles.sigTitle}>{document.signature?.signerName || contact.name}</Text>
+                <Text style={styles.sigSub}>{document.signature?.signerTitle || 'Authorized Client Signatory'}</Text>
+                <Text style={styles.sigSub}>Date: {document.signature?.signedAt || '_________________'}</Text>
+              </View>
+            ) : null}
           </View>
-        </View>
+        ) : null}
       </View>
     );
   }

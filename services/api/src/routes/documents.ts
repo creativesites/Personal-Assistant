@@ -79,6 +79,7 @@ const createBody = z.object({
   dueDate: z.string().optional(),
   templateId: z.string().uuid().optional(),
   businessProfileId: z.string().uuid().optional(),
+  signatureId: z.string().uuid().nullable().optional(),
   dealId: z.string().uuid().optional(),
   opportunityId: z.string().uuid().optional(),
   conversationId: z.string().uuid().optional(),
@@ -93,6 +94,7 @@ const updateBody = createBody.partial().extend({
   // no such "explicitly clear" case since a document starts with neither set.
   contactId: z.string().uuid().nullable().optional(),
   businessProfileId: z.string().uuid().nullable().optional(),
+  signatureId: z.string().uuid().nullable().optional(),
 });
 
 export function computeTotals(items: z.infer<typeof lineItemSchema>[]) {
@@ -359,15 +361,15 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
          (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id, project_id,
           document_type, document_category, document_number, title, status, structured_data,
           currency, subtotal_cents, discount_cents, tax_cents, total_cents, requested_by, ai_generated,
-          business_profile_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sales',$9,$10,'draft',$11,$12,$13,$14,$15,$16,'user',false,$17)
+          business_profile_id, signature_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'sales',$9,$10,'draft',$11,$12,$13,$14,$15,$16,'user',false,$17,$18)
        RETURNING *`,
       [
         userId, body.contactId ?? null, body.dealId ?? null, body.opportunityId ?? null,
         body.conversationId ?? null, body.templateId ?? null, body.projectId ?? null,
         body.documentType, documentNumber, title,
         JSON.stringify(structuredData), body.currency ?? 'ZMW', subtotalCents, discountCents, taxCents, totalCents,
-        body.businessProfileId ?? null,
+        body.businessProfileId ?? null, body.signatureId ?? null,
       ],
     );
 
@@ -417,6 +419,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     };
 
     const hasBusinessProfileUpdate = 'businessProfileId' in body;
+    const hasSignatureIdUpdate = 'signatureId' in body;
 
     const { rows: [updated] } = await db.query(
       `UPDATE documents SET
@@ -427,6 +430,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
          subtotal_cents = $5, discount_cents = $6, tax_cents = $7, total_cents = $8,
          template_id = COALESCE($9, template_id),
          business_profile_id = CASE WHEN $10::boolean THEN $11::uuid ELSE business_profile_id END,
+         signature_id = CASE WHEN $13::boolean THEN $14::uuid ELSE signature_id END,
          updated_at = NOW()
        WHERE id = $12
        RETURNING *`,
@@ -434,6 +438,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
         nextContactId, body.title ?? null, JSON.stringify(structuredData), body.currency ?? null,
         subtotalCents, discountCents, taxCents, totalCents, body.templateId ?? null,
         hasBusinessProfileUpdate, body.businessProfileId ?? null, id,
+        hasSignatureIdUpdate, body.signatureId ?? null,
       ],
     );
 

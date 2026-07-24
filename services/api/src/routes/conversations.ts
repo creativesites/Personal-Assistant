@@ -364,6 +364,29 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       [messageId, userId],
     );
 
+    // Queue reaction dispatch to WhatsApp
+    const { rows: [targetMsg] } = await db.query(
+      `SELECT m.whatsapp_message_id, m.sender_type, co.whatsapp_jid 
+       FROM messages m 
+       JOIN conversations c ON c.id = m.conversation_id 
+       JOIN contacts co ON co.id = c.contact_id 
+       WHERE m.id = $1`,
+      [messageId]
+    );
+
+    if (targetMsg && targetMsg.whatsapp_message_id) {
+      await addToQueue(QUEUE_NAMES.SEND_REPLY, {
+        userId: scope.ownerUserId,
+        messageId,
+        suggestedReplyId: null,
+        recipientJid: targetMsg.whatsapp_jid,
+        text: '',
+        reactionEmoji: existing ? '' : emoji,
+        reactionTargetWaMessageId: targetMsg.whatsapp_message_id,
+        reactionFromMe: targetMsg.sender_type === 'user',
+      });
+    }
+
     await publishInboxEvent(scope.ownerUserId, 'message:reaction', {
       conversationId: id,
       messageId,
@@ -371,6 +394,104 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     });
 
     return reply.send({ ok: true, messageId, reactions });
+  });
+
+  // ── DELETE /api/conversations/:id/messages/:messageId ────────────────────────
+
+  const deleteMsgBody = z.object({
+    deleteForEveryone: z.boolean().default(false),
+  });
+
+  fastify.delete('/api/conversations/:id/messages/:messageId', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, messageId } = request.params as { id: string; messageId: string };
+    const { deleteForEveryone } = deleteMsgBody.parse(request.body || {});
+
+    const scope = await getEffectiveScope(userId);
+    const { rows: [msg] } = await db.query(
+      `SELECT m.id, m.whatsapp_message_id, m.sender_type, co.whatsapp_jid
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       JOIN contacts co ON co.id = c.contact_id
+       WHERE m.id = $1 AND m.conversation_id = $2 AND (
+         ($3::uuid IS NOT NULL AND c.organization_id = $3::uuid) OR
+         (c.user_id = $4::uuid OR c.user_id = $5::uuid)
+       )`,
+      [messageId, id, scope.organizationId, scope.ownerUserId, userId]
+    );
+
+    if (!msg) return reply.code(404).send({ error: 'Message not found' });
+
+    if (deleteForEveryone) {
+      await db.query(
+        `UPDATE messages SET message_type = 'deleted', body = 'This message was deleted' WHERE id = $1`,
+        [messageId]
+      );
+
+      if (msg.whatsapp_message_id) {
+        await addToQueue(QUEUE_NAMES.SEND_REPLY, {
+          userId: scope.ownerUserId,
+          messageId,
+          suggestedReplyId: null,
+          recipientJid: msg.whatsapp_jid,
+          text: '',
+          deleteWaMessageId: msg.whatsapp_message_id,
+          deleteFromMe: msg.sender_type === 'user',
+        });
+      }
+    } else {
+      await db.query(
+        `UPDATE messages SET deleted_for_user_ids = array_append(deleted_for_user_ids, $1::uuid) WHERE id = $2`,
+        [userId, messageId]
+      );
+    }
+
+    await publishInboxEvent(scope.ownerUserId, 'message:delete', {
+      conversationId: id,
+      messageId,
+      deleteForEveryone,
+    });
+
+    return reply.send({ ok: true, messageId, deleteForEveryone });
+  });
+
+  // ── GET /api/conversations/:id/participants ──────────────────────────────────
+
+  fastify.get('/api/conversations/:id/participants', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const scope = await getEffectiveScope(userId);
+    const { rows: [conv] } = await db.query(
+      `SELECT c.id, c.contact_id, co.whatsapp_jid, co.is_group 
+       FROM conversations c 
+       JOIN contacts co ON co.id = c.contact_id 
+       WHERE c.id = $1 AND (
+         ($2::uuid IS NOT NULL AND c.organization_id = $2::uuid) OR
+         (c.user_id = $3::uuid OR c.user_id = $4::uuid)
+       )`,
+      [id, scope.organizationId, scope.ownerUserId, userId]
+    );
+
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const { rows: participants } = await db.query(
+      `SELECT 
+         gm.id,
+         mco.id AS "contactId",
+         COALESCE(mco.custom_name, mco.display_name, mco.phone_number) AS name,
+         mco.phone_number AS phone,
+         mco.avatar_url AS "avatarUrl",
+         COALESCE(gm.role, 'member') AS role,
+         gm.joined_at AS "joinedAt"
+       FROM contact_group_members gm
+       JOIN contacts mco ON mco.id = gm.member_contact_id
+       WHERE gm.group_contact_id = $1
+       ORDER BY (CASE WHEN gm.role IN ('admin', 'superadmin') THEN 0 ELSE 1 END), name ASC`,
+      [conv.contact_id]
+    );
+
+    return reply.send({ ok: true, participants });
   });
 
   // ── POST /api/conversations/:id/forward ─────────────────────────────────────

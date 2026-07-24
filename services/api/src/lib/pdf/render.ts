@@ -28,7 +28,7 @@ export async function renderDocumentPdf(
 ): Promise<Buffer> {
   const Template = TEMPLATES[layoutKey] ?? Minimal;
 
-  const business = await buildBusinessContext(businessProfile);
+  const business = await buildBusinessContext(businessProfile, document.signature_id);
   const { document: documentContext, contact: contactContext } = buildDocumentContext(document, contact);
 
   const element = Template({ document: documentContext, business, contact: contactContext }) as any;
