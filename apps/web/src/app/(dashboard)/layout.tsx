@@ -20,6 +20,7 @@ import {
   Wrench, LogOut, Smartphone, Menu, X, Search,
   WifiOff, Loader2, ChevronLeft, ChevronRight, ChevronDown, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase, Rss, Building2
 } from 'lucide-react'
+import { GuidedTourProvider, TourTriggerButton } from '@/components/guided-tour'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
