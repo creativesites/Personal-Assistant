@@ -86,12 +86,18 @@ export function DocContent({ document, business, contact }: TemplateProps) {
                   <Text style={styles.label}>Confidentiality Duration</Text>
                   <Text style={styles.valueBold}>{sd.confidentialityYears || 2} Years</Text>
                 </View>
+                {sd.effectiveDate ? (
+                  <View style={styles.fieldBlock}>
+                    <Text style={styles.label}>Effective Date</Text>
+                    <Text style={styles.valueBold}>{sd.effectiveDate}</Text>
+                  </View>
+                ) : null}
               </>
             ) : (
               <>
                 <View style={styles.fieldBlock}>
                   <Text style={styles.label}>Commencement Date</Text>
-                  <Text style={styles.valueBold}>{sd.startDate || document.issueDate}</Text>
+                  <Text style={styles.valueBold}>{sd.startDate || sd.effectiveDate || document.issueDate}</Text>
                 </View>
                 <View style={styles.fieldBlock}>
                   <Text style={styles.label}>Expiry / Termination</Text>
@@ -105,6 +111,44 @@ export function DocContent({ document, business, contact }: TemplateProps) {
               <Text style={styles.valueBold}>{sd.governingLaw || 'Republic of Zambia'}</Text>
             </View>
           </View>
+
+          {/* Secondary legal metadata row for contract value, termination notice, IP ownership, etc. */}
+          {(sd.contractTitle || sd.contractValue || sd.noticePeriod || sd.paymentTermDays || sd.ipOwnership) ? (
+            <View style={[styles.grid3, { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e5e7eb' }]}>
+              {sd.contractTitle ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Contract Title</Text>
+                  <Text style={styles.valueBold}>{sd.contractTitle}</Text>
+                </View>
+              ) : null}
+              {sd.contractValue ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Contract Consideration</Text>
+                  <Text style={styles.valueBold}>{sd.contractValue}</Text>
+                </View>
+              ) : null}
+              {sd.noticePeriod ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Notice Period</Text>
+                  <Text style={styles.valueBold}>{sd.noticePeriod}</Text>
+                </View>
+              ) : null}
+              {sd.paymentTermDays ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Payment Term</Text>
+                  <Text style={styles.valueBold}>{sd.paymentTermDays} Days</Text>
+                </View>
+              ) : null}
+              {sd.ipOwnership ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>IP Ownership</Text>
+                  <Text style={styles.valueBold}>
+                    {sd.ipOwnership === 'client_owned' ? 'Client Owned' : sd.ipOwnership === 'provider_owned' ? 'Provider Retained' : 'Shared / Licensed'}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           {sd.disclosurePurpose ? (
             <View style={styles.textBlock}>
@@ -153,6 +197,13 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         ) : null}
 
         {/* Standard Terms or Notes */}
+        {document.notes ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Special Notes & Instructions</Text>
+            <Text style={styles.bodyText}>{document.notes}</Text>
+          </View>
+        ) : null}
+
         {document.terms ? (
           <View style={{ marginBottom: 12 }}>
             <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Standard Conditions & Compliance</Text>
@@ -263,6 +314,13 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             </View>
           ))}
         </View>
+
+        {document.notes ? (
+          <View style={{ marginBottom: 12, marginTop: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Additional Notes & Instructions</Text>
+            <Text style={styles.bodyText}>{document.notes}</Text>
+          </View>
+        ) : null}
 
         {/* Proof of Delivery Block */}
         <View style={[styles.card, { marginTop: 14 }]}>
@@ -385,6 +443,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             <Text style={styles.label}>Reason for Adjustment</Text>
             <Text style={styles.bodyText}>{sd.reasonForAdjustment || 'Billing Correction / Service Credit'}</Text>
           </View>
+          {sd.adjustmentNotes ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Audit Notes / Explanation</Text>
+              <Text style={styles.bodyText}>{sd.adjustmentNotes}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.table}>
@@ -424,10 +488,26 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           <Text style={[styles.cardTitle, { color: themeColor }]}>
             {dt === 'proposal' ? 'Commercial Proposal Overview' : 'Project SOW Overview'}
           </Text>
-          {sd.sowTitle || sd.proposalTitle ? (
-            <View style={{ marginBottom: 6 }}>
-              <Text style={styles.label}>Title</Text>
-              <Text style={styles.valueBold}>{sd.sowTitle || sd.proposalTitle}</Text>
+          {(sd.sowTitle || sd.proposalTitle || sd.completionDate || sd.validityPeriod) ? (
+            <View style={[styles.grid2, { marginBottom: 6 }]}>
+              {(sd.sowTitle || sd.proposalTitle) ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Title / Objective</Text>
+                  <Text style={styles.valueBold}>{sd.sowTitle || sd.proposalTitle}</Text>
+                </View>
+              ) : null}
+              {sd.completionDate ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Target Completion Date</Text>
+                  <Text style={styles.valueBold}>{sd.completionDate}</Text>
+                </View>
+              ) : null}
+              {sd.validityPeriod ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Proposal Validity Period</Text>
+                  <Text style={styles.valueBold}>{sd.validityPeriod}</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
 

@@ -629,11 +629,11 @@ function QuotedMessage({
           <p className="text-[11px] font-extrabold tracking-wide text-indigo-900 dark:text-indigo-200 uppercase truncate">
             {senderLabel}
           </p>
-          <span className="text-[10px] text-slate-600 dark:text-slate-300 font-mono opacity-0 group-hover/quote:opacity-100 transition-opacity">
+          <span className="text-[10px] text-slate-600 dark:text-slate-600 font-mono opacity-0 group-hover/quote:opacity-100 transition-opacity">
             Jump →
           </span>
         </div>
-        <p className="text-xs text-slate-950 font-semibold truncate leading-snug">
+        <p className="text-xs text-slate-750 font-semibold truncate leading-snug">
           {bodyText}
         </p>
       </div>
