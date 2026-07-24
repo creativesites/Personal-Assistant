@@ -24,6 +24,7 @@ export interface WAStatus {
 
 const POLL_ACTIVE_MS  = 8_000   // while connecting/QR pending — check often
 const POLL_STABLE_MS  = 30_000  // once connected or disconnected — easy on the server
+const DISCONNECT_GRACE_MS = 12_000 // 12-second grace period for transient drops
 
 const TRANSITIONAL: WAConnectionStatus[] = ['connecting', 'qr_pending', 'link_code_pending']
 
@@ -37,7 +38,16 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
   })
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
+  const isConnectedRef = useRef(false)
+
+  const clearDisconnectTimer = () => {
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current)
+      disconnectTimerRef.current = null
+    }
+  }
 
   const poll = useCallback(async () => {
     if (!token || !mountedRef.current) return
@@ -56,13 +66,44 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
       const data = await r.json()
       if (!mountedRef.current) return
 
-      setStatus({
-        status: (data.status as WAConnectionStatus) ?? 'unknown',
-        connected: data.connected === true,
-        phone: data.phone ?? null,
-        lastConnectedAt: data.lastConnectedAt ?? null,
-        refetchStatus: poll,
-      })
+      const isConn = data.connected === true
+
+      if (isConn) {
+        clearDisconnectTimer()
+        isConnectedRef.current = true
+        setStatus({
+          status: (data.status as WAConnectionStatus) ?? 'connected',
+          connected: true,
+          phone: data.phone ?? null,
+          lastConnectedAt: data.lastConnectedAt ?? null,
+          refetchStatus: poll,
+        })
+      } else {
+        // If we were previously connected, give a 12s grace period before marking as disconnected
+        if (isConnectedRef.current && !disconnectTimerRef.current) {
+          disconnectTimerRef.current = setTimeout(() => {
+            if (mountedRef.current) {
+              isConnectedRef.current = false
+              clearDisconnectTimer()
+              setStatus({
+                status: (data.status as WAConnectionStatus) ?? 'disconnected',
+                connected: false,
+                phone: data.phone ?? null,
+                lastConnectedAt: data.lastConnectedAt ?? null,
+                refetchStatus: poll,
+              })
+            }
+          }, DISCONNECT_GRACE_MS)
+        } else if (!isConnectedRef.current) {
+          setStatus({
+            status: (data.status as WAConnectionStatus) ?? 'unknown',
+            connected: false,
+            phone: data.phone ?? null,
+            lastConnectedAt: data.lastConnectedAt ?? null,
+            refetchStatus: poll,
+          })
+        }
+      }
 
       // Schedule next poll — shorter interval while transitional
       const next = TRANSITIONAL.includes(data.status) ? POLL_ACTIVE_MS : POLL_STABLE_MS
@@ -81,6 +122,8 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
       const socket = getSocket(token)
       if (socket) {
         const handleConnected = (payloadStr?: string) => {
+          clearDisconnectTimer()
+          isConnectedRef.current = true
           let phone: string | null = null;
           if (payloadStr) {
             try {
@@ -99,12 +142,27 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
         }
 
         const handleDisconnected = () => {
-          setStatus(prev => ({
-            ...prev,
-            status: 'disconnected',
-            connected: false,
-          }))
-          poll()
+          if (isConnectedRef.current && !disconnectTimerRef.current) {
+            disconnectTimerRef.current = setTimeout(() => {
+              if (mountedRef.current) {
+                isConnectedRef.current = false
+                clearDisconnectTimer()
+                setStatus(prev => ({
+                  ...prev,
+                  status: 'disconnected',
+                  connected: false,
+                }))
+                poll()
+              }
+            }, DISCONNECT_GRACE_MS)
+          } else if (!isConnectedRef.current) {
+            setStatus(prev => ({
+              ...prev,
+              status: 'disconnected',
+              connected: false,
+            }))
+            poll()
+          }
         }
 
         socket.on('whatsapp:connected', handleConnected)
@@ -118,6 +176,7 @@ export function useWAStatus(token: string | null | undefined): WAStatus {
     }
     return () => {
       mountedRef.current = false
+      clearDisconnectTimer()
       if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [token, poll])

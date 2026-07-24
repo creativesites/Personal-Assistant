@@ -21,6 +21,7 @@ import {
   Send,
   Mail,
   UserCheck,
+  Loader2,
 } from 'lucide-react'
 
 interface WAStatus {
@@ -82,10 +83,9 @@ function OnboardingContent() {
   const [primaryGoal, setPrimaryGoal] = useState('increase_sales')
   const [isSavingContext, setIsSavingContext] = useState(false)
 
-  // AI Engine & BYOK Transparency state
-  const [aiEngineMode, setAiEngineMode] = useState<'zuri_included' | 'byok'>('zuri_included')
-  const [byokProvider, setByokProvider] = useState<'google' | 'openai' | 'anthropic' | 'dashscope'>('google')
-  const [byokKey, setByokKey] = useState('')
+  // Navigation loading feedback states
+  const [isNavigatingToDashboard, setIsNavigatingToDashboard] = useState(false)
+  const [isSkippingStep, setIsSkippingStep] = useState(false)
 
   // Step 2: WhatsApp status & pairing
   const [waStatus, setWaStatus] = useState<WAStatus | null>(null)
@@ -119,7 +119,6 @@ function OnboardingContent() {
 
   // Skip Consequence Modal state
   const [skipModalStep, setSkipModalStep] = useState<number | null>(null)
-  const [isSkippingAll, setIsSkippingAll] = useState(false)
 
   const wasActiveRef = useRef(false)
   const sessionInitiatedRef = useRef(false)
@@ -156,9 +155,14 @@ function OnboardingContent() {
 
   useEffect(() => () => clearQrTimer(), [])
 
-  // Universal Skip All to Dashboard
-  const handleSkipAll = async () => {
-    setIsSkippingAll(true)
+  // Universal Skip All to Dashboard with immediate loading indicator & fallback routing
+  const handleSkipAll = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    setIsNavigatingToDashboard(true)
+    
     if (token) {
       try {
         await apiClient('/api/auth/onboarding-complete', {
@@ -178,7 +182,13 @@ function OnboardingContent() {
         // best effort
       }
     }
+
     router.push('/dashboard')
+    setTimeout(() => {
+      if (window.location.pathname !== '/dashboard') {
+        window.location.href = '/dashboard'
+      }
+    }, 300)
   }
 
   // Save onboarding preferences to backend
@@ -199,20 +209,8 @@ function OnboardingContent() {
           primaryGoal,
         }),
       })
-
-      if (aiEngineMode === 'byok' && byokKey.trim()) {
-        await apiClient('/api/byok/keys', {
-          method: 'POST',
-          token,
-          body: JSON.stringify({
-            provider: byokProvider,
-            apiKey: byokKey.trim(),
-            label: `${byokProvider.toUpperCase()} Key (Onboarding)`,
-          }),
-        }).catch(() => {})
-      }
     } catch {
-      // Best-effort — do not block the user
+      // Best-effort
     } finally {
       setIsSavingContext(false)
     }
@@ -243,37 +241,9 @@ function OnboardingContent() {
 
         if (s.linkCode) setLinkCodeData(s.linkCode)
 
-        if (s.status === 'connecting' || s.status === 'qr_pending' || s.status === 'link_code_pending') {
-          wasActiveRef.current = true
-        }
-
-        if (sessionInitiatedRef.current && s.status !== 'disconnected') {
-          markSessionInitiated(false)
-        }
-
         if (s.connected) {
           setConnectError(null)
           clearQrTimer()
-        }
-
-        if ((s.status === 'disconnected' || s.status === 'logged_out') && (wasActiveRef.current || sessionInitiatedRef.current)) {
-          setConnectError('Connection failed. Please check your internet and try again.')
-          setQrData(null)
-          lastQrRef.current = null
-          clearQrTimer()
-          wasActiveRef.current = false
-          markSessionInitiated(false)
-          setUserStarted(false)
-        }
-
-        if (s.status === 'error') {
-          setConnectError('WhatsApp connection failed. Please try again.')
-          setQrData(null)
-          lastQrRef.current = null
-          clearQrTimer()
-          wasActiveRef.current = false
-          markSessionInitiated(false)
-          setUserStarted(false)
         }
       } catch {
         // silently ignore poll errors
@@ -281,7 +251,7 @@ function OnboardingContent() {
     }
 
     poll()
-    const id = setInterval(poll, 2000)
+    const id = setInterval(poll, 2500)
     return () => { cancelled = true; clearInterval(id) }
   }, [token, startQrCountdown, testPhone])
 
@@ -414,12 +384,19 @@ function OnboardingContent() {
 
   // Finish onboarding and route directly to /inbox
   const handleCompleteOnboarding = async () => {
+    setIsNavigatingToDashboard(true)
     await saveContextToBackend()
     router.push('/inbox')
+    setTimeout(() => {
+      if (window.location.pathname !== '/inbox') {
+        window.location.href = '/inbox'
+      }
+    }, 300)
   }
 
   // Confirm skipping a single step
   const executeSkip = async (currentStepNum: number) => {
+    setIsSkippingStep(true)
     setSkipModalStep(null)
     if (currentStepNum === 1) {
       setStep(2)
@@ -430,6 +407,7 @@ function OnboardingContent() {
     } else if (currentStepNum === 4) {
       await handleCompleteOnboarding()
     }
+    setIsSkippingStep(false)
   }
 
   // ── Derived state for WhatsApp ──────────────────────────────────────────
@@ -443,49 +421,55 @@ function OnboardingContent() {
     (connectMode === 'phone' && !linkCodeData)
   ))
 
-  const fmtTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans relative overflow-x-hidden">
-      {/* Ambient background glows */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.18),transparent_70%)] pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-[radial-gradient(circle_at_100%_100%,rgba(16,185,129,0.12),transparent_70%)] pointer-events-none" />
-
-      {/* Top Sticky Header */}
-      <header className="border-b border-slate-800/80 px-4 sm:px-6 py-3.5 backdrop-blur-xl bg-slate-950/80 sticky top-0 z-30 shadow-xl shadow-slate-950/50">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans relative">
+      {/* Top Light Sticky Header */}
+      <header className="border-b border-slate-200/80 px-4 sm:px-6 py-3.5 backdrop-blur-md bg-white/90 sticky top-0 z-30 shadow-sm shadow-slate-200/40">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-purple-600 flex items-center justify-center font-black text-white text-lg shadow-lg shadow-indigo-500/25">
-              Z
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg tracking-tight text-white">
-                  Zuri
-                </span>
-                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
-                  ENTERPRISE
-                </span>
-              </div>
-              <span className="text-[10px] text-indigo-400 block font-semibold uppercase tracking-wider -mt-0.5">
-                WhatsApp Relationship OS
+            <img
+              src="/zuri-logo.png"
+              alt="Zuri Logo"
+              className="h-9 w-auto object-contain"
+              onError={(e) => {
+                // Fallback to Z logo badge if file isn't present
+                e.currentTarget.style.display = 'none'
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-xl tracking-tight text-slate-900">
+                Zuri
+              </span>
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/80 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                Relationship OS
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
             <button
+              type="button"
               onClick={handleSkipAll}
-              disabled={isSkippingAll}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-md shadow-amber-500/10 transition-all active:scale-95 disabled:opacity-50"
+              disabled={isNavigatingToDashboard}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md shadow-slate-900/10 transition-all active:scale-95 disabled:opacity-50"
             >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Skip All & Go to Dashboard →</span>
+              {isNavigatingToDashboard ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>Opening Dashboard...</span>
+                </>
+              ) : (
+                <>
+                  <LayoutDashboard className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Skip All & Go to Dashboard →</span>
+                </>
+              )}
             </button>
 
             <button
+              type="button"
               onClick={() => setSkipModalStep(step)}
-              className="hidden sm:inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors bg-slate-900 hover:bg-slate-800 px-3 py-2 rounded-xl border border-slate-800 font-medium"
+              className="hidden sm:inline-flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 transition-colors bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl border border-slate-200 font-medium"
             >
               <span>Skip step</span>
             </button>
@@ -498,25 +482,33 @@ function OnboardingContent() {
         
         {/* Banner if user is already onboarded */}
         {isAlreadyOnboarded && (
-          <div className="w-full max-w-2xl mb-6 bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 shadow-xl backdrop-blur-xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="w-full max-w-2xl mb-6 bg-white border border-emerald-500/30 rounded-2xl p-4 shadow-lg shadow-emerald-500/5 backdrop-blur-xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-base flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-600 font-bold text-base flex-shrink-0">
                 <UserCheck className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs font-bold text-white">Your Business Profile Is Already Saved</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <p className="text-xs font-bold text-slate-900">Your Business Profile Is Already Saved</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
                   Reconnect WhatsApp below to restore real-time message syncing, or jump directly to your dashboard.
                 </p>
               </div>
             </div>
 
             <button
+              type="button"
               onClick={handleSkipAll}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-colors flex-shrink-0 flex items-center gap-1.5"
+              disabled={isNavigatingToDashboard}
+              className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors flex-shrink-0 flex items-center gap-1.5 shadow-sm"
             >
-              <span>Dashboard</span>
-              <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+              {isNavigatingToDashboard ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              ) : (
+                <>
+                  <span>Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                </>
+              )}
             </button>
           </div>
         )}
@@ -524,7 +516,7 @@ function OnboardingContent() {
         {/* Step Indicator Bar */}
         <div className="w-full max-w-2xl mb-8">
           <div className="flex items-center justify-between relative px-4">
-            <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-slate-800 -translate-y-1/2 z-0" />
+            <div className="absolute top-1/2 left-8 right-8 h-0.5 bg-slate-200 -translate-y-1/2 z-0" />
             {[
               { num: 1, label: 'Profile' },
               { num: 2, label: 'WhatsApp' },
@@ -539,15 +531,15 @@ function OnboardingContent() {
                     onClick={() => setStep(s.num as any)}
                     className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-xs transition-all cursor-pointer ${
                       done
-                        ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                         : active
-                        ? 'bg-gradient-to-br from-indigo-500 to-indigo-600 text-white ring-4 ring-indigo-500/20 shadow-xl shadow-indigo-500/30 scale-105'
-                        : 'bg-slate-900 text-slate-500 border border-slate-800 hover:border-slate-700'
+                        ? 'bg-indigo-600 text-white ring-4 ring-indigo-100 shadow-lg shadow-indigo-600/30 scale-105'
+                        : 'bg-white text-slate-400 border border-slate-200 hover:border-slate-300'
                     }`}
                   >
                     {done ? <CheckIcon className="w-5 h-5" /> : s.num}
                   </div>
-                  <span className={`text-[11px] font-semibold tracking-wide ${active ? 'text-indigo-400 font-bold' : done ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <span className={`text-[11px] font-semibold tracking-wide ${active ? 'text-indigo-600 font-bold' : done ? 'text-emerald-600' : 'text-slate-400'}`}>
                     {s.label}
                   </span>
                 </div>
@@ -558,16 +550,16 @@ function OnboardingContent() {
 
         {/* ── STEP 1: Profile & Team Size ─────────────────────────────────── */}
         {step === 1 && (
-          <div className="w-full max-w-2xl bg-slate-900/90 border border-slate-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-slate-950 backdrop-blur-xl space-y-6">
+          <div className="w-full max-w-2xl bg-white/95 border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xl shadow-slate-200/50 backdrop-blur-xl space-y-6">
             <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-bold text-indigo-400 border border-indigo-500/20">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-600 border border-indigo-200/60">
                 <Sparkles className="w-3.5 h-3.5" />
                 STEP 1 OF 4 — BUSINESS PROFILE
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
                 Welcome to Zuri
               </h1>
-              <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
                 Tailor Zuri’s AI co-pilot and relationship intelligence to your business model.
               </p>
             </div>
@@ -596,62 +588,63 @@ function OnboardingContent() {
               ].map((item) => (
                 <button
                   key={item.id}
+                  type="button"
                   onClick={() => setSelectedIntent(item.id as any)}
                   className={`flex flex-col text-left p-4 rounded-2xl border transition-all relative overflow-hidden ${
                     selectedIntent === item.id
-                      ? 'bg-gradient-to-br from-indigo-950/60 to-slate-900 border-indigo-500/80 shadow-lg shadow-indigo-500/10'
-                      : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'
+                      ? 'bg-indigo-50/50 border-indigo-500/80 shadow-md ring-1 ring-indigo-500/30'
+                      : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <span className="text-2xl mb-2">{item.icon}</span>
-                  <p className="font-bold text-xs text-white">{item.title}</p>
-                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">{item.desc}</p>
+                  <p className="font-bold text-xs text-slate-900">{item.title}</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{item.desc}</p>
                 </button>
               ))}
             </div>
 
-            <div className="space-y-4 pt-2 border-t border-slate-800/80">
+            <div className="space-y-4 pt-2 border-t border-slate-100">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Company / Business Name</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Company / Business Name</label>
                   <input
                     type="text"
                     placeholder="e.g. Acme Solar Solutions"
                     value={businessName}
                     onChange={(e) => setBusinessName(e.target.value)}
-                    className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Industry</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Industry</label>
                   <input
                     type="text"
                     placeholder="e.g. Clean Energy / Professional Services"
                     value={industry}
                     onChange={(e) => setIndustry(e.target.value)}
-                    className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">What do you do or offer?</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">What do you do or offer?</label>
                 <textarea
                   rows={2}
                   placeholder="e.g. We install residential and commercial solar systems, issue quotes, and handle customer service."
                   value={businessDescription}
                   onChange={(e) => setBusinessDescription(e.target.value)}
-                  className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 resize-none"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 resize-none"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Your Role</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Your Role</label>
                   <select
                     value={identityRole}
                     onChange={(e) => setIdentityRole(e.target.value)}
-                    className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
                   >
                     <option value="business_owner">Business Owner / Founder</option>
                     <option value="sales_pro">Sales / Account Manager</option>
@@ -662,11 +655,11 @@ function OnboardingContent() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Team Size</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Team Size</label>
                   <select
                     value={teamSize}
                     onChange={(e) => setTeamSize(e.target.value as any)}
-                    className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
                   >
                     <option value="1">1 (Solo / Individual)</option>
                     <option value="2-5">2 – 5 members (Small Team)</option>
@@ -677,13 +670,21 @@ function OnboardingContent() {
               </div>
 
               {/* Step 1 Actions */}
-              <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-800/80">
+              <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={handleSkipAll}
-                  className="text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                  disabled={isNavigatingToDashboard}
+                  className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors flex items-center gap-1.5"
                 >
-                  Skip All & Go to Dashboard →
+                  {isNavigatingToDashboard ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      <span>Opening Dashboard...</span>
+                    </>
+                  ) : (
+                    <span>Skip All & Go to Dashboard →</span>
+                  )}
                 </button>
 
                 <button
@@ -693,7 +694,7 @@ function OnboardingContent() {
                     setStep(2)
                   }}
                   disabled={isSavingContext}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all active:scale-95 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50"
                 >
                   <span>{isSavingContext ? 'Saving...' : 'Next: Connect WhatsApp'}</span>
                   <ArrowRight className="w-4 h-4" />
@@ -705,82 +706,85 @@ function OnboardingContent() {
 
         {/* ── STEP 2: Connect WhatsApp ────────────────────────────────────── */}
         {step === 2 && (
-          <div className="w-full max-w-2xl bg-slate-900/90 border border-slate-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-slate-950 backdrop-blur-xl space-y-6">
+          <div className="w-full max-w-2xl bg-white/95 border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xl shadow-slate-200/50 backdrop-blur-xl space-y-6">
             <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200/60">
                 <Smartphone className="w-3.5 h-3.5" />
                 STEP 2 OF 4 — WHATSAPP PAIRING
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
                 Connect Your WhatsApp
               </h1>
-              <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
                 Pair your WhatsApp number via QR code or official phone link code.
               </p>
             </div>
 
             {/* Pairing Mode Switcher */}
-            <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 max-w-md mx-auto">
+            <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200 max-w-md mx-auto">
               <button
+                type="button"
                 onClick={() => setConnectMode('qr')}
                 className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
                   connectMode === 'qr'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <QrCode className="w-3.5 h-3.5 text-indigo-400" />
+                <QrCode className="w-3.5 h-3.5 text-indigo-600" />
                 <span>QR Code Scan</span>
               </button>
               <button
+                type="button"
                 onClick={() => setConnectMode('phone')}
                 className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
                   connectMode === 'phone'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+                <Smartphone className="w-3.5 h-3.5 text-amber-600" />
                 <span>Phone Link Code</span>
               </button>
             </div>
 
             {/* Main Pairing Display Box */}
-            <div className="flex flex-col items-center justify-center p-6 sm:p-8 rounded-2xl bg-slate-950/80 border border-slate-800/80 min-h-[260px] text-center">
+            <div className="flex flex-col items-center justify-center p-6 sm:p-8 rounded-2xl bg-slate-50 border border-slate-200/80 min-h-[260px] text-center">
               {isConnected ? (
                 <div className="space-y-4">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-600 mx-auto">
                     <CheckCircle2 className="w-8 h-8" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-emerald-400">WhatsApp Session Online!</h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Linked as <span className="text-white font-mono">{waStatus?.phone || 'Connected Phone'}</span>
+                    <h3 className="text-base font-bold text-emerald-700">WhatsApp Session Online!</h3>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Linked as <span className="text-slate-900 font-mono font-bold">{waStatus?.phone || 'Connected Phone'}</span>
                     </p>
                   </div>
                 </div>
               ) : connectMode === 'qr' ? (
                 isQrReady ? (
                   <div className="space-y-4">
-                    <div className="p-3.5 bg-white rounded-2xl shadow-xl inline-block">
+                    <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-md inline-block">
                       <img src={qrData} alt="WhatsApp Pairing QR Code" className="w-48 h-48 object-contain mx-auto" />
                     </div>
                     <div className="space-y-1">
-                      <p className="text-xs font-bold text-white">Scan with WhatsApp on your phone</p>
-                      <p className="text-[11px] text-slate-400">
+                      <p className="text-xs font-bold text-slate-900">Scan with WhatsApp on your phone</p>
+                      <p className="text-[11px] text-slate-500">
                         Open WhatsApp → Settings → Linked Devices → Link a Device
                       </p>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-4 max-w-sm">
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-600">
                       Click below to generate a real-time WhatsApp Web pairing QR code.
                     </p>
                     <button
+                      type="button"
                       onClick={() => startConnection()}
                       disabled={isConnectingPhase}
-                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 disabled:opacity-50 inline-flex items-center gap-2"
+                      className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-600/20 transition-all active:scale-95 disabled:opacity-50 inline-flex items-center gap-2"
                     >
                       {isConnectingPhase ? <RefreshCw className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
                       <span>{isConnectingPhase ? 'Initializing Session...' : 'Generate Pairing QR Code'}</span>
@@ -791,29 +795,30 @@ function OnboardingContent() {
                 <div className="space-y-4 max-w-sm w-full">
                   {isLinkCodeReady ? (
                     <div className="space-y-3">
-                      <div className="p-4 bg-slate-900 border border-amber-500/30 rounded-2xl">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Your Pairing Code</p>
-                        <p className="text-2xl font-black font-mono tracking-widest text-white mt-1">{linkCodeData}</p>
+                      <div className="p-4 bg-white border border-amber-300 rounded-2xl shadow-sm">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Your Pairing Code</p>
+                        <p className="text-2xl font-black font-mono tracking-widest text-slate-900 mt-1">{linkCodeData}</p>
                       </div>
-                      <p className="text-[11px] text-slate-400">
-                        Enter this code in WhatsApp under <strong className="text-slate-200">Linked Devices → Link with phone number</strong>
+                      <p className="text-[11px] text-slate-600">
+                        Enter this code in WhatsApp under <strong className="text-slate-900">Linked Devices → Link with phone number</strong>
                       </p>
                     </div>
                   ) : (
                     <div className="space-y-3 text-left">
-                      <label className="block text-xs font-semibold text-slate-300">Enter WhatsApp Phone Number</label>
+                      <label className="block text-xs font-semibold text-slate-700">Enter WhatsApp Phone Number</label>
                       <input
                         type="text"
                         placeholder="e.g. +263771234567 (with country code)"
                         value={phoneNumber}
                         onChange={(e) => setPhoneNumber(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
                       />
-                      {phoneError && <p className="text-xs text-rose-400">{phoneError}</p>}
+                      {phoneError && <p className="text-xs text-rose-600">{phoneError}</p>}
                       <button
+                        type="button"
                         onClick={startWithPhoneCode}
                         disabled={isConnectingPhase}
-                        className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
                       >
                         {isConnectingPhase ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
                         <span>Request Phone Pairing Code</span>
@@ -825,19 +830,27 @@ function OnboardingContent() {
             </div>
 
             {/* Step 2 Footer */}
-            <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-800/80">
+            <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-100">
               <button
                 type="button"
                 onClick={handleSkipAll}
-                className="text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                disabled={isNavigatingToDashboard}
+                className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors flex items-center gap-1.5"
               >
-                Skip All & Go to Dashboard →
+                {isNavigatingToDashboard ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                    <span>Opening Dashboard...</span>
+                  </>
+                ) : (
+                  <span>Skip All & Go to Dashboard →</span>
+                )}
               </button>
 
               <button
                 type="button"
                 onClick={() => setStep(3)}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-95"
               >
                 <span>{isConnected ? 'Next: Invite Team' : 'Skip & Continue to Team'}</span>
                 <ArrowRight className="w-4 h-4" />
@@ -848,16 +861,16 @@ function OnboardingContent() {
 
         {/* ── STEP 3: Invite Team ───────────────────────────────────────── */}
         {step === 3 && (
-          <div className="w-full max-w-2xl bg-slate-900/90 border border-slate-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-slate-950 backdrop-blur-xl space-y-6">
+          <div className="w-full max-w-2xl bg-white/95 border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xl shadow-slate-200/50 backdrop-blur-xl space-y-6">
             <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-bold text-indigo-400 border border-indigo-500/20">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-600 border border-indigo-200/60">
                 <Users className="w-3.5 h-3.5" />
                 STEP 3 OF 4 — SHARED INBOX & TEAM
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
                 Invite Your Team
               </h1>
-              <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
                 Share WhatsApp customer conversations without giving away personal phone access.
               </p>
             </div>
@@ -874,7 +887,7 @@ function OnboardingContent() {
                       next[idx].email = e.target.value
                       setInviteRows(next)
                     }}
-                    className="flex-1 bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                    className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                   />
                   <select
                     value={row.role}
@@ -883,7 +896,7 @@ function OnboardingContent() {
                       next[idx].role = e.target.value as any
                       setInviteRows(next)
                     }}
-                    className="bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-200 focus:outline-none"
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-none"
                   >
                     <option value="member">Member</option>
                     <option value="admin">Admin</option>
@@ -892,13 +905,13 @@ function OnboardingContent() {
                 </div>
               ))}
 
-              {inviteError && <p className="text-xs text-rose-400">{inviteError}</p>}
-              {inviteSuccessMsg && <p className="text-xs text-emerald-400 font-bold">{inviteSuccessMsg}</p>}
+              {inviteError && <p className="text-xs text-rose-600">{inviteError}</p>}
+              {inviteSuccessMsg && <p className="text-xs text-emerald-600 font-bold">{inviteSuccessMsg}</p>}
 
               <button
                 type="button"
                 onClick={() => setInviteRows(prev => [...prev, { email: '', role: 'member' }])}
-                className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors pt-1 block"
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors pt-1 block"
               >
                 + Add another team member
               </button>
@@ -906,9 +919,10 @@ function OnboardingContent() {
 
             <div className="pt-2">
               <button
+                type="button"
                 onClick={handleSendTeamInvites}
                 disabled={isSendingInvites}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 {isSendingInvites ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                 <span>Send Email Invitations</span>
@@ -916,19 +930,27 @@ function OnboardingContent() {
             </div>
 
             {/* Step 3 Footer */}
-            <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-800/80">
+            <div className="flex items-center justify-between gap-4 pt-4 border-t border-slate-100">
               <button
                 type="button"
                 onClick={handleSkipAll}
-                className="text-xs font-bold text-slate-400 hover:text-white transition-colors"
+                disabled={isNavigatingToDashboard}
+                className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors flex items-center gap-1.5"
               >
-                Skip All & Go to Dashboard →
+                {isNavigatingToDashboard ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                    <span>Opening Dashboard...</span>
+                  </>
+                ) : (
+                  <span>Skip All & Go to Dashboard →</span>
+                )}
               </button>
 
               <button
                 type="button"
                 onClick={() => setStep(4)}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all active:scale-95"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all active:scale-95"
               >
                 <span>Next: Verify Pipe</span>
                 <ArrowRight className="w-4 h-4" />
@@ -939,46 +961,46 @@ function OnboardingContent() {
 
         {/* ── STEP 4: Verify Pipe & Briefing ─────────────────────────────────── */}
         {step === 4 && (
-          <div className="w-full max-w-2xl bg-slate-900/90 border border-slate-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-slate-950 backdrop-blur-xl space-y-6">
+          <div className="w-full max-w-2xl bg-white/95 border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xl shadow-slate-200/50 backdrop-blur-xl space-y-6">
             <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-400 border border-emerald-500/20">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200/60">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 STEP 4 OF 4 — VERIFY & LAUNCH
               </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
                 Test Your WhatsApp Pipe
               </h1>
-              <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
                 Send a quick automated ping message to verify real-time routing.
               </p>
             </div>
 
-            <div className="space-y-4 p-5 rounded-2xl bg-slate-950/80 border border-slate-800/80">
+            <div className="space-y-4 p-5 rounded-2xl bg-slate-50 border border-slate-200/80">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Recipient Phone Number</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Recipient Phone Number</label>
                 <input
                   type="text"
                   placeholder="e.g. +263771234567"
                   value={testPhone}
                   onChange={(e) => setTestPhone(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Ping Message</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Ping Message</label>
                 <input
                   type="text"
                   value={testMessage}
                   onChange={(e) => setTestMessage(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 focus:outline-none"
                 />
               </div>
 
-              {testError && <p className="text-xs text-rose-400">{testError}</p>}
+              {testError && <p className="text-xs text-rose-600">{testError}</p>}
               {pipeVerified && (
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-400 font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
+                <div className="p-3 bg-emerald-100 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span>Test ping delivered successfully! Your WhatsApp OS is active.</span>
                 </div>
               )}
@@ -987,7 +1009,7 @@ function OnboardingContent() {
                 type="button"
                 onClick={handleTestPipe}
                 disabled={isTestingPipe}
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 {isTestingPipe ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 <span>Send Test Ping Message</span>
@@ -999,9 +1021,17 @@ function OnboardingContent() {
               <button
                 type="button"
                 onClick={handleCompleteOnboarding}
-                className="w-full py-4 bg-gradient-to-r from-amber-400 via-amber-500 to-indigo-500 hover:brightness-110 text-slate-950 font-black text-sm uppercase tracking-wider rounded-2xl shadow-xl shadow-amber-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                disabled={isNavigatingToDashboard}
+                className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-sm uppercase tracking-wider rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
               >
-                <span>🚀 Complete Setup & Open Zuri Inbox</span>
+                {isNavigatingToDashboard ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Opening Zuri Inbox...</span>
+                  </>
+                ) : (
+                  <span>🚀 Complete Setup & Open Zuri Inbox</span>
+                )}
               </button>
             </div>
           </div>
@@ -1010,40 +1040,56 @@ function OnboardingContent() {
 
       {/* Skip Modal */}
       {skipModalStep !== null && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="relative w-full max-w-md rounded-3xl bg-slate-900 border border-slate-800 p-6 shadow-2xl text-white space-y-5">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
+          <div className="relative w-full max-w-md rounded-3xl bg-white border border-slate-200 p-6 shadow-2xl text-slate-900 space-y-5">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+              <div className="w-10 h-10 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700">
                 <AlertCircle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold">Skip Onboarding?</h3>
-                <p className="text-xs text-slate-400">Choose how you want to proceed</p>
+                <h3 className="text-base font-bold text-slate-900">Skip Onboarding?</h3>
+                <p className="text-xs text-slate-500">Choose how you want to proceed</p>
               </div>
             </div>
 
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-600 leading-relaxed">
               You can return to set up your business details or WhatsApp pairing at any time in Settings.
             </p>
 
             <div className="space-y-2.5 pt-2">
               <button
+                type="button"
                 onClick={handleSkipAll}
-                className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-extrabold text-xs rounded-xl shadow-md"
+                disabled={isNavigatingToDashboard}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center gap-2"
               >
-                Skip All & Open Dashboard Immediately →
+                {isNavigatingToDashboard ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>Opening Dashboard...</span>
+                  </>
+                ) : (
+                  <span>Skip All & Open Dashboard Immediately →</span>
+                )}
               </button>
 
               <button
+                type="button"
                 onClick={() => executeSkip(skipModalStep)}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl border border-slate-700"
+                disabled={isSkippingStep}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl border border-slate-200 flex items-center justify-center gap-2"
               >
-                Skip Only Step {skipModalStep}
+                {isSkippingStep ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                ) : (
+                  <span>Skip Only Step {skipModalStep}</span>
+                )}
               </button>
 
               <button
+                type="button"
                 onClick={() => setSkipModalStep(null)}
-                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-300"
+                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
               >
                 Cancel & Continue Setup
               </button>
@@ -1058,7 +1104,7 @@ function OnboardingContent() {
 export default function OnboardingPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white text-xs font-bold">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-700 text-xs font-bold">
         Loading Zuri Onboarding...
       </div>
     }>
