@@ -239,7 +239,7 @@ export default function RelationshipsPage() {
             title="No contacts yet"
             description="Connect WhatsApp and exchange messages — relationship scores appear here automatically."
             action={
-              <a href="/onboarding" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
+              <a href="/onboarding?reconnect=true" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
                 Connect WhatsApp
               </a>
             }

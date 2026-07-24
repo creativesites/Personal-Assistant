@@ -1136,8 +1136,24 @@ export default function KnowledgeBasePage() {
                   onChange={e => setNewFactCategory(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl p-2.5 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {['pricing', 'policies', 'products', 'services', 'procedures', 'general'].map(c => (
-                    <option key={c} value={c}>{c.toUpperCase()}</option>
+                  {[
+                    { value: 'pricing', label: 'PRICING' },
+                    { value: 'product', label: 'PRODUCTS & SERVICES' },
+                    { value: 'refund_policy', label: 'REFUND & RETURN POLICY' },
+                    { value: 'business_rule', label: 'BUSINESS RULES & PROCEDURES' },
+                    { value: 'shipping', label: 'SHIPPING & DELIVERY' },
+                    { value: 'hours', label: 'BUSINESS HOURS' },
+                    { value: 'inventory', label: 'INVENTORY' },
+                    { value: 'promotion', label: 'PROMOTION' },
+                    { value: 'supplier', label: 'SUPPLIER' },
+                    { value: 'tax', label: 'TAX' },
+                    { value: 'bank_details', label: 'BANK DETAILS' },
+                    { value: 'brand_voice', label: 'BRAND VOICE' },
+                    { value: 'objection', label: 'OBJECTION HANDLING' },
+                    { value: 'faq', label: 'FAQ' },
+                    { value: 'other', label: 'GENERAL / OTHER' },
+                  ].map(item => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
                   ))}
                 </select>
               </div>

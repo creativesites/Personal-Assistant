@@ -1187,4 +1187,113 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
     return reply.send({ message, conversation });
   });
+
+  // ── POST /api/conversations/simulate-test-message ───────────────────────
+
+  fastify.post('/api/conversations/simulate-test-message', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const scope = await getEffectiveScope(userId);
+
+    const now = new Date();
+    const testPhone = '+260970001234';
+    const testJid = '260970001234@s.whatsapp.net';
+
+    // 1. Find or create test contact
+    let { rows: [contact] } = await db.query<{ id: string }>(
+      `SELECT id FROM contacts WHERE (user_id = $1 OR ($2::uuid IS NOT NULL AND organization_id = $2::uuid)) AND whatsapp_jid = $3 LIMIT 1`,
+      [userId, scope.organizationId, testJid],
+    );
+
+    if (!contact) {
+      const { rows: [newContact] } = await db.query<{ id: string }>(
+        `INSERT INTO contacts (user_id, organization_id, whatsapp_jid, phone_number, display_name, custom_name, importance_tier)
+         VALUES ($1, $2, $3, $4, $5, $6, 1)
+         RETURNING id`,
+        [userId, scope.organizationId, testJid, testPhone, 'Acme Solar Client (Test Customer)', 'Acme Solar Client (Test Customer)'],
+      );
+      contact = newContact;
+
+      // Seed initial relationship record
+      await db.query(
+        `INSERT INTO relationships (user_id, contact_id, relationship_type, health_score, importance_tier)
+         VALUES ($1, $2, 'client', 85, 1)
+         ON CONFLICT DO NOTHING`,
+        [userId, contact.id],
+      );
+    }
+
+    // 2. Find or create conversation
+    let { rows: [conv] } = await db.query<{ id: string }>(
+      `SELECT id FROM conversations WHERE contact_id = $1 AND (user_id = $2 OR ($3::uuid IS NOT NULL AND organization_id = $3::uuid)) LIMIT 1`,
+      [contact.id, userId, scope.organizationId],
+    );
+
+    const sampleBody = "Hi Zuri team! I'm interested in your commercial solar installation packages. Can you send a quote?";
+
+    if (!conv) {
+      const { rows: [newConv] } = await db.query<{ id: string }>(
+        `INSERT INTO conversations (user_id, organization_id, contact_id, whatsapp_jid, unread_count, last_message_at, last_message_preview)
+         VALUES ($1, $2, $3, $4, 1, $5, $6)
+         RETURNING id`,
+        [
+          userId,
+          scope.organizationId,
+          contact.id,
+          testJid,
+          now,
+          sampleBody,
+        ],
+      );
+      conv = newConv;
+    } else {
+      await db.query(
+        `UPDATE conversations
+         SET unread_count = unread_count + 1, last_message_at = $1, last_message_preview = $2, is_archived = false
+         WHERE id = $3`,
+        [
+          now,
+          sampleBody,
+          conv.id,
+        ],
+      );
+    }
+
+    // 3. Insert incoming test message
+    const testMsgId = `test-msg-${crypto.randomUUID()}`;
+
+    const { rows: [msg] } = await db.query<{ id: string }>(
+      `INSERT INTO messages (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp)
+       VALUES ($1, $2, 'contact', 'text', $3, $4)
+       RETURNING id`,
+      [conv.id, testMsgId, sampleBody, now],
+    );
+
+    // 4. Insert immediate AI reply suggestions for instantaneous testing
+    const sug1 = "Hi! Thank you for contacting us! Yes, we offer comprehensive commercial solar packages including 10kVA and 20kVA systems. Would you like me to prepare an official quotation or arrange a free site inspection?";
+    const sug2 = "Good day! We would be delighted to assist with your commercial solar installation. Our standard turnaround is 3–5 days with a full 5-year warranty. Should I issue a quotation draft now?";
+
+    await db.query(
+      `INSERT INTO suggested_replies (conversation_id, message_id, suggested_text, tone, reasoning, is_used)
+       VALUES ($1, $2, $3, 'friendly', 'Direct response confirming commercial solar packages & offering quote.', false),
+              ($1, $2, $4, 'professional', 'Professional response emphasizing 3-5 day turnaround & warranty.', false)`,
+      [conv.id, msg.id, sug1, sug2],
+    );
+
+    // 5. Emit real-time Socket.io events
+    const conversation = await getInboxConversation(userId, conv.id);
+    if (conversation) {
+      await publishInboxEvent(userId, 'conversation:upsert', { conversation });
+    }
+    await publishInboxEvent(userId, 'message:new', {
+      messageId: msg.id,
+      conversationId: conv.id,
+      contactId: contact.id,
+      senderType: 'contact',
+      messageType: 'text',
+      body: sampleBody,
+      timestamp: now.toISOString(),
+    });
+
+    return reply.send({ ok: true, conversationId: conv.id, messageId: msg.id });
+  });
 }

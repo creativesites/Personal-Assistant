@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   MessageSquare,
   Inbox,
@@ -244,12 +245,43 @@ export default function DashboardPage() {
   const [briefDismissed, setBriefDismissed] = useState(false)
   const [dismissedBriefItems, setDismissedBriefItems] = useState<string[]>([])
 
+  const router = useRouter()
+  const [isSimulating, setIsSimulating] = useState(false)
   const [hasProfile, setHasProfile] = useState(false)
   const [hasFacts, setHasFacts] = useState(false)
   const [hasAutoResponse, setHasAutoResponse] = useState(false)
   const [checklistCollapsed, setChecklistCollapsed] = useState(false)
 
   const waStatus = useWAStatus(token)
+
+  const handleSimulateTestMessage = async () => {
+    if (!token) return
+    setIsSimulating(true)
+    try {
+      const res = await apiClient<{ ok: boolean; conversationId: string }>('/api/conversations/simulate-test-message', {
+        method: 'POST',
+        token,
+      })
+      if (res.ok) {
+        addToast({
+          variant: 'success',
+          title: 'Test Customer Message Created! 🚀',
+          description: 'Simulated WhatsApp customer inquiry received. Opening Shared Inbox...',
+        })
+        setTimeout(() => {
+          router.push(`/inbox?id=${res.conversationId}`)
+        }, 1000)
+      }
+    } catch (err) {
+      addToast({
+        variant: 'error',
+        title: 'Simulation failed',
+        description: err instanceof ApiError ? err.message : 'Please try again.',
+      })
+    } finally {
+      setIsSimulating(false)
+    }
+  }
 
   useEffect(() => {
     if (!token) return
@@ -530,6 +562,25 @@ export default function DashboardPage() {
                     style={{ width: `${Math.max(progressPct, 5)}%` }}
                   />
                 </div>
+
+                {/* 1-Click Test Customer Message Simulation Bar */}
+                <div className="mt-4 p-3.5 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 text-left">
+                    <span className="text-xl">🧪</span>
+                    <div>
+                      <h3 className="text-xs font-bold text-white">Want to test Zuri right now without waiting?</h3>
+                      <p className="text-[11px] text-indigo-100 mt-0.5">Send a simulated incoming customer WhatsApp inquiry to test live AI suggestions & team inbox routing.</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSimulateTestMessage}
+                    disabled={isSimulating}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-emerald-400 to-teal-300 text-slate-950 font-bold text-xs rounded-xl hover:from-emerald-300 hover:to-teal-200 transition-all shadow-md flex items-center justify-center gap-1.5 flex-shrink-0 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSimulating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 fill-slate-950" />}
+                    <span>{isSimulating ? 'Creating test message...' : 'Simulate Test Customer Message ⚡'}</span>
+                  </button>
+                </div>
               </div>
 
               {!checklistCollapsed && (
@@ -558,7 +609,7 @@ export default function DashboardPage() {
                     </p>
                     <div className="mt-3 pt-2 border-t border-gray-100/60 flex justify-end">
                       <Link
-                        href="/onboarding"
+                        href="/onboarding?reconnect=true"
                         className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl transition-all ${
                           step1Done
                             ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
@@ -974,7 +1025,7 @@ export default function DashboardPage() {
                 </p>
                 {!step1Done && (
                   <Link
-                    href="/onboarding"
+                    href="/onboarding?reconnect=true"
                     className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-sm shadow-indigo-500/20"
                   >
                     <Smartphone size={15} />

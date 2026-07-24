@@ -49,86 +49,64 @@ interface NavGroup {
   items: NavItem[]
 }
 
-// Nav IA — reorganised from ~25 flat items into 7 jobs-to-be-done hubs
-// (Home/Conversations/CRM/AI/Personal/Marketing, plus the Settings hub in
-// FOOTER_NAV below) rather than grouping by how the product was built.
-// Broadcasts and Team Inbox are intentionally not listed anywhere below —
-// the app isn't shipping with that functionality initially; the route
-// files themselves are untouched, only the nav entries are removed.
+// Nav IA — Restructured into 4 Primary Hubs: Inbox, Customers, Operations, Workspace
 const NAV_GROUPS: NavGroup[] = [
   {
-    key: 'home',
-    label: 'Home',
-    icon: LayoutDashboard,
-    items: [
-      { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
-      { href: '/notifications', label: 'Notifications', icon: Bell },
-    ],
-  },
-  {
-    key: 'marketing',
-    label: 'Business Hub',
-    icon: Send,
-    showForModes: ['business', 'hybrid'],
-    items: [
-      { href: '/organization', label: ' Organization & Teams ', icon: Building2 },
-      { href: '/knowledge-base', label: ' Knowledge Base & AI Training ', icon: BookOpen },
-      { href: '/studio', label: ' Marketing & Products ', icon: Send },
-      { href: '/business', label: ' Invoices & Documents ', icon: FileText },
-    ],
-  },
-  {
-    key: 'conversations',
-    label: 'Conversations',
+    key: 'inbox_hub',
+    label: '💬 Inbox Hub',
     icon: MessageSquare,
     items: [
-      { href: '/inbox',       label: 'Inbox',        icon: MessageSquare, badge: true },
-      { href: '/inbox/queue', label: 'AI Queue',     icon: Zap,           showForModes: ['business', 'hybrid'] },
-      { href: '/escalations', label: 'Escalations',  icon: AlertTriangle, badge: true, showForModes: ['business', 'hybrid'] },
+      { href: '/dashboard',     label: 'Dashboard',             icon: LayoutDashboard },
+      { href: '/inbox',         label: 'Shared Inbox',          icon: MessageSquare, badge: true },
+      { href: '/inbox/queue',   label: 'AI Reply Queue',        icon: Zap, showForModes: ['business', 'hybrid'] },
+      { href: '/proactive',     label: 'Proactive Nudges',      icon: Sparkles },
+      { href: '/broadcasts',    label: 'WhatsApp Broadcasts',   icon: Send, showForModes: ['business', 'hybrid'] },
+      { href: '/advisor',        label: 'AI Advisor',            icon: Brain },
+      { href: '/notifications', label: 'Notifications',         icon: Bell },
     ],
   },
   {
-    key: 'crm',
-    label: 'CRM',
+    key: 'customers_hub',
+    label: '👥 Customers Hub',
     icon: Users,
-    showForModes: ['business', 'hybrid'],
     items: [
-      { href: '/contacts', label: 'Contacts',      icon: Users },
-      { href: '/leads',    label: 'Leads',         icon: Flame },
-      { href: '/projects', label: 'Projects',      icon: FolderKanban },
-      { href: '/business', label: 'Invoices & Docs', icon: FileText },
-      { href: '/feed',     label: 'Activity Feed', icon: Rss },
+      { href: '/contacts',      label: 'Contacts CRM',          icon: Users },
+      { href: '/leads',         label: 'Sales Leads',           icon: Flame, showForModes: ['business', 'hybrid'] },
+      { href: '/relationships', label: 'Relationships',         icon: HeartPulse, showForModes: ['personal', 'hybrid'] },
+      { href: '/goals',         label: 'Goals',                 icon: Target },
+      { href: '/timeline',      label: 'Business & Life Timeline', icon: History },
+      { href: '/feed',          label: 'Activity Feed',         icon: Rss, showForModes: ['business', 'hybrid'] },
     ],
   },
   {
-    key: 'ai',
-    label: 'AI',
-    icon: Brain,
+    key: 'operations_hub',
+    label: '📄 Operations Hub',
+    icon: FileText,
     items: [
-      { href: '/advisor',        label: 'AI Advisor',                  icon: Brain },
-      { href: '/knowledge-base', label: 'Knowledge Base & AI Training', icon: BookOpen,   showForModes: ['business', 'hybrid'] },
-      { href: '/proactive',      label: 'Proactive Nudges',           icon: Sparkles },
-      { href: '/automation',     label: 'Autonomous Agents',          icon: Bot,        showForModes: ['business', 'hybrid'] },
-      { href: '/analytics',      label: 'Intelligence',                icon: TrendingUp, showForModes: ['business', 'hybrid'] },
+      { href: '/business',      label: 'Business ERP & Quotes', icon: FileText, showForModes: ['business', 'hybrid'] },
+      { href: '/studio',        label: 'Brand Studio & Catalog', icon: FolderKanban, showForModes: ['business', 'hybrid'] },
+      { href: '/documents',     label: 'Documents & Signatures', icon: FileText, showForModes: ['business', 'hybrid'] },
+      { href: '/knowledge-base', label: 'Knowledge Brain',      icon: BookOpen },
+      { href: '/agents',        label: 'Autonomous Workforce',   icon: Bot, showForModes: ['business', 'hybrid'] },
+      { href: '/escalations',   label: 'Agent Escalations',     icon: AlertTriangle, badge: true, showForModes: ['business', 'hybrid'] },
+      { href: '/career',        label: 'Career OS & CV Studio', icon: Briefcase },
+      { href: '/analytics',     label: 'BI Analytics & Reports', icon: TrendingUp, showForModes: ['business', 'hybrid'] },
+      { href: '/calendar',      label: 'Calendar',              icon: Calendar },
     ],
   },
   {
-    key: 'personal',
-    label: 'Personal',
-    icon: HeartPulse,
+    key: 'workspace_hub',
+    label: '⚙️ Workspace Hub',
+    icon: Building2,
     items: [
-      { href: '/relationships', label: 'Relationships', icon: HeartPulse, showForModes: ['personal', 'hybrid'] },
-      { href: '/goals',         label: 'Goals',         icon: Target },
-      { href: '/career',        label: 'Career',        icon: Briefcase },
-      { href: '/calendar',      label: 'Calendar',      icon: Calendar },
-      { href: '/timeline',      label: 'Life Timeline', icon: History },
+      { href: '/organization',  label: 'Organization & Team',   icon: Building2, showForModes: ['business', 'hybrid'] },
+      { href: '/billing',       label: 'Billing & Plans',       icon: CreditCard },
+      { href: '/settings',      label: 'Settings & BYOK',       icon: Settings },
+      { href: '/diagnostics',   label: 'System Diagnostics',    icon: Wrench, muted: true },
     ],
   },
-  
 ]
 
-// Settings hub — kept as the existing compact, pinned footer rather than a
-// collapsible group, since it's always exactly 4 items and never mode-gated.
 const FOOTER_NAV: NavItem[] = [
   { href: '/billing',     label: 'Billing',     icon: CreditCard },
   { href: '/settings',    label: 'Settings',    icon: Settings },

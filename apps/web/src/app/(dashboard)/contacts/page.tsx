@@ -885,7 +885,7 @@ export default function ContactsPage() {
                 title="No contacts yet"
                 description="Connect WhatsApp and start chatting — contacts appear automatically."
                 action={
-                  <a href="/onboarding" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm">
+                  <a href="/onboarding?reconnect=true" className="inline-flex items-center px-5 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors shadow-sm">
                     Connect WhatsApp
                   </a>
                 }

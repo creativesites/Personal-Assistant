@@ -10,14 +10,23 @@ const CATEGORIES = [
   'pricing_benchmark', 'business_rule',
 ] as const
 
+const mapCategory = (val: unknown): unknown => {
+  if (typeof val !== 'string') return val
+  const lowered = val.toLowerCase().trim()
+  if (lowered === 'policies' || lowered === 'procedures') return 'business_rule'
+  if (lowered === 'products' || lowered === 'services') return 'product'
+  if (lowered === 'general') return 'other'
+  return lowered
+}
+
 const createBody = z.object({
-  category: z.enum(CATEGORIES).default('other'),
+  category: z.preprocess(mapCategory, z.enum(CATEGORIES).default('other')),
   factKey: z.string().min(1).max(255),
   factValue: z.string().min(1),
 })
 
 const patchBody = z.object({
-  category: z.enum(CATEGORIES).optional(),
+  category: z.preprocess(mapCategory, z.enum(CATEGORIES).optional()),
   factValue: z.string().min(1).optional(),
 })
 

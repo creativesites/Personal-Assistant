@@ -44,6 +44,15 @@ const addNoteBody = z.object({
   tags: z.array(z.string()).optional(),
 })
 
+const postDocumentBody = z.object({
+  title: z.string().min(1).max(255),
+  rawContent: z.string().min(1).optional(),
+  content: z.string().optional(),
+  sourceType: z.string().default('text'),
+  category: z.string().max(100).optional(),
+  tags: z.array(z.string()).optional(),
+})
+
 const patchDocumentBody = z.object({
   title: z.string().min(1).max(255).optional(),
   category: z.string().max(100).optional(),
@@ -66,86 +75,85 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── GET /api/knowledge ──────────────────────────────────────────────────────
 
-  fastify.get(
-    '/api/knowledge',
-    { preHandler: authenticate },
-    async (request, reply) => {
-      const { userId } = request.user as { userId: string }
-      const query = request.query as Record<string, string>
+  const getKnowledgeHandler = async (request: any, reply: any) => {
+    const { userId } = request.user as { userId: string }
+    const query = request.query as Record<string, string>
 
-      const filters: string[] = ['user_id = $1']
-      const params: unknown[] = [userId]
-      let idx = 2
+    const filters: string[] = ['user_id = $1']
+    const params: unknown[] = [userId]
+    let idx = 2
 
-      if (query.category) {
-        filters.push(`category = $${idx++}`)
-        params.push(query.category)
-      }
+    if (query.category) {
+      filters.push(`category = $${idx++}`)
+      params.push(query.category)
+    }
 
-      if (query.tag) {
-        filters.push(`$${idx++} = ANY(tags)`)
-        params.push(query.tag)
-      }
+    if (query.tag) {
+      filters.push(`$${idx++} = ANY(tags)`)
+      params.push(query.tag)
+    }
 
-      if (query.search) {
-        filters.push(`(title ILIKE $${idx} OR summary ILIKE $${idx})`)
-        params.push(`%${query.search}%`)
-        idx++
-      }
+    if (query.search) {
+      filters.push(`(title ILIKE $${idx} OR summary ILIKE $${idx})`)
+      params.push(`%${query.search}%`)
+      idx++
+    }
 
-      if (query.status) {
-        filters.push(`status = $${idx++}`)
-        params.push(query.status)
-      }
+    if (query.status) {
+      filters.push(`status = $${idx++}`)
+      params.push(query.status)
+    }
 
-      const sql = `
-        SELECT id, title, source_type, category, tags, status,
-               chunk_count, word_count, file_size_bytes, used_count,
-               last_used_at, summary, error_message, created_at, updated_at
-        FROM kb_documents
-        WHERE ${filters.join(' AND ')}
-        ORDER BY created_at DESC
-      `
+    const sql = `
+      SELECT id, title, source_type, category, tags, status,
+             chunk_count, word_count, file_size_bytes, used_count,
+             last_used_at, summary, error_message, created_at, updated_at
+      FROM kb_documents
+      WHERE ${filters.join(' AND ')}
+      ORDER BY created_at DESC
+    `
 
-      const { rows } = await db.query<{
-        id: string
-        title: string
-        source_type: string
-        category: string | null
-        tags: string[] | null
-        status: string
-        chunk_count: number | null
-        word_count: number | null
-        file_size_bytes: number | null
-        used_count: number | null
-        last_used_at: string | null
-        summary: string | null
-        error_message: string | null
-        created_at: string
-        updated_at: string
-      }>(sql, params)
+    const { rows } = await db.query<{
+      id: string
+      title: string
+      source_type: string
+      category: string | null
+      tags: string[] | null
+      status: string
+      chunk_count: number | null
+      word_count: number | null
+      file_size_bytes: number | null
+      used_count: number | null
+      last_used_at: string | null
+      summary: string | null
+      error_message: string | null
+      created_at: string
+      updated_at: string
+    }>(sql, params)
 
-      return reply.send({
-        documents: rows.map((d) => ({
-          id: d.id,
-          title: d.title,
-          sourceType: d.source_type,
-          category: d.category,
-          tags: d.tags ?? [],
-          status: d.status,
-          chunkCount: d.chunk_count ?? 0,
-          wordCount: d.word_count ?? 0,
-          fileSizeBytes: d.file_size_bytes,
-          usedCount: d.used_count ?? 0,
-          lastUsedAt: d.last_used_at,
-          summary: d.summary,
-          errorMessage: d.error_message,
-          createdAt: d.created_at,
-          updatedAt: d.updated_at,
-        })),
-      })
-    },
-  )
+    return reply.send({
+      documents: rows.map((d) => ({
+        id: d.id,
+        title: d.title,
+        sourceType: d.source_type,
+        category: d.category,
+        tags: d.tags ?? [],
+        status: d.status,
+        chunkCount: d.chunk_count ?? 0,
+        wordCount: d.word_count ?? 0,
+        fileSizeBytes: d.file_size_bytes,
+        usedCount: d.used_count ?? 0,
+        lastUsedAt: d.last_used_at,
+        summary: d.summary,
+        errorMessage: d.error_message,
+        createdAt: d.created_at,
+        updatedAt: d.updated_at,
+      })),
+    })
+  }
+
+  fastify.get('/api/knowledge', { preHandler: authenticate }, getKnowledgeHandler)
+  fastify.get('/api/knowledge/documents', { preHandler: authenticate }, getKnowledgeHandler)
 
   // ── GET /api/knowledge/stats ────────────────────────────────────────────────
 
@@ -275,6 +283,11 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
 
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.code(400).send({ error: 'Invalid UUID format for document ID' })
+      }
+
       const { rows: [doc] } = await db.query<{
         id: string
         title: string
@@ -336,6 +349,11 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.code(400).send({ error: 'Invalid UUID format for document ID' })
+      }
 
       let body: z.infer<typeof patchDocumentBody>
       try {
@@ -411,6 +429,11 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.code(400).send({ error: 'Invalid UUID format for document ID' })
+      }
 
       const { rows: [existing] } = await db.query<{ id: string }>(
         'SELECT id FROM kb_documents WHERE id = $1 AND user_id = $2',
@@ -489,6 +512,50 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
           userId,
           body.title,
           body.content,
+          body.category ?? null,
+          body.tags ?? [],
+          wordCount,
+        ],
+      )
+
+      try {
+        await getKbQueue().add('kb.process_document', { documentId: doc.id, userId })
+      } catch {
+        // Queue unavailable — document saved, processing will retry
+      }
+
+      return reply.code(201).send({ id: doc.id, createdAt: doc.created_at })
+    },
+  )
+
+  // ── POST /api/knowledge/documents ───────────────────────────────────────────
+
+  fastify.post(
+    '/api/knowledge/documents',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      let body: z.infer<typeof postDocumentBody>
+      try {
+        body = postDocumentBody.parse(request.body)
+      } catch (err: any) {
+        return reply.code(400).send({ error: 'Invalid body', detail: err.message })
+      }
+
+      const contentText = body.rawContent || body.content || ''
+      const wordCount = contentText.split(/\s+/).filter(Boolean).length
+
+      const { rows: [doc] } = await db.query<{ id: string; created_at: string }>(
+        `INSERT INTO kb_documents
+           (user_id, title, source_type, raw_content, category, tags, word_count, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing')
+         RETURNING id, created_at`,
+        [
+          userId,
+          body.title,
+          body.sourceType,
+          contentText,
           body.category ?? null,
           body.tags ?? [],
           wordCount,
@@ -625,6 +692,11 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.code(400).send({ error: 'Invalid UUID format for document ID' })
+      }
 
       const { rows: [existing] } = await db.query<{ id: string }>(
         'SELECT id FROM kb_documents WHERE id = $1 AND user_id = $2',
@@ -1073,6 +1145,11 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
 
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.code(400).send({ error: 'Invalid UUID format for document ID' })
+      }
+
       const { rows } = await db.query<{
         id: string
         chunk_index: number
@@ -1106,6 +1183,11 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
       const { id } = request.params as { id: string }
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(id)) {
+        return reply.code(400).send({ error: 'Invalid UUID format for chunk ID' })
+      }
 
       const body = request.body as { content?: string }
       if (!body.content || !body.content.trim()) {
