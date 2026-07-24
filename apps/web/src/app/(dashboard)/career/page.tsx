@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { Briefcase, Plus, Loader2, Target, Radar, Search } from 'lucide-react'
+import { Briefcase, Plus, Loader2, Target, Radar, Search, FileText } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, EmptyState, Input, Modal, SkeletonCard, useToast } from '@/components/ui'
@@ -396,21 +396,28 @@ function CareerPageInner() {
               </p>
             </div>
           </div>
-          <div className="relative mt-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowProfileEdit(!showProfileEdit)}
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-indigo-600 text-white px-4.5 py-2.5 text-sm font-bold shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 active:bg-indigo-700 min-h-[44px] transition-all"
-            >
-              <Target className="w-4 h-4" />
-              Update Job Preferences
-            </button>
-            <Link
-              href="/career/cv-studio"
-              className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-950 text-white px-4.5 py-2.5 text-sm font-bold shadow-lg shadow-slate-900/15 hover:bg-slate-800 min-h-[44px]"
-            >
-              CV Studio
-            </Link>
-          </div>
+          <div className="relative mt-4 flex flex-wrap gap-3">
+  {/* Primary — Update Job Preferences */}
+  <button
+    onClick={() => setShowProfileEdit(!showProfileEdit)}
+    className="group relative inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/30 hover:bg-indigo-500 active:translate-y-0 active:scale-[0.98] active:shadow-sm overflow-hidden min-h-[44px]"
+  >
+    {/* Shine sweep on hover */}
+    <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+    <Target className="w-4 h-4 transition-transform duration-200 group-hover:rotate-12" />
+    <span className="relative">Update Job Preferences</span>
+  </button>
+
+  {/* Secondary — CV Studio */}
+  <Link
+    href="/career/cv-studio"
+    className="group relative inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/15 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-900/25 hover:bg-slate-800 active:translate-y-0 active:scale-[0.98] active:shadow-sm overflow-hidden min-h-[44px]"
+  >
+    <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/8 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+    <FileText className="w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
+    <span className="relative">CV Studio</span>
+  </Link>
+</div>
         </div>
 
         {profile && (profile.targetRoles?.length > 0 || profile.remotePreference) && (

@@ -467,6 +467,8 @@ export default function ContactsPage() {
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [showAddContact, setShowAddContact] = useState(false)
   const [showAddTag, setShowAddTag] = useState(false)
+  const [showImportCsv, setShowImportCsv] = useState(false)
+  const [bulkUpdating, setBulkUpdating] = useState(false)
 
   const { data, loading, error, refetch } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
   const contacts = data?.contacts ?? []
@@ -635,9 +637,6 @@ export default function ContactsPage() {
       </div>
     )
   }
-
-  const [showImportCsv, setShowImportCsv] = useState(false)
-  const [bulkUpdating, setBulkUpdating] = useState(false)
 
   const handleBulkStageChange = async (newStage: string) => {
     if (!token || selected.size === 0 || !newStage) return

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { ArrowLeft, Loader2, Eye, Target, Wand2, Layers, History, Globe } from 'lucide-react'
+import { ArrowLeft, Loader2, Eye, Target, Wand2, Layers, History, Globe, FileText, MessageSquare } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { useCareerProfile } from '../../../_components/cv-studio/use-career-profile'
@@ -15,6 +15,8 @@ import { AtsMatchEngine } from '../../../_components/cv-studio/ats-match-engine'
 import { BulletTransformer } from '../../../_components/cv-studio/bullet-transformer'
 import { TemplateToolbar, type CvTemplateKey, type CvDensityMode } from '../../../_components/cv-studio/template-toolbar'
 import { PortfolioStudioPanel } from '../../../_components/portfolio-studio-panel'
+import { CoverLetterGenerator } from '../../../_components/cv-studio/cover-letter-generator'
+import { InterviewCoach } from '../../../_components/cv-studio/interview-coach'
 import type { ProjectLink } from '../../../_components/cv-studio/projects-step'
 
 const CvPdfPreviewModal = dynamic(() => import('@/components/documents/CvPdfPreviewModal'), { ssr: false })
@@ -32,7 +34,7 @@ export default function CvStudioEditorPage() {
   const [detail, setDetail] = useState<CvDetailResponse | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [showPdfPreview, setShowPdfPreview] = useState(false)
-  const [activeTab, setActiveTab] = useState<'ats' | 'bullet' | 'layout' | 'history' | 'portfolio'>('ats')
+  const [activeTab, setActiveTab] = useState<'ats' | 'bullet' | 'layout' | 'portfolio' | 'cover_letter' | 'interview' | 'history'>('ats')
 
   // Pillar 2 Template & Density State
   const [templateKey, setTemplateKey] = useState<CvTemplateKey>('modern')
@@ -91,9 +93,11 @@ export default function CvStudioEditorPage() {
             <div className="flex rounded-2xl bg-white border border-slate-200 p-1 shadow-sm overflow-x-auto">
               {[
                 { id: 'ats', label: 'ATS Match', icon: Target },
-                { id: 'bullet', label: 'Bullet Rewrite', icon: Wand2 },
+                { id: 'bullet', label: 'Bullets', icon: Wand2 },
                 { id: 'layout', label: 'Layout', icon: Layers },
-                { id: 'portfolio', label: 'Web Portfolio', icon: Globe },
+                { id: 'portfolio', label: 'Portfolio', icon: Globe },
+                { id: 'cover_letter', label: 'Cover Letter', icon: FileText },
+                { id: 'interview', label: 'AI Interview', icon: MessageSquare },
                 { id: 'history', label: 'History', icon: History },
               ].map((t) => {
                 const Icon = t.icon
@@ -103,7 +107,7 @@ export default function CvStudioEditorPage() {
                     key={t.id}
                     type="button"
                     onClick={() => setActiveTab(t.id as any)}
-                    className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap px-2 ${
+                    className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap px-2.5 ${
                       active
                         ? 'bg-slate-900 text-white shadow-md'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -141,6 +145,14 @@ export default function CvStudioEditorPage() {
 
             {activeTab === 'portfolio' && (
               <PortfolioStudioPanel token={token} />
+            )}
+
+            {activeTab === 'cover_letter' && (
+              <CoverLetterGenerator token={token} />
+            )}
+
+            {activeTab === 'interview' && (
+              <InterviewCoach token={token} />
             )}
 
             {activeTab === 'history' && (
