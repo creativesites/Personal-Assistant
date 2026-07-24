@@ -633,7 +633,7 @@ function QuotedMessage({
             Jump →
           </span>
         </div>
-        <p className="text-xs text-slate-950 dark:text-slate-50 font-semibold truncate leading-snug">
+        <p className="text-xs text-slate-950 font-semibold truncate leading-snug">
           {bodyText}
         </p>
       </div>
