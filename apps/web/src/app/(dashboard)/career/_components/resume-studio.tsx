@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { FileText, Sparkles, Upload, Loader2, ExternalLink, Radar as RadarIcon } from 'lucide-react'
+import { FileText, Sparkles, Upload, Loader2, ExternalLink, Radar as RadarIcon, MessageSquare, Inbox, Mail, Phone, Building, Clock, Copy } from 'lucide-react'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, Modal, Textarea, useToast } from '@/components/ui'
 
@@ -41,10 +41,25 @@ function pdfUrl(documentId: string, token: string) {
   return `${API_URL}/api/documents/${documentId}/pdf?token=${encodeURIComponent(token)}`
 }
 
+interface PortfolioInquiry {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  company?: string
+  topic?: string
+  message: string
+  createdAt: string
+  status: 'unread' | 'read'
+}
+
 export function ResumeStudio({ token, opportunities }: { token: string; opportunities: OpportunityOption[] }) {
   const { addToast } = useToast()
   const [documents, setDocuments] = useState<CareerDocument[]>([])
   const [loading, setLoading] = useState(true)
+
+  const [inquiries, setInquiries] = useState<PortfolioInquiry[]>([])
+  const [showInquiriesModal, setShowInquiriesModal] = useState(false)
 
   const [showGenerate, setShowGenerate] = useState<'resume' | 'cover_letter' | null>(null)
   const [instruction, setInstruction] = useState('')
@@ -67,7 +82,21 @@ export function ResumeStudio({ token, opportunities }: { token: string; opportun
       .catch(() => setLoading(false))
   }
 
-  useEffect(loadDocuments, [token])
+  const loadInquiries = () => {
+    fetch('/api/p/default')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.portfolio?.inquiries) {
+          setInquiries(data.portfolio.inquiries)
+        }
+      })
+      .catch(() => {})
+  }
+
+  useEffect(() => {
+    loadDocuments()
+    loadInquiries()
+  }, [token])
 
   const generate = async () => {
     if (!token || !instruction.trim()) return
@@ -160,6 +189,46 @@ export function ResumeStudio({ token, opportunities }: { token: string; opportun
             <FileText className="w-4 h-4" />
           </div>
           <h2 className="text-sm font-semibold text-gray-900">Resume Studio</h2>
+        </div>
+      </div>
+
+      {/* Living Web Share Portfolio & Inbound Messages Banner */}
+      <div className="mx-4 my-2 p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex flex-wrap items-center justify-between gap-3 border border-slate-800 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-400/20 text-amber-300 font-bold shrink-0">
+            <MessageSquare className="w-4.5 h-4.5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-bold text-slate-100">Living Web Share Portfolio</h3>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30">
+                Live Online
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Recruiter & Client Inquiries: <strong className="text-amber-300">{inquiries.length} received</strong>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInquiriesModal(true)}
+            className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-all shadow flex items-center gap-1.5"
+          >
+            <Inbox className="w-3.5 h-3.5" />
+            <span>Inbound Messages ({inquiries.length})</span>
+          </button>
+
+          <a
+            href="/p/winston-zulu"
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all flex items-center gap-1.5"
+          >
+            <span>Open Portfolio</span>
+            <ExternalLink className="w-3 h-3 text-indigo-400" />
+          </a>
         </div>
       </div>
 
@@ -320,6 +389,89 @@ export function ResumeStudio({ token, opportunities }: { token: string; opportun
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Inbound Messages & Portfolio Inquiries Modal */}
+      {showInquiriesModal && (
+        <Modal
+          open={showInquiriesModal}
+          onClose={() => setShowInquiriesModal(false)}
+          title={`Inbound Portfolio Messages (${inquiries.length})`}
+        >
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            <p className="text-xs text-gray-500">
+              Direct inquiries and messages sent by recruiters or clients visiting your public web share portfolio page (<code className="text-indigo-600 font-mono">/p/[slug]</code>).
+            </p>
+
+            {inquiries.length === 0 ? (
+              <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200 space-y-2">
+                <Inbox className="w-8 h-8 text-gray-400 mx-auto" />
+                <p className="text-xs text-gray-600 font-medium">No inbound messages received yet.</p>
+                <p className="text-[11px] text-gray-400">Share your portfolio link to start receiving direct recruitment inquiries!</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {inquiries.map((inq) => (
+                  <div key={inq.id} className="p-4 rounded-2xl bg-slate-900 text-white border border-slate-800 space-y-2.5 shadow-md">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-slate-100">{inq.name}</span>
+                          {inq.company && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                              <Building className="w-3 h-3 text-amber-400" /> {inq.company}
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 text-[10px] font-bold border border-amber-400/20">
+                            {inq.topic || 'Inquiry'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
+                          {inq.email && (
+                            <span className="flex items-center gap-1"><Mail className="w-3 h-3 text-indigo-400" /> {inq.email}</span>
+                          )}
+                          {inq.phone && (
+                            <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-emerald-400" /> {inq.phone}</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                        {new Date(inq.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 leading-relaxed font-sans">
+                      "{inq.message}"
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      {inq.phone && (
+                        <a
+                          href={`https://wa.me/${inq.phone.replace(/[^0-9]/g, '')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 text-xs font-bold hover:bg-emerald-400 transition-colors flex items-center gap-1"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>Reply via WhatsApp</span>
+                        </a>
+                      )}
+                      {inq.email && (
+                        <a
+                          href={`mailto:${inq.email}?subject=Re: ${encodeURIComponent(inq.topic || 'Portfolio Inquiry')}`}
+                          className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 transition-colors flex items-center gap-1"
+                        >
+                          <Mail className="w-3 h-3" />
+                          <span>Reply via Email</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

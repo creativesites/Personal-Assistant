@@ -20,7 +20,7 @@ import {
   Wrench, LogOut, Smartphone, Menu, X, Search,
   WifiOff, Loader2, ChevronLeft, ChevronRight, ChevronDown, Send, FileText, Minimize2, FolderKanban, Target, History, Briefcase, Rss, Building2
 } from 'lucide-react'
-import { GuidedTourProvider, TourTriggerButton } from '@/components/guided-tour'
+import { GuidedTourProvider, TourTriggerButton, useGuidedTour } from '@/components/guided-tour'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
@@ -600,12 +600,42 @@ function SocketStatusIndicator({ waStatus }: { waStatus?: WAConnectionStatus }) 
   return null
 }
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+function TourMobileSidebarHandler({
+  setSidebarOpen,
+}: {
+  setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>
+}) {
+  const { isOpen, currentStep } = useGuidedTour()
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const isMobile = window.innerWidth < 768
+    if (isOpen && isMobile) {
+      const needsSidebar = currentStep?.requiresSidebar !== false
+      if (needsSidebar) {
+        setSidebarOpen(true)
+      }
+    }
+  }, [isOpen, currentStep, setSidebarOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const isMobile = window.innerWidth < 768
+    if (!isOpen && isMobile) {
+      setSidebarOpen(false)
+    }
+  }, [isOpen, setSidebarOpen])
+
+  return null
+}
+
+function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const session = useZuriSession()
   const pathname = usePathname()
   const router = useRouter()
   const { signOut } = useClerk()
-  
+  const { isOpen: isTourOpen } = useGuidedTour()
+
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [mobileNavMinimized, setMobileNavMinimized] = useState(false)
@@ -658,16 +688,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [session.data?.accessToken, addToast])
 
-  // Note: We no longer force-redirect users to /onboarding if WhatsApp is disconnected.
-  // Users can freely explore the app, view CRM data, create documents, and connect WhatsApp at any time.
-
-  // ABSOLUTELY NO AUTOMATIC FORCED REDIRECTS TO /ONBOARDING.
-  // Users stay on their current page at all times regardless of connection or onboarding flags.
-
   useEffect(() => {
     setIsNavigating(false)
-    setSidebarOpen(false)
-  }, [pathname])
+    if (!isTourOpen) {
+      setSidebarOpen(false)
+    }
+  }, [pathname, isTourOpen])
 
   if (session.status === 'loading') {
     return (
@@ -713,7 +739,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <GuidedTourProvider>
+    <>
+      <TourMobileSidebarHandler setSidebarOpen={setSidebarOpen} />
       <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
         <SocketStatusIndicator waStatus={wa.status} />
         <div
@@ -826,6 +853,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* 1-Click WhatsApp Reconnect Modal */}
         <WAReconnectModal open={reconnectModalOpen} onClose={() => setReconnectModalOpen(false)} />
       </div>
+    </>
+  )
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <GuidedTourProvider>
+      <DashboardLayoutContent>{children}</DashboardLayoutContent>
     </GuidedTourProvider>
   )
 }

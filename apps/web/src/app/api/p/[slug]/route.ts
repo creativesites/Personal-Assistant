@@ -44,6 +44,39 @@ function getSettings(slug: string) {
   return settingsStore[slug]
 }
 
+interface Inquiry {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  company?: string
+  topic?: string
+  message: string
+  createdAt: string
+  status: 'unread' | 'read'
+}
+
+const inquiriesStore: Record<string, Inquiry[]> = {}
+
+function getInquiries(slug: string): Inquiry[] {
+  if (!inquiriesStore[slug]) {
+    inquiriesStore[slug] = [
+      {
+        id: 'inq_sample_1',
+        name: 'Sarah Jenkins',
+        email: 'sarah.jenkins@techrecruitment.io',
+        phone: '+1 (415) 890-1234',
+        company: 'Apex Talent Group',
+        topic: 'Lead Systems Architect Opportunity',
+        message: 'Hi! We loved your Zuri Living Portfolio and work on autonomous AI architectures. We have an executive lead role with competitive equity that aligns perfectly with your skills.',
+        createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
+        status: 'unread',
+      },
+    ]
+  }
+  return inquiriesStore[slug]
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -56,6 +89,7 @@ export async function GET(
 
   const store = getStore(slug)
   const settings = getSettings(slug)
+  const inquiries = getInquiries(slug)
   const clientIp = request.headers.get('x-forwarded-for') || '127.0.0.1'
   store.uniqueIPs.add(clientIp)
 
@@ -143,6 +177,7 @@ export async function GET(
       downloads: store.downloads,
       inquiries: store.inquiries,
     },
+    inquiries,
   }
 
   return NextResponse.json({ portfolio: mockPortfolio })
@@ -171,10 +206,25 @@ export async function POST(
 
   if (body.action === 'submit_inquiry') {
     store.inquiries += 1
+    const inquiries = getInquiries(slug)
+    const newInquiry: Inquiry = {
+      id: `inq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: body.inquiry?.name || 'Anonymous Recruiter',
+      email: body.inquiry?.email || '',
+      phone: body.inquiry?.phone || '',
+      company: body.inquiry?.company || '',
+      topic: body.inquiry?.topic || 'Direct Inquiry',
+      message: body.inquiry?.message || '',
+      createdAt: new Date().toISOString(),
+      status: 'unread',
+    }
+    inquiries.unshift(newInquiry)
+
     return NextResponse.json({
       success: true,
-      message: 'Thank you! Your inquiry has been delivered directly to the candidate.',
-      inquiries: store.inquiries,
+      message: 'Thank you! Your message has been delivered directly to the candidate.',
+      inquiriesCount: store.inquiries,
+      inquiry: newInquiry,
     })
   }
 

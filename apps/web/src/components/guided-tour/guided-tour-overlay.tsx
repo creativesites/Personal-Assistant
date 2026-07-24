@@ -83,6 +83,11 @@ export function GuidedTourOverlay({
 
   useEffect(() => {
     updateRect()
+
+    // Re-measure after CSS drawer transitions (e.g. mobile sidebar sliding open)
+    const t1 = setTimeout(updateRect, 100)
+    const t2 = setTimeout(updateRect, 350)
+
     const handleResize = () => updateRect()
     const handleScroll = () => updateRect()
 
@@ -90,6 +95,8 @@ export function GuidedTourOverlay({
     window.addEventListener('scroll', handleScroll, true)
 
     return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('scroll', handleScroll, true)
     }
@@ -253,7 +260,7 @@ export function GuidedTourOverlay({
         <div
           ref={popoverRef}
           style={getPopoverStyle()}
-          className="absolute z-10 w-[360px] bg-gray-950/95 text-white border border-indigo-500/30 rounded-2xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-all duration-300 ease-out animate-in fade-in zoom-in-95"
+          className="absolute z-10 w-[min(360px,calc(100vw-32px))] bg-gray-950/95 text-white border border-indigo-500/30 rounded-2xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-all duration-300 ease-out animate-in fade-in zoom-in-95"
         >
           {/* Top Bar: Badge, Progress & Close */}
           <div className="flex items-center justify-between gap-2 mb-3">

@@ -21,6 +21,7 @@ export interface TourStep {
   actionHint?: string
   placement?: 'top' | 'bottom' | 'left' | 'right' | 'center'
   route?: string
+  requiresSidebar?: boolean
 }
 
 export const TOUR_STEPS: TourStep[] = [
@@ -34,6 +35,7 @@ export const TOUR_STEPS: TourStep[] = [
     iconName: 'Sparkles',
     actionHint: 'Press → or click Next to explore',
     placement: 'bottom',
+    requiresSidebar: true,
   },
   {
     id: 'search',
@@ -45,6 +47,7 @@ export const TOUR_STEPS: TourStep[] = [
     iconName: 'Search',
     actionHint: 'Use ⌘K anywhere in Zuri',
     placement: 'bottom',
+    requiresSidebar: true,
   },
   {
     id: 'nav_hubs',
@@ -56,6 +59,7 @@ export const TOUR_STEPS: TourStep[] = [
     iconName: 'Building2',
     actionHint: 'Organized for peak productivity',
     placement: 'right',
+    requiresSidebar: true,
   },
   {
     id: 'inbox',
@@ -68,6 +72,7 @@ export const TOUR_STEPS: TourStep[] = [
     actionHint: 'Drafts, sentiment & locking',
     placement: 'right',
     route: '/inbox',
+    requiresSidebar: true,
   },
   {
     id: 'whatsapp_status',
@@ -79,6 +84,7 @@ export const TOUR_STEPS: TourStep[] = [
     iconName: 'Smartphone',
     actionHint: 'Always connected in the background',
     placement: 'right',
+    requiresSidebar: true,
   },
   {
     id: 'ai_advisor',
@@ -90,6 +96,7 @@ export const TOUR_STEPS: TourStep[] = [
     iconName: 'Brain',
     actionHint: 'Never miss an opportunity',
     placement: 'right',
+    requiresSidebar: true,
   },
   {
     id: 'operations',
@@ -102,6 +109,7 @@ export const TOUR_STEPS: TourStep[] = [
     actionHint: 'Quotes to receipts lifecycle',
     placement: 'right',
     route: '/business',
+    requiresSidebar: true,
   },
   {
     id: 'career',
@@ -114,6 +122,7 @@ export const TOUR_STEPS: TourStep[] = [
     actionHint: 'Job scraping & CV builder',
     placement: 'right',
     route: '/career',
+    requiresSidebar: true,
   },
   {
     id: 'retrigger_tour',
@@ -125,5 +134,6 @@ export const TOUR_STEPS: TourStep[] = [
     iconName: 'HelpCircle',
     actionHint: 'Replay tour anytime',
     placement: 'bottom',
+    requiresSidebar: true,
   },
 ]

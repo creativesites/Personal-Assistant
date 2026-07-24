@@ -1839,25 +1839,25 @@ export default function InboxPage() {
                 conversation (and stays null on a load failure), so it
                 renders a skeleton instead of the header simply vanishing. */}
             {/* Dark Mobile-First Sticky Header */}
-            <div className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800 bg-slate-900 text-white shadow-lg transition-all duration-200">
+            <div className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800/80 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/90 backdrop-blur-md text-white shadow-xl transition-all duration-200">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   onClick={() => setMobileView('list')}
-                  className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all"
+                  className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-all"
                 >
                   <ChevronLeft size={20} />
                 </button>
                 {contact ? (
                   <>
                     <div
-                      className="relative group cursor-pointer"
+                      className="relative group cursor-pointer flex-shrink-0"
                       onClick={(e) => {
                         e.stopPropagation()
                         setEnlargedAvatar({ id: contact.id, name: contact.name, avatarUrl: contact.avatarUrl, phone: contact.phone, isGroup: contact.isGroup })
                       }}
                       title="Click to enlarge profile picture"
                     >
-                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-400/30 group-hover:ring-indigo-400/60 transition-all duration-300" />
+                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="rounded-full ring-2 ring-indigo-400/40 group-hover:ring-indigo-400/70 transition-all duration-300" />
                       {!contact.isGroup && (
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-slate-900 transition-colors duration-300 ${
                           contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
@@ -1921,7 +1921,7 @@ export default function InboxPage() {
                 {/* Internal Team Sticky Note Trigger */}
                 <button
                   onClick={() => setShowInternalNoteModal(true)}
-                  className="p-2 text-amber-400 hover:text-amber-300 hover:bg-slate-800 rounded-xl transition-all"
+                  className="p-2 text-amber-400 hover:text-amber-300 hover:bg-slate-800/80 rounded-xl transition-all"
                   title="Add Internal Team Note"
                 >
                   <StickyNote size={17} className="fill-amber-400/20" />
@@ -1929,7 +1929,7 @@ export default function InboxPage() {
 
                 {/* Team Assign Dropdown */}
                 {mode !== 'personal' && teamMembers.length > 0 && selectedId && (
-                  <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300">
+                  <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800/90 border border-slate-700/80 text-xs text-slate-300">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign:</span>
                     <select
                       value={selectedConv?.assignedTo || ''}
@@ -1949,7 +1949,7 @@ export default function InboxPage() {
                 {/* In-chat Search */}
                 <button
                   onClick={() => setThreadSearchOpen(v => !v)}
-                  className={`p-2 rounded-xl transition-all ${threadSearchOpen ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                  className={`p-2 rounded-xl transition-all ${threadSearchOpen ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800/80'}`}
                   title="Search in this chat (Cmd+F)"
                 >
                   <Search size={17} strokeWidth={2} />
@@ -1957,8 +1957,15 @@ export default function InboxPage() {
 
                 {/* AI Intelligence Panel Toggle */}
                 <button
-                  onClick={() => setShowAIPanel(v => !v)}
-                  className={`hidden md:flex p-2 rounded-xl transition-all ${showAIPanel ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                  onClick={() => {
+                    setShowAIPanel(v => !v)
+                    setMobileView(v => v === 'intel' ? 'thread' : 'intel')
+                  }}
+                  className={`flex p-2 rounded-xl transition-all ${
+                    showAIPanel || mobileView === 'intel'
+                      ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+                  }`}
                   title="AI Intelligence Panel"
                 >
                   <Brain size={17} strokeWidth={2} />

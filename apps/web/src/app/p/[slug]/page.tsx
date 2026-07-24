@@ -100,10 +100,13 @@ export default function PublicPortfolioPage({
   // Recruiter Contact Form State
   const [inquiryName, setInquiryName] = useState('')
   const [inquiryEmail, setInquiryEmail] = useState('')
+  const [inquiryPhone, setInquiryPhone] = useState('')
   const [inquiryCompany, setInquiryCompany] = useState('')
+  const [inquiryTopic, setInquiryTopic] = useState('Job Opportunity / Interview')
   const [inquiryMessage, setInquiryMessage] = useState('')
   const [submittingInquiry, setSubmittingInquiry] = useState(false)
   const [inquirySent, setInquirySent] = useState(false)
+  const [showSendMessageModal, setShowSendMessageModal] = useState(false)
 
   // QR Modal
   const [showQrModal, setShowQrModal] = useState(false)
@@ -176,7 +179,9 @@ END:VCARD`
           inquiry: {
             name: inquiryName,
             email: inquiryEmail,
+            phone: inquiryPhone,
             company: inquiryCompany,
+            topic: inquiryTopic,
             message: inquiryMessage,
           },
         }),
@@ -286,6 +291,15 @@ END:VCARD`
 
             {/* Quick Networking Actions */}
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => setShowSendMessageModal(true)}
+                className="w-full sm:w-auto flex-1 md:flex-initial inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black px-5 py-2.5 text-xs shadow-lg transition-all transform hover:scale-[1.02]"
+              >
+                <Send className="w-4 h-4" />
+                <span>Send Direct Message</span>
+              </button>
+
               <a
                 href={`https://wa.me/${profile.phone.replace(/[^0-9]/g, '')}`}
                 target="_blank"
@@ -576,6 +590,195 @@ END:VCARD`
           </div>
         </div>
       )}
+
+      {/* Send Direct Message Modal */}
+      {showSendMessageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md overflow-y-auto">
+          <div className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900 p-6 sm:p-8 text-white shadow-2xl space-y-5 my-8">
+            <button
+              onClick={() => setShowSendMessageModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-400 border border-amber-400/20">
+                <Send className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black">Send Message to {profile.fullName}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Direct inquiry delivered straight to {profile.fullName.split(' ')[0]}'s Zuri dashboard & notifications.
+                </p>
+              </div>
+            </div>
+
+            {inquirySent ? (
+              <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center space-y-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-slate-950 mx-auto font-black text-xl">
+                  ✓
+                </div>
+                <h4 className="text-base font-bold text-emerald-400">Message Delivered Successfully!</h4>
+                <p className="text-xs text-slate-300 max-w-sm mx-auto leading-relaxed">
+                  Thank you, {inquiryName}! Your message has been sent directly to {profile.fullName}. Estimated response time is less than 24 hours.
+                </p>
+                <div className="pt-2 flex justify-center gap-2">
+                  <button
+                    onClick={() => {
+                      setInquirySent(false)
+                      setShowSendMessageModal(false)
+                    }}
+                    className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitInquiry} className="space-y-4">
+                {/* Topic Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300">Inquiry Topic</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      { id: 'Job Opportunity / Interview', label: '💼 Job / Interview' },
+                      { id: 'Contract / Freelance Project', label: '📝 Contract Project' },
+                      { id: 'Advisory / Partnership', label: '🤝 Advisory / Consult' },
+                      { id: 'General Inquiry', label: '💬 General Inquiry' },
+                    ].map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setInquiryTopic(t.id)}
+                        className={`px-3 py-2 rounded-xl text-left font-semibold border transition-all ${
+                          inquiryTopic === t.id
+                            ? 'bg-amber-400/15 border-amber-400 text-amber-300'
+                            : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:border-slate-600'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quick Prompts */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fast Reply Prompts</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      "Schedule a 15-min call",
+                      "Open role matching your skills",
+                      "Contract project inquiry",
+                    ].map((prompt, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setInquiryMessage((prev) => (prev ? `${prev}\n${prompt}` : prompt))}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700/80 text-[11px] font-medium text-slate-300 hover:border-amber-400/60 hover:text-white transition-all text-left"
+                      >
+                        + "{prompt}"
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Your Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Jane Doe / Recruiter"
+                      value={inquiryName}
+                      onChange={(e) => setInquiryName(e.target.value)}
+                      className="w-full border border-slate-700 bg-slate-800/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Work Email *</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="jane@company.com"
+                      value={inquiryEmail}
+                      onChange={(e) => setInquiryEmail(e.target.value)}
+                      className="w-full border border-slate-700 bg-slate-800/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Company / Firm</label>
+                    <input
+                      type="text"
+                      placeholder="Acme Talent Group"
+                      value={inquiryCompany}
+                      onChange={(e) => setInquiryCompany(e.target.value)}
+                      className="w-full border border-slate-700 bg-slate-800/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1">Phone / WhatsApp</label>
+                    <input
+                      type="tel"
+                      placeholder="+1 (555) 000-0000"
+                      value={inquiryPhone}
+                      onChange={(e) => setInquiryPhone(e.target.value)}
+                      className="w-full border border-slate-700 bg-slate-800/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 mb-1">Message *</label>
+                  <textarea
+                    rows={4}
+                    required
+                    placeholder="Provide details about the role, salary range, contract scope, or interview timing..."
+                    value={inquiryMessage}
+                    onChange={(e) => setInquiryMessage(e.target.value)}
+                    className="w-full border border-slate-700 bg-slate-800/80 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-amber-400 resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submittingInquiry}
+                  className="w-full py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {submittingInquiry ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  <span>Deliver Message Directly to {profile.fullName.split(' ')[0]}</span>
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Mobile Action Bar */}
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 p-3 bg-slate-950/90 backdrop-blur-lg border-t border-slate-800 z-40 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowSendMessageModal(true)}
+          className="flex-1 py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg flex items-center justify-center gap-2"
+        >
+          <Send className="w-4 h-4" />
+          <span>Send Message to {profile.fullName.split(' ')[0]}</span>
+        </button>
+        <a
+          href={`https://wa.me/${profile.phone.replace(/[^0-9]/g, '')}`}
+          target="_blank"
+          rel="noreferrer"
+          className="p-3 bg-emerald-500 text-slate-950 rounded-xl font-bold"
+        >
+          <MessageSquare className="w-4 h-4" />
+        </a>
+      </div>
     </div>
   )
 }

@@ -58,7 +58,7 @@ export function Avatar({ name, src, size = 'md', online, className = '', onClick
   return (
     <span
       onClick={onClick}
-      className={`relative inline-flex flex-shrink-0 ${onClick ? 'cursor-pointer hover:opacity-90' : ''} ${className}`}
+      className={`relative inline-flex flex-shrink-0 rounded-full ${onClick ? 'cursor-pointer hover:opacity-90' : ''} ${className}`}
     >
       <span className={`${s.container} rounded-full overflow-hidden flex items-center justify-center text-white font-semibold ${colorForName(name)}`}>
         {src && !imgError
