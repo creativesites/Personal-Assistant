@@ -124,6 +124,7 @@ export interface Conversation {
   lockedBy?: string | null
   lockedByEmail?: string | null
   lockedAt?: string | null
+  isPinned?: boolean
 }
 
 export interface Message {
@@ -137,6 +138,8 @@ export interface Message {
   mediaMimeType?: string | null
   transcription?: string | null
   quotedMessageId?: string | null
+  isStarred?: boolean
+  isPinned?: boolean
   deliveryStatus?: 'sent' | 'delivered' | 'read'
   approvalMode?: 'manual' | 'approved' | 'autonomous'
   /** Group chats only: the participant who sent this message. Null for 1:1 chats. */

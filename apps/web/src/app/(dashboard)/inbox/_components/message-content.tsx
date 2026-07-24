@@ -14,7 +14,11 @@ import {
   Pause,
 } from 'lucide-react'
 
+import { AudioWaveformPlayer } from './audio-waveform-player'
+import { apiClient } from '@/lib/api'
+
 interface MessageContentMessage {
+  id?: string
   messageType?: string
   body: string | null
   mediaUrl?: string | null
@@ -185,11 +189,33 @@ function ImagePreview({ src, alt }: { src: string; alt: string }) {
 export function MessageContent({
   msg,
   token,
+  isUser,
 }: {
   msg: MessageContentMessage
   token?: string | null
   isUser: boolean
 }) {
+  const [transcriptionText, setTranscriptionText] = useState<string | null>(msg.transcription ?? null)
+  const [transcribing, setTranscribing] = useState(false)
+
+  const handleTranscribe = async () => {
+    if (!msg.id || transcribing) return
+    setTranscribing(true)
+    try {
+      const res = await apiClient<{ transcription: string }>(`/api/conversations/messages/${msg.id}/transcribe`, {
+        method: 'POST',
+        token: token || undefined,
+      })
+      if (res.transcription) {
+        setTranscriptionText(res.transcription)
+      }
+    } catch (err) {
+      console.error('Failed to transcribe audio:', err)
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
   const mType = msg.messageType ?? 'text'
   const textClass = 'leading-relaxed whitespace-pre-wrap text-sm text-[#111b21]'
 
@@ -269,11 +295,13 @@ export function MessageContent({
     const href = msg.mediaUrl ? mediaHref(msg.mediaUrl, token) : null
     if (href) {
       return (
-        <div className="space-y-1.5">
-          <CustomAudioPlayer src={href} />
-          {msg.transcription && <p className="text-xs italic text-gray-600">"{msg.transcription}"</p>}
-          {!msg.transcription && <p className="text-[10px] font-medium text-gray-400">Voice note</p>}
-        </div>
+        <AudioWaveformPlayer
+          src={href}
+          isUser={isUser}
+          transcription={transcriptionText}
+          onTranscribe={msg.id ? handleTranscribe : undefined}
+          transcribing={transcribing}
+        />
       )
     }
     return (

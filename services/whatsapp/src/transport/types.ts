@@ -95,6 +95,12 @@ export abstract class WhatsAppTransport extends EventEmitter {
     options?: { caption?: string; backgroundColor?: string }
   ): Promise<void>;
 
+  /** Send a typing or recording presence update signal to a JID. */
+  abstract sendPresenceUpdate(
+    presence: 'composing' | 'recording' | 'paused' | 'available',
+    toJid: string
+  ): Promise<void>;
+
   /** Send a document (e.g. a generated quotation/invoice PDF) to a JID. */
   abstract sendDocument(jid: string, filePath: string, mimetype: string, fileName: string, caption?: string): Promise<void>;
 

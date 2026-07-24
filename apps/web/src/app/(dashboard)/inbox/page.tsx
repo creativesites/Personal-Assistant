@@ -136,6 +136,12 @@ export default function InboxPage() {
   // Presence map state
   const [presenceMap, setPresenceMap] = useState<Record<string, { status: string; lastSeenAt: string | null }>>({})
 
+  // Internal Notes & Lightbox states
+  const [threadInternalNotes, setThreadInternalNotes] = useState<Array<{ id: string; text: string; author: string; createdAt: string }>>([])
+  const [showInternalNoteModal, setShowInternalNoteModal] = useState(false)
+  const [internalNoteInput, setInternalNoteInput] = useState('')
+  const [lightboxItem, setLightboxItem] = useState<LightboxItem | null>(null)
+
   // Shared Inbox Team & Locking states
   const [teamMembers, setTeamMembers] = useState<Array<{ userId: string; fullName: string; email: string; role: string }>>([])
   const [selectedConvLock, setSelectedConvLock] = useState<{ lockedBy: string | null; lockedByName?: string } | null>(null)
@@ -1819,206 +1825,125 @@ export default function InboxPage() {
             {/* Sticky header — contact is null for a beat after selecting a
                 conversation (and stays null on a load failure), so it
                 renders a skeleton instead of the header simply vanishing. */}
-            <div className="sticky top-0 z-50 flex items-center gap-3 px-4 h-16 border-b border-neutral-200/80 bg-white/90 backdrop-blur-md flex-shrink-0 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.03)] transition-all">
-              <button
-                onClick={() => setMobileView('list')}
-                className="md:hidden p-2 -ml-2 text-neutral-500 hover:text-neutral-800 rounded-xl hover:bg-neutral-100 transition-all"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              {contact ? (
-                <>
-                  <div className="relative group cursor-pointer" onClick={openEditContactModal}>
-                    <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-500/10 group-hover:ring-indigo-500/30 transition-all duration-300" />
-                    {!contact.isGroup && (
-                      <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-white transition-colors duration-300 ${
-                        contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
-                          ? 'bg-emerald-500 animate-pulse'
-                          : 'bg-neutral-300'
-                      }`} />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                      {contact.isGroup && <Users size={13} className="text-neutral-400 flex-shrink-0" />}
-                      <div className="flex items-center gap-1 group/name cursor-pointer" onClick={openEditContactModal}>
-                        <p className="text-sm font-bold text-neutral-900 tracking-tight truncate max-w-[140px] sm:max-w-[200px]">{contact.name}</p>
-                        <Pencil size={10} className="text-neutral-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
-                      </div>
-                      {currentPriority && CurrentPIcon && (
-                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shadow-sm tracking-wide transition-all ${currentPriority.color}`}>
-                          <CurrentPIcon size={9} />
-                          {currentPriority.label}
-                        </span>
-                      )}
-                      {selectedConv && selectedConv.healthScore !== undefined && (
-                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shadow-sm transition-all ${
-                          selectedConv.healthScore >= 80 ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60 ring-1 ring-emerald-500/10' :
-                          selectedConv.healthScore >= 50 ? 'bg-amber-50 text-amber-700 border-amber-200/60 ring-1 ring-amber-500/10' :
-                          'bg-rose-50 text-rose-700 border-rose-200/60 ring-1 ring-rose-500/10'
-                        }`} title={`Relationship Health Score: ${selectedConv.healthScore}/100`}>
-                          <Activity size={9} />
-                          {selectedConv.healthScore}% Health
-                        </span>
-                      )}
-                      {mode !== 'personal' && contactDetail?.leadScore !== undefined && contactDetail.leadScore !== null && (
-                        <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border shadow-sm transition-all ${
-                          contactDetail.leadScore >= 80 ? 'bg-rose-50 text-rose-700 border-rose-200/60 ring-1 ring-rose-500/10' :
-                          contactDetail.leadScore >= 50 ? 'bg-orange-50 text-orange-700 border-orange-200/60 ring-1 ring-orange-500/10' :
-                          'bg-blue-50 text-blue-700 border-blue-200/60 ring-1 ring-blue-500/10'
-                        }`} title={`Lead Score: ${contactDetail.leadScore}/100`}>
-                          <Flame size={9} className={contactDetail.leadScore >= 80 ? 'animate-pulse' : ''} />
-                          {contactDetail.leadScore} Lead
-                        </span>
+            {/* Dark Mobile-First Sticky Header */}
+            <div className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800 bg-slate-900 text-white shadow-lg transition-all duration-200">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  onClick={() => setMobileView('list')}
+                  className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                {contact ? (
+                  <>
+                    <div className="relative group cursor-pointer" onClick={openEditContactModal}>
+                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-400/30 group-hover:ring-indigo-400/60 transition-all duration-300" />
+                      {!contact.isGroup && (
+                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-slate-900 transition-colors duration-300 ${
+                          contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
+                            ? 'bg-emerald-400 animate-pulse'
+                            : 'bg-slate-500'
+                        }`} />
                       )}
                     </div>
-                    <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap mt-0.5">
-                      <div className="flex items-center gap-1 group/phone cursor-pointer" onClick={contact.isGroup ? undefined : openEditContactModal}>
-                        <p className="text-xs text-neutral-500 font-medium tracking-wide truncate">
-                          {contact.isGroup ? 'Group chat' : contact.phone ?? contactDetail?.relationship?.type?.replace(/_/g, ' ') ?? 'WhatsApp'}
-                        </p>
-                        {!contact.isGroup && (
-                          <Pencil size={9} className="text-neutral-400 opacity-0 group-hover/phone:opacity-100 transition-opacity" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        {contact.isGroup && <Users size={13} className="text-slate-400 flex-shrink-0" />}
+                        <div className="flex items-center gap-1 group/name cursor-pointer" onClick={openEditContactModal}>
+                          <p className="text-sm font-extrabold text-white tracking-tight truncate max-w-[140px] sm:max-w-[200px]">{contact.name}</p>
+                          <Pencil size={10} className="text-slate-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
+                        </div>
+
+                        {/* Real-Time Sentiment Indicator Pill */}
+                        {(() => {
+                          const score = selectedConv?.healthScore ?? 70
+                          const label = score >= 80 ? 'Warm & Engaged' : score >= 50 ? 'Pending Action' : 'Strained / Urgent'
+                          const style = score >= 80 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : score >= 50 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          return (
+                            <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border tracking-wide transition-all ${style}`}>
+                              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                              {label}
+                            </span>
+                          )
+                        })()}
+
+                        {/* Collision Warning Avatar Badge */}
+                        {selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full animate-pulse" title={`${selectedConvLock.lockedByName || 'Team Member'} is viewing this chat`}>
+                            🔒 {selectedConvLock.lockedByName || 'Team Member'} active
+                          </span>
                         )}
                       </div>
-                      <span className="text-neutral-300 text-[10px] hidden sm:inline">•</span>
-                      <p className={`text-xs font-semibold tracking-wide truncate ${
-                        contactPresence?.status === 'composing' || contactPresence?.status === 'recording' || contactPresence?.status === 'available'
-                          ? 'text-emerald-600 font-bold animate-pulse'
-                          : 'text-neutral-400 font-medium'
-                      }`}>
-                        {getPresenceText()}
-                      </p>
-                      {syncState.active && (syncState.conversationId === selectedId || syncState.currentChatName === contact.name) && (
-                        <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-1.5 py-0.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                          {syncState.phase === 'analysing' ? 'Analysing' : 'Syncing'}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap mt-0.5 text-xs text-slate-400 font-medium">
+                        <p className={`truncate ${
+                          contactPresence?.status === 'composing' || contactPresence?.status === 'recording' || contactPresence?.status === 'available'
+                            ? 'text-emerald-400 font-bold animate-pulse'
+                            : 'text-slate-400'
+                        }`}>
+                          {getPresenceText()}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-1 items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-slate-800 animate-pulse flex-shrink-0" />
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <div className="h-3 w-32 rounded-full bg-slate-800 animate-pulse" />
+                      <div className="h-2.5 w-20 rounded-full bg-slate-800 animate-pulse" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                      {mode !== 'personal' && teamMembers.length > 0 && selectedId && (
-                        <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-xs">
-                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Assign:</span>
-                          <select
-                            value={selectedConv?.assignedTo || ''}
-                            onChange={(e) => assignConversation(selectedId, e.target.value || null)}
-                            className="bg-transparent font-semibold text-gray-700 focus:outline-none cursor-pointer text-xs"
-                          >
-                            <option value="">Unassigned</option>
-                            {teamMembers.map(m => (
-                              <option key={m.userId} value={m.userId}>
-                                👤 {m.fullName || m.email.split('@')[0]}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                    <button
-                      onClick={() => setThreadSearchOpen(v => !v)}
-                      className={`p-2 rounded-xl transition-all active:scale-95 ${threadSearchOpen ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
-                      title="Search in this chat (Cmd+F)"
+                )}
+              </div>
+
+              {/* Header Actions */}
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Internal Team Sticky Note Trigger */}
+                <button
+                  onClick={() => setShowInternalNoteModal(true)}
+                  className="p-2 text-amber-400 hover:text-amber-300 hover:bg-slate-800 rounded-xl transition-all"
+                  title="Add Internal Team Note"
+                >
+                  <StickyNote size={17} className="fill-amber-400/20" />
+                </button>
+
+                {/* Team Assign Dropdown */}
+                {mode !== 'personal' && teamMembers.length > 0 && selectedId && (
+                  <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign:</span>
+                    <select
+                      value={selectedConv?.assignedTo || ''}
+                      onChange={(e) => assignConversation(selectedId, e.target.value || null)}
+                      className="bg-transparent font-semibold text-slate-200 focus:outline-none cursor-pointer text-xs"
                     >
-                      <Search size={17} strokeWidth={2} />
-                    </button>
-                    <button
-                      onClick={runHeaderAnalysis}
-                      disabled={analysing || aiActionLoading === 'analyze-recent'}
-                      title="Run analysis on recent messages"
-                      className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all bg-gray-50 border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {(analysing || aiActionLoading === 'analyze-recent') ? (
-                        <svg className="animate-spin w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                        </svg>
-                      ) : (
-                        <Zap size={11} />
-                      )}
-                      Analyse
-                    </button>
-                    <button
-                      onClick={toggleContactExclusion}
-                      title={excludedContacts.has(contact.id) ? 'Excluded from auto-reply — click to re-include' : 'Exclude this contact from auto-reply'}
-                      className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
-                        excludedContacts.has(contact.id)
-                          ? 'bg-amber-50 border-amber-200 text-amber-700'
-                          : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300'
-                      }`}
-                    >
-                      <UserX size={11} />
-                      {excludedContacts.has(contact.id) ? 'Excluded' : 'Exclude'}
-                    </button>
-                    <button
-                      className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
-                      title="Add note"
-                      onClick={() => { setShowAIPanel(true); setAiTab('memory'); setTimeout(() => noteRef.current?.focus(), 150) }}
-                    >
-                      <StickyNote size={17} strokeWidth={2} />
-                    </button>
-                    <a
-                      href={`/contacts/${contact.id}`}
-                      className="p-2 text-neutral-400 hover:text-neutral-700 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
-                      title="View full profile"
-                    >
-                      <ExternalLink size={17} strokeWidth={2} />
-                    </a>
-                    {contact.isGroup && (
-                      <button
-                        onClick={() => setGroupDrawerOpen(true)}
-                        className="p-2 text-neutral-400 hover:text-indigo-600 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
-                        title="Group Participants & Info"
-                      >
-                        <Users size={17} strokeWidth={2} />
-                      </button>
-                    )}
-                    <button
-                      onClick={handleRefreshAvatar}
-                      className="p-2 text-neutral-400 hover:text-indigo-600 rounded-xl hover:bg-neutral-50 transition-all active:scale-95"
-                      title="Refresh profile picture"
-                    >
-                      <RefreshCw size={17} strokeWidth={2} />
-                    </button>
-                    <button
-                      className="p-2 text-neutral-400 hover:text-amber-600 rounded-xl hover:bg-amber-50 transition-all active:scale-95"
-                      title="Archive conversation"
-                      onClick={async () => {
-                        if (!selectedId || !token) return
-                        try {
-                          await apiClient(`/api/conversations/${selectedId}`, { method: 'PATCH', token, body: JSON.stringify({ is_archived: true }) })
-                          setConversations(prev => prev.filter(c => c.id !== selectedId))
-                          setSelectedId(null)
-                        } catch {}
-                      }}
-                    >
-                      <Archive size={17} strokeWidth={2} />
-                    </button>
-                    <button
-                      onClick={() => setMobileView('intel')}
-                      className="md:hidden flex items-center gap-1.5 ml-1 px-3 py-1.5 bg-indigo-50 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-all"
-                    >
-                      <Brain size={12} className="fill-indigo-600/10" />
-                      Intel
-                    </button>
-                    <button
-                      onClick={() => setShowAIPanel(v => !v)}
-                      className={`hidden md:flex p-2 rounded-xl transition-all active:scale-95 ${showAIPanel ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50'}`}
-                      title="AI Intelligence Panel"
-                    >
-                      <Brain size={17} strokeWidth={2} className={showAIPanel ? 'fill-indigo-600/10' : ''} />
-                    </button>
+                      <option value="" className="bg-slate-900 text-white">Unassigned</option>
+                      {teamMembers.map(m => (
+                        <option key={m.userId} value={m.userId} className="bg-slate-900 text-white">
+                          👤 {m.fullName || m.email.split('@')[0]}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                </>
-              ) : (
-                <div className="flex flex-1 items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer flex-shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="h-3 w-32 rounded-full bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer" />
-                    <div className="h-2.5 w-20 rounded-full bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 bg-[length:200%_100%] animate-shimmer" />
-                  </div>
-                </div>
-              )}
+                )}
+
+                {/* In-chat Search */}
+                <button
+                  onClick={() => setThreadSearchOpen(v => !v)}
+                  className={`p-2 rounded-xl transition-all ${threadSearchOpen ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                  title="Search in this chat (Cmd+F)"
+                >
+                  <Search size={17} strokeWidth={2} />
+                </button>
+
+                {/* AI Intelligence Panel Toggle */}
+                <button
+                  onClick={() => setShowAIPanel(v => !v)}
+                  className={`hidden md:flex p-2 rounded-xl transition-all ${showAIPanel ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                  title="AI Intelligence Panel"
+                >
+                  <Brain size={17} strokeWidth={2} />
+                </button>
+              </div>
             </div>
 
             {/* Messages + intel row */}

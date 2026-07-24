@@ -10,6 +10,7 @@ import { actionRequestApiShape } from '../lib/advisor-actions';
 import { config } from '../config';
 import { getEffectiveScope } from '../lib/org-scope';
 import { redis } from '../lib/redis';
+import { transcribeAudioMessage } from '../lib/transcription';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         c.last_message_at,
         c.last_message_preview,
         c.unread_count,
+        c.is_pinned,
         co.id   AS contact_id,
         COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
         co.avatar_url,
@@ -79,6 +81,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       WHERE (($2::uuid IS NOT NULL AND c.organization_id = $2::uuid) OR (c.user_id = $1 OR c.user_id = $3::uuid))
         AND c.is_archived = false
       ORDER BY
+        COALESCE(c.is_pinned, false) DESC,
         CASE WHEN c.unread_count > 0 THEN 0 ELSE 1 END,
         c.last_message_at DESC NULLS LAST
       LIMIT 100`,
@@ -188,6 +191,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
             m.sender_jid,
             m.delivery_status,
             m.is_forwarded,
+            COALESCE(m.is_starred, false) AS is_starred,
+            COALESCE(m.is_pinned, false) AS is_pinned,
+            m.pinned_at,
             ma.sentiment,
             ma.sentiment_score,
             ma.requires_response,
@@ -266,6 +272,8 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         senderJid: m.sender_jid,
         deliveryStatus: m.delivery_status,
         isForwarded: !!m.is_forwarded,
+        isStarred: Boolean(m.is_starred),
+        isPinned: Boolean(m.is_pinned),
         reactions: m.reactions || [],
         analysis: m.sentiment
           ? {
@@ -1526,5 +1534,174 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     });
 
     return reply.send({ ok: true, conversationId: conv.id, messageId: msg.id });
+  });
+
+  // ── POST /api/conversations/messages/:id/transcribe ─────────────────────────────
+  fastify.post('/api/conversations/messages/:id/transcribe', { preHandler: authenticate }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      const transcription = await transcribeAudioMessage(db, id);
+      return reply.send({ transcription });
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message || 'Failed to transcribe audio' });
+    }
+  });
+
+  // ── PATCH /api/conversations/messages/:id/star ───────────────────────────────
+  fastify.patch('/api/conversations/messages/:id/star', { preHandler: authenticate }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { rows } = await db.query(
+      `UPDATE messages SET is_starred = NOT COALESCE(is_starred, false) WHERE id = $1 RETURNING id, is_starred, conversation_id`,
+      [id]
+    );
+    if (rows.length === 0) return reply.code(404).send({ error: 'Message not found' });
+    return reply.send({ id: rows[0].id, isStarred: rows[0].is_starred, conversationId: rows[0].conversation_id });
+  });
+
+  // ── PATCH /api/conversations/messages/:id/pin ────────────────────────────────
+  fastify.patch('/api/conversations/messages/:id/pin', { preHandler: authenticate }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { rows } = await db.query(
+      `UPDATE messages 
+       SET is_pinned = NOT COALESCE(is_pinned, false), 
+           pinned_at = CASE WHEN COALESCE(is_pinned, false) THEN NULL ELSE NOW() END 
+       WHERE id = $1 
+       RETURNING id, is_pinned, pinned_at, conversation_id`,
+      [id]
+    );
+    if (rows.length === 0) return reply.code(404).send({ error: 'Message not found' });
+    return reply.send({
+      id: rows[0].id,
+      isPinned: rows[0].is_pinned,
+      pinnedAt: rows[0].pinned_at,
+      conversationId: rows[0].conversation_id
+    });
+  });
+
+  // ── PATCH /api/conversations/:id/pin ──────────────────────────────────────────
+  fastify.patch('/api/conversations/:id/pin', { preHandler: authenticate }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { rows } = await db.query(
+      `UPDATE conversations 
+       SET is_pinned = NOT COALESCE(is_pinned, false), 
+           pinned_at = CASE WHEN COALESCE(is_pinned, false) THEN NULL ELSE NOW() END 
+       WHERE id = $1 
+       RETURNING id, is_pinned, pinned_at`,
+      [id]
+    );
+    if (rows.length === 0) return reply.code(404).send({ error: 'Conversation not found' });
+    return reply.send({ id: rows[0].id, isPinned: rows[0].is_pinned, pinnedAt: rows[0].pinned_at });
+  });
+
+  // ── GET /api/conversations/starred ───────────────────────────────────────────
+  fastify.get('/api/conversations/starred', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { rows } = await db.query(
+      `SELECT
+         m.id,
+         m.conversation_id,
+         m.body,
+         m.message_type,
+         m.whatsapp_timestamp,
+         m.sender_type,
+         m.media_url,
+         m.transcription,
+         co.id AS contact_id,
+         COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
+         co.avatar_url
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       JOIN contacts co ON co.id = c.contact_id
+       WHERE c.user_id = $1 AND m.is_starred = true AND m.is_deleted = false
+       ORDER BY m.whatsapp_timestamp DESC
+       LIMIT 100`,
+      [userId]
+    );
+    return reply.send({ starredMessages: rows });
+  });
+
+  // ── POST /api/conversations/:id/presence ───────────────────────────────────────
+  fastify.post('/api/conversations/:id/presence', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+    const { presence } = z.object({
+      presence: z.enum(['composing', 'recording', 'paused', 'available']),
+    }).parse(request.body);
+
+    const { rows } = await db.query(
+      `SELECT co.whatsapp_jid FROM conversations c JOIN contacts co ON co.id = c.contact_id WHERE c.id = $1`,
+      [id]
+    );
+    if (rows.length === 0 || !rows[0].whatsapp_jid) {
+      return reply.send({ updated: false });
+    }
+
+    try {
+      await fetch(`${config.whatsappServiceUrl}/internal/sessions/${userId}/presence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ presence, jid: rows[0].whatsapp_jid }),
+      });
+      return reply.send({ updated: true });
+    } catch (err) {
+      return reply.send({ updated: false });
+    }
+  });
+
+  // ── GET /api/conversations/:id/notes ──────────────────────────────────────────
+  fastify.get('/api/conversations/:id/notes', { preHandler: authenticate }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { rows } = await db.query(
+      `SELECT
+         n.id,
+         n.conversation_id,
+         n.text,
+         n.created_at,
+         COALESCE(u.full_name, u.email) AS author,
+         u.id AS author_id,
+         u.email AS author_email
+       FROM conversation_internal_notes n
+       LEFT JOIN users u ON u.id = n.author_id
+       WHERE n.conversation_id = $1
+       ORDER BY n.created_at ASC`,
+      [id]
+    );
+    return reply.send({ notes: rows });
+  });
+
+  // ── POST /api/conversations/:id/notes ─────────────────────────────────────────
+  fastify.post('/api/conversations/:id/notes', { preHandler: authenticate }, async (request, reply) => {
+    const { userId, organizationId } = request.user as { userId: string; organizationId?: string };
+    const { id } = request.params as { id: string };
+    const { text } = z.object({ text: z.string().min(1) }).parse(request.body);
+
+    const { rows } = await db.query(
+      `INSERT INTO conversation_internal_notes (conversation_id, organization_id, author_id, text)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, conversation_id, text, created_at`,
+      [id, organizationId || null, userId, text]
+    );
+
+    const userRes = await db.query(`SELECT full_name, email FROM users WHERE id = $1`, [userId]);
+    const authorName = userRes.rows[0]?.full_name || userRes.rows[0]?.email || 'Team Member';
+
+    const note = {
+      id: rows[0].id,
+      conversationId: rows[0].conversation_id,
+      text: rows[0].text,
+      createdAt: rows[0].created_at,
+      author: authorName,
+      authorId: userId,
+    };
+
+    io.emit('note:created', note);
+    return reply.status(201).send({ note });
+  });
+
+  // ── DELETE /api/conversations/notes/:noteId ───────────────────────────────────
+  fastify.delete('/api/conversations/notes/:noteId', { preHandler: authenticate }, async (request, reply) => {
+    const { noteId } = request.params as { noteId: string };
+    await db.query(`DELETE FROM conversation_internal_notes WHERE id = $1`, [noteId]);
+    return reply.send({ deleted: true, noteId });
   });
 }

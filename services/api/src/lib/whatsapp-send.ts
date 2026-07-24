@@ -15,7 +15,7 @@ export async function sendWhatsAppMessage(
   userId: string, 
   conversationId: string, 
   text: string, 
-  options?: { quotedMessageId?: string; forwardedFromMessageId?: string }
+  options?: { quotedMessageId?: string; forwardedFromMessageId?: string; isAiGenerated?: boolean }
 ) {
   const scope = await getEffectiveScope(userId);
   const sessionUserId = scope.ownerUserId;
@@ -35,13 +35,14 @@ export async function sendWhatsAppMessage(
   const now = new Date();
   const tempWaId = `direct-${crypto.randomUUID()}`;
   const isForwarded = !!options?.forwardedFromMessageId;
+  const isAiGenerated = !!options?.isAiGenerated;
 
   const { rows: [msg] } = await db.query(
     `INSERT INTO messages
-       (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp, quoted_message_id, is_forwarded)
-     VALUES ($1, $2, 'user', 'text', $3, $4, $5, $6)
+       (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp, quoted_message_id, is_forwarded, is_ai_generated)
+     VALUES ($1, $2, 'user', 'text', $3, $4, $5, $6, $7)
      RETURNING id`,
-    [conversationId, tempWaId, text, now, options?.quotedMessageId || null, isForwarded],
+    [conversationId, tempWaId, text, now, options?.quotedMessageId || null, isForwarded, isAiGenerated],
   );
 
   await db.query(
@@ -71,6 +72,7 @@ export async function sendWhatsAppMessage(
     transcription: null,
     quotedMessageId: options?.quotedMessageId || null,
     isForwarded,
+    isAiGenerated,
     reactions: [],
   };
 
@@ -95,6 +97,7 @@ export async function sendWhatsAppMessage(
     timestamp: now.toISOString(),
     quotedMessageId: options?.quotedMessageId || null,
     isForwarded,
+    isAiGenerated,
     reactions: [],
   };
 

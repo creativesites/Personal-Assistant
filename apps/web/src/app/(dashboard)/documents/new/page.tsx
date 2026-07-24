@@ -12,7 +12,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui'
 import type { TemplateProps } from '@zuri/pdf-templates'
-import { CatalogPickerModal, type CatalogProduct } from '../_components/catalog-picker-modal'
+import { CatalogPickerModal, type CatalogProduct, type CatalogPackageTier } from '../_components/catalog-picker-modal'
 
 // Client-only PDF component — imported without SSR to avoid browser-API errors
 const ClientPdfRenderer = dynamic(
@@ -375,21 +375,41 @@ export default function NewDocumentPage() {
     setForm(f => ({ ...f, docNumber: `${prefixes[f.docType]}-${String(Date.now()).slice(-6)}` }))
   }, [form.docType, documentId])
 
-  // ── Catalog Product Selection ────────────────────────────────────────────────
+  // ── Catalog Product & Package Selection ────────────────────────────────────
   const [catalogModalOpen, setCatalogModalOpen] = useState(false)
-  const handleSelectCatalogProduct = useCallback((p: CatalogProduct) => {
-    const displayPrice = p.sellingPrice ?? p.price ?? 0
+  const handleSelectCatalogProduct = useCallback((p: CatalogProduct, selectedPackage?: CatalogPackageTier) => {
+    const rawPrice = selectedPackage?.price !== undefined && selectedPackage?.price !== null
+      ? selectedPackage.price
+      : p.sellingPrice ?? p.price ?? 0
+
+    let desc = p.name
+    if (selectedPackage) {
+      desc += ` — ${selectedPackage.name}`
+      if (selectedPackage.features && selectedPackage.features.length > 0) {
+        desc += ` (${selectedPackage.features.join(', ')})`
+      }
+    } else if (p.description) {
+      desc += ` — ${p.description}`
+    }
+
     const newItem: LineItem = {
       id: Math.random().toString(36).slice(2),
-      description: `${p.name}${p.description ? ` — ${p.description}` : ''}`,
+      description: desc,
       quantity: '1',
-      unitPrice: String(Number(displayPrice).toFixed(2)),
+      unitPrice: String(Number(rawPrice).toFixed(2)),
       taxRate: '0',
     }
+
     setForm(f => ({
       ...f,
-      currency: p.currency || f.currency,
+      currency: selectedPackage?.currency || p.currency || f.currency,
       lineItems: [...f.lineItems.filter(li => li.description.trim() !== ''), newItem],
+      structuredData: {
+        ...(f.structuredData || {}),
+        ...(selectedPackage?.duration || p.serviceDetails?.duration ? { serviceDuration: selectedPackage?.duration || p.serviceDetails?.duration } : {}),
+        ...(p.serviceDetails?.sla ? { serviceSla: p.serviceDetails.sla } : {}),
+        ...(selectedPackage?.features?.length ? { scopeOfWork: selectedPackage.features.map(feat => `• ${feat}`).join('\n') } : {}),
+      },
     }))
   }, [])
 
@@ -921,10 +941,18 @@ export default function NewDocumentPage() {
                 ))}
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <button onClick={addLine}
                   className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 text-sm font-semibold transition-colors">
                   <Plus className="w-4 h-4" />Add line item
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCatalogModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 text-xs font-bold transition-all shadow-2xs"
+                >
+                  <Package className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Select from Catalog / Services</span>
                 </button>
               </div>
             </div>

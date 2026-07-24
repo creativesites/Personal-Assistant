@@ -43,6 +43,7 @@ export function formatConversationRow(r: any) {
     lastMessageAt: r.last_message_at,
     lastMessagePreview: r.last_message_preview,
     unreadCount: r.unread_count,
+    isPinned: Boolean(r.is_pinned),
     contact: {
       id: r.contact_id,
       name: r.contact_name,
@@ -87,6 +88,7 @@ export async function getInboxConversation(userId: string, conversationId: strin
       c.last_message_at,
       c.last_message_preview,
       c.unread_count,
+      c.is_pinned,
       co.id AS contact_id,
       COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
       co.avatar_url,

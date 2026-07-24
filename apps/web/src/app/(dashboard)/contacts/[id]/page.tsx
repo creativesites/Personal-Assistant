@@ -95,6 +95,7 @@ interface Message {
   id: string; senderType: 'user' | 'contact'; messageType?: string; body: string | null
   timestamp: string; mediaUrl?: string | null; mediaMimeType?: string | null
   transcription?: string | null; quotedMessageId?: string | null; pendingSuggestions: number
+  isAiGenerated?: boolean
 }
 
 interface ContactDoc {
@@ -1570,18 +1571,27 @@ function MessagesTab({ contactId, token }: { contactId: string; token: string })
   )
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{sortedMessages.length} messages</p>
+    <div className="flex flex-col h-full bg-white border-l border-gray-200 z-10 shadow-[-4px_0_24px_rgba(0,0,0,0.02)]">
+      <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50/80 backdrop-blur-md sticky top-0 z-10">
+        <div className="flex items-center gap-2.5">
+          <div className="w-6 h-6 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center">
+            <MessageSquare size={12} />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-gray-900 uppercase tracking-wide">Message Thread</p>
+            <p className="text-[10px] text-gray-500">{sortedMessages.length} total messages</p>
+          </div>
+        </div>
         {data?.conversationId && (
-          <Link href="/inbox" className="text-xs text-indigo-600 hover:underline flex items-center gap-1">
-            Open in inbox <ChevronRight size={11} />
+          <Link href="/inbox" className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 px-2.5 py-1.5 rounded-md hover:bg-indigo-50 transition-colors">
+            Open Inbox <ChevronRight size={12} />
           </Link>
         )}
       </div>
-      <div className="p-4 space-y-2 max-h-[65vh] overflow-y-auto">
+      <div className="flex-1 p-5 space-y-3 overflow-y-auto bg-slate-50/50">
         {sortedMessages.map((msg, idx) => {
           const isUser   = msg.senderType === 'user'
+          const isAi     = isUser && msg.isAiGenerated
           const prevMsg  = idx > 0 ? sortedMessages[idx - 1] : null
           const showDate = !prevMsg || new Date(msg.timestamp).toDateString() !== new Date(prevMsg.timestamp).toDateString()
           return (
@@ -1595,12 +1605,20 @@ function MessagesTab({ contactId, token }: { contactId: string; token: string })
               )}
               <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 ${
-                  isUser ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+                  isAi ? 'bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-br-sm shadow-sm' :
+                  isUser ? 'bg-indigo-600 text-white rounded-br-sm shadow-sm' : 
+                  'bg-white border border-gray-200 text-gray-900 rounded-bl-sm shadow-sm'
                 }`}>
-                  <div className={isUser ? '[&_p]:text-white [&_a]:text-indigo-200' : ''}>
+                  {isAi && (
+                    <div className="flex items-center gap-1.5 mb-1.5 border-b border-indigo-100/50 pb-1.5">
+                      <Sparkles size={11} className="text-indigo-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-600">Zuri Autopilot</span>
+                    </div>
+                  )}
+                  <div className={isUser && !isAi ? '[&_p]:text-white [&_a]:text-indigo-200' : '[&_p]:text-gray-800'}>
                     <MessageContent msg={msg} token={token} />
                   </div>
-                  <p className={`text-[10px] mt-1 text-right ${isUser ? 'text-indigo-300' : 'text-gray-400'}`}>
+                  <p className={`text-[10px] mt-1 text-right ${isAi ? 'text-indigo-400' : isUser ? 'text-indigo-300' : 'text-gray-400'}`}>
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -1796,6 +1814,96 @@ function EditSlideOver({ contact, token, onClose, onSaved }: {
       </div>
     </div>
   )
+}
+
+// ─── Autopilot Control Panel (Cockpit Redesign) ───────────────────────────────
+
+function AutopilotControlPanel({ contactId }: { contactId: string }) {
+  const [mode, setMode] = useState<'observe' | 'copilot' | 'autopilot'>('observe');
+  const [directive, setDirective] = useState('');
+  const [savedDirective, setSavedDirective] = useState('');
+
+  useEffect(() => {
+    const savedMode = localStorage.getItem(`zuri_autopilot_mode_${contactId}`) as any;
+    if (savedMode) setMode(savedMode);
+    const savedDir = localStorage.getItem(`zuri_autopilot_directive_${contactId}`);
+    if (savedDir) {
+      setDirective(savedDir);
+      setSavedDirective(savedDir);
+    }
+  }, [contactId]);
+
+  const handleModeChange = (m: 'observe' | 'copilot' | 'autopilot') => {
+    setMode(m);
+    localStorage.setItem(`zuri_autopilot_mode_${contactId}`, m);
+  };
+
+  const saveDirective = () => {
+    localStorage.setItem(`zuri_autopilot_directive_${contactId}`, directive);
+    setSavedDirective(directive);
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-2xl p-5 shadow-lg shadow-indigo-900/10 border border-indigo-500/20 text-white space-y-5">
+      <div className="flex items-center justify-between border-b border-indigo-700/50 pb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="text-indigo-400" size={16} />
+          <h3 className="font-semibold text-sm tracking-wide">Zuri Autopilot</h3>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="relative flex h-2 w-2">
+            {mode === 'autopilot' && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${mode === 'autopilot' ? 'bg-green-500' : mode === 'copilot' ? 'bg-amber-400' : 'bg-gray-400'}`}></span>
+          </span>
+          <span className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest">{mode}</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] text-indigo-300 font-semibold uppercase tracking-wider mb-2">Autonomy Level</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { id: 'observe', label: 'Observe', desc: 'Read only' },
+            { id: 'copilot', label: 'Co-Pilot', desc: 'Drafts only' },
+            { id: 'autopilot', label: 'Autopilot', desc: 'Auto-reply' },
+          ].map(m => (
+            <button
+              key={m.id}
+              onClick={() => handleModeChange(m.id as any)}
+              className={`p-2 rounded-lg border text-left transition-all ${
+                mode === m.id 
+                  ? 'bg-indigo-600/50 border-indigo-400 shadow-inner' 
+                  : 'bg-black/20 border-white/10 hover:bg-black/40 text-gray-400'
+              }`}
+            >
+              <p className={`text-xs font-bold ${mode === m.id ? 'text-white' : 'text-gray-300'}`}>{m.label}</p>
+              <p className="text-[9px] mt-0.5 opacity-80">{m.desc}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] text-indigo-300 font-semibold uppercase tracking-wider flex items-center justify-between">
+          <span>Active Directives</span>
+          {directive !== savedDirective && <span className="text-amber-400 animate-pulse font-normal lowercase tracking-normal">Unsaved changes</span>}
+        </p>
+        <textarea
+          value={directive}
+          onChange={e => setDirective(e.target.value)}
+          placeholder="e.g., 'Sarah is a VIP. Always offer a 10% discount if she asks about pricing.'"
+          className="w-full h-20 text-xs bg-black/30 border border-indigo-500/30 rounded-lg p-3 text-indigo-100 placeholder-indigo-300/30 focus:outline-none focus:border-indigo-400 resize-none"
+        />
+        <button 
+          onClick={saveDirective}
+          disabled={directive === savedDirective}
+          className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800/50 disabled:text-indigo-400 text-white text-[11px] font-bold uppercase tracking-wider rounded-lg transition-colors"
+        >
+          {directive === savedDirective ? 'Saved to AI Context' : 'Inject Directive'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────

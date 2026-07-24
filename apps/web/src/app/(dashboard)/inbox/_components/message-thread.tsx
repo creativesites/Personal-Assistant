@@ -1,9 +1,10 @@
 'use client'
 
 import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, X, StickyNote } from 'lucide-react'
 import { InlineAICard, type AIInsight } from './inline-ai-card'
 import { MessageBubble, type InboxMessage } from './message-bubble'
+import { PinnedMessageBanner, type PinnedMessage } from './pinned-message-banner'
 
 function dayKey(ts: string) {
   return new Date(ts).toDateString()
@@ -20,9 +21,6 @@ function formatDateSeparator(ts: string) {
   return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
 }
 
-// Rough shapes of a real conversation — alternating sides, varied widths,
-// the occasional two-line bubble — so the loading state reads as "your
-// messages are on their way" rather than a generic grey rectangle grid.
 const SKELETON_ROWS: { side: 'user' | 'contact'; width: number; lines: 1 | 2 }[] = [
   { side: 'contact', width: 190, lines: 1 },
   { side: 'user', width: 130, lines: 1 },
@@ -84,7 +82,11 @@ export function MessageThread({
   onReply,
   onForward,
   onReact,
+  onStar,
+  onPin,
   onDelete,
+  internalNotes,
+  onMediaClick,
 }: {
   messages: InboxMessage[]
   loading: boolean
@@ -107,7 +109,11 @@ export function MessageThread({
   onReply?: (msg: InboxMessage) => void
   onForward?: (msg: InboxMessage) => void
   onReact?: (msgId: string, emoji: string) => void
+  onStar?: (msgId: string) => void
+  onPin?: (msgId: string) => void
   onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
+  internalNotes?: Array<{ id: string; text: string; author: string; createdAt: string }>
+  onMediaClick?: (item: { type: 'image' | 'video' | 'document'; url: string; title?: string }) => void
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
@@ -137,6 +143,18 @@ export function MessageThread({
       return a.id.localeCompare(b.id)
     })
   }, [messages])
+
+  const pinnedMessages: PinnedMessage[] = useMemo(() => {
+    return sortedMessages
+      .filter(m => m.isPinned)
+      .map(m => ({
+        id: m.id,
+        body: m.body || '',
+        senderDisplayName: m.senderDisplayName,
+        senderType: m.senderType === 'user' ? 'user' : 'contact',
+        messageType: m.messageType || 'text',
+      }))
+  }, [sortedMessages])
 
   const cardsByMessageId = useMemo(() => {
     const map: Record<string, AIInsight[]> = {}
@@ -169,7 +187,7 @@ export function MessageThread({
   }, [sortedMessages, timelineInsights])
 
   return (
-    <div className="relative flex-1 min-h-0">
+    <div className="relative flex-1 min-h-0 flex flex-col">
       {lockInfo?.lockedBy && (
         <div className="sticky top-0 z-30 bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-800 shadow-sm">
           <div className="flex items-center gap-2 font-medium">
@@ -178,6 +196,16 @@ export function MessageThread({
           </div>
         </div>
       )}
+
+      {/* Pinned Messages Banner */}
+      {pinnedMessages.length > 0 && (
+        <PinnedMessageBanner
+          pinnedMessages={pinnedMessages}
+          onJumpToMessage={(id) => handleQuoteClick(id)}
+          onUnpinMessage={(id) => onPin?.(id)}
+        />
+      )}
+
       {searchOpen && (
         <div className="absolute left-3 right-3 top-3 z-30 rounded-2xl border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md">
           <div className="flex items-center gap-2 px-3 py-2">
@@ -205,11 +233,31 @@ export function MessageThread({
         </div>
       )}
 
-      <div className={`h-full overflow-y-auto px-4 py-4 space-y-2 z-10 relative ${searchOpen ? 'pt-20' : ''}`}>
+      <div className={`flex-1 overflow-y-auto px-4 py-4 space-y-2 z-10 relative ${searchOpen ? 'pt-20' : ''}`}>
         {loading ? (
           <ThreadLoadingSkeleton />
         ) : (
           <>
+            {/* Internal Team Yellow Sticky Notes */}
+            {internalNotes && internalNotes.length > 0 && (
+              <div className="my-3 space-y-2">
+                {internalNotes.map(note => (
+                  <div key={note.id} className="mx-auto max-w-lg bg-amber-50/95 border-2 border-amber-300/80 rounded-2xl p-3 shadow-sm backdrop-blur-md">
+                    <div className="flex items-center justify-between mb-1 pb-1 border-b border-amber-200/80">
+                      <span className="flex items-center gap-1.5 text-xs font-extrabold text-amber-950">
+                        <StickyNote size={14} className="text-amber-600 fill-amber-300" />
+                        Internal Team Note • {note.author}
+                      </span>
+                      <span className="text-[10px] font-medium text-amber-700">
+                        {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-900 font-semibold leading-relaxed whitespace-pre-wrap">{note.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {sortedMessages.map((msg, idx) => {
               const prev = sortedMessages[idx - 1]
               const showDate = !prev || dayKey(prev.timestamp) !== dayKey(msg.timestamp)
@@ -242,7 +290,18 @@ export function MessageThread({
                     onReply={onReply}
                     onForward={onForward}
                     onReact={onReact}
+                    onStar={onStar}
+                    onPin={onPin}
                     onDelete={onDelete}
+                    onAttachmentClick={(att) => {
+                      if (onMediaClick && att.url) {
+                        onMediaClick({
+                          type: att.type === 'image' ? 'image' : att.type === 'video' ? 'video' : 'document',
+                          url: att.url,
+                          title: att.name,
+                        })
+                      }
+                    }}
                   />
                   {msgCards.length > 0 && (
                     <div className="py-2.5 px-2 space-y-2">

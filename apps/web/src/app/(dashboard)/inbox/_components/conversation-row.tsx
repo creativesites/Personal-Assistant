@@ -1,25 +1,26 @@
 'use client'
 
-import { TrendingUp, Clock, Users } from 'lucide-react'
+import { TrendingUp, Clock, Users, Pin } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import type { Conversation } from '../_types/inbox'
 import { AI_PRIORITY, SENTIMENT_DOT } from '../_lib/constants'
 import { formatTime, formatSLA } from '../_lib/utils'
 
-export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false }: {
+export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false, onTogglePin }: {
   conv: Conversation
   active: boolean
   onClick: () => void
   mode: string
   syncing?: boolean
   analysing?: boolean
+  onTogglePin?: (e: React.MouseEvent) => void
 }) {
   const priority = conv.aiPriority ? AI_PRIORITY[conv.aiPriority] : null
   const PIcon = priority?.icon
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-start gap-3 px-3 py-3 text-left transition-all border-l-[3px] ${
+      className={`group w-full flex items-start gap-3 px-3 py-3 text-left transition-all border-l-[3px] ${
         active ? 'bg-indigo-50/80 border-indigo-500' : 'hover:bg-white/70 border-transparent'
       }`}
     >
@@ -41,8 +42,27 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
           <span className={`flex items-center gap-1 min-w-0 text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
             {conv.contact.isGroup && <Users size={11} className="text-gray-400 flex-shrink-0" />}
             <span className="truncate">{conv.contact.name}</span>
+            {conv.isPinned && (
+              <span title="Pinned chat"><Pin size={11} className="text-amber-500 fill-amber-400/30 rotate-45 shrink-0" /></span>
+            )}
           </span>
-          <span className="text-[10px] text-gray-400 flex-shrink-0 tabular-nums">{formatTime(conv.lastMessageAt)}</span>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {onTogglePin && (
+              <span
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTogglePin(e)
+                }}
+                className={`p-1 rounded-md transition-opacity cursor-pointer ${
+                  conv.isPinned ? 'text-amber-500 hover:text-amber-600' : 'text-gray-400 opacity-0 group-hover:opacity-100 hover:text-gray-600'
+                }`}
+                title={conv.isPinned ? 'Unpin chat' : 'Pin chat to top'}
+              >
+                <Pin size={11} className="rotate-45" />
+              </span>
+            )}
+            <span className="text-[10px] text-gray-400 tabular-nums">{formatTime(conv.lastMessageAt)}</span>
+          </div>
         </div>
         <p className={`text-xs truncate mb-1.5 ${conv.unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
           {conv.lastMessagePreview || 'No messages yet'}

@@ -30,6 +30,9 @@ import {
   CornerUpLeft,
   CornerUpRight,
   Smile,
+  Star,
+  Pin,
+  PinOff,
   Trash2
 } from 'lucide-react'
 
@@ -88,6 +91,8 @@ export interface InboxMessage {
   // User features
   senderDisplayName?: string | null
   avatarUrl?: string | null
+  isStarred?: boolean
+  isPinned?: boolean
 
   // Reactions & feedback
   reactions?: { emoji: string; count: number; userReacted: boolean }[]
@@ -117,6 +122,8 @@ export interface MessageBubbleProps {
   onReply?: (msg: InboxMessage) => void
   onForward?: (msg: InboxMessage) => void
   onReact?: (msgId: string, emoji: string) => void
+  onStar?: (msgId: string) => void
+  onPin?: (msgId: string) => void
   onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
   allMessages?: InboxMessage[]
   highlighted?: boolean
@@ -460,6 +467,8 @@ function ActionBar({
   onReply,
   onForward,
   onReact,
+  onStar,
+  onPin,
   onDelete,
 }: { 
   msg: InboxMessage
@@ -471,6 +480,8 @@ function ActionBar({
   onReply?: (msg: InboxMessage) => void
   onForward?: (msg: InboxMessage) => void
   onReact?: (msgId: string, emoji: string) => void
+  onStar?: (msgId: string) => void
+  onPin?: (msgId: string) => void
   onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
 }) {
   const [showPicker, setShowPicker] = useState(false)
@@ -491,6 +502,36 @@ function ActionBar({
 
   return (
     <div className="relative flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+      {/* Star button */}
+      {onStar && (
+        <button
+          onClick={() => onStar(msg.id)}
+          className={`p-1.5 rounded-lg transition-colors ${
+            msg.isStarred
+              ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/50'
+              : 'text-slate-600 hover:text-amber-500 dark:text-slate-300 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+          title={msg.isStarred ? 'Unstar message' : 'Star message'}
+        >
+          <Star size={14} className={msg.isStarred ? 'fill-amber-400' : ''} />
+        </button>
+      )}
+
+      {/* Pin button */}
+      {onPin && (
+        <button
+          onClick={() => onPin(msg.id)}
+          className={`p-1.5 rounded-lg transition-colors ${
+            msg.isPinned
+              ? 'text-amber-600 bg-amber-50 dark:bg-amber-950/50'
+              : 'text-slate-600 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+          }`}
+          title={msg.isPinned ? 'Unpin message' : 'Pin message'}
+        >
+          {msg.isPinned ? <PinOff size={14} /> : <Pin size={14} className="rotate-45" />}
+        </button>
+      )}
+
       {/* Reply button */}
       {onReply && (
         <button
@@ -709,6 +750,8 @@ export function MessageBubble({
   onReply,
   onForward,
   onReact,
+  onStar,
+  onPin,
   onDelete,
   allMessages,
   highlighted,
@@ -939,6 +982,20 @@ export function MessageBubble({
                 </div>
 
                 <div className="flex items-center gap-1.5 ml-auto">
+                  {/* Pinned indicator */}
+                  {msg.isPinned && (
+                    <span className="text-amber-600 dark:text-amber-400" title="Pinned message">
+                      <Pin size={10} className="rotate-45 fill-amber-400/30" />
+                    </span>
+                  )}
+
+                  {/* Starred indicator */}
+                  {msg.isStarred && (
+                    <span className="text-amber-500" title="Starred message">
+                      <Star size={10} className="fill-amber-400" />
+                    </span>
+                  )}
+
                   {/* Timestamp */}
                   <span className="text-[10px] text-gray-400 font-medium tabular-nums">
                     {formatTime(msg.timestamp)}
@@ -1001,6 +1058,8 @@ export function MessageBubble({
               onReply={onReply}
               onForward={onForward}
               onReact={onReact}
+              onStar={onStar}
+              onPin={onPin}
               onDelete={onDelete}
             />
           </div>

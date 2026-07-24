@@ -276,9 +276,19 @@ export default function DocumentEditPage() {
             onChange={handleDynamicChange}
           />
 
-          <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-5">
-            <LineItemsEditor items={items} onChange={setItems} currency={currency} />
-          </div>
+            <LineItemsEditor
+              items={items}
+              onChange={setItems}
+              currency={currency}
+              token={token ?? undefined}
+              onSelectServiceDetails={(details) => setDynamicValues(prev => ({
+                ...prev,
+                ...(details.duration ? { serviceDuration: details.duration } : {}),
+                ...(details.sla ? { serviceSla: details.sla } : {}),
+                ...(details.deliverables?.length ? { scopeOfWork: details.deliverables.map((d: string) => `• ${d}`).join('\n') } : {}),
+                ...(details.prerequisites ? { prerequisites: details.prerequisites } : {}),
+              }))}
+            />
 
           <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-5 space-y-3">
             <h2 className="text-sm font-semibold text-gray-900">Details</h2>

@@ -742,6 +742,18 @@ export class BaileysTransport extends WhatsAppTransport {
     }
   }
 
+  async sendPresenceUpdate(
+    presence: 'composing' | 'recording' | 'paused' | 'available',
+    toJid: string
+  ): Promise<void> {
+    if (!this.sock) return;
+    try {
+      await this.sock.sendPresenceUpdate(presence, toJid);
+    } catch (err) {
+      console.warn(`[baileys:${this.userId}] sendPresenceUpdate error:`, err);
+    }
+  }
+
   async fetchRecentMessages(jid: string, limit: number, cursor?: any): Promise<NormalisedMessage[]> {
     if (!this.sock) throw new Error('Transport not connected');
     console.log(`[baileys:${this.userId}] Fetching up to ${limit} messages from WA for JID ${jid}...`);

@@ -92,6 +92,21 @@ export function sessionRoutes(sessionManager: SessionManager) {
       }
     });
 
+    fastify.post('/internal/sessions/:userId/presence', async (request, reply) => {
+      const { userId } = userIdParam.parse(request.params);
+      const { presence, jid } = z.object({
+        presence: z.enum(['composing', 'recording', 'paused', 'available']),
+        jid: z.string().min(1),
+      }).parse(request.body);
+
+      try {
+        await sessionManager.sendPresenceUpdate(userId, presence, jid);
+        return reply.send({ updated: true });
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
+    });
+
     fastify.get('/internal/sessions/:userId/catalog/products', async (request, reply) => {
       const { userId } = userIdParam.parse(request.params);
       const { limit, cursor } = z.object({

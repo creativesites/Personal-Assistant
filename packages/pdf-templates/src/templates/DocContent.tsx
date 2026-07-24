@@ -218,10 +218,31 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           </View>
         ) : null}
 
-        {sd.serviceLevelAgreement ? (
+        {(sd.serviceLevelAgreement || sd.serviceSla) ? (
           <View style={{ marginBottom: 12 }}>
             <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Service Level Standards (SLA)</Text>
-            <Text style={styles.bodyText}>{sd.serviceLevelAgreement}</Text>
+            <Text style={styles.bodyText}>{sd.serviceLevelAgreement || sd.serviceSla}</Text>
+          </View>
+        ) : null}
+
+        {sd.serviceDuration ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Service Duration &amp; Frequency</Text>
+            <Text style={styles.bodyText}>{sd.serviceDuration}</Text>
+          </View>
+        ) : null}
+
+        {sd.prerequisites ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Client Prerequisites &amp; Dependencies</Text>
+            <Text style={styles.bodyText}>{sd.prerequisites}</Text>
+          </View>
+        ) : null}
+
+        {sd.paymentSchedule ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Payment Schedule &amp; Milestones</Text>
+            <Text style={styles.bodyText}>{sd.paymentSchedule}</Text>
           </View>
         ) : null}
 

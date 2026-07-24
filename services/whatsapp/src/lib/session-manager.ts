@@ -526,6 +526,16 @@ export class SessionManager {
     await entry.transport.postStatus(mediaType, content, options);
   }
 
+  async sendPresenceUpdate(
+    userId: string,
+    presence: 'composing' | 'recording' | 'paused' | 'available',
+    toJid: string
+  ): Promise<void> {
+    const entry = this.sessions.get(userId);
+    if (!entry) return; // Silent return if session not online
+    await entry.transport.sendPresenceUpdate(presence, toJid);
+  }
+
   async sendDocument(
     userId: string,
     jid: string,
