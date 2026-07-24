@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useClerk } from '@clerk/nextjs'
 import { useZuriSession } from '@/hooks/use-zuri-session'
-import { useWAStatus, type WAStatus } from '@/hooks/use-wa-status'
+import { useWAStatus, type WAStatus, type WAConnectionStatus } from '@/hooks/use-wa-status'
 import { ModeBadge } from '@/components/ui'
 import { CommandPalette } from '@/components/command-palette'
 import { SubscriptionStatusBanner } from '@/components/subscription-status-banner'
@@ -530,40 +530,60 @@ function MobileBottomNav({
   )
 }
 
-function SocketStatusIndicator() {
+function SocketStatusIndicator({ waStatus }: { waStatus?: WAConnectionStatus }) {
   const { status, replayedCount } = useSocketStatus()
+  const [isOnline, setIsOnline] = useState(true)
 
-  if (status === 'connected') return null
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    setIsOnline(typeof navigator !== 'undefined' ? navigator.onLine : true)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
-  return (
-    <div className="fixed top-3 right-4 z-[75] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-xl ring-1 ring-white/10 transition-all animate-in fade-in slide-in-from-top-2">
-      {(status === 'reconnecting' || status === 'connecting') && (
-        <>
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-          </span>
-          <span className="text-amber-200">Reconnecting real-time stream...</span>
-        </>
-      )}
+  // If Socket.io is connected or WhatsApp is connected (with active HTTP polling), the system is online!
+  if (status === 'connected' || (waStatus === 'connected' && isOnline)) return null
 
-      {status === 'syncing' && (
-        <>
-          <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
-          <span className="text-indigo-200">
-            {replayedCount > 0 ? `Syncing ${replayedCount} missed update${replayedCount > 1 ? 's' : ''}...` : 'Syncing real-time updates...'}
-          </span>
-        </>
-      )}
+  // If the browser network itself is offline
+  if (!isOnline) {
+    return (
+      <div className="fixed top-3 right-4 z-[75] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-xl ring-1 ring-white/10 transition-all animate-in fade-in slide-in-from-top-2">
+        <span className="h-2 w-2 rounded-full bg-rose-500" />
+        <span className="text-rose-200">Network Offline</span>
+      </div>
+    )
+  }
 
-      {status === 'disconnected' && (
-        <>
-          <span className="h-2 w-2 rounded-full bg-rose-500" />
-          <span className="text-rose-200">Real-time offline</span>
-        </>
-      )}
-    </div>
-  )
+  // Active transient states: connecting, reconnecting, syncing
+  if (status === 'reconnecting' || status === 'connecting') {
+    return (
+      <div className="fixed top-3 right-4 z-[75] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-xl ring-1 ring-white/10 transition-all animate-in fade-in slide-in-from-top-2">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+        </span>
+        <span className="text-amber-200">Reconnecting real-time stream...</span>
+      </div>
+    )
+  }
+
+  if (status === 'syncing') {
+    return (
+      <div className="fixed top-3 right-4 z-[75] flex items-center gap-2 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white shadow-xl ring-1 ring-white/10 transition-all animate-in fade-in slide-in-from-top-2">
+        <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+        <span className="text-indigo-200">
+          {replayedCount > 0 ? `Syncing ${replayedCount} missed update${replayedCount > 1 ? 's' : ''}...` : 'Syncing real-time updates...'}
+        </span>
+      </div>
+    )
+  }
+
+  return null
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -680,7 +700,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
-      <SocketStatusIndicator />
+      <SocketStatusIndicator waStatus={wa.status} />
       <div
         className={`fixed left-0 right-0 top-0 z-[70] h-0.5 origin-left bg-gradient-to-r from-cyan-400 via-indigo-400 to-fuchsia-400 transition-all duration-300 ${
           isNavigating ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'

@@ -23,6 +23,7 @@ import {
   Tag,
   Trash2,
   X,
+  ChevronLeft,
   ChevronRight,
   Star,
   Zap,
@@ -469,9 +470,81 @@ export default function ContactsPage() {
   const [showAddTag, setShowAddTag] = useState(false)
   const [showImportCsv, setShowImportCsv] = useState(false)
   const [bulkUpdating, setBulkUpdating] = useState(false)
+  const [updatingContactId, setUpdatingContactId] = useState<string | null>(null)
 
   const { data, loading, error, refetch } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
   const contacts = data?.contacts ?? []
+
+  // Analytics pulse computations for the high-end dashboard widget
+  const analyticsPulse = useMemo(() => {
+    const total = contacts.length
+    if (total === 0) {
+      return {
+        avgHealth: 0,
+        atRisk: 0,
+        profiledPct: 0,
+        profiledCount: 0,
+        totalActions: 0,
+        hotLeads: 0,
+        totalLeads: 0,
+        dormantCount: 0,
+      }
+    }
+
+    const avgHealth = Math.round(
+      contacts.reduce((acc, c) => acc + (c.relationship.healthScore ?? 0), 0) / total
+    )
+    const atRisk = contacts.filter(c => c.relationship.healthScore < 40).length
+    const profiledCount = contacts.filter(c => !!c.profile?.personalitySummary).length
+    const profiledPct = Math.round((profiledCount / total) * 100)
+    const totalActions = contacts.reduce((acc, c) => acc + (c.pendingActions ?? 0), 0)
+
+    const leads = contacts.filter(
+      c => c.relationship.type === 'lead' || c.relationship.type === 'prospect'
+    )
+    const totalLeads = leads.length
+    const hotLeads = leads.filter(c => (c.leadScore ?? 0) >= 70).length
+
+    const dormantCount = contacts.filter(c => {
+      const bucket = getActivityBucket(c.lastMessageAt)
+      return bucket === 'dormant'
+    }).length
+
+    return {
+      avgHealth,
+      atRisk,
+      profiledPct,
+      profiledCount,
+      totalActions,
+      hotLeads,
+      totalLeads,
+      dormantCount,
+    }
+  }, [contacts])
+
+  const shiftStage = async (contactId: string, currentStageId: string, direction: 'forward' | 'backward') => {
+    const currentIdx = KANBAN_STAGES.findIndex(s => s.id === currentStageId)
+    if (currentIdx === -1 || !token) return
+
+    const nextIdx = direction === 'forward' ? currentIdx + 1 : currentIdx - 1
+    if (nextIdx < 0 || nextIdx >= KANBAN_STAGES.length) return
+
+    const nextStage = KANBAN_STAGES[nextIdx].id
+    setUpdatingContactId(contactId)
+    try {
+      await apiClient(`/api/contacts/${contactId}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ pipelineStage: nextStage })
+      })
+      addToast({ variant: 'success', title: 'Pipeline stage updated' })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to update stage' })
+    } finally {
+      setUpdatingContactId(null)
+    }
+  }
 
   // Compute filter counts
   const statusCounts = useMemo(() => ({
@@ -755,6 +828,130 @@ export default function ContactsPage() {
         </div>
       </div>
 
+      {/* Dynamic Executive CRM Pulse Board */}
+      <div className="flex-shrink-0 bg-gray-50 border-b border-gray-100 px-4 md:px-6 py-3.5 grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Health */}
+        <div
+          onClick={() => setHealthFilter(h => h === 'at_risk' ? 'all' : 'at_risk')}
+          className={`bg-white hover:bg-rose-50/10 border rounded-xl p-3.5 shadow-sm hover:shadow transition-all duration-200 cursor-pointer flex items-center justify-between group ${
+            healthFilter === 'at_risk' ? 'border-rose-400 ring-2 ring-rose-500/10 bg-rose-50/5' : 'border-gray-200 hover:border-rose-300'
+          }`}
+        >
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Relationship Pulse</span>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-xl font-extrabold text-gray-900">{analyticsPulse.avgHealth}</span>
+              <span className="text-xs text-gray-400 font-medium">/100 avg</span>
+            </div>
+            <span className="text-[11px] text-gray-500 font-medium mt-0.5 block truncate group-hover:text-rose-600 transition-colors">
+              {analyticsPulse.atRisk} at-risk contacts
+            </span>
+          </div>
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+            healthFilter === 'at_risk' ? 'bg-rose-100 text-rose-600' : 'bg-rose-50 text-rose-500 group-hover:scale-105'
+          }`}>
+            <Heart size={16} className={healthFilter === 'at_risk' ? 'fill-rose-600' : 'fill-rose-500/10'} />
+          </div>
+        </div>
+
+        {/* Card 2: AI Cognitive Coverage */}
+        <div
+          onClick={() => setAiFilter(a => a === 'profiled' ? 'all' : 'profiled')}
+          className={`bg-white hover:bg-indigo-50/10 border rounded-xl p-3.5 shadow-sm hover:shadow transition-all duration-200 cursor-pointer flex items-center justify-between group ${
+            aiFilter === 'profiled' ? 'border-indigo-400 ring-2 ring-indigo-500/10 bg-indigo-50/5' : 'border-gray-200 hover:border-indigo-300'
+          }`}
+        >
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">AI Intelligence</span>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-xl font-extrabold text-gray-900">{analyticsPulse.profiledPct}%</span>
+              <span className="text-xs text-gray-400 font-medium">profiled</span>
+            </div>
+            <span className="text-[11px] text-gray-500 font-medium mt-0.5 block truncate group-hover:text-indigo-600 transition-colors">
+              {analyticsPulse.profiledCount} analyzed contacts
+            </span>
+          </div>
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+            aiFilter === 'profiled' ? 'bg-indigo-100 text-indigo-600' : 'bg-indigo-50 text-indigo-500 group-hover:scale-105'
+          }`}>
+            <Brain size={16} />
+          </div>
+        </div>
+
+        {/* Card 3: Pending Actions */}
+        <div
+          onClick={() => setAiFilter(a => a === 'has_action' ? 'all' : 'has_action')}
+          className={`bg-white hover:bg-amber-50/10 border rounded-xl p-3.5 shadow-sm hover:shadow transition-all duration-200 cursor-pointer flex items-center justify-between group ${
+            aiFilter === 'has_action' ? 'border-amber-400 ring-2 ring-amber-500/10 bg-amber-50/5' : 'border-gray-200 hover:border-amber-300'
+          }`}
+        >
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Engagement Queue</span>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-xl font-extrabold text-gray-900">{analyticsPulse.totalActions}</span>
+              <span className="text-xs text-gray-400 font-medium">actions</span>
+            </div>
+            <span className="text-[11px] text-gray-500 font-medium mt-0.5 block truncate group-hover:text-amber-600 transition-colors">
+              Proactive nudges ready
+            </span>
+          </div>
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+            aiFilter === 'has_action' ? 'bg-amber-100 text-amber-700' : 'bg-amber-50 text-amber-500 group-hover:scale-105'
+          }`}>
+            <Sparkles size={16} />
+          </div>
+        </div>
+
+        {/* Card 4: Mode-Dependent Metrics */}
+        {mode !== 'personal' ? (
+          <div
+            onClick={() => setLeadFilter(l => l === 'hot' ? 'all' : 'hot')}
+            className={`bg-white hover:bg-emerald-50/10 border rounded-xl p-3.5 shadow-sm hover:shadow transition-all duration-200 cursor-pointer flex items-center justify-between group ${
+              leadFilter === 'hot' ? 'border-emerald-400 ring-2 ring-emerald-500/10 bg-emerald-50/5' : 'border-gray-200 hover:border-emerald-300'
+            }`}
+          >
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Deal Funnel</span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-xl font-extrabold text-gray-900">{analyticsPulse.hotLeads}</span>
+                <span className="text-xs text-gray-400 font-medium">Hot Leads</span>
+              </div>
+              <span className="text-[11px] text-gray-500 font-medium mt-0.5 block truncate group-hover:text-emerald-600 transition-colors">
+                {analyticsPulse.totalLeads} total in pipeline
+              </span>
+            </div>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+              leadFilter === 'hot' ? 'bg-emerald-100 text-emerald-600' : 'bg-emerald-50 text-emerald-500 group-hover:scale-105'
+            }`}>
+              <TrendingUp size={16} />
+            </div>
+          </div>
+        ) : (
+          <div
+            onClick={() => setActivityFilter(a => a === 'dormant' ? 'all' : 'dormant')}
+            className={`bg-white hover:bg-amber-50/10 border rounded-xl p-3.5 shadow-sm hover:shadow transition-all duration-200 cursor-pointer flex items-center justify-between group ${
+              activityFilter === 'dormant' ? 'border-amber-400 ring-2 ring-amber-500/10 bg-amber-50/5' : 'border-gray-200 hover:border-amber-300'
+            }`}
+          >
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Network Cadence</span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-xl font-extrabold text-gray-900">{analyticsPulse.dormantCount}</span>
+                <span className="text-xs text-gray-400 font-medium">Dormant</span>
+              </div>
+              <span className="text-[11px] text-gray-500 font-medium mt-0.5 block truncate group-hover:text-amber-600 transition-colors">
+                Reconnections suggested
+              </span>
+            </div>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+              activityFilter === 'dormant' ? 'bg-amber-100 text-amber-700' : 'bg-amber-50 text-amber-500 group-hover:scale-105'
+            }`}>
+              <Clock size={16} />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Search + toolbar */}
       <div className="flex-shrink-0 bg-white border-b border-gray-100 px-4 md:px-6 py-2.5 flex items-center gap-2">
         <div className="relative flex-1">
@@ -1005,6 +1202,132 @@ export default function ContactsPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          ) : viewMode === 'kanban' ? (
+            <div className="flex gap-4 p-4 md:p-6 overflow-x-auto h-full min-h-[550px] bg-gray-50/10 select-none items-start">
+              {KANBAN_STAGES.map(stage => {
+                const stageContacts = processed.filter(c => getContactKanbanStage(c) === stage.id)
+                return (
+                  <div key={stage.id} className="w-80 flex-shrink-0 bg-gray-50/50 rounded-xl border border-gray-200/60 p-3.5 flex flex-col max-h-[72vh] shadow-sm">
+                    {/* Stage Header */}
+                    <div className="flex items-center justify-between border-b border-gray-150 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-800">{stage.label}</span>
+                        <span className="text-xs bg-gray-200/60 text-gray-600 rounded-full px-2 py-0.5 font-bold tabular-nums">
+                          {stageContacts.length}
+                        </span>
+                      </div>
+                      <div className={`w-2.5 h-2.5 rounded-full ${stage.color.split(' ')[0]}`} />
+                    </div>
+
+                    {/* Stage Cards Container */}
+                    <div className="space-y-3.5 overflow-y-auto flex-1 pr-1.5 py-1.5 mt-3 max-h-[62vh] scrollbar-thin">
+                      {stageContacts.length === 0 ? (
+                        <div className="h-28 rounded-lg border border-dashed border-gray-200 flex items-center justify-center p-4 text-center">
+                          <p className="text-xs text-gray-400">No contacts in this stage</p>
+                        </div>
+                      ) : (
+                        stageContacts.map(contact => {
+                          const isSelected = selected.has(contact.id)
+                          const isUpdating = updatingContactId === contact.id
+                          const completeness = calcCompleteness(contact)
+                          const trend = TREND_CONFIG[contact.relationship.healthTrend] ?? TREND_CONFIG.stable
+                          const TrendIcon = trend.Icon
+
+                          return (
+                            <div
+                              key={contact.id}
+                              className={`bg-white rounded-xl border p-4 shadow-sm hover:shadow-md hover:border-indigo-300 transition-all duration-200 group relative flex flex-col cursor-pointer ${
+                                isSelected ? 'ring-2 ring-indigo-500/20 border-indigo-300 bg-indigo-50/5' : 'border-gray-200/70'
+                              }`}
+                              onClick={() => router.push(`/contacts/${contact.id}`)}
+                            >
+                              {/* Overlay during server updates */}
+                              {isUpdating && (
+                                <div className="absolute inset-0 bg-white/75 backdrop-blur-sm rounded-xl flex items-center justify-center z-10">
+                                  <div className="flex flex-col items-center gap-2">
+                                    <svg className="animate-spin h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                    </svg>
+                                    <span className="text-[10px] font-semibold text-indigo-700">Updating stage…</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Card Header: Avatar & Name */}
+                              <div className="flex items-start gap-3">
+                                <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold text-gray-900 truncate group-hover:text-indigo-600 transition-colors leading-snug">
+                                    {contact.name}
+                                  </p>
+                                  <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                                    {contact.company ?? formatPhone(contact.phone) ?? '—'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Card Body: Health indicator */}
+                              <div className="mt-3 bg-gray-50/60 border border-gray-100/50 rounded-lg px-2.5 py-2">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Health</span>
+                                  <span className="text-xs font-bold text-gray-800">{contact.relationship.healthScore}</span>
+                                </div>
+                                <HealthBar score={contact.relationship.healthScore} size="sm" />
+                              </div>
+
+                              {/* Card Info row: AI profiling coverage and action signal */}
+                              <div className="flex items-center gap-1.5 mt-3 pt-2.5 border-t border-gray-100">
+                                {contact.profile?.personalitySummary ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded-full">
+                                    <Brain size={10} /> AI coverage
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-full">
+                                    <Brain size={10} /> profiling…
+                                  </span>
+                                )}
+
+                                {contact.pendingActions > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full ml-auto">
+                                    <Zap size={10} className="fill-amber-500 text-amber-500" /> {contact.pendingActions} suggs
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Quick Stage Shifting Pipeline Movers */}
+                              <div className="flex items-center justify-between gap-1 mt-3 pt-2 border-t border-gray-50" onClick={e => e.stopPropagation()}>
+                                <button
+                                  disabled={stage.id === 'lead'}
+                                  onClick={() => shiftStage(contact.id, stage.id, 'backward')}
+                                  className="p-1 rounded bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
+                                  title="Move stage back"
+                                >
+                                  <ChevronLeft size={13} />
+                                </button>
+                                
+                                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide truncate max-w-[120px]">
+                                  Shift pipeline
+                                </span>
+
+                                <button
+                                  disabled={stage.id === 'lost'}
+                                  onClick={() => shiftStage(contact.id, stage.id, 'forward')}
+                                  className="p-1 rounded bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
+                                  title="Move stage forward"
+                                >
+                                  <ChevronRight size={13} />
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className="p-4 md:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
