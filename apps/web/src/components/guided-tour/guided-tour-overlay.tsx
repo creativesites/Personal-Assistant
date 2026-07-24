@@ -67,13 +67,13 @@ export function GuidedTourOverlay({
     if (typeof window === 'undefined') return
     const element = document.querySelector(currentStep.targetSelector)
     if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+      element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
       const clientRect = element.getBoundingClientRect()
       setRect({
         x: clientRect.left,
         y: clientRect.top,
         width: clientRect.width,
-        height: clientRect.height,
+        height: Math.min(clientRect.height, window.innerHeight - 120),
       })
     } else {
       // If target element is not found, fallback to screen center
@@ -136,26 +136,67 @@ export function GuidedTourOverlay({
       }
     }
 
-    const padding = 12
+    const padding = 16
     const popoverWidth = 360
+    const popoverHeight = popoverRef.current?.offsetHeight || 280
     const windowWidth = window.innerWidth
     const windowHeight = window.innerHeight
 
-    let top = rect.y + rect.height + padding
-    let left = rect.x + rect.width / 2 - popoverWidth / 2
+    const preferredPlacement = currentStep.placement || 'bottom'
 
-    // Flip to top if bottom space is tight
-    if (top + 220 > windowHeight && rect.y - 220 > 0) {
-      top = rect.y - 230 - padding
+    let top = 0
+    let left = 0
+
+    if (preferredPlacement === 'right') {
+      left = rect.x + rect.width + padding
+      top = rect.y + Math.max(0, (rect.height - popoverHeight) / 2)
+
+      if (left + popoverWidth > windowWidth - 16) {
+        left = rect.x - popoverWidth - padding
+      }
+    } else if (preferredPlacement === 'left') {
+      left = rect.x - popoverWidth - padding
+      top = rect.y + Math.max(0, (rect.height - popoverHeight) / 2)
+
+      if (left < 16) {
+        left = rect.x + rect.width + padding
+      }
+    } else if (preferredPlacement === 'top') {
+      top = rect.y - popoverHeight - padding
+      left = rect.x + rect.width / 2 - popoverWidth / 2
+
+      if (top < 16) {
+        top = rect.y + rect.height + padding
+      }
+    } else {
+      // 'bottom' placement
+      top = rect.y + rect.height + padding
+      left = rect.x + rect.width / 2 - popoverWidth / 2
+
+      if (top + popoverHeight > windowHeight - 16 && rect.y - popoverHeight - padding > 16) {
+        top = rect.y - popoverHeight - padding
+      }
     }
 
-    // Horizontal boundaries
-    if (left < 16) left = 16
-    if (left + popoverWidth > windowWidth - 16) left = windowWidth - popoverWidth - 16
+    // STRICT VIEWPORT SAFETY CLAMP:
+    // Guarantees popover card and action buttons (Next, Back, Skip) remain 100% visible inside viewport!
+    if (top + popoverHeight > windowHeight - 16) {
+      top = windowHeight - popoverHeight - 16
+    }
+    if (top < 16) {
+      top = 16
+    }
+
+    if (left + popoverWidth > windowWidth - 16) {
+      left = windowWidth - popoverWidth - 16
+    }
+    if (left < 16) {
+      left = 16
+    }
 
     return {
-      top: `${Math.max(16, top)}px`,
-      left: `${left}px`,
+      top: `${Math.round(top)}px`,
+      left: `${Math.round(left)}px`,
     }
   }
 
