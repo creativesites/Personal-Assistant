@@ -50,6 +50,43 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   const sd = document.structuredData || {};
   const themeColor = business.themeColor || '#4F46E5';
 
+  const renderSignatureBlocks = () => {
+    const requireSignatures = document.structuredData?.requireSignatures !== false;
+    const signingParties = document.structuredData?.signingParties || 'both';
+    if (!requireSignatures) return null;
+
+    const showSupplier = ['supplier', 'both'].includes(signingParties);
+    const showClient = ['client', 'both'].includes(signingParties);
+
+    return (
+      <View style={styles.twoPartyRow}>
+        {showSupplier ? (
+          <View style={styles.partySigBlock}>
+            <Text style={styles.sigTitle}>{business.companyName || 'Supplier / Service Provider'}</Text>
+            <View style={styles.sigLine}>
+              {business.signatureUrl ? (
+                <Image src={business.signatureUrl} style={styles.sigImage} />
+              ) : null}
+            </View>
+            <Text style={styles.sigSub}>Authorized Signature &amp; Date</Text>
+          </View>
+        ) : <View style={styles.partySigBlock} />}
+
+        {showClient ? (
+          <View style={styles.partySigBlock}>
+            <Text style={styles.sigTitle}>{contact.name || 'Client / Counterparty'}</Text>
+            <View style={styles.sigLine}>
+              {document.clientSignatureUrl ? (
+                <Image src={document.clientSignatureUrl} style={styles.sigImage} />
+              ) : null}
+            </View>
+            <Text style={styles.sigSub}>Client Signature &amp; Date</Text>
+          </View>
+        ) : <View style={styles.partySigBlock} />}
+      </View>
+    );
+  };
+
   // 1. LEGAL & AGREEMENTS (NDA, Contract, MSA, Service Agreement)
   if (['nda', 'contract', 'msa', 'service_agreement'].includes(dt)) {
     const isNda = dt === 'nda';
@@ -107,15 +144,10 @@ export function DocContent({ document, business, contact }: TemplateProps) {
                 </View>
               </>
             )}
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Governing Jurisdiction</Text>
-              <Text style={styles.valueBold}>{sd.governingLaw || 'Republic of Zambia'}</Text>
-            </View>
           </View>
 
-          {/* Secondary legal metadata row for contract value, termination notice, IP ownership, etc. */}
-          {(sd.contractTitle || sd.contractValue || sd.noticePeriod || sd.paymentTermDays || sd.ipOwnership) ? (
+          {/* Key Agreement Parameters */}
+          {(sd.contractTitle || sd.contractValue || sd.noticePeriod || sd.paymentTermDays || sd.ipOwnership || sd.startDate || sd.effectiveDate) ? (
             <View style={[styles.grid3, { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e5e7eb' }]}>
               {sd.contractTitle ? (
                 <View style={styles.fieldBlock}>
@@ -123,70 +155,96 @@ export function DocContent({ document, business, contact }: TemplateProps) {
                   <Text style={styles.valueBold}>{sd.contractTitle}</Text>
                 </View>
               ) : null}
+              {(sd.startDate || sd.effectiveDate) ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Effective Start Date</Text>
+                  <Text style={styles.valueBold}>{sd.startDate || sd.effectiveDate || document.issueDate}</Text>
+                </View>
+              ) : null}
               {sd.contractValue ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Contract Consideration</Text>
+                  <Text style={styles.label}>Total Contract Value</Text>
                   <Text style={styles.valueBold}>{sd.contractValue}</Text>
                 </View>
               ) : null}
               {sd.noticePeriod ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Notice Period</Text>
+                  <Text style={styles.label}>Termination Notice Period</Text>
                   <Text style={styles.valueBold}>{sd.noticePeriod}</Text>
                 </View>
               ) : null}
               {sd.paymentTermDays ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Payment Term</Text>
+                  <Text style={styles.label}>Payment Terms</Text>
                   <Text style={styles.valueBold}>{sd.paymentTermDays} Days</Text>
                 </View>
               ) : null}
               {sd.ipOwnership ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>IP Ownership</Text>
-                  <Text style={styles.valueBold}>
-                    {sd.ipOwnership === 'client_owned' ? 'Client Owned' : sd.ipOwnership === 'provider_owned' ? 'Provider Retained' : 'Shared / Licensed'}
-                  </Text>
+                  <Text style={styles.label}>IP Ownership Clause</Text>
+                  <Text style={styles.valueBold}>{sd.ipOwnership}</Text>
                 </View>
               ) : null}
             </View>
           ) : null}
-
-          {sd.disclosurePurpose ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Purpose of Disclosure & Business Discussions</Text>
-              <Text style={styles.bodyText}>{sd.disclosurePurpose}</Text>
-            </View>
-          ) : null}
-
-          {sd.scopeSummary ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Scope of Work & Key Obligations</Text>
-              <Text style={styles.bodyText}>{sd.scopeSummary}</Text>
-            </View>
-          ) : null}
-
-          {sd.permittedDisclosures ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Permitted Disclosures & Standard Exclusions</Text>
-              <Text style={styles.bodyText}>{sd.permittedDisclosures}</Text>
-            </View>
-          ) : null}
-
-          {sd.paymentMilestones ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Payment Milestones & Commercial Conditions</Text>
-              <Text style={styles.bodyText}>{sd.paymentMilestones}</Text>
-            </View>
-          ) : null}
-
-          {sd.slaCommitments ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Service Level Commitments (SLA) & Support Standards</Text>
-              <Text style={styles.bodyText}>{sd.slaCommitments}</Text>
-            </View>
-          ) : null}
         </View>
+
+        {/* Clauses & Content */}
+        {sd.purposeOfDisclosure ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Purpose of Disclosure</Text>
+            <Text style={styles.bodyText}>{sd.purposeOfDisclosure}</Text>
+          </View>
+        ) : null}
+
+        {sd.scopeOfWork ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Scope of Work & Services</Text>
+            <Text style={styles.bodyText}>{sd.scopeOfWork}</Text>
+          </View>
+        ) : null}
+
+        {sd.objectives ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Key Objectives & Milestones</Text>
+            <Text style={styles.bodyText}>{sd.objectives}</Text>
+          </View>
+        ) : null}
+
+        {sd.exclusions ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Scope Exclusions</Text>
+            <Text style={styles.bodyText}>{sd.exclusions}</Text>
+          </View>
+        ) : null}
+
+        {sd.serviceLevelAgreement ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Service Level Standards (SLA)</Text>
+            <Text style={styles.bodyText}>{sd.serviceLevelAgreement}</Text>
+          </View>
+        ) : null}
+
+        {sd.confidentialityTerms ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Confidentiality & Non-Disclosure</Text>
+            <Text style={styles.bodyText}>{sd.confidentialityTerms}</Text>
+          </View>
+        ) : null}
+
+        {sd.termAndTermination ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Term & Termination</Text>
+            <Text style={styles.bodyText}>{sd.termAndTermination}</Text>
+          </View>
+        ) : null}
+
+        {sd.governingLaw ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Governing Law & Jurisdiction</Text>
+            <Text style={styles.bodyText}>{sd.governingLaw}</Text>
+          </View>
+        ) : null}
 
         {/* Custom Sections / Clauses */}
         {document.sections && document.sections.length > 0 ? (
@@ -235,35 +293,7 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         ) : null}
 
         {/* Two-Party Formal Signature Blocks */}
-        {requireSignatures && signingParties !== 'none' ? (
-          <View style={styles.twoPartyRow}>
-            {(signingParties === 'both' || signingParties === 'provider') ? (
-              <View style={styles.partySigBlock}>
-                <Text style={styles.label}>For {business.companyName || 'Your Business'}</Text>
-                <View style={styles.sigLine}>
-                  {business.signatureDataUri ? <Image src={business.signatureDataUri} style={styles.sigImage} /> : null}
-                </View>
-                <Text style={styles.sigTitle}>{business.signerName || 'Authorized Signatory'}</Text>
-                <Text style={styles.sigSub}>{business.signerTitle || 'Executive Representative'}</Text>
-                <Text style={styles.sigSub}>Date: {document.issueDate}</Text>
-              </View>
-            ) : null}
-
-            {(signingParties === 'both' || signingParties === 'client') ? (
-              <View style={styles.partySigBlock}>
-                <Text style={styles.label}>For {contact.company || contact.name}</Text>
-                <View style={styles.sigLine}>
-                  {document.signature?.signatureDataUri ? (
-                    <Image src={document.signature.signatureDataUri} style={styles.sigImage} />
-                  ) : null}
-                </View>
-                <Text style={styles.sigTitle}>{document.signature?.signerName || contact.name}</Text>
-                <Text style={styles.sigSub}>{document.signature?.signerTitle || 'Authorized Client Signatory'}</Text>
-                <Text style={styles.sigSub}>Date: {document.signature?.signedAt || '_________________'}</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
+        {renderSignatureBlocks()}
       </View>
     );
   }
@@ -347,6 +377,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             </View>
           </View>
         </View>
+
+        {renderSignatureBlocks()}
       </View>
     );
   }
@@ -427,6 +459,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             <Text style={styles.valueBold}>Approved By: {sd.authorizedBy}</Text>
           </View>
         ) : null}
+
+        {renderSignatureBlocks()}
       </View>
     );
   }
@@ -484,6 +518,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             <Text style={[styles.grandValue, { color: themeColor }]}>{document.total}</Text>
           </View>
         </View>
+
+        {renderSignatureBlocks()}
       </View>
     );
   }
@@ -568,6 +604,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             ))}
           </View>
         ) : null}
+
+        {renderSignatureBlocks()}
       </View>
     );
   }
@@ -624,6 +662,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           </View>
         </>
       ) : null}
+
+      {renderSignatureBlocks()}
     </View>
   );
 }

@@ -515,6 +515,17 @@ export class SessionManager {
     return await entry.transport.fetchProfilePictureUrl(jid);
   }
 
+  async postStatus(
+    userId: string,
+    mediaType: 'text' | 'image' | 'video',
+    content: string,
+    options?: { caption?: string; backgroundColor?: string }
+  ): Promise<void> {
+    const entry = this.sessions.get(userId);
+    if (!entry) throw new Error(`No active session for user ${userId}`);
+    await entry.transport.postStatus(mediaType, content, options);
+  }
+
   async sendDocument(
     userId: string,
     jid: string,

@@ -75,6 +75,23 @@ export function sessionRoutes(sessionManager: SessionManager) {
       }
     });
 
+    fastify.post('/internal/sessions/:userId/status', async (request, reply) => {
+      const { userId } = userIdParam.parse(request.params);
+      const { mediaType, content, caption, backgroundColor } = z.object({
+        mediaType: z.enum(['text', 'image', 'video']),
+        content: z.string().min(1),
+        caption: z.string().optional(),
+        backgroundColor: z.string().optional(),
+      }).parse(request.body);
+
+      try {
+        await sessionManager.postStatus(userId, mediaType, content, { caption, backgroundColor });
+        return reply.send({ posted: true });
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message });
+      }
+    });
+
     fastify.get('/internal/sessions/:userId/catalog/products', async (request, reply) => {
       const { userId } = userIdParam.parse(request.params);
       const { limit, cursor } = z.object({

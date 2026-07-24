@@ -88,6 +88,13 @@ export abstract class WhatsAppTransport extends EventEmitter {
   /** Fetch a contact's profile picture URL from WhatsApp. */
   abstract fetchProfilePictureUrl(jid: string): Promise<string | null>;
 
+  /** Post a status update (text or media) to status@broadcast. */
+  abstract postStatus(
+    mediaType: 'text' | 'image' | 'video',
+    content: string,
+    options?: { caption?: string; backgroundColor?: string }
+  ): Promise<void>;
+
   /** Send a document (e.g. a generated quotation/invoice PDF) to a JID. */
   abstract sendDocument(jid: string, filePath: string, mimetype: string, fileName: string, caption?: string): Promise<void>;
 

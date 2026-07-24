@@ -5,15 +5,15 @@ import type { TemplateProps } from './types';
 import { DocContent } from './DocContent';
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', padding: 0 },
-  band: { paddingHorizontal: 36, paddingVertical: 28, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 36 },
+  band: { paddingHorizontal: 36, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderRadius: 6, marginBottom: 12 },
   logo: { maxWidth: 150, maxHeight: 42, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
   companyMeta: { fontSize: 8, color: '#e5e7eb', marginTop: 3, lineHeight: 1.4 },
   docTitleBlock: { alignItems: 'flex-end' },
   docTitle: { fontSize: 18, fontFamily: 'Helvetica-Bold', letterSpacing: 1, textTransform: 'uppercase', color: '#ffffff' },
   docNumber: { fontSize: 9, color: '#e5e7eb', marginTop: 3 },
-  content: { paddingHorizontal: 36, paddingTop: 20, paddingBottom: 36 },
+  content: { paddingTop: 8 },
   metaGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 24, marginBottom: 20 },
   metaBlock: { flex: 1, backgroundColor: '#f9fafb', borderRadius: 6, padding: 10 },
   metaLabel: { fontSize: 7.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4, fontFamily: 'Helvetica-Bold' },

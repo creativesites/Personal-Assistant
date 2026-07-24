@@ -6,12 +6,14 @@ import dynamic from 'next/dynamic'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
   Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
-  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3,
+  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3, PenTool,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, Dropdown, EmptyState, SkeletonCard, useToast } from '@/components/ui'
 import { AnalyticsSubNav } from '../analytics/_components/analytics-sub-nav'
+import { SignaturesModule } from '../studio/_components/signatures-module'
+import { BrandModule } from '../studio/_components/brand-module'
 
 const DocumentPreviewModal = dynamic(() => import('@/components/documents/DocumentPreviewModal'), { ssr: false })
 
@@ -208,6 +210,7 @@ export default function BusinessPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [mainTab, setMainTab] = useState<'documents' | 'signatures' | 'brand'>('documents')
   // Client-side PDF preview modal state — replaces window.open backend PDF fetches
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
 
@@ -396,221 +399,267 @@ export default function BusinessPage() {
         </div>
       </div>
 
-      <div className="px-4 md:px-6 pt-4">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
-          <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
-            {TYPE_FILTERS.map(f => (
-              <button
-                key={f.key}
-                onClick={() => setTypeFilter(f.key)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                  typeFilter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative sm:ml-auto sm:min-w-[220px]">
-            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              value={searchQuery}
-              onChange={e => { setSearchQuery(e.target.value); runSearch(e.target.value) }}
-              placeholder="Search documents…"
-              className="w-full text-xs border border-gray-100 bg-white rounded-2xl pl-8 pr-3 py-2.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-            />
-            {searchQuery && (
-              <div className="absolute right-0 top-full mt-1.5 w-80 max-w-[90vw] bg-white border border-gray-100 rounded-2xl shadow-lg z-20 max-h-72 overflow-y-auto">
-                {searching ? (
-                  <div className="p-3"><Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" /></div>
-                ) : !searchResults || searchResults.length === 0 ? (
-                  <p className="text-xs text-gray-400 p-3">No matches.</p>
-                ) : (
-                  searchResults.map(r => (
-                    <button
-                      key={r.id}
-                      onClick={() => { setSearchQuery(''); setSearchResults(null); setTypeFilter('all') }}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
-                    >
-                      <p className="text-xs font-medium text-gray-900 truncate">{r.title}</p>
-                      <p className="text-[11px] text-gray-400">{r.contactName ?? 'No contact'} · {r.documentNumber} · {r.status}</p>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+      {/* Primary Workspace Section Sub-Nav */}
+      <div className="px-4 md:px-6 pt-5">
+        <div className="max-w-5xl mx-auto flex items-center gap-1.5 p-1.5 bg-white/80 backdrop-blur-md rounded-2xl border border-gray-200/80 shadow-sm w-fit">
+          <button
+            onClick={() => setMainTab('documents')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              mainTab === 'documents'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Documents Library
+          </button>
+          <button
+            onClick={() => setMainTab('signatures')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              mainTab === 'signatures'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
+            }`}
+          >
+            <PenTool className="w-3.5 h-3.5" />
+            E-Signatures &amp; Compliance
+          </button>
+          <button
+            onClick={() => setMainTab('brand')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              mainTab === 'brand'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
+            }`}
+          >
+            <Palette className="w-3.5 h-3.5" />
+            Brand Settings
+          </button>
         </div>
       </div>
 
-      <div className="p-4 md:p-6">
-        {loading ? (
-          <div className="max-w-3xl mx-auto space-y-4">
-            {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}
-          </div>
-        ) : documents.length === 0 ? (
-          <EmptyState
-            icon={<FileText className="w-10 h-10 text-indigo-500" />}
-            title="No documents yet"
-            description="Create your first quotation or invoice — pulls in your contact, products, and Brand Kit automatically."
-            action={
-              <Link href="/documents/new" className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors">
-                <Plus className="w-4 h-4" />New Document
-              </Link>
-            }
-          />
-        ) : (
-          <div className="max-w-3xl mx-auto space-y-3">
-            {documents.map((doc: any) => (
-              <div key={doc.id} className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:border-gray-200 transition-all space-y-3">
-                {/* Header: Contact & Status */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    {doc.contact ? (
-                      <Link href={`/contacts/${doc.contact.id}`} className="flex-shrink-0">
-                        <Avatar name={doc.contact.name} src={doc.contact.avatarUrl ?? undefined} size="sm" />
-                      </Link>
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                        <FileText className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-xs font-bold text-gray-900 truncate">{doc.contact?.name ?? 'No Contact'}</span>
-                        {doc.aiGenerated && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5">
-                            <Sparkles className="w-2.5 h-2.5" />AI
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-gray-400">{doc.documentNumber} · {new Date(doc.createdAt).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {doc.viewCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded-lg" title={`${doc.viewCount} view(s)`}>
-                        <Eye className="w-3 h-3" />{doc.viewCount}
-                      </span>
-                    )}
-                    <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
-                  </div>
-                </div>
-
-                {/* Main info: Title & Total */}
-                <div className="flex items-baseline justify-between gap-3 pt-1 border-t border-gray-50">
-                  <p className="text-sm font-semibold text-gray-900 line-clamp-1">{doc.title}</p>
-                  <span className="text-base font-black text-gray-950 flex-shrink-0">{formatMoney(doc.totalCents, doc.currency)}</span>
-                </div>
-
-                {doc.aiSummary && (
-                  <p className="text-xs text-gray-600 leading-relaxed bg-gray-50/80 rounded-xl p-2.5 border border-gray-100">{doc.aiSummary}</p>
-                )}
-
-                {qualityResults[doc.id] && (
-                  <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-2.5">
-                    <p className="text-xs font-bold text-amber-900">Quality Score: {qualityResults[doc.id].score}/10</p>
-                    {qualityResults[doc.id].issues.length > 0 && (
-                      <ul className="text-[11px] text-amber-800 list-disc list-inside mt-1 space-y-0.5">
-                        {qualityResults[doc.id].issues.map((issue, i) => <li key={i}>{issue}</li>)}
-                      </ul>
-                    )}
-                    {qualityResults[doc.id].recommendation && (
-                      <p className="text-[11px] text-amber-800 mt-1 font-medium">{qualityResults[doc.id].recommendation}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Touch-Friendly Action Bar */}
-                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
-                  {/* Primary action */}
+      {mainTab === 'documents' && (
+        <>
+          <div className="px-4 md:px-6 pt-4">
+            <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
+                {TYPE_FILTERS.map(f => (
                   <button
-                    onClick={() => openPreview(doc.id)}
-                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-sm"
+                    key={f.key}
+                    onClick={() => setTypeFilter(f.key)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                      typeFilter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
+                    }`}
                   >
-                    <Download className="w-3.5 h-3.5" />Preview &amp; PDF
+                    {f.label}
                   </button>
+                ))}
+              </div>
 
-                  <Link
-                    href={`/documents/${doc.id}/edit`}
-                    className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
-                  >
-                    <Pencil className="w-3.5 h-3.5 text-gray-500" />Edit
-                  </Link>
+              <div className="relative sm:ml-auto sm:min-w-[220px]">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search documents…"
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); runSearch(e.target.value) }}
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-2xl text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
+                />
+              </div>
+            </div>
+          </div>
 
-                  {doc.contact && (
-                    <button
-                      onClick={() => sendViaWhatsApp(doc.id)}
-                      disabled={sendingId === doc.id}
-                      className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 disabled:opacity-50 transition-colors"
-                    >
-                      {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send WA
-                    </button>
-                  )}
-
-                  {/* Secondary actions */}
-                  <div className="flex items-center gap-1.5 ml-auto flex-wrap">
-                    {CONVERSION_TARGETS[doc.documentType] && (
-                      <button
-                        onClick={() => convertDocument(doc)}
-                        disabled={convertingId === doc.id}
-                        className="inline-flex items-center justify-center gap-1 min-h-[40px] px-2.5 rounded-xl text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200/60 disabled:opacity-50"
-                        title={`Convert to ${CONVERSION_TARGETS[doc.documentType]}`}
-                      >
-                        {convertingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightCircle className="w-3.5 h-3.5 text-indigo-600" />}
-                        <span className="hidden sm:inline">To {CONVERSION_TARGETS[doc.documentType]}</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)}
-                      className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-xl text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200/60"
-                      title="AI Document Assistant"
-                    >
-                      <MessageSquare className="w-4 h-4 text-indigo-600" />
-                    </button>
-
-                    <select
-                      value=""
-                      disabled={statusUpdatingId === doc.id}
-                      onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
-                      className="min-h-[40px] text-xs text-gray-700 bg-gray-50 border border-gray-200/80 rounded-xl px-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium disabled:opacity-50"
-                    >
-                      <option value="">Status…</option>
-                      {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                    </select>
-
-                    {doc.status === 'draft' && (
-                      deleteConfirmId === doc.id ? (
-                        <div className="flex items-center gap-1 text-xs bg-red-50 p-1 rounded-xl border border-red-100">
-                          <button onClick={() => deleteDocument(doc.id)} disabled={deletingId === doc.id} className="font-bold text-red-600 px-2 py-1">
-                            {deletingId === doc.id ? '…' : 'Confirm'}
-                          </button>
-                          <button onClick={() => setDeleteConfirmId(null)} className="text-gray-500 px-1 py-1">X</button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirmId(doc.id)}
-                          className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                          title="Delete draft"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )
-                    )}
-                  </div>
+          <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-3">
+            {searchResults !== null ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-500">Search Results ({searchResults.length})</p>
+                  <button onClick={() => { setSearchQuery(''); setSearchResults(null) }} className="text-xs text-indigo-600 font-semibold hover:underline">Clear</button>
                 </div>
-
-                {chatOpenId === doc.id && token && (
-                  <DocumentChatPanel documentId={doc.id} token={token} onChanged={loadDocuments} />
+                {searching ? (
+                  <div className="p-6 text-center text-xs text-gray-400">Searching…</div>
+                ) : searchResults.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-gray-400">No documents found matching &ldquo;{searchQuery}&rdquo;</div>
+                ) : (
+                  searchResults.map(res => (
+                    <div key={res.id} className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                      <div>
+                        <p className="text-xs font-bold text-gray-900">{res.title || res.documentNumber}</p>
+                        <p className="text-[11px] text-gray-500">{res.contactName || 'No contact'} · {res.documentType}</p>
+                      </div>
+                      <button onClick={() => openPreview(res.id)} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100">
+                        View PDF
+                      </button>
+                    </div>
+                  ))
                 )}
               </div>
-            ))}
+            ) : loading ? (
+              <div className="space-y-3">
+                <SkeletonCard className="h-20" />
+                <SkeletonCard className="h-20" />
+                <SkeletonCard className="h-20" />
+              </div>
+            ) : documents.length === 0 ? (
+              <EmptyState
+                icon={<FileText className="w-8 h-8 text-indigo-600" />}
+                title="No documents yet"
+                description="Create your first invoice or quotation in seconds — or generate one with AI."
+                action={
+                  <Link href="/documents/new" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-500">
+                    <Plus className="w-3.5 h-3.5" />New Document
+                  </Link>
+                }
+              />
+            ) : (
+              <div className="space-y-3">
+                {documents.map((doc: any) => (
+                  <div key={doc.id} className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:border-gray-200 transition-all space-y-3">
+                    {/* Header: Contact & Status */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {doc.contact ? (
+                          <Link href={`/contacts/${doc.contact.id}`} className="flex-shrink-0">
+                            <Avatar name={doc.contact.name} src={doc.contact.avatarUrl ?? undefined} size="sm" />
+                          </Link>
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <FileText className="w-4 h-4 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-gray-900 truncate">{doc.contact?.name ?? 'No Contact'}</span>
+                            {doc.aiGenerated && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5">
+                                <Sparkles className="w-2.5 h-2.5" />AI
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-gray-400">{doc.documentNumber} · {new Date(doc.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {doc.viewCount > 0 && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400 bg-gray-50 px-2 py-1 rounded-lg" title={`${doc.viewCount} view(s)`}>
+                            <Eye className="w-3 h-3" />{doc.viewCount}
+                          </span>
+                        )}
+                        <Badge variant={STATUS_VARIANTS[doc.status] ?? 'default'}>{doc.status}</Badge>
+                      </div>
+                    </div>
+
+                    {/* Main info: Title & Total */}
+                    <div className="flex items-baseline justify-between gap-3 pt-1 border-t border-gray-50">
+                      <p className="text-sm font-semibold text-gray-900 line-clamp-1">{doc.title}</p>
+                      <span className="text-base font-black text-gray-950 flex-shrink-0">{formatMoney(doc.totalCents, doc.currency)}</span>
+                    </div>
+
+                    {doc.aiSummary && (
+                      <p className="text-xs text-gray-600 leading-relaxed bg-gray-50/80 rounded-xl p-2.5 border border-gray-100">{doc.aiSummary}</p>
+                    )}
+
+                    {/* Touch-Friendly Action Bar */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
+                      <button
+                        onClick={() => openPreview(doc.id)}
+                        className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-sm"
+                      >
+                        <Download className="w-3.5 h-3.5" />Preview &amp; PDF
+                      </button>
+
+                      <Link
+                        href={`/documents/${doc.id}/edit`}
+                        className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-gray-500" />Edit
+                      </Link>
+
+                      {doc.contact && (
+                        <button
+                          onClick={() => sendViaWhatsApp(doc.id)}
+                          disabled={sendingId === doc.id}
+                          className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 disabled:opacity-50 transition-colors"
+                        >
+                          {sendingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}Send WA
+                        </button>
+                      )}
+
+                      <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+                        {CONVERSION_TARGETS[doc.documentType] && (
+                          <button
+                            onClick={() => convertDocument(doc)}
+                            disabled={convertingId === doc.id}
+                            className="inline-flex items-center justify-center gap-1 min-h-[40px] px-2.5 rounded-xl text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200/60 disabled:opacity-50"
+                            title={`Convert to ${CONVERSION_TARGETS[doc.documentType]}`}
+                          >
+                            {convertingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRightCircle className="w-3.5 h-3.5 text-indigo-600" />}
+                            <span className="hidden sm:inline">To {CONVERSION_TARGETS[doc.documentType]}</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => setChatOpenId(prev => prev === doc.id ? null : doc.id)}
+                          className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-xl text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200/60"
+                          title="AI Document Assistant"
+                        >
+                          <MessageSquare className="w-4 h-4 text-indigo-600" />
+                        </button>
+
+                        <select
+                          value=""
+                          disabled={statusUpdatingId === doc.id}
+                          onChange={e => { if (e.target.value) setStatus(doc.id, e.target.value) }}
+                          className="min-h-[40px] text-xs text-gray-700 bg-gray-50 border border-gray-200/80 rounded-xl px-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium disabled:opacity-50"
+                        >
+                          <option value="">Status…</option>
+                          {MANUAL_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+
+                        {doc.status === 'draft' && (
+                          deleteConfirmId === doc.id ? (
+                            <div className="flex items-center gap-1 text-xs bg-red-50 p-1 rounded-xl border border-red-100">
+                              <button onClick={() => deleteDocument(doc.id)} disabled={deletingId === doc.id} className="font-bold text-red-600 px-2 py-1">
+                                {deletingId === doc.id ? '…' : 'Confirm'}
+                              </button>
+                              <button onClick={() => setDeleteConfirmId(null)} className="text-gray-500 px-1 py-1">X</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteConfirmId(doc.id)}
+                              className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                              title="Delete draft"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    {chatOpenId === doc.id && token && (
+                      <DocumentChatPanel documentId={doc.id} token={token} onChanged={loadDocuments} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {mainTab === 'signatures' && (
+        <div className="p-4 md:p-6 max-w-5xl mx-auto">
+          <SignaturesModule token={token ?? undefined} />
+        </div>
+      )}
+
+      {mainTab === 'brand' && (
+        <div className="p-4 md:p-6 max-w-5xl mx-auto">
+          <BrandModule token={token ?? undefined} />
+        </div>
+      )}
 
       {showNewDoc && (
         <NewDocumentModal

@@ -85,7 +85,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/business',      label: 'Business ERP & Quotes', icon: FileText, showForModes: ['business', 'hybrid'] },
       { href: '/studio',        label: 'Brand Studio & Catalog', icon: FolderKanban, showForModes: ['business', 'hybrid'] },
-      { href: '/documents',     label: 'Documents & Signatures', icon: FileText, showForModes: ['business', 'hybrid'] },
+      { href: '/business',     label: 'Documents & Signatures', icon: FileText, showForModes: ['business', 'hybrid'] },
       { href: '/knowledge-base', label: 'Knowledge Brain',      icon: BookOpen },
       { href: '/agents',        label: 'Autonomous Workforce',   icon: Bot, showForModes: ['business', 'hybrid'] },
       { href: '/escalations',   label: 'Agent Escalations',     icon: AlertTriangle, badge: true, showForModes: ['business', 'hybrid'] },

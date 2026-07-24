@@ -10,15 +10,15 @@ import { DocContent } from './DocContent';
 // other template — register in render.ts's TEMPLATES map, no other change.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937' },
-  headerBand: { paddingHorizontal: 40, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 40 },
+  headerBand: { paddingHorizontal: 24, paddingVertical: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderRadius: 6, marginBottom: 12 },
   logo: { maxWidth: 150, maxHeight: 46, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
   companyMeta: { fontSize: 8, color: '#e5e7eb', marginTop: 3, lineHeight: 1.4 },
   docTitleBlock: { alignItems: 'flex-end' },
   docTitle: { fontSize: 16, fontFamily: 'Helvetica-Bold', letterSpacing: 1.5, textTransform: 'uppercase', color: '#ffffff' },
   docNumber: { fontSize: 9, color: '#e5e7eb', marginTop: 3 },
-  body: { padding: 40, paddingTop: 24 },
+  body: { paddingTop: 8 },
   metaGrid: { flexDirection: 'row', justifyContent: 'flex-end', gap: 36, marginBottom: 20 },
   metaBlock: { alignItems: 'flex-end' },
   metaLabel: { fontSize: 7.5, textTransform: 'uppercase', color: '#9ca3af', letterSpacing: 0.5, marginBottom: 4, fontFamily: 'Helvetica-Bold' },

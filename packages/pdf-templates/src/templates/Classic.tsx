@@ -13,7 +13,7 @@ import { DocContent } from './DocContent';
 // registering this in render.ts's TEMPLATES map.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Times-Roman', fontSize: 10, color: '#1f2937', padding: 40 },
+  page: { fontFamily: 'Times-Roman', fontSize: 10, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 40 },
   header: { alignItems: 'center', paddingBottom: 14, marginBottom: 18, borderBottomWidth: 1, borderBottomColor: '#111827' },
   logo: { maxWidth: 140, maxHeight: 44, objectFit: 'contain', marginBottom: 6 },
   companyName: { fontSize: 15, fontFamily: 'Times-Bold', color: '#111827', textAlign: 'center' },

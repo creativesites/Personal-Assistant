@@ -17,6 +17,10 @@ import { ChampagneConfettiCanvas, CelebrationBanner } from '@/components/ui/cele
 import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
+import { StatusStoriesBar } from './_components/status-stories-bar'
+import { StatusViewerModal } from './_components/status-viewer-modal'
+import { PostStatusModal } from './_components/post-status-modal'
+import type { ContactStatusGroup } from '@zuri/types'
 import type { AIInsight } from './_components/inline-ai-card'
 import { ConvRow } from './_components/conversation-row'
 import { DailyBriefing } from './_components/daily-briefing'
@@ -264,6 +268,23 @@ export default function InboxPage() {
   // 'bundle:ready' socket event arrives, so ActionBundlesSection (inside
   // IntelPanel) knows to refetch even if the contact is already open.
   const [bundleRefreshTick, setBundleRefreshTick] = useState(0)
+
+  // WhatsApp Statuses (Stories)
+  const [statusGroups, setStatusGroups] = useState<ContactStatusGroup[]>([])
+  const [selectedStatusGroup, setSelectedStatusGroup] = useState<ContactStatusGroup | null>(null)
+  const [postStatusModalOpen, setPostStatusModalOpen] = useState(false)
+
+  const loadStatuses = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await apiClient<{ groups: ContactStatusGroup[] }>('/api/statuses', { token })
+      setStatusGroups(data.groups || [])
+    } catch { /* ignore */ }
+  }, [token])
+
+  useEffect(() => {
+    if (token) loadStatuses()
+  }, [token, loadStatuses])
 
   // Sync progress
   const [syncing, setSyncing] = useState(false)
@@ -1743,6 +1764,13 @@ export default function InboxPage() {
           <DailyBriefing name={userName} insights={briefingInsights} items={briefingItems} loading={briefingLoading} onDismiss={() => setBriefingDismissed(true)} onOpenConversation={selectConversation} />
         )}
 
+        {/* WhatsApp Status Stories Bar */}
+        <StatusStoriesBar
+          groups={statusGroups}
+          onSelectGroup={(g) => setSelectedStatusGroup(g)}
+          onOpenCreate={() => setPostStatusModalOpen(true)}
+        />
+
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
@@ -2344,6 +2372,23 @@ export default function InboxPage() {
           token={token}
         />
       )}
+
+      {/* WhatsApp Status Viewer Modal */}
+      {selectedStatusGroup && (
+        <StatusViewerModal
+          group={selectedStatusGroup}
+          token={token}
+          onClose={() => setSelectedStatusGroup(null)}
+        />
+      )}
+
+      {/* WhatsApp Post Status Creator Modal */}
+      <PostStatusModal
+        open={postStatusModalOpen}
+        token={token}
+        onClose={() => setPostStatusModalOpen(false)}
+        onSuccess={() => loadStatuses()}
+      />
     </div>
   )
 }

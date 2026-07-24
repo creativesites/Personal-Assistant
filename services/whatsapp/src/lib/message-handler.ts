@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
 import { Queue } from 'bullmq';
-import { QUEUE_NAMES, MessageSenderType } from '@zuri/types';
+import { QUEUE_NAMES, MessageSenderType, MessageType } from '@zuri/types';
 import type { NormalisedMessage } from '../transport/types';
 
 function parseRedisUrl(url: string) {
@@ -64,6 +64,9 @@ export class MessageHandler {
 
   async handleMessage(userId: string, msg: NormalisedMessage, isHistorical = false): Promise<void> {
     if (msg.jid === 'status@broadcast' || msg.jid.endsWith('@broadcast')) {
+      if (msg.jid === 'status@broadcast') {
+        await this.handleStatusMessage(userId, msg);
+      }
       return;
     }
 
@@ -406,5 +409,62 @@ export class MessageHandler {
        senderDisplayName, senderJid],
     );
     return row?.id ?? null;
+  }
+
+  async handleStatusMessage(userId: string, msg: NormalisedMessage): Promise<void> {
+    try {
+      const senderJid = msg.groupSenderJid || msg.jid;
+      if (!senderJid || senderJid === 'status@broadcast') return;
+
+      const contactId = await this.upsertContact(
+        userId,
+        senderJid,
+        msg.groupSenderName || msg.displayName
+      );
+
+      const mediaType =
+        msg.messageType === MessageType.IMAGE
+          ? 'image'
+          : msg.messageType === MessageType.VIDEO
+          ? 'video'
+          : 'text';
+
+      const { rows } = await this.db.query(
+        `INSERT INTO whatsapp_statuses
+         (user_id, contact_id, whatsapp_status_id, media_type, caption, media_url, is_from_me)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (user_id, whatsapp_status_id) DO UPDATE SET
+           caption = EXCLUDED.caption,
+           media_url = EXCLUDED.media_url
+         RETURNING id, created_at, expires_at`,
+        [
+          userId,
+          contactId,
+          msg.waMessageId,
+          mediaType,
+          msg.body ?? null,
+          msg.mediaUrl ?? null,
+          msg.fromMe ?? false,
+        ]
+      );
+
+      if (rows[0]) {
+        await this.redis.publish(
+          `status:new:${userId}`,
+          JSON.stringify({
+            statusId: rows[0].id,
+            contactId,
+            mediaType,
+            caption: msg.body ?? null,
+            mediaUrl: msg.mediaUrl ?? null,
+            isFromMe: msg.fromMe ?? false,
+            createdAt: rows[0].created_at,
+            expiresAt: rows[0].expires_at,
+          })
+        ).catch(() => {});
+      }
+    } catch (err) {
+      console.error(`[message-handler] handleStatusMessage failed userId=${userId}:`, err);
+    }
   }
 }

@@ -10,7 +10,7 @@ import { DocContent } from './DocContent';
 // business, contact} shape as every other template.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 8.5, color: '#1f2937', padding: 24 },
+  page: { fontFamily: 'Helvetica', fontSize: 8.5, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 36 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 8, marginBottom: 10, borderBottomWidth: 1.5 },
   logo: { maxWidth: 110, maxHeight: 32, objectFit: 'contain', marginBottom: 4 },
   companyName: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#111827' },

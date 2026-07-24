@@ -216,6 +216,48 @@ export class BaileysTransport extends WhatsAppTransport {
     }
   }
 
+  async postStatus(
+    mediaType: 'text' | 'image' | 'video',
+    content: string,
+    options?: { caption?: string; backgroundColor?: string }
+  ): Promise<void> {
+    if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
+
+    if (mediaType === 'text') {
+      await this.sock.sendMessage('status@broadcast', {
+        text: content,
+        backgroundColor: options?.backgroundColor || '#1f2937',
+        font: 1,
+      } as any);
+    } else if (mediaType === 'image') {
+      if (content.startsWith('http://') || content.startsWith('https://')) {
+        await this.sock.sendMessage('status@broadcast', {
+          image: { url: content },
+          caption: options?.caption || '',
+        });
+      } else {
+        const buffer = await fs.readFile(content);
+        await this.sock.sendMessage('status@broadcast', {
+          image: buffer,
+          caption: options?.caption || '',
+        });
+      }
+    } else if (mediaType === 'video') {
+      if (content.startsWith('http://') || content.startsWith('https://')) {
+        await this.sock.sendMessage('status@broadcast', {
+          video: { url: content },
+          caption: options?.caption || '',
+        });
+      } else {
+        const buffer = await fs.readFile(content);
+        await this.sock.sendMessage('status@broadcast', {
+          video: buffer,
+          caption: options?.caption || '',
+        });
+      }
+    }
+  }
+
   // Business Workspace document delivery — see docs/BUSINESS_WORKSPACE_PLAN.md §5.
   async sendDocument(
     jid: string,

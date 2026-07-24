@@ -11,7 +11,7 @@ import { DocContent } from './DocContent';
 // template.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', padding: 0 },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 40 },
   header: { backgroundColor: '#111827', paddingHorizontal: 40, paddingVertical: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { maxWidth: 140, maxHeight: 42, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
