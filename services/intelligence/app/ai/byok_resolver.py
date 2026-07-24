@@ -35,8 +35,8 @@ async def resolve_ai_context(
     """
     default_context: ResolvedAIContext = {
         'api_key': None,
-        'provider': 'google',
-        'model': requested_model or 'gemini/gemini-3.5-flash',
+        'provider': 'dashscope',
+        'model': requested_model or 'dashscope/qwen-max',
         'is_byok': False,
         'daily_budget_usd': 0.0,
         'monthly_budget_usd': 0.0,
@@ -64,12 +64,12 @@ async def resolve_ai_context(
             provider = (
                 requested_provider
                 or (settings_row['default_provider'] if settings_row else None)
-                or 'google'
+                or 'dashscope'
             )
             model = (
                 requested_model
                 or (settings_row['preferred_model'] if settings_row else None)
-                or 'gemini/gemini-3.5-flash'
+                or 'dashscope/qwen-max'
             )
             daily_budget = float(settings_row['daily_budget_usd']) if settings_row else 0.0
             monthly_budget = float(settings_row['monthly_budget_usd']) if settings_row else 0.0

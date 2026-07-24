@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useZuriSession, setStoredMode } from '@/hooks/use-zuri-session'
 import { apiClient } from '@/lib/api'
 import { ModeBadge, useToast, ConfirmModal, Badge, Select, EmptyState } from '@/components/ui'
+import { TourTriggerButton } from '@/components/guided-tour'
 import {
   Briefcase, Users, Zap, AlertTriangle, Globe, Camera, Music2,
   UserCircle, SlidersHorizontal, Brain, Bot, Database, ShieldCheck,
@@ -1563,6 +1564,18 @@ export default function SettingsPage() {
                           </a>
                         </div>
                       )}
+                    </Section>
+
+                    <Section title="Product Tour & Onboarding">
+                      <div className="px-5 py-4 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">Zuri Interactive Product Tour</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Re-run the interactive 9-step guided tour anytime to review workspace hubs, shared inbox, AI advisor, and Career OS.
+                          </p>
+                        </div>
+                        <TourTriggerButton variant="button" />
+                      </div>
                     </Section>
 
                     {stats && (

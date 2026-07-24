@@ -38,14 +38,13 @@ const CLAUDE_MODELS = [
 ]
 
 const QWEN_MODELS = [
-  { id: "qwen-3.8-max", name: "Qwen 3.8 Max", recommended: true },
-  { id: "qwen-3.8", name: "Qwen 3.8" },
-  { id: "qwen-3.7-max", name: "Qwen 3.7 Max" },
-  { id: "qwen-3.6-plus", name: "Qwen 3.6 Plus" },
-  { id: "qwen-3.5", name: "Qwen 3.5" },
-  { id: "qwen2.5-coder", name: "Qwen2.5 Coder" },
-  { id: "qwen2.5-vl", name: "Qwen2.5 VL" },
-  { id: "qwen2.5-math", name: "Qwen2.5 Math" }
+  { id: "qwen-max", name: "Qwen Max", recommended: true },
+  { id: "qwen-plus", name: "Qwen Plus" },
+  { id: "qwen-turbo", name: "Qwen Turbo" },
+  { id: "qwen-long", name: "Qwen Long" },
+  { id: "qwen2.5-72b-instruct", name: "Qwen 2.5 72B" },
+  { id: "qwen2.5-coder-32b-instruct", name: "Qwen 2.5 Coder 32B" },
+  { id: "qwen2.5-vl-72b-instruct", name: "Qwen 2.5 VL 72B" }
 ]
 
 // Plain-English AI Error Diagnostic Helper
@@ -827,7 +826,7 @@ export default function AISettingsPage() {
               <option value="o4">o4 Reasoning</option>
               <option value="o3">o3 Reasoning</option>
               <option value="claude-opus-5">Claude Opus 5</option>
-              <option value="dashscope/qwen-3.8-max">Qwen 3.8 Max</option>
+              <option value="dashscope/qwen-max">Qwen Max (Recommended)</option>
             </select>
           </div>
 

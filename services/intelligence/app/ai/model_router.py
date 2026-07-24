@@ -16,25 +16,27 @@ log = structlog.get_logger()
 TOKEN_LIMIT = 1_000_000
 
 POOLS: dict[str, list[str]] = {
-    # Gemini first (large free quota, excellent quality for all tasks).
-    # Qwen models as fallback if Gemini quota is exhausted.
+    # System Qwen models first (Alibaba DashScope / MaaS flagship).
+    # Google Gemini as secondary fallback.
     'text': [
-        'gemini/gemini-3.6-flash',
-        'gemini/gemini-3.5-pro',
-        'dashscope/qwen-3.8-max',
-        'dashscope/qwen-3.8',
-        'dashscope/qwen-3.7-max',
+        'dashscope/qwen-max',
+        'dashscope/qwen-plus',
+        'dashscope/qwen-turbo',
+        'gemini/gemini-2.5-flash',
+        'gemini/gemini-1.5-flash',
     ],
 
     'vision': [
-        'dashscope/qwen3-vl-32b-thinking',
-        'dashscope/qwen3-vl-235b-a22b-thinking',
+        'dashscope/qwen2.5-vl-72b-instruct',
+        'dashscope/qwen-vl-max',
     ],
     'ocr': [
         'dashscope/qwen-vl-ocr-2025-11-20',
+        'dashscope/qwen-vl-max',
     ],
     'translation': [
         'dashscope/qwen-mt-flash',
+        'dashscope/qwen-turbo',
     ],
 }
 

@@ -55,14 +55,19 @@ _USE_ALIBABA_CUSTOM_ENDPOINT = bool(
 
 
 def _normalize_model(model: str) -> str:
-    """Ensure provider prefix is present for Gemini models used via AI Studio.
-    Maps deprecated/deactivated Gemini 2.5 models to Gemini 3.5 models."""
-    if model in ('gemini-2.5-flash', 'gemini/gemini-2.5-flash'):
-        return 'gemini/gemini-3.5-flash'
-    if model in ('gemini-2.5-pro', 'gemini/gemini-2.5-pro'):
-        return 'gemini/gemini-3.5-pro'
+    """Ensure provider prefix is present and map legacy/hallucinated model names to active valid models."""
+    if not model:
+        return 'dashscope/qwen-max'
+    # Map hallucinated/legacy Qwen model names
+    if any(q in model for q in ('qwen-3.8', 'qwen-3.7', 'qwen-3.6', 'qwen-3.5')):
+        return 'dashscope/qwen-max'
+    # Map hallucinated/legacy Gemini model names
+    if any(g in model for q in ('gemini-3.6', 'gemini-3.5') for g in (q, f'gemini/{q}')):
+        return 'gemini/gemini-2.5-flash'
     if model.startswith('gemini-'):
         return f'gemini/{model}'
+    if (model.startswith('qwen-') or model.startswith('qwen2')) and not model.startswith('dashscope/'):
+        return f'dashscope/{model}'
     return model
 
 

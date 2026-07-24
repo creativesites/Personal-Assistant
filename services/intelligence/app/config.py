@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     alibaba_api_host: str = ''                    # e.g. https://ws-xxxx.maas.aliyuncs.com/api/v1
     alibaba_openai_compatible_host: str = ''      # e.g. https://ws-xxxx.maas.aliyuncs.com/compatible-mode/v1
 
-    default_ai_model: str = 'gemini/gemini-3.6-flash'
+    default_ai_model: str = 'dashscope/qwen-max'
 
     embedding_model: str = 'text-embedding-3-small'
 

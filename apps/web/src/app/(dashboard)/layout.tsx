@@ -58,7 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: MessageSquare,
     items: [
       { href: '/dashboard',     label: 'Dashboard',             icon: LayoutDashboard },
-      { href: '/inbox',         label: 'Shared Inbox',          icon: MessageSquare, badge: true },
+      { href: '/inbox',         label: 'Inbox',          icon: MessageSquare, badge: true },
       { href: '/inbox/queue',   label: 'AI Reply Queue',        icon: Zap, showForModes: ['business', 'hybrid'] },
       { href: '/proactive',     label: 'Proactive Nudges',      icon: Sparkles },
       { href: '/broadcasts',    label: 'WhatsApp Broadcasts',   icon: Send, showForModes: ['business', 'hybrid'] },
@@ -160,9 +160,16 @@ function NavLink({
 }) {
   const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
   const Icon = item.icon
+  const dataTourAttr = item.href === '/inbox' ? 'inbox-link'
+    : item.href === '/advisor' ? 'advisor-link'
+    : item.href === '/business' ? 'operations-link'
+    : item.href === '/career' ? 'career-link'
+    : undefined
+
   return (
     <Link
       href={item.href}
+      data-tour={dataTourAttr}
       onClick={() => {
         onNavigate?.(item.href)
         onClick?.()
@@ -204,7 +211,7 @@ function NavLink({
 function WAStatusWidget({ wa, onNav, onOpenReconnect, isMinimized = false }: { wa: WAStatus; onNav: () => void; onOpenReconnect?: () => void; isMinimized?: boolean }) {
   if (wa.status === 'connected') {
     return (
-      <div className={`flex items-center justify-between rounded-xl bg-gray-800/30 border border-gray-800/40 ${isMinimized ? 'p-2 justify-center' : 'px-3 py-2.5 gap-2'}`}>
+      <div data-tour="wa-status-widget" className={`flex items-center justify-between rounded-xl bg-gray-800/30 border border-gray-800/40 ${isMinimized ? 'p-2 justify-center' : 'px-3 py-2.5 gap-2'}`}>
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.8)]" title="WhatsApp Connected" />
           {!isMinimized && (
@@ -227,6 +234,7 @@ function WAStatusWidget({ wa, onNav, onOpenReconnect, isMinimized = false }: { w
 
   return (
     <button
+      data-tour="wa-status-widget"
       onClick={() => {
         onNav()
         if (onOpenReconnect) onOpenReconnect()
@@ -318,7 +326,7 @@ function SidebarContents({
 
   return (
     <>
-      <div className={`h-16 flex items-center border-b border-gray-800/60 flex-shrink-0 ${isMinimized ? 'justify-center px-2' : 'px-5'}`}>
+      <div data-tour="brand-logo" className={`h-16 flex items-center border-b border-gray-800/60 flex-shrink-0 ${isMinimized ? 'justify-center px-2' : 'px-5'}`}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-xl bg-white p-0 flex items-center justify-center flex-shrink-0 overflow-hidden border border-gray-700/30">
             <img 
@@ -331,7 +339,7 @@ function SidebarContents({
         </div>
       </div>
 
-      <div className={`px-3 pt-3 flex-shrink-0 ${isMinimized ? 'flex justify-center' : ''}`}>
+      <div data-tour="search-bar" className={`px-3 pt-3 flex-shrink-0 ${isMinimized ? 'flex justify-center' : ''}`}>
         <button
           onClick={onOpenSearch}
           title="Search"
@@ -349,7 +357,7 @@ function SidebarContents({
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-none">
+      <nav data-tour="nav-hubs" className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-none">
         {visibleGroups.map(group => {
           const collapsed = !isMinimized && collapsedGroups[group.key]
           const GroupIcon = group.icon
@@ -405,6 +413,11 @@ function SidebarContents({
 
       <div className="p-3 border-t border-gray-800/60 space-y-2 flex-shrink-0 bg-gray-900/50 backdrop-blur-md">
         <WAStatusWidget wa={wa} onNav={onNav} onOpenReconnect={onOpenReconnect} isMinimized={isMinimized} />
+        {!isMinimized ? (
+          <TourTriggerButton variant="menu-item" />
+        ) : (
+          <TourTriggerButton variant="icon" />
+        )}
         <button
           onClick={onSignOut}
           title={isMinimized ? "Sign Out" : undefined}
@@ -700,117 +713,119 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
-      <SocketStatusIndicator waStatus={wa.status} />
-      <div
-        className={`fixed left-0 right-0 top-0 z-[70] h-0.5 origin-left bg-gradient-to-r from-cyan-400 via-indigo-400 to-fuchsia-400 transition-all duration-300 ${
-          isNavigating ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
-        }`}
-      />
-      {isNavigating && (
-        <div className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2 rounded-full bg-slate-950/90 px-3 py-1.5 text-[11px] font-bold text-white shadow-xl shadow-slate-950/30 ring-1 ring-white/10 backdrop-blur-md md:top-4">
-          Loading
-        </div>
-      )}
-      
-      {/* Mobile background backdrop overlay */}
-      {sidebarOpen && (
+    <GuidedTourProvider>
+      <div className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-gray-950 antialiased selection:bg-indigo-500/30">
+        <SocketStatusIndicator waStatus={wa.status} />
         <div
-          className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
-          onClick={closeSidebar}
+          className={`fixed left-0 right-0 top-0 z-[70] h-0.5 origin-left bg-gradient-to-r from-cyan-400 via-indigo-400 to-fuchsia-400 transition-all duration-300 ${
+            isNavigating ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
+          }`}
         />
-      )}
-
-      {/* Fixed: Explicit positional boundaries for mobile absolute tracking vs desktop relative flexibility */}
-      <aside
-        className={`
-          fixed top-0 bottom-0 left-0 z-50 md:z-auto md:relative
-          flex flex-col h-full bg-gray-900
-          transition-all duration-300 ease-in-out
-          ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} 
-          ${isMinimized ? 'md:w-16' : 'md:w-64'}
-          border-r border-gray-800/40 shadow-2xl md:shadow-none
-        `}
-      >
-        {/* Toggle Minimize Floating Button (Desktop-only) */}
-        <button
-          onClick={() => setIsMinimized(prev => !prev)}
-          className="hidden md:flex absolute top-5 -right-3 w-6 h-6 bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-full items-center justify-center shadow-md z-50 transition-colors"
-          title={isMinimized ? "Expand Sidebar" : "Collapse Sidebar"}
-        >
-          {isMinimized ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
-        </button>
-
-        {sidebarOpen && (
-          <button
-            onClick={closeSidebar}
-            className="md:hidden absolute top-4 right-4 text-gray-400 hover:text-gray-100 p-2 rounded-xl bg-gray-800/40 transition-colors"
-            aria-label="Close menu"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
-        
-        <SidebarContents
-          pathname={pathname}
-          email={session.data?.user.email}
-          mode={mode}
-          marketingAccess={marketingAccess}
-          wa={wa}
-          onNav={closeSidebar}
-          onNavStart={startNavigation}
-          onSignOut={handleSignOut}
-          onOpenSearch={() => setSearchOpen(true)}
-          onOpenReconnect={() => setReconnectModalOpen(true)}
-          isMinimized={isMinimized}
-          unreadNotificationsCount={unreadNotifications}
-        />
-      </aside>
-
-      <main
-        onClickCapture={handleDashboardClick}
-        className={`flex-1 min-w-0 min-h-0 overflow-auto bg-gray-50 transition-all duration-300 ${
-          mobileNavMinimized ? 'pb-20 md:pb-0' : 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0'
-        }`}
-      >
-        <SubscriptionStatusBanner token={session.data?.accessToken} />
-        {!wa.connected && wa.status !== 'unknown' && wa.status !== 'connecting' && pathname !== '/onboarding' && (
-          <div className="bg-gradient-to-r from-rose-500/15 via-amber-500/15 to-indigo-500/15 border-b border-rose-500/20 px-4 py-2.5 flex items-center justify-between text-xs text-rose-950 bg-rose-50/90 backdrop-blur-sm shadow-sm">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 flex-shrink-0 animate-ping" />
-              <span className="truncate font-semibold text-rose-900">
-                ⚠️ WhatsApp disconnected — check your phone&apos;s internet connection or scan QR code to reconnect.
-              </span>
-            </div>
-            <button
-              onClick={() => setReconnectModalOpen(true)}
-              className="font-bold text-xs bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg shadow-sm flex-shrink-0 ml-3 transition-colors flex items-center gap-1.5"
-            >
-              <Zap className="w-3.5 h-3.5 fill-current" />
-              <span>⚡ Reconnect WhatsApp</span>
-            </button>
+        {isNavigating && (
+          <div className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2 rounded-full bg-slate-950/90 px-3 py-1.5 text-[11px] font-bold text-white shadow-xl shadow-slate-950/30 ring-1 ring-white/10 backdrop-blur-md md:top-4">
+            Loading
           </div>
         )}
-        {children}
-      </main>
+        
+        {/* Mobile background backdrop overlay */}
+        {sidebarOpen && (
+          <div
+            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+            onClick={closeSidebar}
+          />
+        )}
 
-      {/* Premium mobile app bottom menu */}
-      <MobileBottomNav
-        mode={mode}
-        pathname={pathname}
-        onOpenMenu={() => setSidebarOpen(true)}
-        onOpenSearch={() => setSearchOpen(true)}
-        onNavStart={startNavigation}
-        minimized={mobileNavMinimized}
-        onMinimize={() => setMobileNavMinimized(true)}
-        onRestore={() => setMobileNavMinimized(false)}
-      />
+        {/* Fixed: Explicit positional boundaries for mobile absolute tracking vs desktop relative flexibility */}
+        <aside
+          className={`
+            fixed top-0 bottom-0 left-0 z-50 md:z-auto md:relative
+            flex flex-col h-full bg-gray-900
+            transition-all duration-300 ease-in-out
+            ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} 
+            ${isMinimized ? 'md:w-16' : 'md:w-64'}
+            border-r border-gray-800/40 shadow-2xl md:shadow-none
+          `}
+        >
+          {/* Toggle Minimize Floating Button (Desktop-only) */}
+          <button
+            onClick={() => setIsMinimized(prev => !prev)}
+            className="hidden md:flex absolute top-5 -right-3 w-6 h-6 bg-gray-900 border border-gray-800 text-gray-400 hover:text-white rounded-full items-center justify-center shadow-md z-50 transition-colors"
+            title={isMinimized ? "Expand Sidebar" : "Collapse Sidebar"}
+          >
+            {isMinimized ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+          </button>
 
-      {/* Cmd+K command palette */}
-      <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+          {sidebarOpen && (
+            <button
+              onClick={closeSidebar}
+              className="md:hidden absolute top-4 right-4 text-gray-400 hover:text-gray-100 p-2 rounded-xl bg-gray-800/40 transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          
+          <SidebarContents
+            pathname={pathname}
+            email={session.data?.user.email}
+            mode={mode}
+            marketingAccess={marketingAccess}
+            wa={wa}
+            onNav={closeSidebar}
+            onNavStart={startNavigation}
+            onSignOut={handleSignOut}
+            onOpenSearch={() => setSearchOpen(true)}
+            onOpenReconnect={() => setReconnectModalOpen(true)}
+            isMinimized={isMinimized}
+            unreadNotificationsCount={unreadNotifications}
+          />
+        </aside>
 
-      {/* 1-Click WhatsApp Reconnect Modal */}
-      <WAReconnectModal open={reconnectModalOpen} onClose={() => setReconnectModalOpen(false)} />
-    </div>
+        <main
+          onClickCapture={handleDashboardClick}
+          className={`flex-1 min-w-0 min-h-0 overflow-auto bg-gray-50 transition-all duration-300 ${
+            mobileNavMinimized ? 'pb-20 md:pb-0' : 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0'
+          }`}
+        >
+          <SubscriptionStatusBanner token={session.data?.accessToken} />
+          {!wa.connected && wa.status !== 'unknown' && wa.status !== 'connecting' && pathname !== '/onboarding' && (
+            <div className="bg-gradient-to-r from-rose-500/15 via-amber-500/15 to-indigo-500/15 border-b border-rose-500/20 px-4 py-2.5 flex items-center justify-between text-xs text-rose-950 bg-rose-50/90 backdrop-blur-sm shadow-sm">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 flex-shrink-0 animate-ping" />
+                <span className="truncate font-semibold text-rose-900">
+                  ⚠️ WhatsApp disconnected — check your phone&apos;s internet connection or scan QR code to reconnect.
+                </span>
+              </div>
+              <button
+                onClick={() => setReconnectModalOpen(true)}
+                className="font-bold text-xs bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg shadow-sm flex-shrink-0 ml-3 transition-colors flex items-center gap-1.5"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <span>⚡ Reconnect WhatsApp</span>
+              </button>
+            </div>
+          )}
+          {children}
+        </main>
+
+        {/* Premium mobile app bottom menu */}
+        <MobileBottomNav
+          mode={mode}
+          pathname={pathname}
+          onOpenMenu={() => setSidebarOpen(true)}
+          onOpenSearch={() => setSearchOpen(true)}
+          onNavStart={startNavigation}
+          minimized={mobileNavMinimized}
+          onMinimize={() => setMobileNavMinimized(true)}
+          onRestore={() => setMobileNavMinimized(false)}
+        />
+
+        {/* Cmd+K command palette */}
+        <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+
+        {/* 1-Click WhatsApp Reconnect Modal */}
+        <WAReconnectModal open={reconnectModalOpen} onClose={() => setReconnectModalOpen(false)} />
+      </div>
+    </GuidedTourProvider>
   )
 }
