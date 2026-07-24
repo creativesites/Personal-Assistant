@@ -8,10 +8,13 @@ COMPOSE="docker compose -f docker-compose.prod.yml"
 echo "==> Pulling latest code"
 git pull origin main
 
+echo "==> Running database migrations"
+node db/migrate.js
+
 echo "==> Building updated images"
 $COMPOSE build --no-cache api intelligence whatsapp
 
-echo "==> Restarting services (migrations run automatically on api startup)"
+echo "==> Restarting services"
 $COMPOSE up -d --no-deps --force-recreate api intelligence whatsapp
 
 echo "==> Waiting for API health check..."
