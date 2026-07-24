@@ -1274,6 +1274,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           m.media_mime_type,
           m.transcription,
           m.quoted_message_id,
+          m.is_ai_generated,
           (SELECT COUNT(*) FROM suggested_replies sr WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
         FROM messages m
         WHERE m.conversation_id = $1 AND m.is_deleted = false
@@ -1296,6 +1297,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         mediaMimeType: m.media_mime_type,
         transcription: m.transcription,
         quotedMessageId: m.quoted_message_id,
+        isAiGenerated: m.is_ai_generated,
         pendingSuggestions: parseInt(m.pending_suggestions, 10),
       })),
     });

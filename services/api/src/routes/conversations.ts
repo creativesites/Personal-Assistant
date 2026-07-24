@@ -306,17 +306,19 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     text: z.string().min(1).max(4096),
     quotedMessageId: z.string().uuid().optional(),
     forwardedFromMessageId: z.string().uuid().optional(),
+    isAiGenerated: z.boolean().optional(),
   });
 
   fastify.post('/api/conversations/:id/messages', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
-    const { text, quotedMessageId, forwardedFromMessageId } = sendMessageBody.parse(request.body);
+    const { text, quotedMessageId, forwardedFromMessageId, isAiGenerated } = sendMessageBody.parse(request.body);
 
     try {
       const { message, conversation } = await sendWhatsAppMessage(userId, id, text, {
         quotedMessageId,
         forwardedFromMessageId,
+        isAiGenerated,
       });
       return reply.code(201).send({ message, conversation });
     } catch (err) {

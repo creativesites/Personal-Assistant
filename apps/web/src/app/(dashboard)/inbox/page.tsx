@@ -1158,9 +1158,9 @@ export default function InboxPage() {
   const sendDirect = async (text: string) => {
     if (!text.trim() || !selectedId || !token) throw new Error('Cannot send')
     const tempId = `temp-${Date.now()}`
-    const tempMsg: Message = { id: tempId, senderType: 'user', messageType: 'text', body: text.trim(), timestamp: new Date().toISOString(), pendingSuggestions: 0 }
+    const tempMsg: Message = { id: tempId, senderType: 'user', messageType: 'text', body: text.trim(), timestamp: new Date().toISOString(), pendingSuggestions: 0, isAiGenerated: true }
     setMessages(prev => [...prev, tempMsg])
-    const data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text: text.trim() }) })
+    const data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, { method: 'POST', token, body: JSON.stringify({ text: text.trim(), isAiGenerated: true }) })
     setMessages(prev => prev.map(m => m.id === tempId ? data.message : m))
     if (data.conversation) setConversations(prev => upsertConversation(prev, data.conversation!))
   }
