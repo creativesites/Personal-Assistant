@@ -1787,7 +1787,6 @@ export default function InboxPage() {
         <StatusStoriesBar
           groups={statusGroups}
           onSelectGroup={(g) => setSelectedStatusGroup(g)}
-          onOpenCreate={() => setPostStatusModalOpen(true)}
         />
 
         {/* Conversation list */}
@@ -2327,14 +2326,6 @@ export default function InboxPage() {
           onClose={() => setSelectedStatusGroup(null)}
         />
       )}
-
-      {/* WhatsApp Post Status Creator Modal */}
-      <PostStatusModal
-        open={postStatusModalOpen}
-        token={token}
-        onClose={() => setPostStatusModalOpen(false)}
-        onSuccess={() => loadStatuses()}
-      />
 
       {/* WhatsApp Profile Picture Lightbox Modal */}
       {enlargedAvatar && (
