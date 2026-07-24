@@ -1967,6 +1967,7 @@ export default function InboxPage() {
                   onAnalyzeRecent={() => runManualAnalysis('recent')}
                   isGroup={contact?.isGroup ?? false}
                   aiNotice={aiNotice}
+                  activeLock={selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id ? selectedConvLock : null}
                 />
               </div>
 

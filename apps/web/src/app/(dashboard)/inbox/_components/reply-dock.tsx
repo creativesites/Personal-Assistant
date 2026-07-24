@@ -66,6 +66,7 @@ interface ReplyDockProps {
   onAnalyzeRecent: () => void
   isGroup?: boolean
   aiNotice?: { type: 'warning' | 'error' | 'info'; text: string } | null
+  activeLock?: { lockedBy: string | null; lockedByName?: string } | null
 }
 
 export function ReplyDock({
@@ -93,6 +94,7 @@ export function ReplyDock({
   onAnalyzeRecent,
   isGroup = false,
   aiNotice = null,
+  activeLock = null,
 }: ReplyDockProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false)
@@ -335,6 +337,20 @@ export function ReplyDock({
           >
             <X size={14} />
           </button>
+        </div>
+      )}
+
+      {activeLock?.lockedBy && (
+        <div className="mx-4 mb-2 p-2.5 bg-amber-500 text-white rounded-xl text-xs font-medium flex items-center justify-between shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping flex-shrink-0" />
+            <span>
+              <strong>{activeLock.lockedByName || 'Team Member'}</strong> is currently active on this conversation.
+            </span>
+          </div>
+          <span className="text-[10px] font-bold bg-amber-600/80 px-2 py-0.5 rounded uppercase tracking-wider flex-shrink-0">
+            Collision Protection
+          </span>
         </div>
       )}
 
