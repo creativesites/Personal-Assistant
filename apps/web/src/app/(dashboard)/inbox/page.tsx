@@ -18,6 +18,7 @@ import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
 import { MediaLightbox, type LightboxItem } from './_components/media-lightbox'
+import { ProfilePictureModal } from './_components/profile-picture-modal'
 import { StatusStoriesBar } from './_components/status-stories-bar'
 import { StatusViewerModal } from './_components/status-viewer-modal'
 import { PostStatusModal } from './_components/post-status-modal'
@@ -142,6 +143,7 @@ export default function InboxPage() {
   const [showInternalNoteModal, setShowInternalNoteModal] = useState(false)
   const [internalNoteInput, setInternalNoteInput] = useState('')
   const [lightboxItem, setLightboxItem] = useState<LightboxItem | null>(null)
+  const [enlargedAvatar, setEnlargedAvatar] = useState<{ id?: string; name: string; avatarUrl?: string | null; phone?: string | null; isGroup?: boolean } | null>(null)
 
   // Shared Inbox Team & Locking states
   const [teamMembers, setTeamMembers] = useState<Array<{ userId: string; fullName: string; email: string; role: string }>>([])
@@ -908,14 +910,24 @@ export default function InboxPage() {
       )
       if (selectedIdRef.current !== convId) return
       setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
-    if (data.contact?.id) {
-      const contactId = data.contact.id
-      apiClient<{ contact: ContactDetail }>(`/api/contacts/${contactId}`, { token })
-        .then(d => setContactDetail(d.contact)).catch(() => {})
-      apiClient<{ promises: ContactPromise[] }>(`/api/contacts/${contactId}/promises`, { token })
-        .then(d => setPromises(d.promises ?? []))
-        .catch(() => setPromises([]))
-    }
+      if (data.contact?.id) {
+        const contactId = data.contact.id
+        if (!data.contact.avatarUrl && !data.contact.isGroup) {
+          apiClient<{ ok: boolean; avatarUrl?: string | null }>(`/api/contacts/${contactId}/refresh-avatar`, { method: 'POST', token })
+            .then(res => {
+              if (res?.avatarUrl) {
+                setContact(prev => prev ? { ...prev, avatarUrl: res.avatarUrl ?? null } : null)
+                setConversations(prev => prev.map(c => c.id === convId ? { ...c, contact: { ...c.contact, avatarUrl: res.avatarUrl ?? null } } : c))
+              }
+            })
+            .catch(() => {})
+        }
+        apiClient<{ contact: ContactDetail }>(`/api/contacts/${contactId}`, { token })
+          .then(d => setContactDetail(d.contact)).catch(() => {})
+        apiClient<{ promises: ContactPromise[] }>(`/api/contacts/${contactId}/promises`, { token })
+          .then(d => setPromises(d.promises ?? []))
+          .catch(() => setPromises([]))
+      }
     loadContext(convId)
     const last = [...data.messages].reverse().find(m => m.pendingSuggestions > 0)
     if (last) {
@@ -1808,6 +1820,7 @@ export default function InboxPage() {
                     conv={conv}
                     active={selectedId === conv.id}
                     onClick={() => selectConversation(conv.id)}
+                    onAvatarClick={() => setEnlargedAvatar({ id: conv.contact.id, name: conv.contact.name, avatarUrl: conv.contact.avatarUrl, phone: conv.contact.phone, isGroup: conv.contact.isGroup })}
                     mode={mode}
                     syncing={rowActive && syncState.phase === 'importing'}
                     analysing={rowActive && syncState.phase === 'analysing'}
@@ -1837,7 +1850,14 @@ export default function InboxPage() {
                 </button>
                 {contact ? (
                   <>
-                    <div className="relative group cursor-pointer" onClick={openEditContactModal}>
+                    <div
+                      className="relative group cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEnlargedAvatar({ id: contact.id, name: contact.name, avatarUrl: contact.avatarUrl, phone: contact.phone, isGroup: contact.isGroup })
+                      }}
+                      title="Click to enlarge profile picture"
+                    >
                       <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="ring-2 ring-indigo-400/30 group-hover:ring-indigo-400/60 transition-all duration-300" />
                       {!contact.isGroup && (
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-slate-900 transition-colors duration-300 ${
@@ -2315,6 +2335,21 @@ export default function InboxPage() {
         onClose={() => setPostStatusModalOpen(false)}
         onSuccess={() => loadStatuses()}
       />
+
+      {/* WhatsApp Profile Picture Lightbox Modal */}
+      {enlargedAvatar && (
+        <ProfilePictureModal
+          contact={enlargedAvatar}
+          token={token}
+          onClose={() => setEnlargedAvatar(null)}
+          onAvatarUpdated={(newUrl) => {
+            if (contact && contact.id === enlargedAvatar.id) {
+              setContact(prev => prev ? { ...prev, avatarUrl: newUrl } : null)
+            }
+            setConversations(prev => prev.map(c => c.contact.id === enlargedAvatar.id ? { ...c, contact: { ...c.contact, avatarUrl: newUrl } } : c))
+          }}
+        />
+      )}
     </div>
   )
 }

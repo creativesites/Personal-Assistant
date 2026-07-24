@@ -263,7 +263,11 @@ export function MessageThread({
         </div>
       )}
 
-      <div className={`flex-1 overflow-y-auto px-4 py-4 space-y-2 z-10 relative ${searchOpen ? 'pt-20' : ''}`}>
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className={`flex-1 overflow-y-auto px-4 py-4 space-y-2 z-10 relative ${searchOpen ? 'pt-20' : ''}`}
+      >
         {loading ? (
           <ThreadLoadingSkeleton />
         ) : (
@@ -352,6 +356,18 @@ export function MessageThread({
           </>
         )}
       </div>
+
+      {/* Floating Scroll-to-Bottom Button */}
+      {showScrollBottom && (
+        <button
+          onClick={() => scrollToBottom('smooth')}
+          className="absolute bottom-5 right-6 z-40 p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full shadow-2xl border border-indigo-400/40 transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5 text-xs font-bold animate-in fade-in slide-in-from-bottom-2 duration-200"
+          title="Scroll to bottom"
+        >
+          <ChevronDown size={18} strokeWidth={2.5} />
+          <span className="hidden sm:inline">Bottom</span>
+        </button>
+      )}
     </div>
   )
 }

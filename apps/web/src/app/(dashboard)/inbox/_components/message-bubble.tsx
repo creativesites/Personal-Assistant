@@ -35,6 +35,7 @@ import {
   PinOff,
   Trash2
 } from 'lucide-react'
+import { Avatar } from '@/components/ui/avatar'
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -805,7 +806,7 @@ export function MessageBubble({
 
   const getAvatar = () => {
     if (msg.avatarUrl) {
-      return <img src={msg.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-white shadow-sm" />
+      return <Avatar name={msg.senderDisplayName ?? undefined} src={msg.avatarUrl} size="sm" />
     }
     if (isUser) {
       return (
