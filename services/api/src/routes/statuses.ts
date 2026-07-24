@@ -3,9 +3,10 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { QUEUE_NAMES } from '@zuri/types';
 import type { ContactStatusGroup, WhatsAppStatus } from '@zuri/types';
+import { authenticate } from '../plugins/authenticate';
 
 export async function statusRoutes(fastify: FastifyInstance) {
-  fastify.addHook('onRequest', fastify.authenticate);
+  fastify.addHook('onRequest', authenticate);
 
   // GET /api/statuses — Fetch all active WhatsApp status stories
   fastify.get('/api/statuses', async (request, reply) => {
