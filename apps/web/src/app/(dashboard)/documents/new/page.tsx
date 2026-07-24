@@ -488,17 +488,27 @@ export default function NewDocumentPage() {
     }
 
     try {
-      const { document: created } = await apiClient<{ document: { id: string; documentNumber: string } }>(
-        '/api/documents', { token, method: 'POST', body: JSON.stringify(body) },
-      )
-      setDocumentId(created.id)
-      setForm(f => ({ ...f, docNumber: created.documentNumber }))
+      if (documentId) {
+        const { document: updated } = await apiClient<{ document: { id: string; documentNumber: string } }>(
+          `/api/documents/${documentId}`,
+          { token, method: 'PATCH', body: JSON.stringify(body) },
+        )
+        setDocumentId(updated.id)
+        setForm(f => ({ ...f, docNumber: updated.documentNumber }))
+      } else {
+        const { document: created } = await apiClient<{ document: { id: string; documentNumber: string } }>(
+          '/api/documents',
+          { token, method: 'POST', body: JSON.stringify(body) },
+        )
+        setDocumentId(created.id)
+        setForm(f => ({ ...f, docNumber: created.documentNumber }))
+      }
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : 'Failed to save document')
     } finally {
       setSaving(false)
     }
-  }, [token, form, selectedContactId, saving])
+  }, [token, form, selectedContactId, saving, documentId, selectedSignature])
 
   // Generate with AI — calls /api/documents/ai-generate and fills form
   const generateWithAI = useCallback(async () => {

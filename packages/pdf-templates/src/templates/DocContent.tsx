@@ -119,6 +119,27 @@ export function DocContent({ document, business, contact }: TemplateProps) {
               <Text style={styles.bodyText}>{sd.scopeSummary}</Text>
             </View>
           ) : null}
+
+          {sd.permittedDisclosures ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Permitted Disclosures & Standard Exclusions</Text>
+              <Text style={styles.bodyText}>{sd.permittedDisclosures}</Text>
+            </View>
+          ) : null}
+
+          {sd.paymentMilestones ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Payment Milestones & Commercial Conditions</Text>
+              <Text style={styles.bodyText}>{sd.paymentMilestones}</Text>
+            </View>
+          ) : null}
+
+          {sd.slaCommitments ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Service Level Commitments (SLA) & Support Standards</Text>
+              <Text style={styles.bodyText}>{sd.slaCommitments}</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* Custom Sections / Clauses */}
@@ -215,6 +236,13 @@ export function DocContent({ document, business, contact }: TemplateProps) {
               <Text style={styles.bodyText}>{sd.deliveryAddress}</Text>
             </View>
           ) : null}
+
+          {sd.handlingNotes ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Special Handling & Goods Inspection Instructions</Text>
+              <Text style={styles.bodyText}>{sd.handlingNotes}</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* Itemized Goods List (without price columns) */}
@@ -281,6 +309,13 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             <View style={styles.textBlock}>
               <Text style={styles.label}>Ship To Location</Text>
               <Text style={styles.bodyText}>{sd.shippingAddress}</Text>
+            </View>
+          ) : null}
+
+          {sd.qualityRequirements ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Quality Assurance & Packing Standards</Text>
+              <Text style={styles.bodyText}>{sd.qualityRequirements}</Text>
             </View>
           ) : null}
         </View>
@@ -407,6 +442,20 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             <View style={styles.textBlock}>
               <Text style={styles.label}>Key Deliverables & Objectives</Text>
               <Text style={styles.bodyText}>{sd.deliverables}</Text>
+            </View>
+          ) : null}
+
+          {sd.timeline ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Implementation Methodology & Project Timeline</Text>
+              <Text style={styles.bodyText}>{sd.timeline}</Text>
+            </View>
+          ) : null}
+
+          {sd.assumptions ? (
+            <View style={styles.textBlock}>
+              <Text style={styles.label}>Key Assumptions & Prerequisites</Text>
+              <Text style={styles.bodyText}>{sd.assumptions}</Text>
             </View>
           ) : null}
         </View>

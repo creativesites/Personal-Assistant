@@ -2,6 +2,7 @@
 import React from 'react';
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import type { TemplateProps } from './types';
+import { DocContent } from './DocContent';
 
 // One of 8 business-document templates — "Creative": a two-column layout
 // with a colored sidebar (mirroring CvCreative.tsx's already-proven sidebar
@@ -65,7 +66,15 @@ export default function Creative({ document, business, contact }: TemplateProps)
           {business.taxId ? <Text style={styles.companyMeta}>TPIN: {business.taxId}</Text> : null}
 
           <View style={styles.sidebarSection}>
-            <Text style={styles.sidebarLabel}>Billed To</Text>
+            <Text style={styles.sidebarLabel}>
+              {['nda', 'contract', 'msa', 'service_agreement', 'statement_of_work', 'proposal'].includes(document.documentType)
+                ? 'Prepared For'
+                : document.documentType === 'delivery_note'
+                ? 'Deliver To'
+                : document.documentType === 'purchase_order'
+                ? 'Vendor / Supplier'
+                : 'Billed To'}
+            </Text>
             <Text style={[styles.sidebarText, { fontFamily: 'Helvetica-Bold' }]}>{contact.name}</Text>
             {contact.company ? <Text style={styles.sidebarText}>{contact.company}</Text> : null}
             {contact.email ? <Text style={styles.sidebarText}>{contact.email}</Text> : null}
@@ -89,7 +98,7 @@ export default function Creative({ document, business, contact }: TemplateProps)
             ) : null}
           </View>
 
-          {hasPayment ? (
+          {hasPayment && !['nda', 'contract', 'msa', 'service_agreement', 'delivery_note'].includes(document.documentType) ? (
             <View style={styles.sidebarSection}>
               <Text style={styles.sidebarLabel}>Payment</Text>
               {business.bankDetails ? <Text style={styles.sidebarText}>{business.bankDetails}</Text> : null}
@@ -103,71 +112,16 @@ export default function Creative({ document, business, contact }: TemplateProps)
           <Text style={[styles.docTitle, { color: themeColor }]}>{document.documentType.replace(/_/g, ' ')}</Text>
           <Text style={styles.docNumber}>{document.documentNumber}</Text>
 
-          {document.sections.map((sec, i) => (
-            <View key={i} style={styles.section}>
-              <Text style={styles.sectionLabel}>{sec.heading}</Text>
-              <Text style={styles.sectionBody}>{sec.body}</Text>
-            </View>
-          ))}
+          <DocContent document={document} business={business} contact={contact} />
 
-          {document.hasItems ? (
-            <>
-              <View style={styles.table}>
-                <View style={styles.tableHeader}>
-                  <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Description</Text></View>
-                  <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
-                  <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Price</Text></View>
-                  {document.hasDiscounts ? (
-                    <View style={styles.colDiscount}><Text style={styles.tableHeaderCell}>Disc</Text></View>
-                  ) : null}
-                  <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
-                </View>
-                {document.lineItems.map((item, i) => (
-                  <View key={i} style={styles.tableRow}>
-                    <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
-                    <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
-                    <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
-                    {document.hasDiscounts ? (
-                      <View style={styles.colDiscount}><Text style={styles.cellText}>{item.discountLabel}</Text></View>
-                    ) : null}
-                    <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.totals}>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Subtotal</Text>
-                  <Text style={styles.totalValue}>{document.subtotal}</Text>
-                </View>
-                {document.discount ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Discount</Text>
-                    <Text style={styles.totalValue}>-{document.discount}</Text>
-                  </View>
-                ) : null}
-                {document.tax ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Tax</Text>
-                    <Text style={styles.totalValue}>{document.tax}</Text>
-                  </View>
-                ) : null}
-                <View style={[styles.grandRow, { borderTopColor: themeColor }]}>
-                  <Text style={[styles.grandLabel, { color: themeColor }]}>Total</Text>
-                  <Text style={[styles.grandValue, { color: themeColor }]}>{document.total}</Text>
-                </View>
-              </View>
-            </>
-          ) : null}
-
-          {document.notes ? (
+          {document.notes && !['nda', 'contract', 'msa', 'service_agreement', 'delivery_note'].includes(document.documentType) ? (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Notes</Text>
               <Text style={styles.sectionBody}>{document.notes}</Text>
             </View>
           ) : null}
 
-          {document.terms ? (
+          {document.terms && !['nda', 'contract', 'msa', 'service_agreement'].includes(document.documentType) ? (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Terms &amp; Conditions</Text>
               <Text style={styles.sectionBody}>{document.terms}</Text>

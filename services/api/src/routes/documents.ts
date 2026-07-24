@@ -294,6 +294,13 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     if (status) { params.push(status); conditions.push(`d.status = $${params.length}`); }
     if (contactId) { params.push(contactId); conditions.push(`d.contact_id = $${params.length}`); }
 
+    // Unified Document Versioning: Filter out historical records by keeping
+    // only the latest leaf node version (the document that has no descendant
+    // pointing back to its ID as a source_document_id).
+    conditions.push(`NOT EXISTS (
+      SELECT 1 FROM documents sub WHERE sub.source_document_id = d.id
+    )`);
+
     const { rows } = await db.query(
       `SELECT d.*, COALESCE(c.custom_name, c.display_name, c.phone_number) AS contact_name, c.avatar_url
        FROM documents d
@@ -337,12 +344,14 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     const title = body.title ?? `${body.documentType[0].toUpperCase()}${body.documentType.slice(1)} ${documentNumber}`;
 
     const structuredData = {
+      ...(body.structuredData || {}),
       items: computedItems,
       notes: body.notes ?? null,
       terms: body.terms ?? null,
       validUntil: body.validUntil ?? null,
       dueDate: body.dueDate ?? null,
       manualContact: body.contactId ? null : (body.manualContact ?? null),
+      sections: body.sections ?? (body.structuredData?.sections || []),
     };
 
     const { rows: [doc] } = await db.query(
@@ -396,12 +405,15 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       : (existing.structured_data?.manualContact ?? null);
 
     const structuredData = {
+      ...(existing.structured_data || {}),
+      ...(body.structuredData || {}),
       items: computedItems,
       notes: body.notes ?? existing.structured_data?.notes ?? null,
       terms: body.terms ?? existing.structured_data?.terms ?? null,
       validUntil: body.validUntil ?? existing.structured_data?.validUntil ?? null,
       dueDate: body.dueDate ?? existing.structured_data?.dueDate ?? null,
       manualContact: nextManualContact,
+      sections: body.sections ?? body.structuredData?.sections ?? existing.structured_data?.sections ?? [],
     };
 
     const hasBusinessProfileUpdate = 'businessProfileId' in body;
@@ -1007,11 +1019,14 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     const items = body.items ?? existing.structured_data?.items ?? [];
     const { computedItems, subtotalCents, discountCents, taxCents, totalCents } = computeTotals(items);
     const structuredData = {
+      ...(existing.structured_data || {}),
+      ...(body.structuredData || {}),
       items: computedItems,
       notes: body.notes ?? existing.structured_data?.notes ?? null,
       terms: body.terms ?? existing.structured_data?.terms ?? null,
       validUntil: body.validUntil ?? existing.structured_data?.validUntil ?? null,
       dueDate: body.dueDate ?? existing.structured_data?.dueDate ?? null,
+      sections: body.sections ?? body.structuredData?.sections ?? existing.structured_data?.sections ?? [],
     };
 
     const newVersion = existing.version + 1;

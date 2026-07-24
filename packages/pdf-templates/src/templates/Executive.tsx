@@ -2,6 +2,7 @@
 import React from 'react';
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import type { TemplateProps } from './types';
+import { DocContent } from './DocContent';
 
 // One of 8 business-document templates — "Executive": dark section bars
 // (mirroring CvExecutive.tsx's visual language for CVs, adapted here for
@@ -77,7 +78,17 @@ export default function Executive({ document, business, contact }: TemplateProps
         <View style={styles.body}>
           <View style={styles.metaGrid}>
             <View style={styles.metaBlock}>
-              <View style={styles.sectionBar}><Text style={styles.metaLabel}>Billed To</Text></View>
+              <View style={styles.sectionBar}>
+                <Text style={styles.metaLabel}>
+                  {['nda', 'contract', 'msa', 'service_agreement', 'statement_of_work', 'proposal'].includes(document.documentType)
+                    ? 'Prepared For / Counterparty'
+                    : document.documentType === 'delivery_note'
+                    ? 'Deliver To'
+                    : document.documentType === 'purchase_order'
+                    ? 'Vendor / Supplier'
+                    : 'Billed To'}
+                </Text>
+              </View>
               <Text style={[styles.metaValue, { fontFamily: 'Helvetica-Bold' }]}>{contact.name}</Text>
               {contact.company ? <Text style={styles.metaValue}>{contact.company}</Text> : null}
               {contact.email ? <Text style={styles.metaValue}>{contact.email}</Text> : null}
@@ -101,78 +112,23 @@ export default function Executive({ document, business, contact }: TemplateProps
             </View>
           </View>
 
-          {document.sections.map((sec, i) => (
-            <View key={i} style={styles.section}>
-              <View style={styles.sectionBar}><Text style={styles.sectionLabel}>{sec.heading}</Text></View>
-              <Text style={styles.sectionBody}>{sec.body}</Text>
-            </View>
-          ))}
+          <DocContent document={document} business={business} contact={contact} />
 
-          {document.hasItems ? (
-            <>
-              <View style={styles.table}>
-                <View style={styles.tableHeader}>
-                  <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Description</Text></View>
-                  <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
-                  <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Unit Price</Text></View>
-                  {document.hasDiscounts ? (
-                    <View style={styles.colDiscount}><Text style={styles.tableHeaderCell}>Discount</Text></View>
-                  ) : null}
-                  <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
-                </View>
-                {document.lineItems.map((item, i) => (
-                  <View key={i} style={styles.tableRow}>
-                    <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
-                    <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
-                    <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
-                    {document.hasDiscounts ? (
-                      <View style={styles.colDiscount}><Text style={styles.cellText}>{item.discountLabel}</Text></View>
-                    ) : null}
-                    <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.totals}>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Subtotal</Text>
-                  <Text style={styles.totalValue}>{document.subtotal}</Text>
-                </View>
-                {document.discount ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Discount</Text>
-                    <Text style={styles.totalValue}>-{document.discount}</Text>
-                  </View>
-                ) : null}
-                {document.tax ? (
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Tax</Text>
-                    <Text style={styles.totalValue}>{document.tax}</Text>
-                  </View>
-                ) : null}
-                <View style={styles.grandRow}>
-                  <Text style={styles.grandLabel}>Total</Text>
-                  <Text style={styles.grandValue}>{document.total}</Text>
-                </View>
-              </View>
-            </>
-          ) : null}
-
-          {document.notes ? (
+          {document.notes && !['nda', 'contract', 'msa', 'service_agreement', 'delivery_note'].includes(document.documentType) ? (
             <View style={styles.section}>
               <View style={styles.sectionBar}><Text style={styles.sectionLabel}>Notes</Text></View>
               <Text style={styles.sectionBody}>{document.notes}</Text>
             </View>
           ) : null}
 
-          {document.terms ? (
+          {document.terms && !['nda', 'contract', 'msa', 'service_agreement'].includes(document.documentType) ? (
             <View style={styles.section}>
               <View style={styles.sectionBar}><Text style={styles.sectionLabel}>Terms &amp; Conditions</Text></View>
               <Text style={styles.sectionBody}>{document.terms}</Text>
             </View>
           ) : null}
 
-          {hasPayment ? (
+          {hasPayment && !['nda', 'contract', 'msa', 'service_agreement', 'delivery_note'].includes(document.documentType) ? (
             <View style={styles.section}>
               <View style={styles.sectionBar}><Text style={styles.sectionLabel}>Payment</Text></View>
               <View style={[styles.paymentGrid, { marginTop: 6 }]}>
