@@ -463,10 +463,11 @@ function GenerateDocumentWidget({
   documentType, contactId, brief, theme, onAction,
 }: {
   documentType: string; contactId: string; brief: string; theme: 'dark' | 'light';
-  onAction?: (a: ParsedAction) => Promise<void>
+  onAction?: (a: ParsedAction) => Promise<any>
 }) {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
+  const [createdDocId, setCreatedDocId] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const [limitReached, setLimitReached] = useState(false)
   const label = DOCUMENT_TYPE_LABELS[documentType] ?? documentType
@@ -477,7 +478,10 @@ function GenerateDocumentWidget({
     setFailed(false)
     setLimitReached(false)
     try {
-      await onAction({ type: 'generate_document', params: [documentType, contactId, brief] })
+      const res = await onAction({ type: 'generate_document', params: [documentType, contactId, brief] })
+      if (res && typeof res === 'object' && res.id) {
+        setCreatedDocId(res.id)
+      }
       setDone(true)
     } catch (err) {
       if (err instanceof ApiError && err.status === 402) {
@@ -511,12 +515,24 @@ function GenerateDocumentWidget({
         </button>
       )}
       {done && (
-        <p className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1.5">
-          <Check size={10} />{label} created —
-          <a href="/business" className="underline inline-flex items-center gap-0.5">
-            open Documents <ExternalLink size={9} />
-          </a>
-        </p>
+        <div className="space-y-1.5 pt-1">
+          <p className="text-[11px] text-emerald-500 font-bold flex items-center gap-1.5">
+            <Check size={12} />{label} created cleanly
+          </p>
+          <div className="flex items-center gap-2">
+            {createdDocId ? (
+              <a
+                href={`/documents/${createdDocId}/edit`}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-colors shadow-sm"
+              >
+                <FileText size={11} /> Edit &amp; Download PDF <ExternalLink size={10} />
+              </a>
+            ) : null}
+            <a href="/business" className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-900 underline">
+              View All Documents
+            </a>
+          </div>
+        </div>
       )}
       {limitReached && (
         <p className="text-[10px] font-semibold text-amber-500">

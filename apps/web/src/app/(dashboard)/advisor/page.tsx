@@ -465,7 +465,7 @@ export default function AdvisorPage() {
   // contact in view, but the tag itself carries a contact_id supplied by the
   // model from the CRM context list, so no extra lookup is needed.
   const handleChatAction = useCallback(async (action: ParsedAction) => {
-    if (action.type !== 'generate_document' || !token) return
+    if (action.type !== 'generate_document' || !token) return null
     const [documentType, contactId, ...briefParts] = action.params
     if (!contactId) throw new Error('Missing contact_id')
     const brief = briefParts.join(' | ')
@@ -480,12 +480,7 @@ export default function AdvisorPage() {
       throw new ApiError(genRes.status, body.error || 'Failed to generate document')
     }
     const { document } = await genRes.json() as { document: { id: string } }
-
-    const renderRes = await fetch(`${API_URL}/api/documents/${document.id}/generate`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!renderRes.ok) throw new Error('Failed to render document')
+    return document
   }, [token])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

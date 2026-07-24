@@ -116,8 +116,38 @@ export function MessageThread({
   onMediaClick?: (item: { type: 'image' | 'video' | 'document'; url: string; title?: string }) => void
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null)
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior,
+      })
+    } else if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior })
+    }
+  }
+
+  // Scroll to bottom when messages finish loading or new messages arrive
+  useEffect(() => {
+    if (!loading && messages.length > 0) {
+      const timer = setTimeout(() => {
+        scrollToBottom('auto')
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [loading, messages.length])
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
+    const isScrolledUp = scrollHeight - scrollTop - clientHeight > 120
+    setShowScrollBottom(isScrolledUp)
+  }
 
   useEffect(() => {
     if (!activeMatchId) return

@@ -144,6 +144,7 @@ export interface Message {
   approvalMode?: 'manual' | 'approved' | 'autonomous'
   /** Group chats only: the participant who sent this message. Null for 1:1 chats. */
   senderDisplayName?: string | null
+  isAiGenerated?: boolean
 }
 
 export interface Suggestion {

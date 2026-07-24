@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+
 type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
 interface AvatarProps {
@@ -6,6 +8,7 @@ interface AvatarProps {
   size?: AvatarSize
   online?: boolean
   className?: string
+  onClick?: (e: React.MouseEvent) => void
 }
 
 const sizes: Record<AvatarSize, { container: string; text: string }> = {
@@ -44,13 +47,30 @@ function initials(name?: string) {
     : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-export function Avatar({ name, src, size = 'md', online, className = '' }: AvatarProps) {
+export function Avatar({ name, src, size = 'md', online, className = '', onClick }: AvatarProps) {
   const s = sizes[size]
+  const [imgError, setImgError] = useState(false)
+
+  useEffect(() => {
+    setImgError(false)
+  }, [src])
+
   return (
-    <span className={`relative inline-flex flex-shrink-0 ${className}`}>
+    <span
+      onClick={onClick}
+      className={`relative inline-flex flex-shrink-0 ${onClick ? 'cursor-pointer hover:opacity-90' : ''} ${className}`}
+    >
       <span className={`${s.container} rounded-full overflow-hidden flex items-center justify-center text-white font-semibold ${colorForName(name)}`}>
-        {src
-          ? <img src={src} alt={name ?? ''} className="w-full h-full object-cover" />
+        {src && !imgError
+          ? (
+            <img
+              src={src}
+              alt={name ?? ''}
+              referrerPolicy="no-referrer"
+              onError={() => setImgError(true)}
+              className="w-full h-full object-cover"
+            />
+          )
           : <span className={s.text}>{initials(name)}</span>
         }
       </span>

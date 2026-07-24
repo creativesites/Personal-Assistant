@@ -649,17 +649,13 @@ export default function BusinessPage() {
         </>
       )}
 
-      {mainTab === 'signatures' && (
-        <div className="p-4 md:p-6 max-w-5xl mx-auto">
-          <SignaturesModule token={token ?? undefined} />
-        </div>
-      )}
+      <div className={mainTab === 'signatures' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
+        <SignaturesModule token={token ?? undefined} />
+      </div>
 
-      {mainTab === 'brand' && (
-        <div className="p-4 md:p-6 max-w-5xl mx-auto">
-          <BrandModule token={token ?? undefined} />
-        </div>
-      )}
+      <div className={mainTab === 'brand' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
+        <BrandModule token={token ?? undefined} />
+      </div>
 
       {showNewDoc && (
         <NewDocumentModal

@@ -39,10 +39,11 @@ const styles = StyleSheet.create({
   // Two-party Signatures
   twoPartyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
   partySigBlock: { width: '45%' },
-  sigLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', height: 32, marginBottom: 4, justifyContent: 'flex-end' },
-  sigImage: { maxHeight: 36, objectFit: 'contain' },
-  sigTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827' },
-  sigSub: { fontSize: 7.5, color: '#6b7280', marginTop: 1 },
+  sigTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4 },
+  sigImageContainer: { height: 42, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 2 },
+  sigImage: { maxHeight: 40, width: 120, objectFit: 'contain' },
+  sigLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 },
+  sigSub: { fontSize: 7.5, color: '#6b7280', marginTop: 2 },
 });
 
 export function DocContent({ document, business, contact }: TemplateProps) {
@@ -63,11 +64,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         {showSupplier ? (
           <View style={styles.partySigBlock}>
             <Text style={styles.sigTitle}>{business.companyName || 'Supplier / Service Provider'}</Text>
-            <View style={styles.sigLine}>
+            <View style={styles.sigImageContainer}>
               {business.signatureUrl ? (
                 <Image src={business.signatureUrl} style={styles.sigImage} />
               ) : null}
             </View>
+            <View style={styles.sigLine} />
             <Text style={styles.sigSub}>Authorized Signature &amp; Date</Text>
           </View>
         ) : <View style={styles.partySigBlock} />}
@@ -75,11 +77,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         {showClient ? (
           <View style={styles.partySigBlock}>
             <Text style={styles.sigTitle}>{contact.name || 'Client / Counterparty'}</Text>
-            <View style={styles.sigLine}>
+            <View style={styles.sigImageContainer}>
               {document.clientSignatureUrl ? (
                 <Image src={document.clientSignatureUrl} style={styles.sigImage} />
               ) : null}
             </View>
+            <View style={styles.sigLine} />
             <Text style={styles.sigSub}>Client Signature &amp; Date</Text>
           </View>
         ) : <View style={styles.partySigBlock} />}

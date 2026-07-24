@@ -6,7 +6,7 @@ import type { Conversation } from '../_types/inbox'
 import { AI_PRIORITY, SENTIMENT_DOT } from '../_lib/constants'
 import { formatTime, formatSLA } from '../_lib/utils'
 
-export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false, onTogglePin }: {
+export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false, onTogglePin, onAvatarClick }: {
   conv: Conversation
   active: boolean
   onClick: () => void
@@ -14,6 +14,7 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
   syncing?: boolean
   analysing?: boolean
   onTogglePin?: (e: React.MouseEvent) => void
+  onAvatarClick?: (e: React.MouseEvent) => void
 }) {
   const priority = conv.aiPriority ? AI_PRIORITY[conv.aiPriority] : null
   const PIcon = priority?.icon
@@ -25,7 +26,17 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
       }`}
     >
       <div className="relative flex-shrink-0 mt-0.5">
-        <Avatar name={conv.contact.name} src={conv.contact.avatarUrl ?? undefined} size="md" />
+        <Avatar
+          name={conv.contact.name}
+          src={conv.contact.avatarUrl ?? undefined}
+          size="md"
+          onClick={(e) => {
+            if (onAvatarClick) {
+              e.stopPropagation()
+              onAvatarClick(e)
+            }
+          }}
+        />
         {conv.unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-indigo-600 border-2 border-white rounded-full flex items-center justify-center">
             <span className="text-[8px] font-bold text-white px-0.5 leading-none">
