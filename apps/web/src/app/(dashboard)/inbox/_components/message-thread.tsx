@@ -81,6 +81,9 @@ export function MessageThread({
   onCardAction,
   onCardDismiss,
   lockInfo,
+  onReply,
+  onForward,
+  onReact,
 }: {
   messages: InboxMessage[]
   loading: boolean
@@ -100,6 +103,9 @@ export function MessageThread({
   onCardAction?: (insight: AIInsight) => void
   onCardDismiss?: (insight: AIInsight) => void
   lockInfo?: { lockedBy: string | null; lockedByName?: string } | null
+  onReply?: (msg: InboxMessage) => void
+  onForward?: (msg: InboxMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activeMatchId = searchMatches[activeSearchIndex] ?? null
@@ -231,6 +237,9 @@ export function MessageThread({
                     allMessages={messages}
                     highlighted={highlightedMsgId === msg.id}
                     onQuoteClick={handleQuoteClick}
+                    onReply={onReply}
+                    onForward={onForward}
+                    onReact={onReact}
                   />
                   {msgCards.length > 0 && (
                     <div className="py-2.5 px-2 space-y-2">

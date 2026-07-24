@@ -173,6 +173,10 @@ export default function InboxPage() {
   const [aiActionResult, setAIActionResult] = useState<{ label: string; text: string } | null>(null)
   const [aiAskInput, setAIAskInput] = useState('')
 
+  // Quoted reply & message forwarding states
+  const [replyingToMessage, setReplyingToMessage] = useState<any | null>(null)
+  const [forwardingMessage, setForwardingMessage] = useState<any | null>(null)
+
   // Analysis
   const [analysing, setAnalysing] = useState(false)
 
@@ -527,6 +531,17 @@ export default function InboxPage() {
     }
 
     socket.on('message:new', handleNewMessage)
+
+    socket.on('message:reaction', (payload: string) => {
+      try {
+        const data = parseSocketPayload<{ conversationId: string; messageId: string; reactions: Array<{ emoji: string; count: number; userReacted: boolean }> }>(payload)
+        if (selectedIdRef.current === data.conversationId) {
+          setMessages(prev => prev.map(m => (
+            m.id === data.messageId ? { ...m, reactions: data.reactions } : m
+          )))
+        }
+      } catch {}
+    })
 
     const handleConversationUpsert = (payload: string | { conversation: Conversation }) => {
       try {
@@ -970,11 +985,47 @@ export default function InboxPage() {
     }
   }
 
+  const handleReact = async (messageId: string, emoji: string) => {
+    if (!selectedId || !token) return
+    try {
+      const res = await apiClient<{ messageId: string; reactions: Array<{ emoji: string; count: number; userReacted: boolean }> }>(
+        `/api/conversations/${selectedId}/messages/${messageId}/react`,
+        { method: 'POST', token, body: JSON.stringify({ emoji }) }
+      )
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions: res.reactions } : m))
+    } catch {
+      addToast({ variant: 'error', title: 'Reaction failed', description: 'Could not set reaction' })
+    }
+  }
+
+  const handleForwardMessage = async (targetConversationId: string) => {
+    if (!forwardingMessage || !token || !selectedId) return
+    try {
+      const res = await apiClient<{ message: Message }>(`/api/conversations/${selectedId}/forward`, {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          messageId: forwardingMessage.id,
+          targetConversationId,
+        })
+      })
+      addToast({ variant: 'success', title: 'Message Forwarded', description: 'Message successfully forwarded' })
+      setForwardingMessage(null)
+      if (selectedId === targetConversationId) {
+        setMessages(prev => [...prev, res.message])
+      }
+    } catch {
+      addToast({ variant: 'error', title: 'Forwarding Failed', description: 'Could not forward message' })
+    }
+  }
+
   const sendDraft = async (textOverride?: string, file?: File | null) => {
     const text = textOverride !== undefined ? textOverride : draft;
     if ((!text.trim() && !file) || !selectedId || !token) return
     
     setDraft('')
+    const currentReply = replyingToMessage
+    setReplyingToMessage(null)
 
     const tempId = `temp-${Date.now()}`
     const msgType = file ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'document') : 'text'
@@ -985,6 +1036,7 @@ export default function InboxPage() {
       body: text || file?.name || '',
       timestamp: new Date().toISOString(),
       pendingSuggestions: 0,
+      quotedMessageId: currentReply?.id || null,
       mediaUrl: file ? URL.createObjectURL(file) : undefined,
       mediaMimeType: file ? file.type : undefined
     } as any;
@@ -998,6 +1050,9 @@ export default function InboxPage() {
         if (text) {
           formData.append('caption', text)
         }
+        if (currentReply?.id) {
+          formData.append('quotedMessageId', currentReply.id)
+        }
         data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/media`, {
           method: 'POST',
           token,
@@ -1007,7 +1062,10 @@ export default function InboxPage() {
         data = await apiClient<{ message: Message; conversation?: Conversation }>(`/api/conversations/${selectedId}/messages`, {
           method: 'POST',
           token,
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({
+            text,
+            quotedMessageId: currentReply?.id || undefined,
+          }),
         })
       }
       setMessages(prev => prev.map(m => m.id === tempId ? data.message : m))
@@ -1930,6 +1988,12 @@ export default function InboxPage() {
                     onNextSearch={handleThreadSearchNext}
                     onSelectMessage={selectMessage}
                     lockInfo={selectedConvLock}
+                    onReply={(msg) => {
+                      setReplyingToMessage(msg)
+                      setTimeout(() => draftRef.current?.focus(), 50)
+                    }}
+                    onForward={(msg) => setForwardingMessage(msg)}
+                    onReact={handleReact}
                   />
                 )}
                 {selectedConvLock && selectedConvLock.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
@@ -1968,6 +2032,8 @@ export default function InboxPage() {
                   isGroup={contact?.isGroup ?? false}
                   aiNotice={aiNotice}
                   activeLock={selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id ? selectedConvLock : null}
+                  replyingToMessage={replyingToMessage}
+                  onCancelReply={() => setReplyingToMessage(null)}
                 />
               </div>
 
@@ -2153,6 +2219,58 @@ export default function InboxPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Forward Message Modal */}
+      {forwardingMessage && (
+        <Modal
+          open={!!forwardingMessage}
+          onClose={() => setForwardingMessage(null)}
+          title="Forward Message"
+          description="Select a conversation to forward this message to."
+          size="md"
+        >
+          <div className="p-5 space-y-4">
+            <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+              <p className="text-[10px] font-extrabold uppercase text-slate-500 mb-1">Message Preview</p>
+              <p className="text-xs text-slate-800 dark:text-slate-200 font-medium line-clamp-3">
+                {forwardingMessage.body || 'Attachment'}
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 block">
+                Select Recipient Conversation:
+              </label>
+              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                {conversations.map(conv => (
+                  <button
+                    key={conv.id}
+                    onClick={() => handleForwardMessage(conv.id)}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/50 border border-slate-200 dark:border-slate-700 transition-colors text-left group"
+                  >
+                    <Avatar
+                      src={conv.contact.avatarUrl || undefined}
+                      name={conv.contact.name || conv.contact.phone}
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-indigo-600">
+                        {conv.contact.name || conv.contact.phone}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {conv.contact.phone}
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-0.5 transition-transform">
+                      Send →
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

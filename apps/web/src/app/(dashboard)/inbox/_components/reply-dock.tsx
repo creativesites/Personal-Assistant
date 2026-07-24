@@ -67,6 +67,8 @@ interface ReplyDockProps {
   isGroup?: boolean
   aiNotice?: { type: 'warning' | 'error' | 'info'; text: string } | null
   activeLock?: { lockedBy: string | null; lockedByName?: string } | null
+  replyingToMessage?: { id: string; senderType: string; senderDisplayName?: string | null; body: string | null } | null
+  onCancelReply?: () => void
 }
 
 export function ReplyDock({
@@ -95,6 +97,8 @@ export function ReplyDock({
   isGroup = false,
   aiNotice = null,
   activeLock = null,
+  replyingToMessage = null,
+  onCancelReply,
 }: ReplyDockProps) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false)
@@ -309,6 +313,30 @@ export function ReplyDock({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Replying to message preview banner */}
+      {replyingToMessage && (
+        <div className="mx-4 mt-2 p-2.5 px-3.5 bg-indigo-50/90 dark:bg-indigo-950/70 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex items-center justify-between gap-3 animate-in slide-in-from-bottom-2 duration-200 shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-1 h-8 rounded-full bg-indigo-600 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-extrabold text-indigo-900 dark:text-indigo-200 uppercase tracking-wide">
+                Replying to {replyingToMessage.senderDisplayName || (replyingToMessage.senderType === 'user' ? 'You' : 'Contact')}
+              </p>
+              <p className="text-xs text-slate-800 dark:text-slate-200 font-semibold truncate leading-snug">
+                {replyingToMessage.body || 'Attachment'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onCancelReply}
+            className="p-1.5 rounded-xl text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors shrink-0"
+            title="Cancel reply"
+          >
+            <X size={15} />
+          </button>
         </div>
       )}
 

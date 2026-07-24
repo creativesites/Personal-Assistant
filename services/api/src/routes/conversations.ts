@@ -187,13 +187,34 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
             m.sender_display_name,
             m.sender_jid,
             m.delivery_status,
+            m.is_forwarded,
             ma.sentiment,
             ma.sentiment_score,
             ma.requires_response,
             ma.response_urgency,
             ma.importance_score,
             (SELECT COUNT(*) FROM suggested_replies sr
-              WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions
+              WHERE sr.message_id = m.id AND sr.status = 'pending') AS pending_suggestions,
+            (
+              SELECT COALESCE(
+                json_agg(
+                  json_build_object(
+                    'emoji', mr_sub.emoji,
+                    'count', mr_sub.cnt,
+                    'userReacted', mr_sub.has_user
+                  )
+                ), '[]'::json
+              )
+              FROM (
+                SELECT
+                  mr.emoji,
+                  COUNT(*)::int AS cnt,
+                  BOOL_OR(mr.user_id = $2) AS has_user
+                FROM message_reactions mr
+                WHERE mr.message_id = m.id
+                GROUP BY mr.emoji
+              ) mr_sub
+            ) AS reactions
           FROM messages m
           LEFT JOIN message_analyses ma ON ma.message_id = m.id
           WHERE m.conversation_id = $1 AND m.is_deleted = false
@@ -201,7 +222,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           LIMIT 150
         ) sub
         ORDER BY whatsapp_timestamp ASC`,
-        [id],
+        [id, userId],
       ),
       db.query(
         `SELECT
@@ -244,6 +265,8 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         senderDisplayName: m.sender_display_name,
         senderJid: m.sender_jid,
         deliveryStatus: m.delivery_status,
+        isForwarded: !!m.is_forwarded,
+        reactions: m.reactions || [],
         analysis: m.sentiment
           ? {
               sentiment: m.sentiment,
@@ -271,15 +294,22 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
 
   // ── POST /api/conversations/:id/messages ───────────────────────────────────
 
-  const sendMessageBody = z.object({ text: z.string().min(1).max(4096) });
+  const sendMessageBody = z.object({
+    text: z.string().min(1).max(4096),
+    quotedMessageId: z.string().uuid().optional(),
+    forwardedFromMessageId: z.string().uuid().optional(),
+  });
 
   fastify.post('/api/conversations/:id/messages', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
-    const { text } = sendMessageBody.parse(request.body);
+    const { text, quotedMessageId, forwardedFromMessageId } = sendMessageBody.parse(request.body);
 
     try {
-      const { message, conversation } = await sendWhatsAppMessage(userId, id, text);
+      const { message, conversation } = await sendWhatsAppMessage(userId, id, text, {
+        quotedMessageId,
+        forwardedFromMessageId,
+      });
       return reply.code(201).send({ message, conversation });
     } catch (err) {
       if (err instanceof Error && err.message === 'Conversation not found') {
@@ -287,6 +317,86 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       }
       throw err;
     }
+  });
+
+  // ── POST /api/conversations/:id/messages/:messageId/react ──────────────────
+
+  const reactBody = z.object({ emoji: z.string().min(1).max(32) });
+
+  fastify.post('/api/conversations/:id/messages/:messageId/react', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id, messageId } = request.params as { id: string; messageId: string };
+    const { emoji } = reactBody.parse(request.body);
+
+    const scope = await getEffectiveScope(userId);
+    const { rows: [conv] } = await db.query(
+      `SELECT c.id FROM conversations c WHERE c.id = $1 AND (
+         ($2::uuid IS NOT NULL AND c.organization_id = $2::uuid) OR
+         (c.user_id = $3::uuid OR c.user_id = $4::uuid)
+       )`,
+      [id, scope.organizationId, scope.ownerUserId, userId],
+    );
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+
+    const { rows: [existing] } = await db.query(
+      `SELECT id FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+      [messageId, userId, emoji],
+    );
+
+    if (existing) {
+      await db.query(`DELETE FROM message_reactions WHERE id = $1`, [existing.id]);
+    } else {
+      await db.query(
+        `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
+         ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+        [messageId, userId, emoji],
+      );
+    }
+
+    const { rows: reactions } = await db.query(
+      `SELECT
+         mr.emoji,
+         COUNT(*)::int AS count,
+         BOOL_OR(mr.user_id = $2) AS "userReacted"
+       FROM message_reactions mr
+       WHERE mr.message_id = $1
+       GROUP BY mr.emoji`,
+      [messageId, userId],
+    );
+
+    await publishInboxEvent(scope.ownerUserId, 'message:reaction', {
+      conversationId: id,
+      messageId,
+      reactions,
+    });
+
+    return reply.send({ ok: true, messageId, reactions });
+  });
+
+  // ── POST /api/conversations/:id/forward ─────────────────────────────────────
+
+  const forwardBody = z.object({
+    messageId: z.string().uuid(),
+    targetConversationId: z.string().uuid(),
+  });
+
+  fastify.post('/api/conversations/:id/forward', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { messageId, targetConversationId } = forwardBody.parse(request.body);
+
+    const { rows: [origMsg] } = await db.query(
+      `SELECT body FROM messages WHERE id = $1 AND is_deleted = false`,
+      [messageId],
+    );
+    if (!origMsg || !origMsg.body) {
+      return reply.code(404).send({ error: 'Original message not found or empty' });
+    }
+
+    const { message, conversation } = await sendWhatsAppMessage(userId, targetConversationId, origMsg.body, {
+      forwardedFromMessageId: messageId,
+    });
+
+    return reply.code(201).send({ message, conversation });
   });
 
   // ── GET /api/inbox/briefing ────────────────────────────────────────────────

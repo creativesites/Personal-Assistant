@@ -65,9 +65,19 @@ export function PortfolioStudioPanel({ token }: PortfolioStudioPanelProps) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleSaveSettings = () => {
+  const handleSaveSettings = (newTheme?: PortfolioThemeKey, newAllowDownload?: boolean) => {
+    const updatedTheme = newTheme ?? themeKey
+    const updatedAllow = newAllowDownload ?? allowCvDownload
     setSaving(true)
-    setTimeout(() => setSaving(false), 600)
+    fetch(`/api/p/${slug}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_settings',
+        themeKey: updatedTheme,
+        allowCvDownload: updatedAllow,
+      }),
+    }).finally(() => setSaving(false))
   }
 
   const themeOptions: Array<{
@@ -172,7 +182,7 @@ export function PortfolioStudioPanel({ token }: PortfolioStudioPanelProps) {
                 type="button"
                 onClick={() => {
                   setThemeKey(t.key)
-                  handleSaveSettings()
+                  handleSaveSettings(t.key, allowCvDownload)
                 }}
                 className={`p-4 rounded-2xl border text-left transition-all relative space-y-2 ${
                   isSelected
@@ -217,7 +227,7 @@ export function PortfolioStudioPanel({ token }: PortfolioStudioPanelProps) {
             checked={allowCvDownload}
             onChange={(e) => {
               setAllowCvDownload(e.target.checked)
-              handleSaveSettings()
+              handleSaveSettings(themeKey, e.target.checked)
             }}
             className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
           />

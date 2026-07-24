@@ -26,6 +26,24 @@ function getStore(slug: string) {
   return analyticsStore[slug]
 }
 
+const settingsStore: Record<
+  string,
+  {
+    themeKey: string
+    allowCvDownload: boolean
+  }
+> = {}
+
+function getSettings(slug: string) {
+  if (!settingsStore[slug]) {
+    settingsStore[slug] = {
+      themeKey: 'pearl-executive',
+      allowCvDownload: true,
+    }
+  }
+  return settingsStore[slug]
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -37,6 +55,7 @@ export async function GET(
   }
 
   const store = getStore(slug)
+  const settings = getSettings(slug)
   const clientIp = request.headers.get('x-forwarded-for') || '127.0.0.1'
   store.uniqueIPs.add(clientIp)
 
@@ -45,8 +64,8 @@ export async function GET(
   const mockPortfolio = {
     slug,
     settings: {
-      themeKey: 'pearl-executive', // Default theme
-      allowCvDownload: true,
+      themeKey: settings.themeKey,
+      allowCvDownload: settings.allowCvDownload,
       visibility: 'public',
     },
     profile: {
@@ -136,6 +155,13 @@ export async function POST(
   const { slug } = await params
   const body = await request.json().catch(() => ({}))
   const store = getStore(slug)
+
+  if (body.action === 'update_settings') {
+    const settings = getSettings(slug)
+    if (body.themeKey) settings.themeKey = body.themeKey
+    if (body.allowCvDownload !== undefined) settings.allowCvDownload = body.allowCvDownload
+    return NextResponse.json({ success: true, settings })
+  }
 
   if (body.action === 'track_event') {
     if (body.event === 'page_view') store.views += 1

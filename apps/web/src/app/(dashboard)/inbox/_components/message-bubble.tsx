@@ -26,7 +26,10 @@ import {
   Video,
   Download,
   ExternalLink,
-  Maximize2
+  Maximize2,
+  CornerUpLeft,
+  CornerUpRight,
+  Smile
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────────────
@@ -67,6 +70,7 @@ export interface InboxMessage {
   // Content features
   transcription?: string | null
   quotedMessageId?: string | null
+  isForwarded?: boolean
   citations?: Citation[]
   codeBlocks?: { language: string; code: string }[]
 
@@ -109,6 +113,9 @@ export interface MessageBubbleProps {
   onAttachmentClick?: (attachment: Attachment) => void
   onThreadClick?: (msgId: string) => void
   onQuoteClick?: (quotedId: string) => void
+  onReply?: (msg: InboxMessage) => void
+  onForward?: (msg: InboxMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
   allMessages?: InboxMessage[]
   highlighted?: boolean
 }
@@ -397,38 +404,39 @@ function ReactionBar({ reactions, onReact }: {
   onReact?: (emoji: string) => void 
 }) {
   const [showPicker, setShowPicker] = useState(false)
-  const emojis = ['👍', '👎', '❤️', '🔥', '💡', '😂', '🎉', '🤔']
+  const emojis = ['👍', '❤️', '😂', '🔥', '💡', '🎉', '🙏', '😮']
 
   return (
-    <div className="flex items-center gap-1 mt-1.5">
+    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
       {reactions.map((r) => (
         <button
           key={r.emoji}
           onClick={() => onReact?.(r.emoji)}
-          className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs border transition-all
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border transition-all duration-150 active:scale-95 shadow-2xs
             ${r.userReacted 
-              ? 'bg-sky-50 border-sky-200 text-sky-700 shadow-sm' 
-              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+              ? 'bg-sky-100 border-sky-300 text-sky-900 dark:bg-sky-950 dark:border-sky-700 dark:text-sky-200 ring-1 ring-sky-400/50' 
+              : 'bg-white/90 dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
         >
           <span>{r.emoji}</span>
-          <span className="font-medium text-[10px]">{r.count}</span>
+          <span className="text-[10px] tabular-nums font-bold">{r.count}</span>
         </button>
       ))}
       <div className="relative">
         <button
           onClick={() => setShowPicker(!showPicker)}
-          className="p-0.5 rounded-full hover:bg-gray-100 text-gray-400 transition-colors"
+          className="p-1 rounded-full hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-500 transition-colors"
+          title="Add reaction"
         >
-          <ChevronDown size={12} />
+          <Smile size={13} />
         </button>
         {showPicker && (
-          <div className="absolute bottom-full left-0 mb-1 p-1.5 bg-white rounded-xl shadow-lg border border-gray-200 
+          <div className="absolute bottom-full left-0 mb-1.5 p-1.5 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 
                           flex gap-1 z-50 animate-in fade-in zoom-in duration-150">
             {emojis.map(emoji => (
               <button
                 key={emoji}
                 onClick={() => { onReact?.(emoji); setShowPicker(false) }}
-                className="p-1 hover:bg-gray-100 rounded-lg text-sm transition-colors"
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-base transition-transform active:scale-125"
               >
                 {emoji}
               </button>
@@ -446,7 +454,10 @@ function ActionBar({
   onRegenerate, 
   onFeedback, 
   onShare, 
-  onBookmark 
+  onBookmark,
+  onReply,
+  onForward,
+  onReact,
 }: { 
   msg: InboxMessage
   onCopy?: (text: string) => void
@@ -454,10 +465,14 @@ function ActionBar({
   onFeedback?: (msgId: string, type: 'positive' | 'negative') => void
   onShare?: (msgId: string) => void
   onBookmark?: (msgId: string) => void
+  onReply?: (msg: InboxMessage) => void
+  onForward?: (msg: InboxMessage) => void
+  onReact?: (msgId: string, emoji: string) => void
 }) {
-  const [showActions, setShowActions] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
   const [copied, setCopied] = useState(false)
   const isAssistant = msg.senderType === 'assistant'
+  const quickEmojis = ['👍', '❤️', '😂', '🔥', '🎉']
 
   const handleCopy = useCallback(() => {
     if (msg.body) {
@@ -469,14 +484,59 @@ function ActionBar({
   }, [msg.body, onCopy])
 
   return (
-    <div 
-      className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-      onMouseEnter={() => setShowActions(true)}
-    >
+    <div className="relative flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+      {/* Reply button */}
+      {onReply && (
+        <button
+          onClick={() => onReply(msg)}
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 transition-colors"
+          title="Reply to message"
+        >
+          <CornerUpLeft size={14} />
+        </button>
+      )}
+
+      {/* Forward button */}
+      {onForward && (
+        <button
+          onClick={() => onForward(msg)}
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 transition-colors"
+          title="Forward message"
+        >
+          <CornerUpRight size={14} />
+        </button>
+      )}
+
+      {/* Quick Reaction Button */}
+      {onReact && (
+        <div className="relative">
+          <button
+            onClick={() => setShowPicker(!showPicker)}
+            className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-amber-600 dark:text-slate-300 dark:hover:text-amber-400 transition-colors"
+            title="React"
+          >
+            <Smile size={14} />
+          </button>
+          {showPicker && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 p-1 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 flex gap-1 z-50">
+              {quickEmojis.map(e => (
+                <button
+                  key={e}
+                  onClick={() => { onReact(msg.id, e); setShowPicker(false) }}
+                  className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-sm transition-transform active:scale-125"
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         onClick={handleCopy}
-        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-        title="Copy"
+        className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-200 transition-colors"
+        title="Copy text"
       >
         {copied ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
       </button>
@@ -484,7 +544,7 @@ function ActionBar({
       {isAssistant && onRegenerate && (
         <button
           onClick={() => onRegenerate(msg.id)}
-          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-200 transition-colors"
           title="Regenerate"
         >
           <RotateCcw size={14} />
@@ -498,7 +558,7 @@ function ActionBar({
             className={`p-1.5 rounded-lg transition-colors ${
               msg.userFeedback === 'positive' 
                 ? 'bg-emerald-50 text-emerald-600' 
-                : 'hover:bg-gray-100 text-gray-400 hover:text-gray-600'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-800'
             }`}
             title="Helpful"
           >
@@ -509,7 +569,7 @@ function ActionBar({
             className={`p-1.5 rounded-lg transition-colors ${
               msg.userFeedback === 'negative' 
                 ? 'bg-red-50 text-red-600' 
-                : 'hover:bg-gray-100 text-gray-400 hover:text-gray-600'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-800'
             }`}
             title="Not helpful"
           >
@@ -521,7 +581,7 @@ function ActionBar({
       {onShare && (
         <button
           onClick={() => onShare(msg.id)}
-          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-200 transition-colors"
           title="Share"
         >
           <Share size={14} />
@@ -531,7 +591,7 @@ function ActionBar({
       {onBookmark && (
         <button
           onClick={() => onBookmark(msg.id)}
-          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 hover:text-slate-800 dark:text-slate-300 dark:hover:text-slate-200 transition-colors"
           title="Bookmark"
         >
           <Bookmark size={14} />
@@ -551,22 +611,31 @@ function QuotedMessage({
   onClick?: () => void 
 }) {
   const senderLabel = quotedMsg 
-    ? (quotedMsg.senderType === 'user' ? 'You' : 'Contact')
-    : 'Message'
+    ? (quotedMsg.senderDisplayName || (quotedMsg.senderType === 'user' ? 'You' : 'Contact'))
+    : 'Referenced Message'
 
   const bodyText = quotedMsg
-    ? (quotedMsg.body || (quotedMsg.attachments?.length ? 'Attachment' : 'Click to view referenced message'))
+    ? (quotedMsg.body || (quotedMsg.attachments?.length ? `📎 ${quotedMsg.attachments[0].name || 'Attachment'}` : 'Click to view referenced message'))
     : 'Click to view referenced message'
 
   return (
     <button
       onClick={onClick}
-      className="flex items-start gap-2 p-1.5 px-2.5 rounded-lg bg-black/5 dark:bg-white/5 border-l-4 border-indigo-500 
-                 hover:bg-black/10 dark:hover:bg-white/10 transition-all text-left w-full mb-1.5 text-xs select-none"
+      className="flex items-start gap-2 p-2 px-3 rounded-xl bg-black/10 dark:bg-white/10 border-l-[4px] border-l-indigo-600 dark:border-l-indigo-400 
+                 hover:bg-black/15 dark:hover:bg-white/15 transition-all text-left w-full mb-2 text-xs select-none shadow-2xs group/quote"
     >
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 mb-0.5">{senderLabel}</p>
-        <p className="text-xs text-gray-600 dark:text-gray-300 truncate leading-snug">{bodyText}</p>
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <p className="text-[11px] font-extrabold tracking-wide text-indigo-900 dark:text-indigo-200 uppercase truncate">
+            {senderLabel}
+          </p>
+          <span className="text-[10px] text-slate-600 dark:text-slate-300 font-mono opacity-0 group-hover/quote:opacity-100 transition-opacity">
+            Jump →
+          </span>
+        </div>
+        <p className="text-xs text-slate-950 dark:text-slate-50 font-semibold truncate leading-snug">
+          {bodyText}
+        </p>
       </div>
     </button>
   )
@@ -590,6 +659,9 @@ export function MessageBubble({
   onAttachmentClick,
   onThreadClick,
   onQuoteClick,
+  onReply,
+  onForward,
+  onReact,
   allMessages,
   highlighted,
 }: MessageBubbleProps) {
@@ -724,6 +796,14 @@ export function MessageBubble({
                 </div>
               )}
 
+              {/* Forwarded indicator */}
+              {msg.isForwarded && (
+                <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
+                  <CornerUpRight size={10} className="text-slate-400" />
+                  <span className="italic">Forwarded message</span>
+                </div>
+              )}
+
               {/* Quoted message */}
               {msg.quotedMessageId && (() => {
                 const quotedMsg = allMessages?.find(m => m.id === msg.quotedMessageId)
@@ -853,7 +933,7 @@ export function MessageBubble({
             {/* Reactions */}
             {msg.reactions && msg.reactions.length > 0 && (
               <div className={`mt-1 ${isUser ? 'mr-1' : 'ml-1'}`}>
-                <ReactionBar reactions={msg.reactions} />
+                <ReactionBar reactions={msg.reactions} onReact={(emoji) => onReact?.(msg.id, emoji)} />
               </div>
             )}
           </div>
@@ -867,6 +947,9 @@ export function MessageBubble({
               onFeedback={onFeedback}
               onShare={onShare}
               onBookmark={onBookmark}
+              onReply={onReply}
+              onForward={onForward}
+              onReact={onReact}
             />
           </div>
         </div>

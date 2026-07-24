@@ -11,7 +11,12 @@ import { getEffectiveScope } from './org-scope';
 // send_whatsapp_message execution (routes/advisor.ts) can call the exact
 // same send path instead of duplicating it.
 
-export async function sendWhatsAppMessage(userId: string, conversationId: string, text: string) {
+export async function sendWhatsAppMessage(
+  userId: string, 
+  conversationId: string, 
+  text: string, 
+  options?: { quotedMessageId?: string; forwardedFromMessageId?: string }
+) {
   const scope = await getEffectiveScope(userId);
   const sessionUserId = scope.ownerUserId;
 
@@ -29,13 +34,14 @@ export async function sendWhatsAppMessage(userId: string, conversationId: string
 
   const now = new Date();
   const tempWaId = `direct-${crypto.randomUUID()}`;
+  const isForwarded = !!options?.forwardedFromMessageId;
 
   const { rows: [msg] } = await db.query(
     `INSERT INTO messages
-       (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp)
-     VALUES ($1, $2, 'user', 'text', $3, $4)
+       (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp, quoted_message_id, is_forwarded)
+     VALUES ($1, $2, 'user', 'text', $3, $4, $5, $6)
      RETURNING id`,
-    [conversationId, tempWaId, text, now],
+    [conversationId, tempWaId, text, now, options?.quotedMessageId || null, isForwarded],
   );
 
   await db.query(
@@ -63,6 +69,9 @@ export async function sendWhatsAppMessage(userId: string, conversationId: string
     mediaUrl: null,
     mediaMimeType: null,
     transcription: null,
+    quotedMessageId: options?.quotedMessageId || null,
+    isForwarded,
+    reactions: [],
   };
 
   const conversation = await getInboxConversation(sessionUserId, conversationId);
@@ -84,6 +93,9 @@ export async function sendWhatsAppMessage(userId: string, conversationId: string
     mediaMimeType: null,
     transcription: null,
     timestamp: now.toISOString(),
+    quotedMessageId: options?.quotedMessageId || null,
+    isForwarded,
+    reactions: [],
   };
 
   await publishInboxEvent(sessionUserId, 'message:new', newMsgEvent);
