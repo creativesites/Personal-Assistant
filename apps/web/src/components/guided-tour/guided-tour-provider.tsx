@@ -20,7 +20,8 @@ interface GuidedTourContextType {
   currentStep: TourStep
   totalSteps: number
   hasCompletedTour: boolean
-  startTour: () => void
+  startTour: (stepIndexOrId?: number | string) => void
+  startCustomTour: (steps: TourStep[]) => void
   endTour: () => void
   nextStep: () => void
   prevStep: () => void
@@ -32,6 +33,7 @@ const GuidedTourContext = createContext<GuidedTourContextType | null>(null)
 
 export function GuidedTourProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
+  const [activeSteps, setActiveSteps] = useState<TourStep[]>(TOUR_STEPS)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [hasCompletedTour, setHasCompletedTour] = useState(true) // default true until client checks
   const router = useRouter()
@@ -46,6 +48,7 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
       if (!completed) {
         // First-time user auto-trigger after gentle initial delay
         const timer = setTimeout(() => {
+          setActiveSteps(TOUR_STEPS)
           setIsOpen(true)
           setCurrentStepIndex(0)
         }, 1200)
@@ -56,8 +59,8 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const currentStep = TOUR_STEPS[currentStepIndex] || TOUR_STEPS[0]
-  const totalSteps = TOUR_STEPS.length
+  const currentStep = activeSteps[currentStepIndex] || activeSteps[0]
+  const totalSteps = activeSteps.length
 
   const markTourCompleted = useCallback(() => {
     try {
@@ -68,12 +71,28 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
     setHasCompletedTour(true)
   }, [])
 
-  const startTour = useCallback(() => {
+  const startTour = useCallback((stepIndexOrId?: number | string) => {
+    setActiveSteps(TOUR_STEPS)
+    if (typeof stepIndexOrId === 'number') {
+      setCurrentStepIndex(Math.max(0, Math.min(stepIndexOrId, TOUR_STEPS.length - 1)))
+    } else if (typeof stepIndexOrId === 'string') {
+      const idx = TOUR_STEPS.findIndex(s => s.id === stepIndexOrId)
+      setCurrentStepIndex(idx >= 0 ? idx : 0)
+    } else {
+      setCurrentStepIndex(0)
+    }
+    setIsOpen(true)
+  }, [])
+
+  const startCustomTour = useCallback((steps: TourStep[]) => {
+    if (!steps || steps.length === 0) return
+    setActiveSteps(steps)
     setCurrentStepIndex(0)
     setIsOpen(true)
   }, [])
 
   const restartTour = useCallback(() => {
+    setActiveSteps(TOUR_STEPS)
     setCurrentStepIndex(0)
     setIsOpen(true)
   }, [])
@@ -85,8 +104,8 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
 
   const goToStep = useCallback(
     (index: number) => {
-      if (index < 0 || index >= TOUR_STEPS.length) return
-      const targetStep = TOUR_STEPS[index]
+      if (index < 0 || index >= activeSteps.length) return
+      const targetStep = activeSteps[index]
 
       // Optional route navigation if step specifies a route
       if (targetStep.route && pathname !== targetStep.route) {
@@ -95,16 +114,16 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
 
       setCurrentStepIndex(index)
     },
-    [pathname, router]
+    [activeSteps, pathname, router]
   )
 
   const nextStep = useCallback(() => {
-    if (currentStepIndex < TOUR_STEPS.length - 1) {
+    if (currentStepIndex < activeSteps.length - 1) {
       goToStep(currentStepIndex + 1)
     } else {
       endTour()
     }
-  }, [currentStepIndex, goToStep, endTour])
+  }, [currentStepIndex, activeSteps.length, goToStep, endTour])
 
   const prevStep = useCallback(() => {
     if (currentStepIndex > 0) {
@@ -121,6 +140,7 @@ export function GuidedTourProvider({ children }: { children: ReactNode }) {
         totalSteps,
         hasCompletedTour,
         startTour,
+        startCustomTour,
         endTour,
         nextStep,
         prevStep,

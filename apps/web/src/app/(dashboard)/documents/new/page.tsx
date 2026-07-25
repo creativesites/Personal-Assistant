@@ -7,10 +7,12 @@ import {
   ArrowLeft, ArrowRight, Check, FileText, FileCheck, BookOpen, File,
   Search, X, Plus, Trash2, ChevronDown, Download, Building2, User,
   CreditCard, StickyNote, Eye, Loader2, AlertCircle, Sparkles, Bot, Package, PenTool,
+  HelpCircle,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui'
+import { useGuidedTour, DOCUMENT_TOUR_STEPS } from '@/components/guided-tour'
 import type { TemplateProps } from '@zuri/pdf-templates'
 import { CatalogPickerModal, type CatalogProduct, type CatalogPackageTier } from '../_components/catalog-picker-modal'
 
@@ -435,11 +437,64 @@ export default function NewDocumentPage() {
     }))
   }
 
-  // Totals
+  // Totals calculation
   const { subtotal, tax, discount, grand } = useMemo(
     () => calcTotals(form.lineItems, form.discountRate),
     [form.lineItems, form.discountRate]
   )
+
+  const { startCustomTour } = useGuidedTour()
+
+  // Form errors state for mandatory Client Details and Company & Brand Details
+  const [formErrors, setFormErrors] = useState<{
+    clientName?: string
+    clientContact?: string
+    companyName?: string
+    companyContact?: string
+  }>({})
+
+  const validateForm = useCallback((formData: DocumentFormData, contactId: string | null) => {
+    const errors: {
+      clientName?: string
+      clientContact?: string
+      companyName?: string
+      companyContact?: string
+    } = {}
+
+    // 1. Client Details Validation (Mandatory)
+    const hasContact = Boolean(contactId)
+    const hasClientName = Boolean(formData.clientName && formData.clientName.trim().length > 0)
+    const hasClientContact = Boolean(
+      (formData.clientEmail && formData.clientEmail.trim().length > 0) ||
+      (formData.clientPhone && formData.clientPhone.trim().length > 0)
+    )
+
+    if (!hasContact && !hasClientName) {
+      errors.clientName = 'Client / Individual Name or selecting a Contact is required.'
+    }
+
+    if (!hasContact && !hasClientContact) {
+      errors.clientContact = 'Client Email or Phone number is required.'
+    }
+
+    // 2. Company & Brand Details Validation (Mandatory)
+    const hasCompanyName = Boolean(formData.companyName && formData.companyName.trim().length > 0)
+    const hasCompanyContact = Boolean(
+      (formData.companyEmail && formData.companyEmail.trim().length > 0) ||
+      (formData.companyPhone && formData.companyPhone.trim().length > 0) ||
+      (formData.companyAddress && formData.companyAddress.trim().length > 0)
+    )
+
+    if (!hasCompanyName) {
+      errors.companyName = 'Your Company / Brand Name is required.'
+    }
+
+    if (!hasCompanyContact) {
+      errors.companyContact = 'Company Email, Phone, or Address is required.'
+    }
+
+    return errors
+  }, [])
 
   // Render context — once the document is saved (documentId is set), the
   // preview/download step fetches the same {templateKey, document, business,
@@ -462,6 +517,21 @@ export default function NewDocumentPage() {
   // Save document to backend (persistence only — no PDF generation)
   const saveDocument = useCallback(async () => {
     if (!token || saving) return
+
+    // Mandatory Client & Company validation
+    const errs = validateForm(form, selectedContactId)
+    if (Object.keys(errs).length > 0) {
+      setFormErrors(errs)
+      setSaveError('Client Details and Your Company & Brand Details are mandatory.')
+      addToast({
+        variant: 'error',
+        title: 'Mandatory Information Missing',
+        description: 'Please fill in mandatory Client Details and Company & Brand Details.',
+      })
+      return
+    }
+    setFormErrors({})
+
     setSaving(true)
     setSaveError(null)
 
@@ -539,7 +609,7 @@ export default function NewDocumentPage() {
     } finally {
       setSaving(false)
     }
-  }, [token, form, selectedContactId, saving, documentId, selectedSignature, requireSignatures, signingParties])
+  }, [token, form, selectedContactId, saving, documentId, selectedSignature, requireSignatures, signingParties, validateForm, addToast])
 
   // Generate with AI — calls /api/documents/ai-generate and fills form
   const generateWithAI = useCallback(async () => {
@@ -551,6 +621,15 @@ export default function NewDocumentPage() {
       setAiError('Please describe what you need (e.g. "Invoice for 3 months of web design at $2000/month").')
       return
     }
+
+    // Validate Company & Brand Details
+    const errs = validateForm(form, selectedContactId)
+    if (errs.companyName || errs.companyContact) {
+      setFormErrors(errs)
+      setAiError('Please ensure Your Company & Brand Details are complete before generating.')
+      return
+    }
+
     setAiGenerating(true)
     setAiError(null)
     setAiLimitReached(false)
@@ -604,9 +683,23 @@ export default function NewDocumentPage() {
     } finally {
       setAiGenerating(false)
     }
-  }, [token, selectedContactId, form.docType, aiInstruction, addToast])
+  }, [token, selectedContactId, form, aiInstruction, addToast, validateForm])
 
   const goNext = () => {
+    if (step === 1) {
+      const errs = validateForm(form, selectedContactId)
+      if (Object.keys(errs).length > 0) {
+        setFormErrors(errs)
+        addToast({
+          variant: 'error',
+          title: 'Mandatory Information Missing',
+          description: 'Client Details and Your Company & Brand Details are mandatory.',
+        })
+        window.scrollTo({ top: 150, behavior: 'smooth' })
+        return
+      }
+      setFormErrors({})
+    }
     if (step === 3) {
       saveDocument()
     }
@@ -624,16 +717,27 @@ export default function NewDocumentPage() {
     <div className="bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_220px,#f8fafc_100%)] min-h-screen pb-24">
 
       {/* ── Top bar ───────────────────────────────────────────────────────── */}
-      <div className="px-4 md:px-6 py-4 flex items-center gap-3 max-w-3xl mx-auto">
-        <Link href="/business" className="p-2 rounded-xl hover:bg-white/70 text-gray-500 transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
-        <div>
-          <h1 className="text-base font-black text-gray-950 tracking-tight">New Document</h1>
-          <p className="text-[11px] text-gray-500 leading-none mt-0.5">
-            {brandLoaded ? form.companyName || 'Fill in your details below' : 'Loading brand profile…'}
-          </p>
+      <div data-tour="doc-header" className="px-4 md:px-6 py-4 flex items-center justify-between max-w-3xl mx-auto">
+        <div className="flex items-center gap-3">
+          <Link href="/business" className="p-2 rounded-xl hover:bg-white/70 text-gray-500 transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <h1 className="text-base font-black text-gray-950 tracking-tight">New Document</h1>
+            <p className="text-[11px] text-gray-500 leading-none mt-0.5">
+              {brandLoaded ? form.companyName || 'Fill in your details below' : 'Loading brand profile…'}
+            </p>
+          </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => startCustomTour(DOCUMENT_TOUR_STEPS)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-sm"
+        >
+          <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Document Tour</span>
+        </button>
       </div>
 
       {/* ── Stepper ───────────────────────────────────────────────────────── */}
@@ -694,7 +798,7 @@ export default function NewDocumentPage() {
             </div>
 
             {/* Doc type */}
-            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
+            <div data-tour="doc-type-selector" className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">1</span>
@@ -742,12 +846,32 @@ export default function NewDocumentPage() {
             </div>
 
             {/* Client */}
-            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
-              <h2 className="text-sm font-black text-gray-950 mb-4 flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">2</span>
-                Client Details
-                {aiMode && <span className="ml-1 text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">Required for AI</span>}
-              </h2>
+            <div
+              data-tour="client-details-section"
+              className={`bg-white rounded-[1.75rem] border shadow-sm p-5 transition-all ${
+                formErrors.clientName || formErrors.clientContact
+                  ? 'border-rose-300 ring-2 ring-rose-500/20 bg-rose-50/10'
+                  : 'border-gray-100'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-black text-gray-950 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">2</span>
+                  Client Details
+                  <span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                    * Mandatory
+                  </span>
+                  {aiMode && <span className="ml-1 text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">Required for AI</span>}
+                </h2>
+              </div>
+
+              {(formErrors.clientName || formErrors.clientContact) && (
+                <div className="mb-3 flex items-center gap-2 text-xs text-rose-700 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  <span>{formErrors.clientName || formErrors.clientContact}</span>
+                </div>
+              )}
+
               <div className="space-y-3">
                 {selectedContactId ? (
                   <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3.5 flex items-start justify-between gap-3">
@@ -768,15 +892,21 @@ export default function NewDocumentPage() {
                 ) : (
                   <>
                     <p className="text-xs text-gray-500">
-                      {aiMode ? 'Select a contact — AI uses their conversation history to generate accurate line items.' : 'Search your contacts to auto-fill, or type manually.'}
+                      {aiMode ? 'Select a contact — AI uses their conversation history to generate accurate line items.' : 'Search your contacts to auto-fill, or type manually below.'}
                     </p>
                     <ContactPicker token={token ?? undefined} onSelect={fillContact} />
                     {!aiMode && (
                       <div className="space-y-3 mt-2">
                         <div className="flex gap-3">
                           <Field label="Client / Individual Name *" half>
-                            <input value={form.clientName} onChange={e => set('clientName', e.target.value)}
-                              placeholder="John Doe" className={inputCls} />
+                            <input
+                              value={form.clientName}
+                              onChange={e => set('clientName', e.target.value)}
+                              placeholder="John Doe"
+                              className={`${inputCls} ${
+                                formErrors.clientName ? 'border-rose-400 ring-2 ring-rose-500/20 bg-rose-50/20' : ''
+                              }`}
+                            />
                           </Field>
                           <Field label="Company (optional)" half>
                             <input value={form.clientCompany} onChange={e => set('clientCompany', e.target.value)}
@@ -784,13 +914,26 @@ export default function NewDocumentPage() {
                           </Field>
                         </div>
                         <div className="flex gap-3">
-                          <Field label="Email" half>
-                            <input type="email" value={form.clientEmail} onChange={e => set('clientEmail', e.target.value)}
-                              placeholder="client@company.com" className={inputCls} />
+                          <Field label="Email *" half>
+                            <input
+                              type="email"
+                              value={form.clientEmail}
+                              onChange={e => set('clientEmail', e.target.value)}
+                              placeholder="client@company.com"
+                              className={`${inputCls} ${
+                                formErrors.clientContact ? 'border-rose-400 ring-2 ring-rose-500/20 bg-rose-50/20' : ''
+                              }`}
+                            />
                           </Field>
-                          <Field label="Phone" half>
-                            <input value={form.clientPhone} onChange={e => set('clientPhone', e.target.value)}
-                              placeholder="+1 555 000 0000" className={inputCls} />
+                          <Field label="Phone *" half>
+                            <input
+                              value={form.clientPhone}
+                              onChange={e => set('clientPhone', e.target.value)}
+                              placeholder="+1 555 000 0000"
+                              className={`${inputCls} ${
+                                formErrors.clientContact ? 'border-rose-400 ring-2 ring-rose-500/20 bg-rose-50/20' : ''
+                              }`}
+                            />
                           </Field>
                         </div>
                       </div>
@@ -855,7 +998,7 @@ export default function NewDocumentPage() {
             )}
 
             {/* Your company details & brand switcher */}
-            <CompanySection form={form} setForm={setForm} token={token} />
+            <CompanySection form={form} setForm={setForm} token={token} formErrors={formErrors} />
           </div>
         )}
 
@@ -875,7 +1018,7 @@ export default function NewDocumentPage() {
               />
             </div>
 
-            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
+            <div data-tour="line-items-section" className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-black text-gray-950 flex items-center gap-2">
                   <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
@@ -1213,7 +1356,7 @@ export default function NewDocumentPage() {
             )}
 
             {/* PDF Preview + Download — rendered client-side */}
-            <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
+            <div data-tour="doc-preview-actions" className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center flex-shrink-0">
                   <Download className="w-4 h-4 text-white" />
@@ -1304,11 +1447,12 @@ export default function NewDocumentPage() {
 }
 
 function CompanySection({
-  form, setForm, token,
+  form, setForm, token, formErrors,
 }: {
   form: DocumentFormData
   setForm: React.Dispatch<React.SetStateAction<DocumentFormData>>
   token?: string | null
+  formErrors?: { companyName?: string; companyContact?: string }
 }) {
   const [open, setOpen] = useState(true)
 

@@ -1839,8 +1839,8 @@ export default function InboxPage() {
                 conversation (and stays null on a load failure), so it
                 renders a skeleton instead of the header simply vanishing. */}
             {/* Dark Mobile-First Sticky Header */}
-            <div className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800/80 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950/90 backdrop-blur-md text-white shadow-xl transition-all duration-200">
-              <div className="flex items-center gap-3 min-w-0">
+            <div className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800/80 bg-gradient-to-r from-slate-950 via-slate-900/95 to-indigo-950/90 backdrop-blur-xl text-white shadow-2xl shadow-slate-950/50 transition-all duration-300 relative overflow-hidden">
+              <div className="flex items-center gap-3 min-w-0 z-10">
                 <button
                   onClick={() => setMobileView('list')}
                   className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-all"
@@ -1857,9 +1857,9 @@ export default function InboxPage() {
                       }}
                       title="Click to enlarge profile picture"
                     >
-                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="rounded-full ring-2 ring-indigo-400/40 group-hover:ring-indigo-400/70 transition-all duration-300" />
+                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="rounded-full ring-2 ring-indigo-400/50 group-hover:ring-indigo-400/90 transition-all duration-300 shadow-md" />
                       {!contact.isGroup && (
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-slate-900 transition-colors duration-300 ${
+                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-slate-950 transition-colors duration-300 ${
                           contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
                             ? 'bg-emerald-400 animate-pulse'
                             : 'bg-slate-500'
@@ -1917,7 +1917,7 @@ export default function InboxPage() {
               </div>
 
               {/* Header Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1 flex-shrink-0 z-10">
                 {/* Internal Team Sticky Note Trigger */}
                 <button
                   onClick={() => setShowInternalNoteModal(true)}
@@ -1961,14 +1961,15 @@ export default function InboxPage() {
                     setShowAIPanel(v => !v)
                     setMobileView(v => v === 'intel' ? 'thread' : 'intel')
                   }}
-                  className={`flex p-2 rounded-xl transition-all ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all duration-200 ${
                     showAIPanel || mobileView === 'intel'
-                      ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+                      ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25 ring-1 ring-indigo-400/30'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
                   }`}
                   title="AI Intelligence Panel"
                 >
-                  <Brain size={17} strokeWidth={2} />
+                  <Brain size={18} strokeWidth={2} />
+                  <span className="hidden sm:inline text-xs font-bold tracking-tight">AI Intel</span>
                 </button>
               </div>
             </div>

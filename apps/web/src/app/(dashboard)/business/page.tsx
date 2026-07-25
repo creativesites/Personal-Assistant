@@ -6,8 +6,9 @@ import dynamic from 'next/dynamic'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
   Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
-  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3, PenTool,
+  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3, PenTool, HelpCircle,
 } from 'lucide-react'
+import { useGuidedTour, DOCUMENT_TOUR_STEPS } from '@/components/guided-tour'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Avatar, Badge, BadgeVariant, Dropdown, EmptyState, SkeletonCard, useToast } from '@/components/ui'
@@ -213,6 +214,7 @@ export default function BusinessPage() {
   const [mainTab, setMainTab] = useState<'documents' | 'signatures' | 'brand'>('documents')
   // Client-side PDF preview modal state — replaces window.open backend PDF fetches
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
+  const { startCustomTour } = useGuidedTour()
 
   const loadDocuments = () => {
     if (!token) return
@@ -378,6 +380,13 @@ export default function BusinessPage() {
               >
                 <Wand2 className="w-4 h-4" />Generate with AI
               </Link>
+              <button
+                type="button"
+                onClick={() => startCustomTour(DOCUMENT_TOUR_STEPS)}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-bold rounded-2xl hover:bg-indigo-100 transition-all shadow-sm min-h-[44px]"
+              >
+                <HelpCircle className="w-4 h-4 text-indigo-600" />Document Tour
+              </button>
               <Dropdown
                 align="left"
                 trigger={

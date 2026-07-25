@@ -137,3 +137,120 @@ export const TOUR_STEPS: TourStep[] = [
     requiresSidebar: true,
   },
 ]
+
+export const DOCUMENT_TOUR_STEPS: TourStep[] = [
+  {
+    id: 'doc_welcome',
+    title: 'Document Studio & Lifecycle OS',
+    description:
+      'Create 16 commercial, legal, and finance document types — from quotes to invoices, receipts, SOWs, NDAs, contracts, and HTML5 canvas E-Signatures.',
+    targetSelector: '[data-tour="doc-header"]',
+    badge: '📄 Documents OS',
+    iconName: 'FileText',
+    actionHint: 'Full quote-to-invoice-to-receipt lifecycle',
+    placement: 'bottom',
+    requiresSidebar: false,
+  },
+  {
+    id: 'doc_templates',
+    title: '16 Professional Document Templates',
+    description:
+      'Choose from Commercial (Invoices, Quotations, Purchase Orders, Delivery Notes), Legal (Contracts, NDAs, SOWs, Proposals), or Finance templates.',
+    targetSelector: '[data-tour="doc-type-selector"]',
+    badge: '📋 Templates',
+    iconName: 'BookOpen',
+    actionHint: 'Pick the right format for your workflow',
+    placement: 'bottom',
+    requiresSidebar: false,
+  },
+  {
+    id: 'doc_client_mandatory',
+    title: 'Mandatory Client Details',
+    description:
+      'Every document requires complete client details. Search CRM contacts to auto-fill or enter name, email, and phone manually.',
+    targetSelector: '[data-tour="client-details-section"]',
+    badge: '👤 Mandatory Client',
+    iconName: 'User',
+    actionHint: 'Ensures accurate billing & delivery',
+    placement: 'top',
+    requiresSidebar: false,
+  },
+  {
+    id: 'doc_company_mandatory',
+    title: 'Mandatory Company & Brand Details',
+    description:
+      'Your business name, logo, address, contact details, and tax ID are required. They automatically sync with your Brand Kit & Business Profiles.',
+    targetSelector: '[data-tour="company-details-section"]',
+    badge: '🏢 Mandatory Brand',
+    iconName: 'Building2',
+    actionHint: 'Auto-populated from Brand Kit',
+    placement: 'top',
+    requiresSidebar: false,
+  },
+  {
+    id: 'doc_catalog_items',
+    title: 'Catalog & Line Items Editor',
+    description:
+      'Add itemized products or packages directly from your Brand Studio inventory with automated tax, discount, and subtotal calculations.',
+    targetSelector: '[data-tour="line-items-section"]',
+    badge: '📦 Line Items',
+    iconName: 'Package',
+    actionHint: 'Instant multi-currency calculations',
+    placement: 'top',
+    requiresSidebar: false,
+  },
+  {
+    id: 'doc_signatures_preview',
+    title: 'E-Signatures & Pixel-Perfect PDF',
+    description:
+      'Attach HTML5 canvas digital signatures, set payment terms, and render crisp vector PDFs ready to send via WhatsApp or email with 1 click.',
+    targetSelector: '[data-tour="doc-preview-actions"]',
+    badge: '✍️ Sign & Export',
+    iconName: 'FileText',
+    actionHint: 'E-Signatures & 1-click WhatsApp send',
+    placement: 'top',
+    requiresSidebar: false,
+  },
+]
+
+export const CAREER_TOUR_STEPS: TourStep[] = [
+  {
+    id: 'career_welcome',
+    title: 'Career OS & Executive Placement Hub',
+    description:
+      'Manage executive career opportunities, track job applications, analyze position readiness, and optimize your executive brand.',
+    targetSelector: '[data-tour="career-header"]',
+    badge: '💼 Career OS',
+    iconName: 'Briefcase',
+    actionHint: 'AI-powered job matching & placement',
+    placement: 'bottom',
+    route: '/career',
+    requiresSidebar: false,
+  },
+  {
+    id: 'career_job_feed',
+    title: 'Scraped Jobs & AI Opportunity Radar',
+    description:
+      'Browse tailored job listings scraped from top platforms, filtered by salary target, domain, and experience fit score.',
+    targetSelector: '[data-tour="career-job-feed"]',
+    badge: '🎯 Opportunity Radar',
+    iconName: 'Target',
+    actionHint: 'Automated job scraping & scoring',
+    placement: 'top',
+    route: '/career',
+    requiresSidebar: false,
+  },
+  {
+    id: 'career_cv_studio',
+    title: 'CV Studio & AI Cover Letter Generator',
+    description:
+      'Build tailored, modern CVs and generate customized cover letters matched to each specific job post in seconds.',
+    targetSelector: '[data-tour="career-cv-studio"]',
+    badge: '📄 CV & Cover Letter',
+    iconName: 'FileText',
+    actionHint: 'Export tailored PDF resumes & share web links',
+    placement: 'top',
+    route: '/career',
+    requiresSidebar: false,
+  },
+]

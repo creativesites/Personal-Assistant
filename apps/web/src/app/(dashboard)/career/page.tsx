@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { Briefcase, Plus, Loader2, Target, Radar, Search, FileText } from 'lucide-react'
+import { Briefcase, Plus, Loader2, Target, Radar, Search, FileText, HelpCircle } from 'lucide-react'
+import { useGuidedTour, CAREER_TOUR_STEPS } from '@/components/guided-tour'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { Badge, EmptyState, Input, Modal, SkeletonCard, useToast } from '@/components/ui'
@@ -86,6 +87,7 @@ function CareerPageInner() {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const { addToast } = useToast()
+  const { startCustomTour } = useGuidedTour()
 
   const careerProfile = useCareerProfile(token ?? '')
   const { profile, refetch: refetchProfile } = careerProfile
@@ -279,7 +281,7 @@ function CareerPageInner() {
       : null,
 
     jobFeed: (
-      <div>
+      <div data-tour="career-job-feed">
         <div className="flex items-center justify-between mb-3 gap-2">
           <h2 className="text-sm font-semibold text-gray-900">Opportunities</h2>
           <div className="flex items-center gap-2">
@@ -379,7 +381,7 @@ function CareerPageInner() {
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f0fdfa_190px,#f8fafc_320px,#f8fafc_100%)] pb-10">
       <div className="max-w-5xl mx-auto px-4 pt-6 space-y-5">
-        <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6">
+        <div data-tour="career-header" className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)] pointer-events-none" />
           <div className="relative flex items-start justify-between gap-3">
             <div>
@@ -410,6 +412,7 @@ function CareerPageInner() {
 
   {/* Secondary — CV Studio */}
   <Link
+    data-tour="career-cv-studio"
     href="/career/cv-studio"
     className="group relative inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/15 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-900/25 hover:bg-slate-800 active:translate-y-0 active:scale-[0.98] active:shadow-sm overflow-hidden min-h-[44px]"
   >
@@ -417,6 +420,16 @@ function CareerPageInner() {
     <FileText className="w-4 h-4 transition-transform duration-200 group-hover:scale-110" />
     <span className="relative">CV Studio</span>
   </Link>
+
+  {/* Tertiary — Career Tour */}
+  <button
+    type="button"
+    onClick={() => startCustomTour(CAREER_TOUR_STEPS)}
+    className="inline-flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100 transition-all shadow-sm min-h-[44px]"
+  >
+    <HelpCircle className="w-4 h-4 text-indigo-600" />
+    <span>Career Tour</span>
+  </button>
 </div>
         </div>
 
