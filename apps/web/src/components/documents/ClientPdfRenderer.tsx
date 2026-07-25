@@ -9,15 +9,6 @@ import { apiClient } from '@/lib/api'
 import { BUSINESS_TEMPLATES } from '@zuri/pdf-templates'
 import type { TemplateProps } from '@zuri/pdf-templates'
 
-// PDF Rendering Architecture (see CLAUDE.md) — every document a user is
-// actively looking at renders here, in the browser, using the exact same
-// @zuri/pdf-templates components services/api used to render server-side.
-// Once the browser produces the PDF bytes, they're uploaded once to
-// POST /api/documents/:id/render-complete so storage_path/status get set —
-// that's what keeps WhatsApp send, the public share link, and status
-// transitions working exactly as before, without a second server-side
-// render. See docs/PDF_TEMPLATE_GUIDE.md for the template format itself.
-
 interface Props {
   documentId: string
   templateKey: string
@@ -31,17 +22,24 @@ interface Props {
 type PersistStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 export default function ClientPdfRenderer({ documentId, templateKey, data, fileName, docLabel = 'Document', token, onPersisted }: Props) {
+  // Stable data hash so React element doesn't re-instantiate on identical data objects
+  const dataHash = useMemo(() => {
+    try {
+      return JSON.stringify(data)
+    } catch {
+      return String(Date.now())
+    }
+  }, [data])
+
   const Template = (BUSINESS_TEMPLATES as Record<string, (p: TemplateProps) => any>)[templateKey] ?? BUSINESS_TEMPLATES.minimal
+
   const element = useMemo(
     () => <Template document={data.document} business={data.business} contact={data.contact} />,
-    [Template, data],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [Template, templateKey, dataHash],
   )
 
   const [persistStatus, setPersistStatus] = useState<PersistStatus>('idle')
-  // A ref, not state — BlobProvider's render-prop fires during React's
-  // render phase, so it can only mutate a ref here; the actual upload is
-  // deferred to a microtask (see below) so its setState calls don't happen
-  // mid-render.
   const seenBlobRef = useRef<Blob | null>(null)
 
   const persist = useCallback(async (blob: Blob) => {
@@ -71,7 +69,7 @@ export default function ClientPdfRenderer({ documentId, templateKey, data, fileN
             queueMicrotask(() => { persist(blob) })
           }
 
-          if (loading) {
+          if (loading && !url) {
             return (
               <div className="flex items-center justify-center h-72 rounded-2xl border border-gray-100 bg-gray-50">
                 <div className="text-center space-y-2">

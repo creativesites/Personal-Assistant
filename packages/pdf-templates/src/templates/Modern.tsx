@@ -5,7 +5,7 @@ import type { TemplateProps } from './types';
 import { DocContent } from './DocContent';
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 24, paddingBottom: 24, paddingHorizontal: 32 },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 32, paddingBottom: 32, paddingHorizontal: 32 },
   band: { paddingHorizontal: 36, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderRadius: 6, marginBottom: 12 },
   logo: { maxWidth: 150, maxHeight: 42, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: '#ffffff' },

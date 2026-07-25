@@ -10,7 +10,7 @@ import { DocContent } from './DocContent';
 // no Font.register() network fetch) — mirrors minimal.html's system-font-only
 // approach and keeps the render path free of any network dependency.
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 24, paddingBottom: 24, paddingHorizontal: 36 },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 32, paddingBottom: 32, paddingHorizontal: 36 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14, marginBottom: 20 },
   logo: { maxWidth: 160, maxHeight: 48, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: '#111827' },

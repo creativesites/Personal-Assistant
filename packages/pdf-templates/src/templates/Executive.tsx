@@ -11,8 +11,8 @@ import { DocContent } from './DocContent';
 // template.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 0, paddingBottom: 24 },
-  header: { backgroundColor: '#111827', paddingHorizontal: 36, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 32, paddingBottom: 32 },
+  header: { backgroundColor: '#111827', marginTop: -32, paddingHorizontal: 36, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { maxWidth: 140, maxHeight: 42, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
   companyMeta: { fontSize: 8, color: '#9ca3af', marginTop: 3, lineHeight: 1.4 },

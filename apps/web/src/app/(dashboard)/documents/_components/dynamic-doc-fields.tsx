@@ -68,15 +68,24 @@ export function CustomKeyValueSection({
   values: Record<string, any>
   onChange: (key: string, val: any) => void
 }) {
-  const pairs: Array<{ id: string; key: string; value: string }> = values.customKeyValuePairs || []
+  const rawPairs = values.customKeyValuePairs || values.custom_key_value_pairs || []
 
-  const updatePair = (id: string, k: string, v: string) => {
-    const updated = pairs.map(p => (p.id === id ? { ...p, key: k, value: v } : p))
+  const pairs: Array<{ id: string; key: string; value: string; type: 'text' | 'textarea' | 'date' | 'number' | 'checkbox' }> = (
+    Array.isArray(rawPairs) ? rawPairs : []
+  ).map((p: any, idx: number) => ({
+    id: p.id || `pair-${idx}-${p.key || p.name || ''}`,
+    key: p.key || p.name || p.label || '',
+    value: p.value !== undefined ? String(p.value) : (p.val !== undefined ? String(p.val) : ''),
+    type: p.type || (p.value && String(p.value).length > 60 ? 'textarea' : 'text'),
+  }))
+
+  const updatePair = (id: string, updates: Partial<{ key: string; value: string; type: 'text' | 'textarea' | 'date' | 'number' | 'checkbox' }>) => {
+    const updated = pairs.map(p => (p.id === id ? { ...p, ...updates } : p))
     onChange('customKeyValuePairs', updated)
   }
 
   const addPair = () => {
-    const newPair = { id: Math.random().toString(36).slice(2), key: '', value: '' }
+    const newPair = { id: Math.random().toString(36).slice(2), key: '', value: '', type: 'text' as const }
     onChange('customKeyValuePairs', [...pairs, newPair])
   }
 
@@ -100,31 +109,86 @@ export function CustomKeyValueSection({
         Add custom metadata specific to your industry or company standards (e.g. <i>Registration #</i>, <i>ISO Compliance</i>, <i>Project Phase</i>, <i>Vessel Name</i>, <i>Tax Clearance #</i>).
       </p>
 
-      <div className="space-y-2">
-        {pairs.map((pair, i) => (
-          <div key={pair.id} className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder={`Field Name (e.g. ISO Standard)`}
-              className={`${inputCls} w-1/3`}
-              value={pair.key}
-              onChange={e => updatePair(pair.id, e.target.value, pair.value)}
-            />
-            <input
-              type="text"
-              placeholder="Field Value (e.g. ISO 9001:2026 Certified)"
-              className={`${inputCls} flex-1`}
-              value={pair.value}
-              onChange={e => updatePair(pair.id, pair.key, e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => removePair(pair.id)}
-              className="p-2.5 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Remove Field"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+      <div className="space-y-3">
+        {pairs.map((pair) => (
+          <div key={pair.id} className="p-3.5 rounded-2xl border border-gray-200/80 bg-gray-50/50 space-y-2.5">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Field Name (e.g. ISO Standard / Vessel Name)"
+                className={`${inputCls} flex-1`}
+                value={pair.key}
+                onChange={e => updatePair(pair.id, { key: e.target.value })}
+              />
+
+              <select
+                value={pair.type}
+                onChange={e => updatePair(pair.id, { type: e.target.value as any })}
+                className="rounded-xl border border-gray-200 px-3 py-2.5 text-xs text-gray-800 bg-white font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
+              >
+                <option value="text">Single Line Text</option>
+                <option value="textarea">Multi-line Paragraph</option>
+                <option value="date">Date Picker</option>
+                <option value="number">Numeric Value</option>
+                <option value="checkbox">Yes / No Toggle</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => removePair(pair.id)}
+                className="p-2.5 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                title="Remove Field"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div>
+              {pair.type === 'textarea' ? (
+                <textarea
+                  rows={3}
+                  placeholder="Enter detailed paragraph, scope notes, or specifications..."
+                  className={textareaCls}
+                  value={pair.value}
+                  onChange={e => updatePair(pair.id, { value: e.target.value })}
+                />
+              ) : pair.type === 'date' ? (
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={pair.value}
+                  onChange={e => updatePair(pair.id, { value: e.target.value })}
+                />
+              ) : pair.type === 'number' ? (
+                <input
+                  type="number"
+                  placeholder="e.g. 100 or 4.5"
+                  className={inputCls}
+                  value={pair.value}
+                  onChange={e => updatePair(pair.id, { value: e.target.value })}
+                />
+              ) : pair.type === 'checkbox' ? (
+                <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-gray-200">
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pair.value === 'Yes' || pair.value === 'true'}
+                      onChange={e => updatePair(pair.id, { value: e.target.checked ? 'Yes' : 'No' })}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                    />
+                    <span>{pair.value === 'Yes' || pair.value === 'true' ? 'Yes / Compliant' : 'No / Non-Compliant'}</span>
+                  </label>
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="Field Value (e.g. ISO 9001:2026 Certified)"
+                  className={inputCls}
+                  value={pair.value}
+                  onChange={e => updatePair(pair.id, { value: e.target.value })}
+                />
+              )}
+            </div>
           </div>
         ))}
       </div>

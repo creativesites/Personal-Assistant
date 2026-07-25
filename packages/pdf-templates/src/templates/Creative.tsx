@@ -12,9 +12,9 @@ import { DocContent } from './DocContent';
 // {document, business, contact} shape as every other template.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', flexDirection: 'row', paddingTop: 0, paddingBottom: 0 },
-  sidebar: { width: '32%', padding: 24, color: '#ffffff' },
-  main: { width: '68%', padding: 28 },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', flexDirection: 'row', paddingTop: 32, paddingBottom: 32 },
+  sidebar: { width: '32%', padding: 24, marginTop: -32, marginBottom: -32, color: '#ffffff' },
+  main: { width: '68%', paddingHorizontal: 28, paddingTop: 4 },
   logo: { maxWidth: 120, maxHeight: 40, objectFit: 'contain', marginBottom: 10 },
   companyName: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
   companyMeta: { fontSize: 8, color: 'rgba(255,255,255,0.85)', marginTop: 4, lineHeight: 1.5 },

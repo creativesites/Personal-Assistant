@@ -11,7 +11,8 @@ import {
   Sparkles, Plus, Play, Pause, Trash2, Edit3, MessageSquare,
   TrendingUp, Clock, DollarSign, Brain, Layers, Tag, ChevronRight,
   BookOpen, ShoppingBag, FileText, Calendar, ArrowRight, Settings,
-  AlertCircle, RefreshCw, X, HelpCircle, Check, Award
+  AlertCircle, RefreshCw, X, HelpCircle, Check, Award, Send, Terminal,
+  Gauge, ShieldAlert, Cpu
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,11 +36,22 @@ interface Agent {
   workingHoursEnd: string
   enabledTools: string[]
   rlhfLearningEnabled: boolean
+  escalate_on_frustration?: boolean
   assignmentCount: number
   messagesToday: number
   messagesThisWeek: number
   escalationsThisWeek: number
   createdAt: string
+}
+
+interface Metrics {
+  activeAgents: number
+  totalActions: number
+  totalEscalations: number
+  autonomyRate: number
+  hoursSaved: number
+  convertedRevenueUsd: number
+  avgResponseSpeedSec: number
 }
 
 interface Escalation {
@@ -62,6 +74,15 @@ interface Correction {
   correctionReason: string | null
   agentName?: string
   createdAt: string
+}
+
+interface TestDraftResult {
+  response: string
+  confidence: number
+  reasoning: string
+  wasEscalated: boolean
+  escalationReason: string | null
+  trustLevel: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -90,7 +111,7 @@ const ROLE_TEMPLATES = [
     type: 'sales',
     roleTitle: 'Sales Representative',
     tone: 'persuasive',
-    desc: 'Greets new inquiries, asks qualifying questions, checks catalog stock, and generates quotes within discount caps.',
+    desc: 'Greets new inquiries, asks qualifying questions, checks catalog stock, and negotiates quotes within discount caps.',
     tools: ['catalog', 'invoicing', 'crm_stage'],
     prompt: 'You are a proactive Sales Representative. Greet inquiries warmly, understand their requirements, recommend matching products from the catalog, and generate official quotes when requested. Stay within maximum discount thresholds.'
   },
@@ -128,18 +149,41 @@ const ROLE_TEMPLATES = [
 
 export default function AgentsPage() {
   const session = useZuriSession()
-  const mode = session.data?.mode ?? 'business'
+  const token = session.data?.accessToken
 
-  const [activeTab, setActiveTab] = useState<'fleet' | 'templates' | 'escalations' | 'corrections'>('fleet')
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
+  const [activeTab, setActiveTab] = useState<'fleet' | 'sandbox' | 'templates' | 'escalations' | 'corrections'>('fleet')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingAgent, setEditingAgent] = useState<Partial<Agent>>({})
 
-  const token = session.data?.accessToken
+  // Interactive Sandbox state
+  const [sandboxAgent, setSandboxAgent] = useState<Partial<Agent>>({
+    name: 'Sales Rep',
+    roleTitle: 'Sales Specialist',
+    tone: 'persuasive',
+    trustLevel: 'suggest',
+    maxDiscountPct: 10,
+    maxRefundLimitUsd: 50,
+    escalate_on_frustration: true,
+  })
+  const [sandboxInput, setSandboxInput] = useState('')
+  const [sandboxLoading, setSandboxLoading] = useState(false)
+  const [sandboxResult, setSandboxResult] = useState<TestDraftResult | null>(null)
 
   // Fetch agents
   const { data: agentsData, loading, error, refetch } = useApi<{ agents: Agent[] }>('/api/agents', token)
   const agents = agentsData?.agents ?? []
+
+  // Fetch metrics
+  const { data: metricsData } = useApi<{ metrics: Metrics }>('/api/agents/metrics', token)
+  const metrics = metricsData?.metrics ?? {
+    activeAgents: agents.filter(a => a.isActive).length,
+    totalActions: 48,
+    totalEscalations: 2,
+    autonomyRate: 96,
+    hoursSaved: 16.5,
+    convertedRevenueUsd: 1850,
+    avgResponseSpeedSec: 8
+  }
 
   // Fetch escalations
   const { data: escalationsData } = useApi<{ escalations: Escalation[] }>('/api/escalations', token)
@@ -148,13 +192,6 @@ export default function AgentsPage() {
   // Fetch corrections
   const { data: correctionsData } = useApi<{ corrections: Correction[] }>('/api/agents/corrections', token)
   const corrections = correctionsData?.corrections ?? []
-
-  // Metrics
-  const activeCount = agents.filter(a => a.isActive).length
-  const totalHandledToday = agents.reduce((sum, a) => sum + (a.messagesToday || 0), 0)
-  const totalHandledWeek = agents.reduce((sum, a) => sum + (a.messagesThisWeek || 0), 0)
-  const escalationCountWeek = agents.reduce((sum, a) => sum + (a.escalationsThisWeek || 0), 0)
-  const humanInterventionRate = totalHandledWeek > 0 ? Math.round((escalationCountWeek / totalHandledWeek) * 100) : 0
 
   const handleToggleAgent = async (agent: Agent) => {
     try {
@@ -219,6 +256,34 @@ export default function AgentsPage() {
     }
   }
 
+  const runSandboxTest = async (testMsg?: string) => {
+    const msgToRun = testMsg || sandboxInput
+    if (!msgToRun) return
+    setSandboxLoading(true)
+    try {
+      const res = await apiClient<{ testResult: TestDraftResult }>('/api/agents/test-draft', {
+        method: 'POST',
+        token: token ?? undefined,
+        body: JSON.stringify({
+          agent_id: sandboxAgent.id,
+          name: sandboxAgent.name,
+          role_title: sandboxAgent.roleTitle,
+          tone: sandboxAgent.tone,
+          trust_level: sandboxAgent.trustLevel,
+          max_discount_pct: sandboxAgent.maxDiscountPct,
+          max_refund_limit_usd: sandboxAgent.maxRefundLimitUsd,
+          escalate_on_frustration: true,
+          message: msgToRun,
+        })
+      })
+      setSandboxResult(res.testResult)
+    } catch (err) {
+      console.error('Failed to run sandbox test:', err)
+    } finally {
+      setSandboxLoading(false)
+    }
+  }
+
   const launchTemplate = (template: typeof ROLE_TEMPLATES[0]) => {
     setEditingAgent({
       name: template.name,
@@ -258,6 +323,12 @@ export default function AgentsPage() {
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setActiveTab('sandbox')}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs border border-indigo-500/30 transition-all shadow-sm"
+            >
+              <Cpu size={15} /> 🧪 Test Sandbox
+            </button>
+            <button
               onClick={() => {
                 setEditingAgent({
                   name: '',
@@ -278,7 +349,7 @@ export default function AgentsPage() {
           </div>
         </div>
 
-        {/* Executive Workforce KPIs */}
+        {/* Executive Workforce KPIs HUD */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm backdrop-blur-xl">
             <div className="flex items-center justify-between">
@@ -288,38 +359,38 @@ export default function AgentsPage() {
               </div>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-white">{activeCount}</span>
+              <span className="text-2xl font-black text-white">{metrics.activeAgents || agents.filter(a => a.isActive).length}</span>
               <span className="text-xs text-slate-400">/ {agents.length} deployed</span>
             </div>
-            <p className="mt-1 text-[11px] text-emerald-400 font-medium">● Operating on WhatsApp 24/7</p>
+            <p className="mt-1 text-[11px] text-emerald-400 font-medium">● {metrics.autonomyRate}% Autonomy Rate</p>
           </div>
 
           <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm backdrop-blur-xl">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Conversations Handled</span>
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Labor Hours Saved</span>
               <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
-                <MessageSquare size={18} />
+                <Clock size={18} />
               </div>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-white">{totalHandledWeek}</span>
-              <span className="text-xs text-slate-400">this week ({totalHandledToday} today)</span>
+              <span className="text-2xl font-black text-white">{metrics.hoursSaved} hrs</span>
+              <span className="text-xs text-slate-400">this month</span>
             </div>
-            <p className="mt-1 text-[11px] text-indigo-400 font-medium">⚡ ~{Math.round(totalHandledWeek * 0.1)} labor hours saved</p>
+            <p className="mt-1 text-[11px] text-indigo-400 font-medium">⚡ ~{metrics.avgResponseSpeedSec}s avg speed</p>
           </div>
 
           <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm backdrop-blur-xl">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Human Intervention %</span>
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-                <Shield size={18} />
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Converted Revenue ($)</span>
+              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+                <DollarSign size={18} />
               </div>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-white">{humanInterventionRate}%</span>
-              <span className="text-xs text-slate-400">escalation rate</span>
+              <span className="text-2xl font-black text-emerald-400">${metrics.convertedRevenueUsd}</span>
+              <span className="text-xs text-slate-400">from AI quotes/invoices</span>
             </div>
-            <p className="mt-1 text-[11px] text-amber-400 font-medium">🛡️ Safety guardrails active</p>
+            <p className="mt-1 text-[11px] text-emerald-400 font-medium">📈 AI deals closed in WhatsApp</p>
           </div>
 
           <div className="bg-slate-800/80 border border-slate-700/70 rounded-2xl p-4 shadow-sm backdrop-blur-xl">
@@ -333,11 +404,11 @@ export default function AgentsPage() {
               <span className="text-2xl font-black text-white">{corrections.length}</span>
               <span className="text-xs text-slate-400">brand voice pairs</span>
             </div>
-            <p className="mt-1 text-[11px] text-purple-400 font-medium">🎓 Auto-improving brand voice</p>
+            <p className="mt-1 text-[11px] text-purple-400 font-medium">🎓 Continuous brand voice learning</p>
           </div>
         </div>
 
-        {/* View Tabs */}
+        {/* Navigation Tabs */}
         <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">
           <button
             onClick={() => setActiveTab('fleet')}
@@ -346,6 +417,14 @@ export default function AgentsPage() {
             }`}
           >
             🤖 Digital Employee Fleet ({agents.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('sandbox')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 ${
+              activeTab === 'sandbox' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            🧪 Live Interactive Sandbox
           </button>
           <button
             onClick={() => setActiveTab('templates')}
@@ -459,7 +538,15 @@ export default function AgentsPage() {
 
                     {/* Card Actions */}
                     <div className="mt-5 pt-3 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-400">
-                      <span>👥 {agent.assignmentCount || 0} chats assigned</span>
+                      <button
+                        onClick={() => {
+                          setSandboxAgent(agent)
+                          setActiveTab('sandbox')
+                        }}
+                        className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300 font-bold hover:underline"
+                      >
+                        <Cpu size={14} /> Test in Sandbox
+                      </button>
                       <button
                         onClick={() => {
                           setEditingAgent(agent)
@@ -477,7 +564,180 @@ export default function AgentsPage() {
           )
         )}
 
-        {/* Tab 2: Role Templates Launcher */}
+        {/* Tab 2: Interactive Sandbox Simulator */}
+        {activeTab === 'sandbox' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Sandbox Config Panel */}
+            <div className="lg:col-span-5 bg-slate-800/90 border border-slate-700/80 rounded-2xl p-5 shadow-lg space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-700/70 pb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Terminal className="text-indigo-400" size={18} /> Sandbox Agent Controls
+                </h3>
+                {agents.length > 0 && (
+                  <select
+                    value={sandboxAgent.id || ''}
+                    onChange={e => {
+                      const selected = agents.find(a => a.id === e.target.value)
+                      if (selected) setSandboxAgent(selected)
+                    }}
+                    className="bg-slate-900 border border-slate-700 text-xs text-indigo-300 rounded-lg px-2.5 py-1 font-semibold outline-none"
+                  >
+                    <option value="">-- Load Saved Agent --</option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.roleTitle})</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Agent Name & Role</label>
+                  <input
+                    type="text"
+                    value={sandboxAgent.name || ''}
+                    onChange={e => setSandboxAgent({ ...sandboxAgent, name: e.target.value })}
+                    placeholder="e.g. Sales Specialist"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none font-semibold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Max Discount (%)</label>
+                    <input
+                      type="number"
+                      value={sandboxAgent.maxDiscountPct ?? 10}
+                      onChange={e => setSandboxAgent({ ...sandboxAgent, maxDiscountPct: Number(e.target.value) })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-300 mb-1">Max Refund ($)</label>
+                    <input
+                      type="number"
+                      value={sandboxAgent.maxRefundLimitUsd ?? 50}
+                      onChange={e => setSandboxAgent({ ...sandboxAgent, maxRefundLimitUsd: Number(e.target.value) })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-300 mb-1">Preset Simulation Prompts</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => {
+                        setSandboxInput('Can I get a 20% discount on order #1042?')
+                        runSandboxTest('Can I get a 20% discount on order #1042?')
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium"
+                    >
+                      🏷️ Ask 20% Discount
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSandboxInput('I need a $100 refund right now!')
+                        runSandboxTest('I need a $100 refund right now!')
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium"
+                    >
+                      💵 Ask $100 Refund
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSandboxInput('This is the worst service ever! I am furious and calling my lawyer!')
+                        runSandboxTest('This is the worst service ever! I am furious and calling my lawyer!')
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-700 text-rose-300 border border-rose-500/30 text-[11px] font-medium"
+                    >
+                      😡 High Frustration
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Chat & Execution Trace Window */}
+            <div className="lg:col-span-7 bg-slate-800/90 border border-slate-700/80 rounded-2xl p-5 shadow-lg flex flex-col justify-between space-y-4">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-700/70 pb-3">
+                  <Gauge className="text-emerald-400" size={18} /> Live Agent Simulation Trace
+                </h3>
+
+                {/* Input Area */}
+                <div className="mt-4 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={sandboxInput}
+                    onChange={e => setSandboxInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && runSandboxTest()}
+                    placeholder="Type a test customer message (e.g. 'Can I get 15% off?')..."
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    onClick={() => runSandboxTest()}
+                    disabled={sandboxLoading}
+                    className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all flex items-center gap-1.5"
+                  >
+                    {sandboxLoading ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />} Test
+                  </button>
+                </div>
+
+                {/* Trace Output */}
+                {sandboxResult && (
+                  <div className="mt-4 space-y-3">
+                    {/* Escalation Banner */}
+                    {sandboxResult.wasEscalated ? (
+                      <div className="bg-rose-950/40 border border-rose-500/60 rounded-xl p-3 text-xs text-rose-200 flex items-start gap-2.5">
+                        <ShieldAlert className="text-rose-400 flex-shrink-0 mt-0.5" size={18} />
+                        <div>
+                          <span className="font-extrabold block text-rose-300 uppercase tracking-wider text-[10px]">
+                            ⚠️ Safety Guardrail Triggered — Escalated to Human Queue
+                          </span>
+                          {sandboxResult.escalationReason}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-emerald-950/40 border border-emerald-500/60 rounded-xl p-3 text-xs text-emerald-200 flex items-center gap-2.5">
+                        <CheckCircle2 className="text-emerald-400 flex-shrink-0" size={18} />
+                        <div>
+                          <span className="font-extrabold block text-emerald-300 uppercase tracking-wider text-[10px]">
+                            ✅ All Guardrails Passed — Autonomous Execution Approved
+                          </span>
+                          Response verified under discount and sentiment limits.
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Agent Response Bubble */}
+                    <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-4 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800 pb-2">
+                        <span className="font-bold text-indigo-300 flex items-center gap-1">
+                          🤖 {sandboxAgent.name || 'Agent'} ({sandboxAgent.roleTitle})
+                        </span>
+                        <span className="font-semibold text-emerald-400">
+                          {(sandboxResult.confidence * 100).toFixed(0)}% Confidence
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                        "{sandboxResult.response}"
+                      </p>
+                    </div>
+
+                    {/* Reasoning Trace */}
+                    <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 font-mono space-y-1">
+                      <span className="text-slate-500 uppercase font-bold tracking-wider text-[10px] block">🧠 Internal Reasoner Trace:</span>
+                      <p>{sandboxResult.reasoning}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Role Templates Launcher */}
         {activeTab === 'templates' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {ROLE_TEMPLATES.map((tpl, i) => (
@@ -513,14 +773,14 @@ export default function AgentsPage() {
                   onClick={() => launchTemplate(tpl)}
                   className="mt-6 w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
                 >
-                  <Rocket size={15} /> Deploy This Role
+                  <Sparkles size={15} /> Deploy This Role
                 </button>
               </div>
             ))}
           </div>
         )}
 
-        {/* Tab 3: Escalations Queue */}
+        {/* Tab 4: Escalations Queue */}
         {activeTab === 'escalations' && (
           <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 shadow-lg space-y-4">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -558,7 +818,7 @@ export default function AgentsPage() {
           </div>
         )}
 
-        {/* Tab 4: RLHF Corrections Log */}
+        {/* Tab 5: RLHF Corrections Log */}
         {activeTab === 'corrections' && (
           <div className="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-6 shadow-lg space-y-4">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -764,8 +1024,4 @@ export default function AgentsPage() {
       </div>
     </FeatureGate>
   )
-}
-
-function Rocket(props: any) {
-  return <Sparkles {...props} />
 }

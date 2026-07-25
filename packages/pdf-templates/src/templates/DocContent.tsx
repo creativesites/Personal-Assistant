@@ -40,8 +40,8 @@ const styles = StyleSheet.create({
   twoPartyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
   partySigBlock: { width: '45%' },
   sigTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4 },
-  sigImageContainer: { height: 38, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 2 },
-  sigImage: { maxHeight: 36, width: 120, objectFit: 'contain' },
+  sigImageContainer: { height: 30, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: -1 },
+  sigImage: { maxHeight: 28, maxWidth: 110, objectFit: 'contain' },
   sigLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 },
   sigSub: { fontSize: 7.5, color: '#6b7280', marginTop: 2 },
 });
@@ -91,6 +91,14 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   };
 
   const renderOptionalClausesAndCustomFields = () => {
+    const customPairs = sd.customKeyValuePairs || sd.custom_key_value_pairs || [];
+    const validPairs = Array.isArray(customPairs)
+      ? customPairs.filter((p: any) => p && (p.key || p.name) && (p.value !== undefined || p.val !== undefined))
+      : [];
+
+    const shortPairs = validPairs.filter((p: any) => p.type !== 'textarea' && String(p.value || p.val || '').length <= 60 && !String(p.value || p.val || '').includes('\n'));
+    const longPairs = validPairs.filter((p: any) => p.type === 'textarea' || String(p.value || p.val || '').length > 60 || String(p.value || p.val || '').includes('\n'));
+
     return (
       <>
         {sd.limitationOfLiability ? (
@@ -199,19 +207,26 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         ) : null}
 
         {/* Industry Custom Key-Value Attributes */}
-        {sd.customKeyValuePairs && Array.isArray(sd.customKeyValuePairs) && sd.customKeyValuePairs.length > 0 ? (
+        {validPairs.length > 0 ? (
           <View style={[styles.card, { marginBottom: 10 }]}>
             <Text style={[styles.cardTitle, { color: themeColor }]}>Custom Industry Specifications</Text>
-            <View style={styles.grid2}>
-              {sd.customKeyValuePairs.map((pair: any, idx: number) => (
-                pair.key && pair.value ? (
+            {shortPairs.length > 0 ? (
+              <View style={styles.grid2}>
+                {shortPairs.map((pair: any, idx: number) => (
                   <View key={idx} style={styles.fieldBlock}>
-                    <Text style={styles.label}>{pair.key}</Text>
-                    <Text style={styles.valueBold}>{pair.value}</Text>
+                    <Text style={styles.label}>{pair.key || pair.name}</Text>
+                    <Text style={styles.valueBold}>{String(pair.value !== undefined ? pair.value : pair.val)}</Text>
                   </View>
-                ) : null
-              ))}
-            </View>
+                ))}
+              </View>
+            ) : null}
+
+            {longPairs.map((pair: any, idx: number) => (
+              <View key={idx} style={{ marginTop: shortPairs.length > 0 || idx > 0 ? 6 : 0 }}>
+                <Text style={styles.label}>{pair.key || pair.name}</Text>
+                <Text style={styles.bodyText}>{String(pair.value !== undefined ? pair.value : pair.val)}</Text>
+              </View>
+            ))}
           </View>
         ) : null}
       </>
