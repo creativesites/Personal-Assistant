@@ -4,15 +4,15 @@ import { View, Text, Image, StyleSheet } from '@react-pdf/renderer';
 import type { TemplateProps } from './types';
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#f9fafb', borderRadius: 6, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: '#f3f4f6' },
+  card: { backgroundColor: '#f9fafb', borderRadius: 6, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#f3f4f6' },
   cardTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', textTransform: 'uppercase', color: '#374151', letterSpacing: 0.5, marginBottom: 6 },
-  grid2: { flexDirection: 'row', gap: 16, marginBottom: 8 },
-  grid3: { flexDirection: 'row', gap: 12, marginBottom: 8 },
+  grid2: { flexDirection: 'row', gap: 16, marginBottom: 6 },
+  grid3: { flexDirection: 'row', gap: 12, marginBottom: 6 },
   fieldBlock: { flex: 1 },
   label: { fontSize: 7, fontFamily: 'Helvetica-Bold', textTransform: 'uppercase', color: '#9ca3af', letterSpacing: 0.5, marginBottom: 2 },
   value: { fontSize: 9, color: '#111827', lineHeight: 1.4 },
   valueBold: { fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#111827' },
-  textBlock: { marginTop: 8 },
+  textBlock: { marginTop: 6 },
   bodyText: { fontSize: 9, color: '#374151', lineHeight: 1.5 },
 
   // Tables
@@ -37,11 +37,11 @@ const styles = StyleSheet.create({
   grandValue: { fontSize: 10.5, fontFamily: 'Helvetica-Bold' },
 
   // Two-party Signatures
-  twoPartyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+  twoPartyRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
   partySigBlock: { width: '45%' },
   sigTitle: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4 },
-  sigImageContainer: { height: 42, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 2 },
-  sigImage: { maxHeight: 40, width: 120, objectFit: 'contain' },
+  sigImageContainer: { height: 38, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 2 },
+  sigImage: { maxHeight: 36, width: 120, objectFit: 'contain' },
   sigLine: { borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 },
   sigSub: { fontSize: 7.5, color: '#6b7280', marginTop: 2 },
 });
@@ -90,16 +90,142 @@ export function DocContent({ document, business, contact }: TemplateProps) {
     );
   };
 
+  const renderOptionalClausesAndCustomFields = () => {
+    return (
+      <>
+        {sd.limitationOfLiability ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Limitation of Liability Cap</Text>
+            <Text style={styles.bodyText}>{sd.limitationOfLiability}</Text>
+          </View>
+        ) : null}
+
+        {sd.disputeResolution ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Dispute Resolution &amp; Arbitration Forum</Text>
+            <Text style={styles.bodyText}>{sd.disputeResolution}</Text>
+          </View>
+        ) : null}
+
+        {sd.nonSolicitation ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Non-Solicitation &amp; Non-Compete</Text>
+            <Text style={styles.bodyText}>{sd.nonSolicitation}</Text>
+          </View>
+        ) : null}
+
+        {sd.insuranceCoverage ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Insurance Coverage Requirements</Text>
+            <Text style={styles.bodyText}>{sd.insuranceCoverage}</Text>
+          </View>
+        ) : null}
+
+        {sd.subcontractingRules ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Subcontracting &amp; Sub-Processors Protocol</Text>
+            <Text style={styles.bodyText}>{sd.subcontractingRules}</Text>
+          </View>
+        ) : null}
+
+        {sd.nonCircumvention ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Non-Circumvention Provisions</Text>
+            <Text style={styles.bodyText}>{sd.nonCircumvention}</Text>
+          </View>
+        ) : null}
+
+        {sd.equitableRelief ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Equitable Relief &amp; Injunction Rights</Text>
+            <Text style={styles.bodyText}>{sd.equitableRelief}</Text>
+          </View>
+        ) : null}
+
+        {sd.acceptanceTesting ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Acceptance Testing &amp; Sign-off Protocol</Text>
+            <Text style={styles.bodyText}>{sd.acceptanceTesting}</Text>
+          </View>
+        ) : null}
+
+        {sd.warrantyPeriod ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Warranty Period &amp; Defect Remediation</Text>
+            <Text style={styles.bodyText}>{sd.warrantyPeriod}</Text>
+          </View>
+        ) : null}
+
+        {sd.retainageDeposit ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Retainage / Performance Security Deposit</Text>
+            <Text style={styles.bodyText}>{sd.retainageDeposit}</Text>
+          </View>
+        ) : null}
+
+        {sd.changeOrderGovernance ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Change Order Governance Protocol</Text>
+            <Text style={styles.bodyText}>{sd.changeOrderGovernance}</Text>
+          </View>
+        ) : null}
+
+        {sd.batchNumber ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Batch / Lot # &amp; Expiry Tracking</Text>
+            <Text style={styles.bodyText}>{sd.batchNumber}</Text>
+          </View>
+        ) : null}
+
+        {sd.temperatureSpec ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Cold Chain &amp; Climate Control Specifications</Text>
+            <Text style={styles.bodyText}>{sd.temperatureSpec}</Text>
+          </View>
+        ) : null}
+
+        {sd.incoterms ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Incoterms Shipping Terms</Text>
+            <Text style={styles.bodyText}>{sd.incoterms}</Text>
+          </View>
+        ) : null}
+
+        {sd.inspectionWindow ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Goods Inspection &amp; Rejection Terms</Text>
+            <Text style={styles.bodyText}>{sd.inspectionWindow}</Text>
+          </View>
+        ) : null}
+
+        {/* Industry Custom Key-Value Attributes */}
+        {sd.customKeyValuePairs && Array.isArray(sd.customKeyValuePairs) && sd.customKeyValuePairs.length > 0 ? (
+          <View style={[styles.card, { marginBottom: 10 }]}>
+            <Text style={[styles.cardTitle, { color: themeColor }]}>Custom Industry Specifications</Text>
+            <View style={styles.grid2}>
+              {sd.customKeyValuePairs.map((pair: any, idx: number) => (
+                pair.key && pair.value ? (
+                  <View key={idx} style={styles.fieldBlock}>
+                    <Text style={styles.label}>{pair.key}</Text>
+                    <Text style={styles.valueBold}>{pair.value}</Text>
+                  </View>
+                ) : null
+              ))}
+            </View>
+          </View>
+        ) : null}
+      </>
+    );
+  };
+
   // 1. LEGAL & AGREEMENTS (NDA, Contract, MSA, Service Agreement)
   if (['nda', 'contract', 'msa', 'service_agreement'].includes(dt)) {
     const isNda = dt === 'nda';
-    const requireSignatures = document.structuredData?.requireSignatures !== false;
-    const signingParties = document.structuredData?.signingParties || 'both';
     return (
-      <View style={{ marginTop: 10 }}>
+      <View style={{ marginTop: 6 }}>
         {/* Parties Header Card */}
         <View style={styles.card}>
-          <Text style={[styles.cardTitle, { color: themeColor }]}>Parties & Agreement Terms</Text>
+          <Text style={[styles.cardTitle, { color: themeColor }]}>Parties &amp; Agreement Terms</Text>
           <View style={styles.grid2}>
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>{isNda ? 'Disclosing Party (Company)' : 'Service Provider'}</Text>
@@ -150,7 +276,7 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           </View>
 
           {/* Key Agreement Parameters */}
-          {(sd.contractTitle || sd.contractValue || sd.noticePeriod || sd.paymentTermDays || sd.ipOwnership || sd.startDate || sd.effectiveDate) ? (
+          {(sd.contractTitle || sd.contractValue || sd.noticePeriod || sd.paymentTermDays || sd.ipOwnership || sd.slaCommitments) ? (
             <View style={[styles.grid3, { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#e5e7eb' }]}>
               {sd.contractTitle ? (
                 <View style={styles.fieldBlock}>
@@ -158,33 +284,21 @@ export function DocContent({ document, business, contact }: TemplateProps) {
                   <Text style={styles.valueBold}>{sd.contractTitle}</Text>
                 </View>
               ) : null}
-              {(sd.startDate || sd.effectiveDate) ? (
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Effective Start Date</Text>
-                  <Text style={styles.valueBold}>{sd.startDate || sd.effectiveDate || document.issueDate}</Text>
-                </View>
-              ) : null}
-              {sd.contractValue ? (
-                <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Total Contract Value</Text>
-                  <Text style={styles.valueBold}>{sd.contractValue}</Text>
-                </View>
-              ) : null}
               {sd.noticePeriod ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Termination Notice Period</Text>
+                  <Text style={styles.label}>Termination Notice</Text>
                   <Text style={styles.valueBold}>{sd.noticePeriod}</Text>
                 </View>
               ) : null}
               {sd.paymentTermDays ? (
                 <View style={styles.fieldBlock}>
                   <Text style={styles.label}>Payment Terms</Text>
-                  <Text style={styles.valueBold}>{sd.paymentTermDays} Days</Text>
+                  <Text style={styles.valueBold}>Net {sd.paymentTermDays} Days</Text>
                 </View>
               ) : null}
               {sd.ipOwnership ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>IP Ownership Clause</Text>
+                  <Text style={styles.label}>IP Rights Ownership</Text>
                   <Text style={styles.valueBold}>{sd.ipOwnership}</Text>
                 </View>
               ) : null}
@@ -193,235 +307,86 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         </View>
 
         {/* Clauses & Content */}
-        {sd.purposeOfDisclosure ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Purpose of Disclosure</Text>
-            <Text style={styles.bodyText}>{sd.purposeOfDisclosure}</Text>
+        {sd.disclosurePurpose || sd.purposeOfDisclosure ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Purpose of Disclosure</Text>
+            <Text style={styles.bodyText}>{sd.disclosurePurpose || sd.purposeOfDisclosure}</Text>
+          </View>
+        ) : null}
+
+        {sd.permittedDisclosures ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Permitted Disclosures &amp; Standard Exclusions</Text>
+            <Text style={styles.bodyText}>{sd.permittedDisclosures}</Text>
           </View>
         ) : null}
 
         {sd.scopeOfWork ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Scope of Work & Services</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Scope of Work &amp; Services</Text>
             <Text style={styles.bodyText}>{sd.scopeOfWork}</Text>
           </View>
         ) : null}
 
-        {sd.objectives ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Key Objectives & Milestones</Text>
-            <Text style={styles.bodyText}>{sd.objectives}</Text>
-          </View>
-        ) : null}
-
-        {sd.exclusions ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Scope Exclusions</Text>
-            <Text style={styles.bodyText}>{sd.exclusions}</Text>
-          </View>
-        ) : null}
-
-        {(sd.serviceLevelAgreement || sd.serviceSla) ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Service Level Standards (SLA)</Text>
-            <Text style={styles.bodyText}>{sd.serviceLevelAgreement || sd.serviceSla}</Text>
-          </View>
-        ) : null}
-
-        {sd.serviceDuration ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Service Duration &amp; Frequency</Text>
-            <Text style={styles.bodyText}>{sd.serviceDuration}</Text>
+        {sd.slaCommitments || sd.serviceSla || sd.serviceLevelAgreement ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Service Level Commitments (SLA)</Text>
+            <Text style={styles.bodyText}>{sd.slaCommitments || sd.serviceSla || sd.serviceLevelAgreement}</Text>
           </View>
         ) : null}
 
         {sd.prerequisites ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Client Prerequisites &amp; Dependencies</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Client Prerequisites &amp; Dependencies</Text>
             <Text style={styles.bodyText}>{sd.prerequisites}</Text>
           </View>
         ) : null}
 
         {sd.paymentSchedule ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Payment Schedule &amp; Milestones</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Payment Schedule &amp; Milestones</Text>
             <Text style={styles.bodyText}>{sd.paymentSchedule}</Text>
           </View>
         ) : null}
 
-        {sd.confidentialityTerms ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Confidentiality & Non-Disclosure</Text>
-            <Text style={styles.bodyText}>{sd.confidentialityTerms}</Text>
-          </View>
-        ) : null}
-
-        {sd.termAndTermination ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Term & Termination</Text>
-            <Text style={styles.bodyText}>{sd.termAndTermination}</Text>
-          </View>
-        ) : null}
-
         {sd.governingLaw ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Governing Law & Jurisdiction</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Governing Law &amp; Jurisdiction</Text>
             <Text style={styles.bodyText}>{sd.governingLaw}</Text>
           </View>
         ) : null}
 
-        {/* Optional Enterprise Clauses */}
-        {sd.limitationOfLiability ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Limitation of Liability Cap</Text>
-            <Text style={styles.bodyText}>{sd.limitationOfLiability}</Text>
-          </View>
-        ) : null}
-
-        {sd.disputeResolution ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Dispute Resolution & Arbitration Forum</Text>
-            <Text style={styles.bodyText}>{sd.disputeResolution}</Text>
-          </View>
-        ) : null}
-
-        {sd.nonSolicitation ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Non-Solicitation & Non-Compete</Text>
-            <Text style={styles.bodyText}>{sd.nonSolicitation}</Text>
-          </View>
-        ) : null}
-
-        {sd.insuranceCoverage ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Insurance Coverage Requirements</Text>
-            <Text style={styles.bodyText}>{sd.insuranceCoverage}</Text>
-          </View>
-        ) : null}
-
-        {sd.subcontractingRules ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Subcontracting & Sub-Processors Protocol</Text>
-            <Text style={styles.bodyText}>{sd.subcontractingRules}</Text>
-          </View>
-        ) : null}
-
-        {sd.nonCircumvention ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Non-Circumvention Provisions</Text>
-            <Text style={styles.bodyText}>{sd.nonCircumvention}</Text>
-          </View>
-        ) : null}
-
-        {sd.equitableRelief ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Equitable Relief & Injunction Rights</Text>
-            <Text style={styles.bodyText}>{sd.equitableRelief}</Text>
-          </View>
-        ) : null}
-
-        {sd.acceptanceTesting ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Acceptance Testing & Sign-off Protocol</Text>
-            <Text style={styles.bodyText}>{sd.acceptanceTesting}</Text>
-          </View>
-        ) : null}
-
-        {sd.warrantyPeriod ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Warranty Period & Defect Remediation</Text>
-            <Text style={styles.bodyText}>{sd.warrantyPeriod}</Text>
-          </View>
-        ) : null}
-
-        {sd.retainageDeposit ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Retainage / Performance Security Deposit</Text>
-            <Text style={styles.bodyText}>{sd.retainageDeposit}</Text>
-          </View>
-        ) : null}
-
-        {sd.changeOrderGovernance ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Change Order Governance Protocol</Text>
-            <Text style={styles.bodyText}>{sd.changeOrderGovernance}</Text>
-          </View>
-        ) : null}
-
-        {sd.batchNumber ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Batch / Lot # & Expiry Tracking</Text>
-            <Text style={styles.bodyText}>{sd.batchNumber}</Text>
-          </View>
-        ) : null}
-
-        {sd.temperatureSpec ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Cold Chain & Climate Control Specifications</Text>
-            <Text style={styles.bodyText}>{sd.temperatureSpec}</Text>
-          </View>
-        ) : null}
-
-        {sd.incoterms ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Incoterms Shipping Terms</Text>
-            <Text style={styles.bodyText}>{sd.incoterms}</Text>
-          </View>
-        ) : null}
-
-        {sd.inspectionWindow ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Goods Inspection & Rejection Terms</Text>
-            <Text style={styles.bodyText}>{sd.inspectionWindow}</Text>
-          </View>
-        ) : null}
-
-        {/* Industry Custom Key-Value Attributes */}
-        {sd.customKeyValuePairs && Array.isArray(sd.customKeyValuePairs) && sd.customKeyValuePairs.length > 0 ? (
-          <View style={[styles.card, { marginBottom: 12 }]}>
-            <Text style={[styles.cardTitle, { color: themeColor }]}>Custom Industry Specifications</Text>
-            <View style={styles.grid2}>
-              {sd.customKeyValuePairs.map((pair: any, idx: number) => (
-                pair.key && pair.value ? (
-                  <View key={idx} style={styles.fieldBlock}>
-                    <Text style={styles.label}>{pair.key}</Text>
-                    <Text style={styles.valueBold}>{pair.value}</Text>
-                  </View>
-                ) : null
-              ))}
-            </View>
-          </View>
-        ) : null}
+        {/* Optional Enterprise Clauses & Custom Key-Value Attributes */}
+        {renderOptionalClausesAndCustomFields()}
 
         {/* Custom Sections / Clauses */}
         {document.sections && document.sections.length > 0 ? (
           document.sections.map((sec, i) => (
-            <View key={i} style={{ marginBottom: 12 }}>
-              <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>{sec.heading}</Text>
+            <View key={i} style={{ marginBottom: 10 }}>
+              <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>{sec.heading}</Text>
               <Text style={styles.bodyText}>{sec.body}</Text>
             </View>
           ))
         ) : null}
 
-        {/* Standard Terms or Notes */}
         {document.notes ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Special Notes & Instructions</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Special Notes &amp; Instructions</Text>
             <Text style={styles.bodyText}>{document.notes}</Text>
           </View>
         ) : null}
 
         {document.terms ? (
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Standard Conditions & Compliance</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Standard Conditions &amp; Compliance</Text>
             <Text style={styles.bodyText}>{document.terms}</Text>
           </View>
         ) : null}
 
-        {/* Financial Line Items ONLY if user added real priced items */}
-        {document.hasItems && document.total !== '$0.00' && document.total !== 'K0.00' && document.total !== '0.00' ? (
+        {/* Financial Consideration & Fees Table (Multiple Products/Services) */}
+        {document.lineItems && document.lineItems.length > 0 ? (
           <View style={styles.table}>
-            <Text style={[styles.cardTitle, { color: themeColor }]}>Financial Consideration & Fees</Text>
+            <Text style={[styles.cardTitle, { color: themeColor }]}>Financial Consideration &amp; Fees</Text>
             <View style={styles.tableHeader}>
               <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Description</Text></View>
               <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
@@ -439,7 +404,6 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           </View>
         ) : null}
 
-        {/* Two-Party Formal Signature Blocks */}
         {renderSignatureBlocks()}
       </View>
     );
@@ -448,9 +412,9 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   // 2. LOGISTICS & FULFILLMENT (Delivery Note)
   if (dt === 'delivery_note') {
     return (
-      <View style={{ marginTop: 10 }}>
+      <View style={{ marginTop: 6 }}>
         <View style={styles.card}>
-          <Text style={[styles.cardTitle, { color: themeColor }]}>Dispatch & Carrier Details</Text>
+          <Text style={[styles.cardTitle, { color: themeColor }]}>Dispatch &amp; Carrier Details</Text>
           <View style={styles.grid2}>
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>Dispatch Date</Text>
@@ -468,49 +432,45 @@ export function DocContent({ document, business, contact }: TemplateProps) {
 
           {sd.deliveryAddress ? (
             <View style={styles.textBlock}>
-              <Text style={styles.label}>Delivery Address & Instructions</Text>
+              <Text style={styles.label}>Delivery Address &amp; Instructions</Text>
               <Text style={styles.bodyText}>{sd.deliveryAddress}</Text>
             </View>
           ) : null}
-
-          {sd.handlingNotes ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Special Handling & Goods Inspection Instructions</Text>
-              <Text style={styles.bodyText}>{sd.handlingNotes}</Text>
-            </View>
-          ) : null}
         </View>
 
-        {/* Itemized Goods List (without price columns) */}
-        <View style={styles.table}>
-          <Text style={[styles.cardTitle, { color: themeColor }]}>Packing List & Quantities Delivered</Text>
-          <View style={styles.tableHeader}>
-            <View style={{ width: 30 }}><Text style={styles.tableHeaderCell}>#</Text></View>
-            <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Item Description & Specs</Text></View>
-            <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.tableHeaderCell}>Qty Dispatched</Text></View>
-            <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.tableHeaderCell}>Qty Received</Text></View>
+        {renderOptionalClausesAndCustomFields()}
+
+        {/* Itemized Goods List */}
+        {document.lineItems && document.lineItems.length > 0 ? (
+          <View style={styles.table}>
+            <Text style={[styles.cardTitle, { color: themeColor }]}>Packing List &amp; Quantities Delivered</Text>
+            <View style={styles.tableHeader}>
+              <View style={{ width: 30 }}><Text style={styles.tableHeaderCell}>#</Text></View>
+              <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Item Description &amp; Specs</Text></View>
+              <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.tableHeaderCell}>Qty Dispatched</Text></View>
+              <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.tableHeaderCell}>Qty Received</Text></View>
+            </View>
+            {document.lineItems.map((item, i) => (
+              <View key={i} style={styles.tableRow}>
+                <View style={{ width: 30 }}><Text style={styles.cellText}>{i + 1}</Text></View>
+                <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
+                <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.cellText}>{item.quantity}</Text></View>
+                <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.cellText}>[   ]</Text></View>
+              </View>
+            ))}
           </View>
-          {document.lineItems.map((item, i) => (
-            <View key={i} style={styles.tableRow}>
-              <View style={{ width: 30 }}><Text style={styles.cellText}>{i + 1}</Text></View>
-              <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
-              <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.cellText}>{item.quantity}</Text></View>
-              <View style={{ width: 80, textAlign: 'right' }}><Text style={styles.cellText}>[   ]</Text></View>
-            </View>
-          ))}
-        </View>
+        ) : null}
 
         {document.notes ? (
-          <View style={{ marginBottom: 12, marginTop: 12 }}>
-            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Additional Notes & Instructions</Text>
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 2 }]}>Additional Notes &amp; Instructions</Text>
             <Text style={styles.bodyText}>{document.notes}</Text>
           </View>
         ) : null}
 
-        {/* Proof of Delivery Block */}
-        <View style={[styles.card, { marginTop: 14 }]}>
-          <Text style={[styles.cardTitle, { color: themeColor }]}>Proof of Delivery & Confirmation</Text>
-          <Text style={{ fontSize: 8, color: '#4b5563', marginBottom: 12 }}>
+        <View style={[styles.card, { marginTop: 10 }]}>
+          <Text style={[styles.cardTitle, { color: themeColor }]}>Proof of Delivery &amp; Confirmation</Text>
+          <Text style={{ fontSize: 8, color: '#4b5563', marginBottom: 8 }}>
             I hereby confirm that the goods listed above have been received in good condition and order.
           </Text>
           <View style={styles.grid2}>
@@ -519,8 +479,8 @@ export function DocContent({ document, business, contact }: TemplateProps) {
               <Text style={styles.value}>{sd.recipientName || contact.name}</Text>
             </View>
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Recipient Signature & Stamp</Text>
-              <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', height: 24, marginTop: 4 }} />
+              <Text style={styles.label}>Recipient Signature &amp; Stamp</Text>
+              <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', height: 20, marginTop: 2 }} />
             </View>
           </View>
         </View>
@@ -533,7 +493,7 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   // 3. PROCUREMENT (Purchase Order)
   if (dt === 'purchase_order') {
     return (
-      <View style={{ marginTop: 10 }}>
+      <View style={{ marginTop: 6 }}>
         <View style={styles.card}>
           <Text style={[styles.cardTitle, { color: themeColor }]}>Vendor Procurement Reference</Text>
           <View style={styles.grid3}>
@@ -556,32 +516,29 @@ export function DocContent({ document, business, contact }: TemplateProps) {
               <Text style={styles.bodyText}>{sd.shippingAddress}</Text>
             </View>
           ) : null}
-
-          {sd.qualityRequirements ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Quality Assurance & Packing Standards</Text>
-              <Text style={styles.bodyText}>{sd.qualityRequirements}</Text>
-            </View>
-          ) : null}
         </View>
+
+        {renderOptionalClausesAndCustomFields()}
 
         {/* Financial Table */}
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Item Description & Part #</Text></View>
-            <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
-            <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Unit Price</Text></View>
-            <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
-          </View>
-          {document.lineItems.map((item, i) => (
-            <View key={i} style={styles.tableRow}>
-              <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
-              <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
-              <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
-              <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
+        {document.lineItems && document.lineItems.length > 0 ? (
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Item Description &amp; Part #</Text></View>
+              <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
+              <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Unit Price</Text></View>
+              <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
             </View>
-          ))}
-        </View>
+            {document.lineItems.map((item, i) => (
+              <View key={i} style={styles.tableRow}>
+                <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
+                <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
+                <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
+                <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <View style={styles.totals}>
           <View style={styles.totalRow}>
@@ -601,7 +558,7 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         </View>
 
         {sd.authorizedBy ? (
-          <View style={{ marginTop: 16 }}>
+          <View style={{ marginTop: 10 }}>
             <Text style={styles.label}>Management Authorization</Text>
             <Text style={styles.valueBold}>Approved By: {sd.authorizedBy}</Text>
           </View>
@@ -615,7 +572,7 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   // 4. FINANCIAL ADJUSTMENTS (Credit Note, Debit Note)
   if (['credit_note', 'debit_note'].includes(dt)) {
     return (
-      <View style={{ marginTop: 10 }}>
+      <View style={{ marginTop: 6 }}>
         <View style={styles.card}>
           <Text style={[styles.cardTitle, { color: themeColor }]}>Original Billing Adjustment Reference</Text>
           <View style={styles.grid2}>
@@ -632,30 +589,28 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             <Text style={styles.label}>Reason for Adjustment</Text>
             <Text style={styles.bodyText}>{sd.reasonForAdjustment || 'Billing Correction / Service Credit'}</Text>
           </View>
-          {sd.adjustmentNotes ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Audit Notes / Explanation</Text>
-              <Text style={styles.bodyText}>{sd.adjustmentNotes}</Text>
-            </View>
-          ) : null}
         </View>
 
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Adjustment Description</Text></View>
-            <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
-            <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Credit Amount</Text></View>
-            <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
-          </View>
-          {document.lineItems.map((item, i) => (
-            <View key={i} style={styles.tableRow}>
-              <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
-              <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
-              <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
-              <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
+        {renderOptionalClausesAndCustomFields()}
+
+        {document.lineItems && document.lineItems.length > 0 ? (
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Adjustment Description</Text></View>
+              <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
+              <View style={styles.colUnit}><Text style={styles.tableHeaderCell}>Credit Amount</Text></View>
+              <View style={styles.colTotal}><Text style={styles.tableHeaderCell}>Total</Text></View>
             </View>
-          ))}
-        </View>
+            {document.lineItems.map((item, i) => (
+              <View key={i} style={styles.tableRow}>
+                <View style={styles.colDesc}><Text style={styles.cellText}>{item.description}</Text></View>
+                <View style={styles.colQty}><Text style={styles.cellText}>{item.quantity}</Text></View>
+                <View style={styles.colUnit}><Text style={styles.cellText}>{item.unitPrice}</Text></View>
+                <View style={styles.colTotal}><Text style={styles.cellText}>{item.lineTotal}</Text></View>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <View style={styles.totals}>
           <View style={[styles.grandRow, { borderTopColor: themeColor }]}>
@@ -674,12 +629,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   // 5. PROJECT & PROPOSALS (Statement of Work, Proposal)
   if (['statement_of_work', 'proposal'].includes(dt)) {
     return (
-      <View style={{ marginTop: 10 }}>
+      <View style={{ marginTop: 6 }}>
         <View style={styles.card}>
           <Text style={[styles.cardTitle, { color: themeColor }]}>
             {dt === 'proposal' ? 'Commercial Proposal Overview' : 'Project SOW Overview'}
           </Text>
-          {(sd.sowTitle || sd.proposalTitle || sd.completionDate || sd.validityPeriod) ? (
+          {(sd.sowTitle || sd.proposalTitle || sd.completionDate || sd.validityDays) ? (
             <View style={[styles.grid2, { marginBottom: 6 }]}>
               {(sd.sowTitle || sd.proposalTitle) ? (
                 <View style={styles.fieldBlock}>
@@ -693,10 +648,10 @@ export function DocContent({ document, business, contact }: TemplateProps) {
                   <Text style={styles.valueBold}>{sd.completionDate}</Text>
                 </View>
               ) : null}
-              {sd.validityPeriod ? (
+              {sd.validityDays ? (
                 <View style={styles.fieldBlock}>
-                  <Text style={styles.label}>Proposal Validity Period</Text>
-                  <Text style={styles.valueBold}>{sd.validityPeriod}</Text>
+                  <Text style={styles.label}>Proposal Validity Window</Text>
+                  <Text style={styles.valueBold}>{sd.validityDays} Days</Text>
                 </View>
               ) : null}
             </View>
@@ -704,37 +659,32 @@ export function DocContent({ document, business, contact }: TemplateProps) {
 
           {sd.executiveSummary ? (
             <View style={styles.textBlock}>
-              <Text style={styles.label}>Executive Summary & Proposed Solution</Text>
+              <Text style={styles.label}>Executive Summary &amp; Proposed Solution</Text>
               <Text style={styles.bodyText}>{sd.executiveSummary}</Text>
             </View>
           ) : null}
 
           {sd.deliverables ? (
             <View style={styles.textBlock}>
-              <Text style={styles.label}>Key Deliverables & Objectives</Text>
+              <Text style={styles.label}>Key Deliverables &amp; Objectives</Text>
               <Text style={styles.bodyText}>{sd.deliverables}</Text>
-            </View>
-          ) : null}
-
-          {sd.timeline ? (
-            <View style={styles.textBlock}>
-              <Text style={styles.label}>Implementation Methodology & Project Timeline</Text>
-              <Text style={styles.bodyText}>{sd.timeline}</Text>
             </View>
           ) : null}
 
           {sd.assumptions ? (
             <View style={styles.textBlock}>
-              <Text style={styles.label}>Key Assumptions & Prerequisites</Text>
+              <Text style={styles.label}>Key Assumptions &amp; Prerequisites</Text>
               <Text style={styles.bodyText}>{sd.assumptions}</Text>
             </View>
           ) : null}
         </View>
 
-        {/* Line items if available */}
-        {document.hasItems ? (
+        {renderOptionalClausesAndCustomFields()}
+
+        {/* Investment & Financial Scope Table (Multiple Products/Services) */}
+        {document.lineItems && document.lineItems.length > 0 ? (
           <View style={styles.table}>
-            <Text style={[styles.cardTitle, { color: themeColor }]}>Investment & Financial Scope</Text>
+            <Text style={[styles.cardTitle, { color: themeColor }]}>Investment &amp; Financial Scope</Text>
             <View style={styles.tableHeader}>
               <View style={styles.colDesc}><Text style={styles.tableHeaderCell}>Scope / Milestone Description</Text></View>
               <View style={styles.colQty}><Text style={styles.tableHeaderCell}>Qty</Text></View>
@@ -759,8 +709,54 @@ export function DocContent({ document, business, contact }: TemplateProps) {
 
   // 6. DEFAULT COMMERCIAL / FINANCIAL (Invoice, Quotation, Receipt, Wholesale Catalog, Account Statement, Expense Report)
   return (
-    <View style={{ marginTop: 10 }}>
-      {document.hasItems ? (
+    <View style={{ marginTop: 6 }}>
+      {(sd.paymentTerms || sd.sellerTaxId || sd.clientTaxId || sd.bankDetails || sd.mobileMoneyDetails) ? (
+        <View style={styles.card}>
+          <Text style={[styles.cardTitle, { color: themeColor }]}>Commercial &amp; Settlement Terms</Text>
+          <View style={styles.grid3}>
+            {sd.paymentTerms ? (
+              <View style={styles.fieldBlock}>
+                <Text style={styles.label}>Payment Terms</Text>
+                <Text style={styles.valueBold}>{sd.paymentTerms}</Text>
+              </View>
+            ) : null}
+            {sd.sellerTaxId ? (
+              <View style={styles.fieldBlock}>
+                <Text style={styles.label}>Seller TPIN / Tax ID</Text>
+                <Text style={styles.valueBold}>{sd.sellerTaxId}</Text>
+              </View>
+            ) : null}
+            {sd.clientTaxId ? (
+              <View style={styles.fieldBlock}>
+                <Text style={styles.label}>Client Tax ID / VAT</Text>
+                <Text style={styles.valueBold}>{sd.clientTaxId}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {(sd.bankDetails || sd.mobileMoneyDetails) ? (
+            <View style={[styles.grid2, { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#e5e7eb' }]}>
+              {sd.bankDetails ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Bank Settlement Account</Text>
+                  <Text style={styles.valueBold}>{sd.bankDetails}</Text>
+                </View>
+              ) : null}
+              {sd.mobileMoneyDetails ? (
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.label}>Mobile Money Paybill</Text>
+                  <Text style={styles.valueBold}>{sd.mobileMoneyDetails}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {renderOptionalClausesAndCustomFields()}
+
+      {/* Commercial Line Items Table (Multiple Products) */}
+      {document.lineItems && document.lineItems.length > 0 ? (
         <>
           <View style={styles.table}>
             <View style={styles.tableHeader}>

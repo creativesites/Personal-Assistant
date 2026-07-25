@@ -11,15 +11,15 @@ import { DocContent } from './DocContent';
 // template.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 40 },
-  header: { backgroundColor: '#111827', paddingHorizontal: 40, paddingVertical: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 0, paddingBottom: 24 },
+  header: { backgroundColor: '#111827', paddingHorizontal: 36, paddingVertical: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { maxWidth: 140, maxHeight: 42, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: '#ffffff' },
   companyMeta: { fontSize: 8, color: '#9ca3af', marginTop: 3, lineHeight: 1.4 },
   docTitleBlock: { alignItems: 'flex-end' },
   docTitle: { fontSize: 17, fontFamily: 'Helvetica-Bold', letterSpacing: 1.5, textTransform: 'uppercase', color: '#ffffff' },
   docNumber: { fontSize: 9, color: '#9ca3af', marginTop: 3 },
-  body: { padding: 40 },
+  body: { paddingHorizontal: 36, paddingTop: 16 },
   metaGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 28, marginBottom: 22 },
   metaBlock: { flex: 1 },
   sectionBar: { backgroundColor: '#f3f4f6', paddingHorizontal: 8, paddingVertical: 4, marginBottom: 6 },

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2, AlertCircle, Send, Link2 } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
 import { apiClient } from '@/lib/api'
 import type { TemplateProps } from '@zuri/pdf-templates'
@@ -134,15 +134,56 @@ export default function DocumentPreviewModal({ open, onClose, documentId, token,
             </button>
           </div>
         ) : context ? (
-          <ClientPdfRenderer
-            documentId={selectedId}
-            templateKey={context.templateKey}
-            data={{ document: context.document, business: context.business, contact: context.contact }}
-            fileName={`${context.document.documentNumber || context.documentType}.pdf`}
-            docLabel={context.documentType.charAt(0).toUpperCase() + context.documentType.slice(1)}
-            token={token}
-            onPersisted={onPersisted}
-          />
+          <div className="space-y-3">
+            <ClientPdfRenderer
+              documentId={selectedId}
+              templateKey={context.templateKey}
+              data={{ document: context.document, business: context.business, contact: context.contact }}
+              fileName={`${context.document.documentNumber || context.documentType}.pdf`}
+              docLabel={context.documentType.charAt(0).toUpperCase() + context.documentType.slice(1)}
+              token={token}
+              onPersisted={onPersisted}
+            />
+
+            {/* Quick Action Footer inside Preview Modal */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-gray-50 border border-gray-100">
+              <div className="flex items-center gap-2">
+                {context.contact?.name && (
+                  <span className="text-xs font-bold text-gray-700">Client: {context.contact.name}</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {(context.document as any)?.shareToken && (
+                  <button
+                    onClick={() => {
+                      const link = `${window.location.origin}/shared/${(context.document as any).shareToken}`
+                      navigator.clipboard.writeText(link)
+                      alert('Interactive sign & payment link copied to clipboard!')
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-100 transition-all"
+                  >
+                    <Link2 size={13} /> Copy Link
+                  </button>
+                )}
+
+                <button
+                  onClick={async () => {
+                    if (!token || !selectedId) return
+                    try {
+                      await apiClient(`/api/documents/${selectedId}/send`, { method: 'POST', token })
+                      alert('Document sent directly via WhatsApp session!')
+                    } catch {
+                      alert('Failed to send document via WhatsApp.')
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm transition-all"
+                >
+                  <Send size={13} /> Send via WhatsApp
+                </button>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="text-center py-10 text-gray-500 text-sm">No preview data found.</div>
         )}

@@ -22,6 +22,7 @@ import { ProfilePictureModal } from './_components/profile-picture-modal'
 import { StatusStoriesBar } from './_components/status-stories-bar'
 import { StatusViewerModal } from './_components/status-viewer-modal'
 import { PostStatusModal } from './_components/post-status-modal'
+import { QuickDocModal } from './_components/quick-doc-modal'
 import type { ContactStatusGroup } from '@zuri/types'
 import type { AIInsight } from './_components/inline-ai-card'
 import { ConvRow } from './_components/conversation-row'
@@ -141,6 +142,7 @@ export default function InboxPage() {
   // Internal Notes & Lightbox states
   const [threadInternalNotes, setThreadInternalNotes] = useState<Array<{ id: string; text: string; author: string; createdAt: string }>>([])
   const [showInternalNoteModal, setShowInternalNoteModal] = useState(false)
+  const [showQuickDocModal, setShowQuickDocModal] = useState(false)
   const [internalNoteInput, setInternalNoteInput] = useState('')
   const [lightboxItem, setLightboxItem] = useState<LightboxItem | null>(null)
   const [enlargedAvatar, setEnlargedAvatar] = useState<{ id?: string; name: string; avatarUrl?: string | null; phone?: string | null; isGroup?: boolean } | null>(null)
@@ -1917,7 +1919,19 @@ export default function InboxPage() {
               </div>
 
               {/* Header Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0 z-10">
+              <div className="flex items-center gap-1.5 flex-shrink-0 z-10">
+                {/* ⚡ Quick Doc Action Trigger */}
+                {contact && (
+                  <button
+                    onClick={() => setShowQuickDocModal(true)}
+                    className="flex items-center gap-1 text-xs font-bold text-indigo-200 hover:text-white bg-indigo-600/50 hover:bg-indigo-600/80 border border-indigo-500/50 px-2.5 py-1.5 rounded-xl transition-all shadow-sm"
+                    title="⚡ Create Quick Quote/Invoice for Contact"
+                  >
+                    <Zap size={14} className="text-amber-300 fill-amber-300/30" />
+                    <span className="hidden sm:inline">Quick Doc</span>
+                  </button>
+                )}
+
                 {/* Internal Team Sticky Note Trigger */}
                 <button
                   onClick={() => setShowInternalNoteModal(true)}
@@ -2346,6 +2360,18 @@ export default function InboxPage() {
               setContact(prev => prev ? { ...prev, avatarUrl: newUrl } : null)
             }
             setConversations(prev => prev.map(c => c.contact.id === enlargedAvatar.id ? { ...c, contact: { ...c.contact, avatarUrl: newUrl } } : c))
+          }}
+        />
+      )}
+      {/* ⚡ Quick Document Modal */}
+      {contact && (
+        <QuickDocModal
+          open={showQuickDocModal}
+          onClose={() => setShowQuickDocModal(false)}
+          contact={contact}
+          token={token ?? null}
+          onDocumentCreatedAndSent={(docNum, shareUrl) => {
+            setDraft(`Hi ${contact.name}, here is your ${docNum}: ${shareUrl}`)
           }}
         />
       )}

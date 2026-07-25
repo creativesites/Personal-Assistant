@@ -2324,7 +2324,7 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
             {/* ── Executive CRM Revenue Radar & Autopilot ── */}
             <div className="px-4 sm:px-8 pt-6 pb-2 max-w-4xl mx-auto w-full space-y-4">
               {mode !== 'personal' && <RevenueRadarPanel contact={contact} />}
-              <PurchaseLikelihoodPanel contactId={contact.id} token={token} />
+              <PurchaseLikelihoodPanel contactId={contact.id} token={token ?? null} />
               <AutopilotControlPanel contactId={contact.id} />
             </div>
 

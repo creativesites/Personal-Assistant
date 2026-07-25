@@ -450,6 +450,45 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ document: formatDocument(updated) });
   });
 
+  // ── POST /api/documents/:id/duplicate — 1-Click Duplicate Document
+  fastify.post('/api/documents/:id/duplicate', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const { id } = request.params as { id: string };
+
+    const { rows: [original] } = await db.query(
+      `SELECT * FROM documents WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    if (!original) return reply.code(404).send({ error: 'Document not found' });
+
+    const newDocNumber = await assignDocumentNumber(userId, original.document_type, original.business_profile_id);
+    const newTitle = `${original.title} (Copy)`;
+
+    const { rows: [duplicated] } = await db.query(
+      `INSERT INTO documents
+         (user_id, contact_id, deal_id, opportunity_id, conversation_id, template_id, project_id,
+          document_type, document_category, document_number, title, status, structured_data,
+          currency, subtotal_cents, discount_cents, tax_cents, total_cents, requested_by, ai_generated,
+          business_profile_id, signature_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11,$12,$13,$14,$15,$16,'user',false,$17,$18)
+       RETURNING *`,
+      [
+        userId, original.contact_id, original.deal_id, original.opportunity_id,
+        original.conversation_id, original.template_id, original.project_id,
+        original.document_type, original.document_category, newDocNumber, newTitle,
+        original.structured_data, original.currency, original.subtotal_cents, original.discount_cents,
+        original.tax_cents, original.total_cents, original.business_profile_id, original.signature_id
+      ]
+    );
+
+    await db.query(
+      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'duplicated', $2)`,
+      [duplicated.id, JSON.stringify({ sourceDocumentId: id })]
+    );
+
+    return reply.code(201).send({ document: formatDocument(duplicated) });
+  });
+
   // ── POST /api/documents/:id/generate — renders the PDF in-process using
   // @react-pdf/renderer (services/api/src/lib/pdf). Previously proxied to
   // the intelligence service's Jinja2+Playwright pipeline; now Node owns

@@ -10,7 +10,7 @@ import { DocContent } from './DocContent';
 // other template — register in render.ts's TEMPLATES map, no other change.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 45, paddingBottom: 45, paddingHorizontal: 40 },
+  page: { fontFamily: 'Helvetica', fontSize: 10, color: '#1f2937', paddingTop: 24, paddingBottom: 24, paddingHorizontal: 32 },
   headerBand: { paddingHorizontal: 24, paddingVertical: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', borderRadius: 6, marginBottom: 12 },
   logo: { maxWidth: 150, maxHeight: 46, objectFit: 'contain', marginBottom: 8 },
   companyName: { fontSize: 14, fontFamily: 'Helvetica-Bold', color: '#ffffff' },

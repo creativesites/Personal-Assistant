@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import {
   FileText, Plus, Trash2, Loader2, Download, RefreshCw, X, Send, ArrowRightCircle,
   Sparkles, ShieldCheck, MessageSquare, Link2, Eye, Package, Lightbulb, Search, Pencil,
-  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3, PenTool, HelpCircle,
+  MoreHorizontal, ChevronDown, ChevronUp, Wand2, Palette, BarChart3, PenTool, HelpCircle, Copy, CreditCard,
 } from 'lucide-react'
 import { useGuidedTour, DOCUMENT_TOUR_STEPS } from '@/components/guided-tour'
 import { useZuriSession } from '@/hooks/use-zuri-session'
@@ -15,6 +15,7 @@ import { Avatar, Badge, BadgeVariant, Dropdown, EmptyState, SkeletonCard, useToa
 import { AnalyticsSubNav } from '../analytics/_components/analytics-sub-nav'
 import { SignaturesModule } from '../studio/_components/signatures-module'
 import { BrandModule } from '../studio/_components/brand-module'
+import { PaymentSettingsModule } from '../documents/_components/payment-settings-module'
 
 const DocumentPreviewModal = dynamic(() => import('@/components/documents/DocumentPreviewModal'), { ssr: false })
 
@@ -211,9 +212,10 @@ export default function BusinessPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
-  const [mainTab, setMainTab] = useState<'documents' | 'signatures' | 'brand'>('documents')
+  const [mainTab, setMainTab] = useState<'documents' | 'payments' | 'signatures' | 'brand'>('documents')
   // Client-side PDF preview modal state — replaces window.open backend PDF fetches
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const { startCustomTour } = useGuidedTour()
 
   const loadDocuments = () => {
@@ -236,6 +238,20 @@ export default function BusinessPage() {
   // All preview, generation, and download now handled client-side via
   // DocumentPreviewModal — PDF Rendering Architecture, see CLAUDE.md.
   const openPreview = (id: string) => setPreviewDocId(id)
+
+  const duplicateDocument = async (id: string) => {
+    if (!token) return
+    setDuplicatingId(id)
+    try {
+      const res = await apiClient<{ document: any }>(`/api/documents/${id}/duplicate`, { method: 'POST', token })
+      addToast({ variant: 'success', title: 'Document Duplicated', description: `Created new draft ${res.document.documentNumber}` })
+      loadDocuments()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to duplicate document' })
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
 
   const sendViaWhatsApp = async (id: string) => {
     if (!token) return
@@ -423,6 +439,17 @@ export default function BusinessPage() {
             Documents Library
           </button>
           <button
+            onClick={() => setMainTab('payments')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              mainTab === 'payments'
+                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
+            }`}
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            Payment Settings
+          </button>
+          <button
             onClick={() => setMainTab('signatures')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
               mainTab === 'signatures'
@@ -585,6 +612,26 @@ export default function BusinessPage() {
                         <Pencil className="w-3.5 h-3.5 text-gray-500" />Edit
                       </Link>
 
+                      <button
+                        onClick={() => duplicateDocument(doc.id)}
+                        disabled={duplicatingId === doc.id}
+                        className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50"
+                        title="Duplicate into a new draft"
+                      >
+                        {duplicatingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Copy className="w-3.5 h-3.5 text-gray-500" />}
+                        Duplicate
+                      </button>
+
+                      {doc.shareToken && (
+                        <button
+                          onClick={() => copyShareLink(doc)}
+                          className="inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                          title="Copy interactive sign & payment link"
+                        >
+                          <Link2 className="w-3.5 h-3.5 text-gray-500" />Copy Link
+                        </button>
+                      )}
+
                       {doc.contact && (
                         <button
                           onClick={() => sendViaWhatsApp(doc.id)}
@@ -657,6 +704,10 @@ export default function BusinessPage() {
           </div>
         </>
       )}
+
+      <div className={mainTab === 'payments' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
+        <PaymentSettingsModule token={token ?? null} />
+      </div>
 
       <div className={mainTab === 'signatures' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
         <SignaturesModule token={token ?? undefined} />

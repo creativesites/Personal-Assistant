@@ -45,6 +45,47 @@ export async function fileToDataUri(storagePath: string | null | undefined): Pro
   }
 }
 
+export async function urlToDataUri(url: string | null | undefined): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith('data:image/')) return url;
+
+  let fetchUrl = url;
+  if (fetchUrl.startsWith('/')) {
+    const port = process.env.PORT || '3000';
+    fetchUrl = `http://127.0.0.1:${port}${fetchUrl}`;
+  }
+
+  if (fetchUrl.startsWith('http://') || fetchUrl.startsWith('https://')) {
+    try {
+      const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const arrayBuffer = await res.arrayBuffer();
+        const buf = Buffer.from(arrayBuffer);
+        const contentType = res.headers.get('content-type') || 'image/png';
+        const mime = contentType.split(';')[0].trim();
+        return `data:${mime};base64,${buf.toString('base64')}`;
+      }
+    } catch {
+      return url;
+    }
+  }
+  return url;
+}
+
+export async function resolveLogoDataUri(
+  storagePath: string | null | undefined,
+  logoUrl: string | null | undefined,
+): Promise<string | null> {
+  if (storagePath) {
+    const dataUri = await fileToDataUri(storagePath);
+    if (dataUri) return dataUri;
+  }
+  if (logoUrl) {
+    return await urlToDataUri(logoUrl);
+  }
+  return null;
+}
+
 export interface BusinessProfileRow {
   id?: string;
   user_id?: string;
@@ -60,6 +101,7 @@ export interface BusinessProfileRow {
   payment_instructions: string | null;
   bank_details: { bankName?: string; accountName?: string; accountNumber?: string } | null;
   mobile_money: { provider?: string; number?: string } | null;
+  logo_url?: string | null;
   logo_storage_path: string | null;
   signature_storage_path: string | null;
   stamp_storage_path: string | null;
@@ -138,7 +180,7 @@ export async function buildBusinessContext(
     paymentInstructions: businessProfile?.payment_instructions ?? null,
     bankDetails: bankLine || null,
     mobileMoney: mobileMoneyLine || null,
-    logoDataUri: await fileToDataUri(businessProfile?.logo_storage_path),
+    logoDataUri: await resolveLogoDataUri(businessProfile?.logo_storage_path, businessProfile?.logo_url),
     signatureDataUri,
     stampDataUri: await fileToDataUri(businessProfile?.stamp_storage_path),
     signerName,
