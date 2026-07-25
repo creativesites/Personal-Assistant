@@ -1535,7 +1535,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     if (!doc) return reply.code(404).send({ error: 'Document not found' });
 
     const { rows: [bp] } = await db.query(
-      `SELECT company_name, logo_storage_path, address, phone, email, website, tax_id, bank_details, theme_color
+      `SELECT company_name, logo_url, logo_storage_path, address, phone, email, website, tax_id, bank_details, theme_color
        FROM business_profiles WHERE user_id = $1 LIMIT 1`,
       [doc.user_id]
     );
