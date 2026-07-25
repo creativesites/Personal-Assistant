@@ -1012,6 +1012,7 @@ export default function NewDocumentPage() {
                 {docLabel} Specifications
               </h2>
               <DynamicDocFields
+                key={form.docType}
                 docType={form.docType}
                 values={form.structuredData || {}}
                 onChange={setStructuredDataField}

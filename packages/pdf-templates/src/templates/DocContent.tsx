@@ -270,6 +270,129 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           </View>
         ) : null}
 
+        {/* Optional Enterprise Clauses */}
+        {sd.limitationOfLiability ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Limitation of Liability Cap</Text>
+            <Text style={styles.bodyText}>{sd.limitationOfLiability}</Text>
+          </View>
+        ) : null}
+
+        {sd.disputeResolution ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Dispute Resolution & Arbitration Forum</Text>
+            <Text style={styles.bodyText}>{sd.disputeResolution}</Text>
+          </View>
+        ) : null}
+
+        {sd.nonSolicitation ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Non-Solicitation & Non-Compete</Text>
+            <Text style={styles.bodyText}>{sd.nonSolicitation}</Text>
+          </View>
+        ) : null}
+
+        {sd.insuranceCoverage ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Insurance Coverage Requirements</Text>
+            <Text style={styles.bodyText}>{sd.insuranceCoverage}</Text>
+          </View>
+        ) : null}
+
+        {sd.subcontractingRules ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Subcontracting & Sub-Processors Protocol</Text>
+            <Text style={styles.bodyText}>{sd.subcontractingRules}</Text>
+          </View>
+        ) : null}
+
+        {sd.nonCircumvention ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Non-Circumvention Provisions</Text>
+            <Text style={styles.bodyText}>{sd.nonCircumvention}</Text>
+          </View>
+        ) : null}
+
+        {sd.equitableRelief ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Equitable Relief & Injunction Rights</Text>
+            <Text style={styles.bodyText}>{sd.equitableRelief}</Text>
+          </View>
+        ) : null}
+
+        {sd.acceptanceTesting ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Acceptance Testing & Sign-off Protocol</Text>
+            <Text style={styles.bodyText}>{sd.acceptanceTesting}</Text>
+          </View>
+        ) : null}
+
+        {sd.warrantyPeriod ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Warranty Period & Defect Remediation</Text>
+            <Text style={styles.bodyText}>{sd.warrantyPeriod}</Text>
+          </View>
+        ) : null}
+
+        {sd.retainageDeposit ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Retainage / Performance Security Deposit</Text>
+            <Text style={styles.bodyText}>{sd.retainageDeposit}</Text>
+          </View>
+        ) : null}
+
+        {sd.changeOrderGovernance ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Change Order Governance Protocol</Text>
+            <Text style={styles.bodyText}>{sd.changeOrderGovernance}</Text>
+          </View>
+        ) : null}
+
+        {sd.batchNumber ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Batch / Lot # & Expiry Tracking</Text>
+            <Text style={styles.bodyText}>{sd.batchNumber}</Text>
+          </View>
+        ) : null}
+
+        {sd.temperatureSpec ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Cold Chain & Climate Control Specifications</Text>
+            <Text style={styles.bodyText}>{sd.temperatureSpec}</Text>
+          </View>
+        ) : null}
+
+        {sd.incoterms ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Incoterms Shipping Terms</Text>
+            <Text style={styles.bodyText}>{sd.incoterms}</Text>
+          </View>
+        ) : null}
+
+        {sd.inspectionWindow ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.cardTitle, { color: themeColor, marginBottom: 3 }]}>Goods Inspection & Rejection Terms</Text>
+            <Text style={styles.bodyText}>{sd.inspectionWindow}</Text>
+          </View>
+        ) : null}
+
+        {/* Industry Custom Key-Value Attributes */}
+        {sd.customKeyValuePairs && Array.isArray(sd.customKeyValuePairs) && sd.customKeyValuePairs.length > 0 ? (
+          <View style={[styles.card, { marginBottom: 12 }]}>
+            <Text style={[styles.cardTitle, { color: themeColor }]}>Custom Industry Specifications</Text>
+            <View style={styles.grid2}>
+              {sd.customKeyValuePairs.map((pair: any, idx: number) => (
+                pair.key && pair.value ? (
+                  <View key={idx} style={styles.fieldBlock}>
+                    <Text style={styles.label}>{pair.key}</Text>
+                    <Text style={styles.valueBold}>{pair.value}</Text>
+                  </View>
+                ) : null
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         {/* Custom Sections / Clauses */}
         {document.sections && document.sections.length > 0 ? (
           document.sections.map((sec, i) => (

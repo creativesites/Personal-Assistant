@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { PenTool, Check, ChevronDown, Plus } from 'lucide-react'
+import { PenTool, Check, ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useApi } from '@/hooks/use-api'
 import { Modal } from '@/components/ui/modal'
 import { SignaturePad } from '@/components/ui/signature-pad'
@@ -65,13 +65,24 @@ export function SignatureSelector({
           <PenTool className="w-3.5 h-3.5 text-indigo-600" />
           Document Signature
         </span>
-        <button
-          type="button"
-          onClick={() => setIsAddDrawModalOpen(true)}
-          className="text-[11px] text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-0.5"
-        >
-          <Plus className="w-3 h-3" /> Draw One-Time
-        </button>
+        <div className="flex items-center gap-2">
+          {value && (
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="text-[11px] text-red-600 hover:text-red-700 font-medium flex items-center gap-0.5"
+            >
+              <Trash2 className="w-3 h-3" /> Remove Signature
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsAddDrawModalOpen(true)}
+            className="text-[11px] text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-0.5"
+          >
+            <Plus className="w-3 h-3" /> Draw One-Time
+          </button>
+        </div>
       </label>
 
       {/* Selected Signature Display Box */}

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { Eye, ArrowLeft, Loader2, Save, Trash2, AlertTriangle, X } from 'lucide-react'
+import { Eye, ArrowLeft, Loader2, Save, Trash2, AlertTriangle, X, PenTool } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { apiClient, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ui/toast'
@@ -13,6 +13,7 @@ import { LineItemsEditor, type LineItem } from '../../_components/line-items-edi
 import { TemplatePicker } from '../../_components/template-picker'
 import { BusinessProfilePicker } from '../../_components/business-profile-picker'
 import { DynamicDocFields, type DocType } from '../../_components/dynamic-doc-fields'
+import { SignatureSelector, type SelectedSignature } from '../../_components/signature-selector'
 
 const DocumentPreviewModal = dynamic(() => import('@/components/documents/DocumentPreviewModal'), { ssr: false })
 
@@ -35,6 +36,7 @@ interface DocumentDetail {
   contactId: string | null
   templateId: string | null
   businessProfileId: string | null
+  signatureId?: string | null
   contact: { id: string; name: string } | null
 }
 
@@ -69,6 +71,9 @@ export default function DocumentEditPage() {
   const [templateId, setTemplateId] = useState<string | null>(null)
   const [businessProfileId, setBusinessProfileId] = useState<string | null>(null)
   const [dynamicValues, setDynamicValues] = useState<Record<string, any>>({})
+  const [requireSignatures, setRequireSignatures] = useState(true)
+  const [signingParties, setSigningParties] = useState<'both' | 'client' | 'provider'>('both')
+  const [selectedSignature, setSelectedSignature] = useState<SelectedSignature | null>(null)
 
   useEffect(() => {
     if (!token || !params.id) return
@@ -98,6 +103,21 @@ export default function DocumentEditPage() {
         setTemplateId(document.templateId)
         setBusinessProfileId(document.businessProfileId)
         setDynamicValues(sd)
+        if (typeof sd.requireSignatures === 'boolean') {
+          setRequireSignatures(sd.requireSignatures)
+        }
+        if (sd.signingParties) {
+          setSigningParties(sd.signingParties)
+        }
+        if (sd.signature) {
+          setSelectedSignature(sd.signature)
+        } else if (document.signatureId) {
+          setSelectedSignature({
+            id: document.signatureId,
+            signerName: 'Authorized Signer',
+            signatureDataUri: '',
+          })
+        }
       })
       .catch(() => setDoc(null))
       .finally(() => setLoading(false))
@@ -123,6 +143,10 @@ export default function DocumentEditPage() {
     if (!doc || !token) return
     setSaving(true)
     try {
+      const activeSig = (requireSignatures && (signingParties === 'both' || signingParties === 'provider'))
+        ? selectedSignature
+        : null
+
       const mergedStructuredData = {
         ...(doc.structuredData ?? {}),
         ...dynamicValues,
@@ -130,6 +154,9 @@ export default function DocumentEditPage() {
         terms: terms || undefined,
         validUntil: validUntil || undefined,
         dueDate: dueDate || undefined,
+        requireSignatures,
+        signingParties,
+        signature: activeSig || undefined,
       }
 
       const body: Record<string, unknown> = {
@@ -141,6 +168,7 @@ export default function DocumentEditPage() {
         dueDate: dueDate || undefined,
         templateId: templateId || undefined,
         businessProfileId: businessProfileId ?? null,
+        signatureId: activeSig?.id || null,
         structuredData: mergedStructuredData,
       }
       if (manualMode) {
@@ -313,6 +341,66 @@ export default function DocumentEditPage() {
 
           <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-5">
             <TemplatePicker token={token ?? undefined} value={templateId} onChange={setTemplateId} />
+          </div>
+
+          {/* E-Signature Requirements & Signature Selector */}
+          <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                  <PenTool className="w-4 h-4 text-indigo-600" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">E-Signatures & Document Approval</h2>
+                  <p className="text-[11px] text-gray-500">Configure signature rules and update provider signature for this document</p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requireSignatures}
+                  onChange={e => setRequireSignatures(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" />
+              </label>
+            </div>
+
+            {requireSignatures && (
+              <div className="pt-2 border-t border-gray-100 space-y-4 animate-fadeIn">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1.5">Who needs to sign?</label>
+                  <div className="grid grid-cols-3 gap-2 bg-gray-50 p-1 rounded-xl border border-gray-200">
+                    {[
+                      { party: 'both', label: 'Provider & Client' },
+                      { party: 'client', label: 'Client Only' },
+                      { party: 'provider', label: 'Provider Only' },
+                    ].map(({ party, label }) => (
+                      <button
+                        key={party}
+                        type="button"
+                        onClick={() => setSigningParties(party as any)}
+                        className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                          signingParties === party ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {(signingParties === 'both' || signingParties === 'provider') && (
+                  <div className="space-y-2 pt-1">
+                    <SignatureSelector
+                      token={token ?? undefined}
+                      value={selectedSignature}
+                      onChange={setSelectedSignature}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {isDraft && (
