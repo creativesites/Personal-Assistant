@@ -33,6 +33,13 @@ const createAgentBody = z.object({
   escalate_on_explicit_human_request: z.boolean().optional(),
   escalate_on_out_of_scope: z.boolean().optional(),
   is_default: z.boolean().optional(),
+  max_discount_pct: z.number().min(0).max(100).optional(),
+  max_refund_limit_usd: z.number().min(0).optional(),
+  working_hours_enabled: z.boolean().optional(),
+  working_hours_start: z.string().optional(),
+  working_hours_end: z.string().optional(),
+  enabled_tools: z.array(z.string()).optional(),
+  rlhf_learning_enabled: z.boolean().optional(),
 })
 
 const patchAgentBody = z.object({
@@ -55,6 +62,13 @@ const patchAgentBody = z.object({
   escalate_on_frustration: z.boolean().optional(),
   escalate_on_explicit_human_request: z.boolean().optional(),
   escalate_on_out_of_scope: z.boolean().optional(),
+  max_discount_pct: z.number().min(0).max(100).optional(),
+  max_refund_limit_usd: z.number().min(0).optional(),
+  working_hours_enabled: z.boolean().optional(),
+  working_hours_start: z.string().optional(),
+  working_hours_end: z.string().optional(),
+  enabled_tools: z.array(z.string()).optional(),
+  rlhf_learning_enabled: z.boolean().optional(),
 })
 
 const createCorrectionBody = z.object({
@@ -119,6 +133,10 @@ async function fetchAgentDetail(userId: string, agentId: string) {
     can_send_links: boolean; can_share_pricing: boolean; can_book_meetings: boolean
     max_messages_per_day: number; escalate_on_frustration: boolean
     escalate_on_explicit_human_request: boolean; escalate_on_out_of_scope: boolean
+    max_discount_pct: number | null; max_refund_limit_usd: number | null
+    working_hours_enabled: boolean | null; working_hours_start: string | null
+    working_hours_end: string | null; enabled_tools: unknown
+    rlhf_learning_enabled: boolean | null
     created_at: string; updated_at: string
   }>(
     `SELECT id, name, agent_type, role_title, avatar_emoji, description,
@@ -127,6 +145,8 @@ async function fetchAgentDetail(userId: string, agentId: string) {
        can_send_links, can_share_pricing, can_book_meetings,
        max_messages_per_day, escalate_on_frustration,
        escalate_on_explicit_human_request, escalate_on_out_of_scope,
+       max_discount_pct, max_refund_limit_usd, working_hours_enabled,
+       working_hours_start, working_hours_end, enabled_tools, rlhf_learning_enabled,
        created_at, updated_at
      FROM agents WHERE id = $1 AND user_id = $2`,
     [agentId, userId],
@@ -168,6 +188,13 @@ async function fetchAgentDetail(userId: string, agentId: string) {
       trustLevel: agent.trust_level,
       isActive: agent.is_active,
       isDefault: agent.is_default,
+      maxDiscountPct: Number(agent.max_discount_pct ?? 10),
+      maxRefundLimitUsd: Number(agent.max_refund_limit_usd ?? 50),
+      workingHoursEnabled: Boolean(agent.working_hours_enabled),
+      workingHoursStart: agent.working_hours_start ?? '08:00',
+      workingHoursEnd: agent.working_hours_end ?? '18:00',
+      enabledTools: Array.isArray(agent.enabled_tools) ? agent.enabled_tools : ['catalog', 'invoicing', 'orders', 'knowledge_brain'],
+      rlhfLearningEnabled: agent.rlhf_learning_enabled ?? true,
       permissions: {
         canSendLinks: agent.can_send_links,
         canSharePricing: agent.can_share_pricing,
@@ -232,11 +259,22 @@ async function applyAgentPatch(
     escalate_on_frustration: 'escalate_on_frustration',
     escalate_on_explicit_human_request: 'escalate_on_explicit_human_request',
     escalate_on_out_of_scope: 'escalate_on_out_of_scope',
+    max_discount_pct: 'max_discount_pct',
+    max_refund_limit_usd: 'max_refund_limit_usd',
+    working_hours_enabled: 'working_hours_enabled',
+    working_hours_start: 'working_hours_start',
+    working_hours_end: 'working_hours_end',
+    rlhf_learning_enabled: 'rlhf_learning_enabled',
   }
 
   if (body.capabilities !== undefined) {
     updates.push(`capabilities = $${idx++}`)
     values.push(JSON.stringify(body.capabilities))
+  }
+
+  if (body.enabled_tools !== undefined) {
+    updates.push(`enabled_tools = $${idx++}`)
+    values.push(JSON.stringify(body.enabled_tools))
   }
 
   for (const [key, col] of Object.entries(fieldMap)) {
@@ -356,8 +394,10 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
            trust_level, system_prompt,
            can_send_links, can_share_pricing, can_book_meetings, max_messages_per_day,
            escalate_on_frustration, escalate_on_explicit_human_request,
-           escalate_on_out_of_scope, is_default
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+           escalate_on_out_of_scope, is_default,
+           max_discount_pct, max_refund_limit_usd, working_hours_enabled,
+           working_hours_start, working_hours_end, enabled_tools, rlhf_learning_enabled
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
          RETURNING id, created_at`,
         [
           userId,
@@ -381,6 +421,13 @@ export async function agentRoutes(fastify: FastifyInstance): Promise<void> {
           body.escalate_on_explicit_human_request ?? true,
           body.escalate_on_out_of_scope ?? true,
           body.is_default ?? false,
+          body.max_discount_pct ?? 10.0,
+          body.max_refund_limit_usd ?? 50.0,
+          body.working_hours_enabled ?? false,
+          body.working_hours_start ?? '08:00',
+          body.working_hours_end ?? '18:00',
+          JSON.stringify(body.enabled_tools ?? ['catalog', 'invoicing', 'orders', 'knowledge_brain']),
+          body.rlhf_learning_enabled ?? true,
         ],
       )
 
