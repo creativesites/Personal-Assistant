@@ -419,6 +419,8 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
           productName:            p.product_name,
           relationType:           p.relation_type,
           quantity:               p.quantity,
+          price:                  p.price !== null ? parseInt(p.price, 10) : null,
+          currency:               p.currency,
           warrantyExpiresAt:      p.warranty_expires_at,
           replacementPredictedAt: p.replacement_predicted_at,
         })),

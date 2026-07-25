@@ -80,7 +80,7 @@ interface ContactDetail {
   upcomingEvents: Array<{ id: string; eventType: string; title: string; eventDate: string | null; isRecurring: boolean; confidence: number }>
   opportunities: Array<{ id: string; opportunityType: string; title: string; description: string | null; estimatedValueCents: number | null; confidence: number; detectedAt: string }>
   connections: Array<{ id: string; connectionType: string; confidence: number; source: string; otherContactId: string; otherContactName: string | null }>
-  products: Array<{ id: string; productId: string; productName: string; relationType: string; quantity: number | null; warrantyExpiresAt: string | null; replacementPredictedAt: string | null }>
+  products: Array<{ id: string; productId: string; productName: string; relationType: string; quantity: number | null; price?: number | null; currency?: string | null; warrantyExpiresAt: string | null; replacementPredictedAt: string | null }>
   lifeEvents: Array<{ id: string; eventType: string; title: string; eventDate: string | null; createdAt: string }>
 }
 
@@ -1413,7 +1413,89 @@ interface PredictionData {
   evidence: string[]
 }
 
-function PurchaseLikelihoodPanel({ contactId, token }: { contactId: string; token: string }) {
+function RevenueRadarPanel({ contact }: { contact: ContactDetail }) {
+  const purchased = contact.products.filter(p => p.relationType === 'purchased')
+  const totalSpend = purchased.reduce((sum, p) => sum + ((p.price || 0) * (p.quantity || 1)), 0)
+  const currency = purchased.find(p => p.currency)?.currency || 'USD'
+  
+  const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+  
+  const tenureDays = Math.floor((Date.now() - new Date(contact.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+  const tenureString = tenureDays > 365 
+    ? `${(tenureDays / 365).toFixed(1)} years` 
+    : tenureDays > 30 
+      ? `${Math.floor(tenureDays / 30)} months` 
+      : `${tenureDays} days`
+
+  return (
+    <div className="bg-[#0f172a] text-white rounded-xl shadow-lg border border-slate-700 overflow-hidden relative">
+      <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-400 via-teal-500 to-indigo-500" />
+      
+      <div className="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Activity size={16} className="text-emerald-400" />
+          <h3 className="text-sm font-bold tracking-wide">Revenue Radar</h3>
+        </div>
+        <span className="text-[10px] font-medium bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">
+          Executive Cockpit
+        </span>
+      </div>
+
+      <div className="p-5 grid grid-cols-2 gap-4">
+        {/* Total Spend */}
+        <div className="col-span-1 bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 flex flex-col justify-center">
+          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">Total Lifetime Value</p>
+          <p className="text-2xl font-black text-white tabular-nums tracking-tight">
+            {totalSpend > 0 ? formatter.format(totalSpend) : '—'}
+          </p>
+        </div>
+
+        {/* Tenure */}
+        <div className="col-span-1 bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 flex flex-col justify-center">
+          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">Customer Tenure</p>
+          <p className="text-2xl font-black text-white tabular-nums tracking-tight">
+            {tenureString}
+          </p>
+        </div>
+
+        {/* Preferences */}
+        {contact.profile.preferences && (
+          <div className="col-span-2 bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Star size={12} className="text-amber-400" />
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">AI Extracted Preferences</p>
+            </div>
+            <p className="text-sm text-slate-200 leading-snug">{contact.profile.preferences}</p>
+          </div>
+        )}
+
+        {/* Purchase History */}
+        {purchased.length > 0 && (
+          <div className="col-span-2 mt-2">
+            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Purchase History</p>
+            <div className="space-y-1.5">
+              {purchased.slice(0, 3).map(p => (
+                <div key={p.id} className="flex justify-between items-center text-sm py-1.5 border-b border-slate-700/50 last:border-0">
+                  <span className="text-slate-300 font-medium truncate pr-2">
+                    {p.quantity && p.quantity > 1 ? `${p.quantity}x ` : ''}{p.productName}
+                  </span>
+                  <span className="text-white font-bold tabular-nums">
+                    {p.price ? formatter.format(p.price * (p.quantity || 1)) : '—'}
+                  </span>
+                </div>
+              ))}
+              {purchased.length > 3 && (
+                <p className="text-xs text-slate-400 mt-2 text-center">+{purchased.length - 3} more items</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PurchaseLikelihoodPanel({ contactId, token }: { contactId: string; token: string | null }) {
   const { data } = useApi<{ prediction: PredictionData | null }>(
     `/api/predictions/purchase_likelihood/${contactId}`, token,
   )
@@ -2239,8 +2321,10 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
               )}
             </div>
 
-            {/* ── Autopilot Control Panel ── */}
-            <div className="px-4 sm:px-8 pt-6 pb-2 max-w-4xl mx-auto w-full">
+            {/* ── Executive CRM Revenue Radar & Autopilot ── */}
+            <div className="px-4 sm:px-8 pt-6 pb-2 max-w-4xl mx-auto w-full space-y-4">
+              {mode !== 'personal' && <RevenueRadarPanel contact={contact} />}
+              <PurchaseLikelihoodPanel contactId={contact.id} token={token} />
               <AutopilotControlPanel contactId={contact.id} />
             </div>
 
