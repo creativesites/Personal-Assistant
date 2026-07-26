@@ -128,12 +128,11 @@ export default function Creative({ document, business, contact }: TemplateProps)
             </View>
           ) : null}
 
-          <View style={styles.signatureRow}>
-            <View style={{ alignItems: 'flex-end' }}>
-              {business.signatureDataUri ? <Image src={business.signatureDataUri} style={styles.signatureImage} /> : null}
-              <Text style={styles.signatureCaption}>Authorized signature</Text>
+          {business.stampDataUri ? (
+            <View style={{ marginTop: 16 }}>
+              <Image src={business.stampDataUri} style={styles.stampImage} />
             </View>
-          </View>
+          ) : null}
 
           {business.footerText ? <Text style={styles.footer}>{business.footerText}</Text> : null}
         </View>

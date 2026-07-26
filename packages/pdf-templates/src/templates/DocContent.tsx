@@ -52,40 +52,98 @@ export function DocContent({ document, business, contact }: TemplateProps) {
   const themeColor = business.themeColor || '#4F46E5';
 
   const renderSignatureBlocks = () => {
-    const requireSignatures = document.structuredData?.requireSignatures !== false;
-    const signingParties = document.structuredData?.signingParties || 'both';
+    const requireSignatures = sd.requireSignatures === true || !!document.signature || !!sd.signature;
     if (!requireSignatures) return null;
 
-    const showSupplier = ['supplier', 'both'].includes(signingParties);
+    const signingParties = sd.signingParties || 'provider';
+    const showSupplier = ['supplier', 'provider', 'both'].includes(signingParties);
     const showClient = ['client', 'both'].includes(signingParties);
 
-    return (
-      <View style={styles.twoPartyRow}>
-        {showSupplier ? (
-          <View style={styles.partySigBlock}>
-            <Text style={styles.sigTitle}>{business.companyName || 'Supplier / Service Provider'}</Text>
-            <View style={styles.sigImageContainer}>
-              {business.signatureUrl ? (
-                <Image src={business.signatureUrl} style={styles.sigImage} />
-              ) : null}
-            </View>
-            <View style={styles.sigLine} />
-            <Text style={styles.sigSub}>Authorized Signature &amp; Date</Text>
-          </View>
-        ) : <View style={styles.partySigBlock} />}
+    const supplierSigUri = document.signature?.signatureDataUri
+      || sd.signature?.signatureDataUri
+      || sd.signature?.signatureData
+      || business.signatureDataUri
+      || business.signatureUrl
+      || null;
 
-        {showClient ? (
-          <View style={styles.partySigBlock}>
-            <Text style={styles.sigTitle}>{contact.name || 'Client / Counterparty'}</Text>
-            <View style={styles.sigImageContainer}>
-              {document.clientSignatureUrl ? (
-                <Image src={document.clientSignatureUrl} style={styles.sigImage} />
+    const clientSigUri = document.clientSignatureUrl || sd.clientSignatureUrl || null;
+
+    const supplierSignerName = sd.signerName || document.signature?.signerName || business.companyName || 'Authorized Signatory';
+    const supplierSignerTitle = sd.signerTitle || document.signature?.signerTitle || 'Authorized Signature & Date';
+
+    if (showSupplier && !showClient) {
+      return (
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 24, paddingTop: 12 }}>
+          <View style={{ width: '42%', alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
+              {supplierSignerName}
+            </Text>
+            <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 2 }}>
+              {supplierSigUri ? (
+                <Image src={supplierSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
               ) : null}
             </View>
-            <View style={styles.sigLine} />
-            <Text style={styles.sigSub}>Client Signature &amp; Date</Text>
+            <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
+            <Text style={{ fontSize: 7.5, color: '#6b7280', textAlign: 'right' }}>
+              {supplierSignerTitle}
+            </Text>
           </View>
-        ) : <View style={styles.partySigBlock} />}
+        </View>
+      );
+    }
+
+    if (showClient && !showSupplier) {
+      return (
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 24, paddingTop: 12 }}>
+          <View style={{ width: '42%', alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
+              {contact.name || 'Client / Counterparty'}
+            </Text>
+            <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 2 }}>
+              {clientSigUri ? (
+                <Image src={clientSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+              ) : null}
+            </View>
+            <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
+            <Text style={{ fontSize: 7.5, color: '#6b7280', textAlign: 'right' }}>
+              Client Signature &amp; Date
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, paddingTop: 12 }}>
+        <View style={{ width: '42%' }}>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4 }}>
+            {supplierSignerName}
+          </Text>
+          <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 2 }}>
+            {supplierSigUri ? (
+              <Image src={supplierSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+            ) : null}
+          </View>
+          <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
+          <Text style={{ fontSize: 7.5, color: '#6b7280' }}>
+            {supplierSignerTitle}
+          </Text>
+        </View>
+
+        <View style={{ width: '42%', alignItems: 'flex-end' }}>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
+            {contact.name || 'Client / Counterparty'}
+          </Text>
+          <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 2 }}>
+            {clientSigUri ? (
+              <Image src={clientSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+            ) : null}
+          </View>
+          <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
+          <Text style={{ fontSize: 7.5, color: '#6b7280', textAlign: 'right' }}>
+            Client Signature &amp; Date
+          </Text>
+        </View>
       </View>
     );
   };

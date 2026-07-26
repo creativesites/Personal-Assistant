@@ -134,15 +134,11 @@ export default function Modern({ document, business, contact }: TemplateProps) {
             </View>
           ) : null}
 
-          <View style={styles.signatureRow}>
-            <View>
-              {business.stampDataUri ? <Image src={business.stampDataUri} style={styles.stampImage} /> : null}
+          {business.stampDataUri ? (
+            <View style={{ marginTop: 16 }}>
+              <Image src={business.stampDataUri} style={styles.stampImage} />
             </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              {business.signatureDataUri ? <Image src={business.signatureDataUri} style={styles.signatureImage} /> : null}
-              <Text style={styles.signatureCaption}>Authorized signature</Text>
-            </View>
-          </View>
+          ) : null}
 
           {business.footerText ? <Text style={styles.footer}>{business.footerText}</Text> : null}
         </View>

@@ -1748,8 +1748,8 @@ export function QuickQuoteWizardModal({
   const handleCreateDocument = async (action: 'download' | 'whatsapp') => {
     setIsSubmitting(true)
     try {
-      const sigObj = signatures.find(s => s.id === selectedSignatureId)
-      const sigData = drawnSignatureData || sigObj?.signatureData || null
+      const sigObj = useSignature ? signatures.find(s => s.id === selectedSignatureId) : null
+      const sigData = useSignature ? (drawnSignatureData || sigObj?.signatureData || null) : null
 
       const created = await apiClient<{ document: { id: string } }>('/api/documents', {
         method: 'POST',
@@ -1761,13 +1761,19 @@ export function QuickQuoteWizardModal({
           title: `Quotation for ${contactName || contactCompany || 'Client'}`,
           notes: termsNotes,
           signatureData: sigData,
-          signerName: sigObj?.signerName || contactName || 'Authorized Signatory',
-          signerTitle: sigObj?.signerTitle || 'Managing Director',
-          lineItems: lineItems.map(item => ({
+          signatureId: useSignature && selectedSignatureId ? selectedSignatureId : undefined,
+          structuredData: {
+            requireSignatures: useSignature,
+            signingParties: useSignature ? 'provider' : 'none',
+          },
+          signerName: useSignature ? (sigObj?.signerName || 'Authorized Signatory') : undefined,
+          signerTitle: useSignature ? (sigObj?.signerTitle || 'Managing Director') : undefined,
+          items: lineItems.map(item => ({
             description: item.name,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            amount: item.quantity * item.unitPrice
+            quantity: Number(item.quantity) || 1,
+            unitPriceCents: Math.round((Number(item.unitPrice) || 0) * 100),
+            discountPct: 0,
+            taxPct: 0,
           }))
         })
       })
