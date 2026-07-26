@@ -7,7 +7,7 @@ import {
   Plus, Users, MessageSquare, ChevronLeft, ChevronRight, Check,
   Trash2, X, Sparkles, AlertCircle, Phone, Send, ShieldCheck, RefreshCw,
   MapPin, Video, DollarSign, Tag, ListTodo, ExternalLink, ArrowUpRight,
-  Heart, Zap, ChevronDown, ChevronUp, Edit3
+  Heart, Zap, ChevronDown, ChevronUp, Edit3, Filter, CheckSquare
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
@@ -75,21 +75,65 @@ interface EventFormData {
 
 type CalendarView = 'month' | 'week' | 'day' | 'agenda'
 
+// ─── Date Parsing & Timezone Helpers ─────────────────────────────────────────
+
+function parseEventDate(iso: string | Date | null | undefined): Date {
+  if (!iso) return new Date()
+  if (typeof iso === 'object') return iso
+  const str = String(iso)
+  // Cleanly extract YYYY-MM-DD from ISO or date string
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (match) {
+    const y = Number(match[1])
+    const m = Number(match[2])
+    const d = Number(match[3])
+    if (y && m && d) {
+      return new Date(y, m - 1, d)
+    }
+  }
+  return new Date(iso)
+}
+
+function isSameDay(a: Date | string | null | undefined, b: Date | string | null | undefined): boolean {
+  if (!a || !b) return false
+  const dateA = typeof a === 'string' ? parseEventDate(a) : a
+  const dateB = typeof b === 'string' ? parseEventDate(b) : b
+  return (
+    dateA.getFullYear() === dateB.getFullYear() &&
+    dateA.getMonth() === dateB.getMonth() &&
+    dateA.getDate() === dateB.getDate()
+  )
+}
+
+function toLocalDateStr(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function formatTime(iso: string, allDay: boolean): string {
+  if (allDay) return 'All day'
+  const date = new Date(iso)
+  if (isNaN(date.getTime())) return '10:00 AM'
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const EVENT_STYLES: Record<string, { bg: string; text: string; dot: string; border: string; badgeBg: string; badgeText: string; gradient: string }> = {
-  promise:     { bg: 'bg-amber-50/90',   text: 'text-amber-950',   dot: 'bg-amber-500',   border: 'border-amber-200/90',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-900', gradient: 'from-amber-50/80 via-white to-orange-50/40' },
-  meeting:     { bg: 'bg-indigo-50/90',  text: 'text-indigo-950',  dot: 'bg-indigo-500',  border: 'border-indigo-200/90',  badgeBg: 'bg-indigo-100',  badgeText: 'text-indigo-900', gradient: 'from-indigo-50/80 via-white to-blue-50/40' },
-  birthday:    { bg: 'bg-pink-50/90',    text: 'text-pink-950',    dot: 'bg-pink-500',    border: 'border-pink-200/90',    badgeBg: 'bg-pink-100',    badgeText: 'text-pink-900', gradient: 'from-pink-50/80 via-white to-rose-50/40' },
-  follow_up:   { bg: 'bg-sky-50/90',     text: 'text-sky-950',     dot: 'bg-sky-500',     border: 'border-sky-200/90',     badgeBg: 'bg-sky-100',     badgeText: 'text-sky-900', gradient: 'from-sky-50/80 via-white to-cyan-50/40' },
-  deadline:    { bg: 'bg-red-50/90',     text: 'text-red-950',     dot: 'bg-red-500',     border: 'border-red-200/90',     badgeBg: 'bg-red-100',     badgeText: 'text-red-900', gradient: 'from-red-50/80 via-white to-amber-50/40' },
-  reminder:    { bg: 'bg-amber-50/90',   text: 'text-amber-950',   dot: 'bg-amber-500',   border: 'border-amber-200/90',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-900', gradient: 'from-amber-50/80 via-white to-yellow-50/40' },
-  appointment: { bg: 'bg-teal-50/90',    text: 'text-teal-950',    dot: 'bg-teal-500',    border: 'border-teal-200/90',    badgeBg: 'bg-teal-100',    badgeText: 'text-teal-900', gradient: 'from-teal-50/80 via-white to-emerald-50/40' },
-  anniversary: { bg: 'bg-rose-50/90',    text: 'text-rose-950',    dot: 'bg-rose-500',    border: 'border-rose-200/90',    badgeBg: 'bg-rose-100',    badgeText: 'text-rose-900', gradient: 'from-rose-50/80 via-white to-pink-50/40' },
-  travel:      { bg: 'bg-blue-50/90',    text: 'text-blue-950',    dot: 'bg-blue-500',    border: 'border-blue-200/90',    badgeBg: 'bg-blue-100',    badgeText: 'text-blue-900', gradient: 'from-blue-50/80 via-white to-sky-50/40' },
-  celebration: { bg: 'bg-purple-50/90',  text: 'text-purple-950',  dot: 'bg-purple-500',  border: 'border-purple-200/90',  badgeBg: 'bg-purple-100',  badgeText: 'text-purple-900', gradient: 'from-purple-50/80 via-white to-indigo-50/40' },
-  job_change:  { bg: 'bg-emerald-50/90', text: 'text-emerald-950', dot: 'bg-emerald-500', border: 'border-emerald-200/90', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-900', gradient: 'from-emerald-50/80 via-white to-teal-50/40' },
-  default:     { bg: 'bg-slate-50/90',   text: 'text-slate-950',   dot: 'bg-slate-500',   border: 'border-slate-200/90',   badgeBg: 'bg-slate-100',   badgeText: 'text-slate-900', gradient: 'from-slate-50/80 via-white to-gray-50/40' },
+  promise:     { bg: 'bg-amber-50/90',   text: 'text-amber-950',   dot: 'bg-amber-500',   border: 'border-amber-200/90',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-900', gradient: 'from-amber-50/90 via-white to-orange-50/40' },
+  meeting:     { bg: 'bg-indigo-50/90',  text: 'text-indigo-950',  dot: 'bg-indigo-500',  border: 'border-indigo-200/90',  badgeBg: 'bg-indigo-100',  badgeText: 'text-indigo-900', gradient: 'from-indigo-50/90 via-white to-blue-50/40' },
+  birthday:    { bg: 'bg-pink-50/90',    text: 'text-pink-950',    dot: 'bg-pink-500',    border: 'border-pink-200/90',    badgeBg: 'bg-pink-100',    badgeText: 'text-pink-900', gradient: 'from-pink-50/90 via-white to-rose-50/40' },
+  follow_up:   { bg: 'bg-sky-50/90',     text: 'text-sky-950',     dot: 'bg-sky-500',     border: 'border-sky-200/90',     badgeBg: 'bg-sky-100',     badgeText: 'text-sky-900', gradient: 'from-sky-50/90 via-white to-cyan-50/40' },
+  deadline:    { bg: 'bg-red-50/90',     text: 'text-red-950',     dot: 'bg-red-500',     border: 'border-red-200/90',     badgeBg: 'bg-red-100',     badgeText: 'text-red-900', gradient: 'from-red-50/90 via-white to-amber-50/40' },
+  reminder:    { bg: 'bg-amber-50/90',   text: 'text-amber-950',   dot: 'bg-amber-500',   border: 'border-amber-200/90',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-900', gradient: 'from-amber-50/90 via-white to-yellow-50/40' },
+  appointment: { bg: 'bg-teal-50/90',    text: 'text-teal-950',    dot: 'bg-teal-500',    border: 'border-teal-200/90',    badgeBg: 'bg-teal-100',    badgeText: 'text-teal-900', gradient: 'from-teal-50/90 via-white to-emerald-50/40' },
+  anniversary: { bg: 'bg-rose-50/90',    text: 'text-rose-950',    dot: 'bg-rose-500',    border: 'border-rose-200/90',    badgeBg: 'bg-rose-100',    badgeText: 'text-rose-900', gradient: 'from-rose-50/90 via-white to-pink-50/40' },
+  travel:      { bg: 'bg-blue-50/90',    text: 'text-blue-950',    dot: 'bg-blue-500',    border: 'border-blue-200/90',    badgeBg: 'bg-blue-100',    badgeText: 'text-blue-900', gradient: 'from-blue-50/90 via-white to-sky-50/40' },
+  celebration: { bg: 'bg-purple-50/90',  text: 'text-purple-950',  dot: 'bg-purple-500',  border: 'border-purple-200/90',  badgeBg: 'bg-purple-100',  badgeText: 'text-purple-900', gradient: 'from-purple-50/90 via-white to-indigo-50/40' },
+  job_change:  { bg: 'bg-emerald-50/90', text: 'text-emerald-950', dot: 'bg-emerald-500', border: 'border-emerald-200/90', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-900', gradient: 'from-emerald-50/90 via-white to-teal-50/40' },
+  default:     { bg: 'bg-slate-50/90',   text: 'text-slate-950',   dot: 'bg-slate-500',   border: 'border-slate-200/90',   badgeBg: 'bg-slate-100',   badgeText: 'text-slate-900', gradient: 'from-slate-50/90 via-white to-gray-50/40' },
 }
 
 const EVENT_TYPE_OPTIONS = [
@@ -107,39 +151,6 @@ const EVENT_TYPE_OPTIONS = [
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-
-function formatTime(iso: string, allDay: boolean) {
-  if (allDay) return 'All day'
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function parseEventDate(iso: string | Date): Date {
-  if (!iso) return new Date()
-  if (typeof iso === 'object') return iso
-  if (iso.includes('T00:00:00')) {
-    const datePart = iso.split('T')[0]
-    const [y, m, d] = datePart.split('-').map(Number)
-    if (y && m && d) return new Date(y, m - 1, d)
-  }
-  return new Date(iso)
-}
-
-function isSameDay(a: Date | string, b: Date) {
-  const dateA = typeof a === 'string' ? parseEventDate(a) : a
-  return dateA.getFullYear() === b.getFullYear() && dateA.getMonth() === b.getMonth() && dateA.getDate() === b.getDate()
-}
-
-function daysUntil(iso: string) {
-  const diff = new Date(iso).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)
-  return Math.round(diff / 86400000)
-}
-
-function toLocalDateStr(date: Date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
 
 // ─── Interactive Event Card Component ───────────────────────────────────────
 
@@ -160,25 +171,24 @@ function EventCard({
   onToggleActionItem: (eventId: string, itemIdx: number) => void
   token?: string
 }) {
-  const [expanded, setExpanded] = useState(false)
   const styles = EVENT_STYLES[event.eventType] ?? EVENT_STYLES.default
   const isAiPending = event.source === 'ai_extracted' && !event.isConfirmed
   const isPromise = event.eventType === 'promise'
 
   return (
     <div
-      className={`group relative rounded-2xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl bg-gradient-to-br ${styles.gradient} ${
+      className={`group relative rounded-2xl md:rounded-3xl border p-3.5 md:p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl bg-gradient-to-br ${styles.gradient} ${
         event.isOverdue ? 'border-red-300 ring-2 ring-red-400/30 bg-red-50/50' :
         isAiPending ? 'border-dashed border-amber-300 shadow-sm bg-amber-50/40' :
         `${styles.border} shadow-sm`
       }`}
     >
       {/* Header Row */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex items-start gap-2.5 md:gap-3 min-w-0">
           {/* Contact Avatar */}
           {event.contact ? (
-            <div className="relative shrink-0">
+            <div className="relative shrink-0 mt-0.5">
               <Avatar
                 name={event.contact.name}
                 src={event.contact.avatarUrl ?? undefined}
@@ -193,39 +203,39 @@ function EventCard({
               )}
             </div>
           ) : (
-            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${styles.badgeBg} ${styles.badgeText} font-bold text-xs shadow-xs`}>
-              <CalendarIcon size={18} />
+            <div className={`w-9 h-9 md:w-10 md:h-10 rounded-2xl flex items-center justify-center shrink-0 ${styles.badgeBg} ${styles.badgeText} font-bold text-xs shadow-xs mt-0.5`}>
+              <CalendarIcon size={16} />
             </div>
           )}
 
           <div className="min-w-0 space-y-0.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border ${styles.badgeBg} ${styles.badgeText} ${styles.border}`}>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className={`text-[9px] md:text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border ${styles.badgeBg} ${styles.badgeText} ${styles.border}`}>
                 {event.eventType}
               </span>
 
               {event.isOverdue && (
-                <span className="text-[10px] font-black uppercase tracking-wider text-white bg-red-600 px-2 py-0.5 rounded-full animate-pulse shadow-2xs">
+                <span className="text-[9px] md:text-[10px] font-black uppercase tracking-wider text-white bg-red-600 px-2 py-0.5 rounded-full animate-pulse shadow-2xs">
                   🚨 OVERDUE
                 </span>
               )}
 
               {isAiPending && (
-                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="text-[9px] md:text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                   <Sparkles size={10} className="text-amber-600 animate-spin" />
                   AI Suggested ({Math.round((event.confidenceScore || 0.9) * 100)}%)
                 </span>
               )}
 
               {event.dealValue && (
-                <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs">
+                <span className="text-[9px] md:text-[10px] font-extrabold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs">
                   <DollarSign size={10} />
                   {event.dealValue.toLocaleString()} Deal
                 </span>
               )}
             </div>
 
-            <h3 className="text-sm font-bold text-gray-950 leading-snug group-hover:text-indigo-600 transition-colors">
+            <h3 className="text-sm md:text-base font-bold text-gray-950 leading-snug group-hover:text-indigo-600 transition-colors">
               {event.title}
             </h3>
 
@@ -240,8 +250,8 @@ function EventCard({
 
         {/* Time & Quick Edit */}
         <div className="flex flex-col items-end shrink-0 gap-1">
-          <span className="text-xs font-bold text-gray-700 bg-white/80 border border-gray-200/80 px-2.5 py-1 rounded-xl shadow-2xs flex items-center gap-1.5">
-            <Clock size={12} className="text-indigo-600" />
+          <span className="text-xs font-bold text-gray-800 bg-white/90 border border-gray-200 px-2 py-0.5 md:px-2.5 md:py-1 rounded-xl shadow-2xs flex items-center gap-1">
+            <Clock size={11} className="text-indigo-600" />
             {formatTime(event.startDate, event.allDay)}
           </span>
 
@@ -257,29 +267,29 @@ function EventCard({
 
       {/* Description / Context Note */}
       {event.description && (
-        <p className="mt-2.5 text-xs text-gray-700 font-medium leading-relaxed bg-white/60 p-2.5 rounded-xl border border-black/5">
+        <p className="mt-2 text-xs text-gray-700 font-medium leading-relaxed bg-white/70 p-2.5 rounded-xl border border-black/5">
           {event.description}
         </p>
       )}
 
       {/* Metadata Pills Row (Location, Virtual Link, Tags) */}
-      <div className="mt-3 flex items-center gap-2 flex-wrap text-xs">
+      <div className="mt-2.5 flex items-center gap-1.5 flex-wrap text-xs">
         {event.meetingLink && (
           <a
             href={event.meetingLink.startsWith('http') ? event.meetingLink : `https://${event.meetingLink}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-sm transition-all"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-xs transition-all"
           >
-            <Video size={12} />
-            Join Virtual Call
+            <Video size={11} />
+            Join Call
             <ExternalLink size={10} />
           </a>
         )}
 
         {event.location && (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/90 border border-gray-200 text-gray-800 font-semibold text-[11px] shadow-2xs">
-            <MapPin size={12} className="text-red-500" />
+            <MapPin size={11} className="text-red-500" />
             {event.location}
           </span>
         )}
@@ -294,11 +304,11 @@ function EventCard({
 
       {/* Interactive Action Items Checklist */}
       {event.actionItems && event.actionItems.length > 0 && (
-        <div className="mt-3 pt-2.5 border-t border-black/5 space-y-1.5">
+        <div className="mt-2.5 pt-2 border-t border-black/5 space-y-1">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-gray-500 flex items-center gap-1">
-              <ListTodo size={11} />
-              Preparation Checklist ({event.actionItems.filter(a => a.done).length}/{event.actionItems.length})
+              <ListTodo size={10} />
+              Preparation ({event.actionItems.filter(a => a.done).length}/{event.actionItems.length})
             </span>
           </div>
 
@@ -312,7 +322,7 @@ function EventCard({
                   type="checkbox"
                   checked={item.done}
                   onChange={() => onToggleActionItem(event.id, idx)}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
                 />
                 <span className={item.done ? 'line-through text-gray-400' : ''}>{item.text}</span>
               </label>
@@ -322,35 +332,35 @@ function EventCard({
       )}
 
       {/* Action Footer Bar */}
-      <div className="mt-3.5 pt-2.5 border-t border-black/5 flex items-center justify-between gap-2 flex-wrap">
+      <div className="mt-3 pt-2 border-t border-black/5 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           {event.contact && (
             <Link
               href={`/inbox?contactId=${event.contact.id}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/80 hover:bg-white border border-gray-200 text-gray-800 font-bold text-xs transition-all shadow-2xs"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/90 hover:bg-white border border-gray-200 text-gray-800 font-bold text-xs transition-all shadow-2xs"
             >
-              <MessageSquare size={12} className="text-emerald-600" />
+              <MessageSquare size={11} className="text-emerald-600" />
               Chat on WhatsApp
             </Link>
           )}
 
           {event.sendWaReminder && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 font-bold text-[10px]">
-              <MessageSquare size={10} />
-              WA Reminder Scheduled
+              <MessageSquare size={9} />
+              WA Reminder Set
             </span>
           )}
         </div>
 
         {/* State Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {isAiPending && (
             <button
               onClick={() => onConfirm(event.id)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition-all"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition-all"
             >
-              <Check size={12} />
-              Confirm Schedule
+              <Check size={11} />
+              Confirm
             </button>
           )}
 
@@ -358,14 +368,14 @@ function EventCard({
             <>
               <button
                 onClick={() => onFulfillPromise(event.id)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all"
               >
-                <CheckCircle2 size={12} />
-                Mark Fulfilled
+                <CheckCircle2 size={11} />
+                Fulfilled
               </button>
               <button
                 onClick={() => onDismissPromise(event.id)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/80 hover:bg-white text-gray-600 font-semibold text-xs border border-gray-200 transition-all"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-xl bg-white/80 hover:bg-white text-gray-600 font-semibold text-xs border border-gray-200 transition-all"
               >
                 Dismiss
               </button>
@@ -377,7 +387,7 @@ function EventCard({
   )
 }
 
-// ─── Event Modal ─────────────────────────────────────────────────────────────
+// ─── Event Modal Component ──────────────────────────────────────────────────
 
 function EventModal({
   open, event, initialDate, onClose, onSave, token,
@@ -386,7 +396,7 @@ function EventModal({
   event: CalendarEvent | null
   initialDate?: Date | null
   onClose: () => void
-  onSave: () => void
+  onSave: (savedDateStr: string) => void
   token?: string
 }) {
   const { addToast } = useToast()
@@ -400,7 +410,7 @@ function EventModal({
     eventTime: '10:00',
     allDay: false,
     contactId: '',
-    sendWaReminder: false,
+    sendWaReminder: true,
     waReminderOffsetMinutes: 60,
     location: '',
     meetingLink: '',
@@ -422,13 +432,21 @@ function EventModal({
         .catch(() => {})
 
       if (event) {
-        const d = new Date(event.startDate)
+        const rawDateStr = event.startDate ? event.startDate.slice(0, 10) : toLocalDateStr(new Date())
+        let rawTimeStr = '10:00'
+        if (event.startDate && event.startDate.includes('T')) {
+          const timePart = event.startDate.split('T')[1]
+          if (timePart && timePart.length >= 5) {
+            rawTimeStr = timePart.slice(0, 5)
+          }
+        }
+
         setForm({
           title: event.title,
           description: event.description || '',
           eventType: event.eventType || 'meeting',
-          eventDate: toLocalDateStr(d),
-          eventTime: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+          eventDate: rawDateStr,
+          eventTime: rawTimeStr,
           allDay: event.allDay,
           contactId: event.contact?.id || '',
           sendWaReminder: event.sendWaReminder || false,
@@ -448,8 +466,7 @@ function EventModal({
     }
   }, [open, event, initialDate, token])
 
-  const set = <K extends keyof EventFormData>(k: K, v: EventFormData[K]) =>
-    setForm(f => ({ ...f, [k]: v }))
+  const set = (key: keyof EventFormData, val: unknown) => setForm(f => ({ ...f, [key]: val }))
 
   const handleAddActionItem = () => {
     if (!newItemText.trim()) return
@@ -484,11 +501,10 @@ function EventModal({
         dealValue: form.dealValue ? parseFloat(form.dealValue) : null,
         tags,
         actionItems: form.actionItems,
+        eventDate: form.eventDate,
       }
 
-      if (form.allDay || !form.eventTime) {
-        body.eventDate = form.eventDate
-      } else {
+      if (!form.allDay && form.eventTime) {
         body.eventDatetime = `${form.eventDate}T${form.eventTime}:00`
       }
 
@@ -499,7 +515,7 @@ function EventModal({
         await apiClient('/api/calendar/events', { method: 'POST', body: JSON.stringify(body), token })
         addToast({ variant: 'success', title: 'Schedule item created' })
       }
-      onSave()
+      onSave(form.eventDate)
       onClose()
     } catch {
       addToast({ variant: 'error', title: 'Failed to save event' })
@@ -514,7 +530,7 @@ function EventModal({
     try {
       await apiClient(`/api/calendar/events/${event.id}`, { method: 'DELETE', token })
       addToast({ variant: 'success', title: 'Schedule item deleted' })
-      onSave()
+      onSave(form.eventDate)
       onClose()
     } catch {
       addToast({ variant: 'error', title: 'Failed to delete event' })
@@ -527,10 +543,10 @@ function EventModal({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" aria-modal="true" role="dialog">
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg bg-white shadow-2xl flex flex-col h-full overflow-hidden animate-in slide-in-from-bottom md:slide-in-from-right duration-200">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-indigo-50/40">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-indigo-50/50">
           <div>
             <h2 className="text-base font-bold text-gray-950">{isEdit ? 'Edit Schedule Item' : 'New Schedule Item'}</h2>
             <p className="text-xs text-gray-500 mt-0.5">Add rich metadata, checklists, and automated reminders</p>
@@ -541,9 +557,9 @@ function EventModal({
         </div>
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Title *</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Title *</label>
             <input
               type="text"
               value={form.title}
@@ -554,7 +570,7 @@ function EventModal({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Associated Contact</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Associated Contact</label>
             <select
               value={form.contactId}
               onChange={e => set('contactId', e.target.value)}
@@ -567,7 +583,7 @@ function EventModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Type</label>
+              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Type</label>
               <select
                 value={form.eventType}
                 onChange={e => set('eventType', e.target.value)}
@@ -578,15 +594,15 @@ function EventModal({
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Date</label>
                 <button
                   type="button"
                   onClick={() => set('allDay', !form.allDay)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 cursor-pointer"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 cursor-pointer"
                 >
-                  <span className={`relative w-7 h-3.5 rounded-full transition-colors flex-shrink-0 ${form.allDay ? 'bg-indigo-600' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full shadow transition-transform ${form.allDay ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                  <span className={`relative w-6 h-3 rounded-full transition-colors flex-shrink-0 ${form.allDay ? 'bg-indigo-600' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-2 h-2 bg-white rounded-full shadow transition-transform ${form.allDay ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
                   </span>
                   All day
                 </button>
@@ -602,7 +618,7 @@ function EventModal({
 
           {!form.allDay && (
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Time</label>
+              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Time</label>
               <input
                 type="time"
                 value={form.eventTime}
@@ -615,8 +631,8 @@ function EventModal({
           {/* Location & Virtual Meeting Link */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
-                <MapPin size={12} className="text-red-500" /> Location
+              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide flex items-center gap-1">
+                <MapPin size={11} className="text-red-500" /> Location
               </label>
               <input
                 type="text"
@@ -627,8 +643,8 @@ function EventModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
-                <Video size={12} className="text-indigo-600" /> Virtual Link
+              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide flex items-center gap-1">
+                <Video size={11} className="text-indigo-600" /> Virtual Link
               </label>
               <input
                 type="text"
@@ -643,8 +659,8 @@ function EventModal({
           {/* Deal Value & Tags */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
-                <DollarSign size={12} className="text-emerald-600" /> Deal Value ($)
+              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide flex items-center gap-1">
+                <DollarSign size={11} className="text-emerald-600" /> Deal Value ($)
               </label>
               <input
                 type="number"
@@ -655,14 +671,14 @@ function EventModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
-                <Tag size={12} className="text-purple-600" /> Tags
+              <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide flex items-center gap-1">
+                <Tag size={11} className="text-purple-600" /> Tags
               </label>
               <input
                 type="text"
                 value={form.tagsInput}
                 onChange={e => set('tagsInput', e.target.value)}
-                placeholder="Contract, Invoice, VIP"
+                placeholder="Contract, VIP"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50/50 font-medium"
               />
             </div>
@@ -670,8 +686,8 @@ function EventModal({
 
           {/* Preparation Checklist */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
-              <ListTodo size={12} className="text-indigo-600" /> Preparation Checklist
+            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide flex items-center gap-1">
+              <ListTodo size={11} className="text-indigo-600" /> Preparation Checklist
             </label>
             <div className="space-y-2">
               {form.actionItems.map((item, idx) => (
@@ -699,10 +715,10 @@ function EventModal({
           </div>
 
           {/* WhatsApp Reminder Toggle */}
-          <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-2.5">
+          <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <MessageSquare size={16} className="text-emerald-600" />
+                <MessageSquare size={15} className="text-emerald-600" />
                 <span className="text-xs font-bold text-emerald-950">WhatsApp Auto-Reminder</span>
               </div>
               <button
@@ -716,7 +732,7 @@ function EventModal({
 
             {form.sendWaReminder && (
               <div className="pt-1">
-                <label className="block text-[11px] font-semibold text-emerald-800 mb-1">Send Confirmation</label>
+                <label className="block text-[11px] font-semibold text-emerald-800 mb-1">Send Reminder</label>
                 <select
                   value={form.waReminderOffsetMinutes}
                   onChange={e => set('waReminderOffsetMinutes', Number(e.target.value))}
@@ -731,7 +747,7 @@ function EventModal({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Context Notes</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Context Notes</label>
             <textarea
               value={form.description}
               onChange={e => set('description', e.target.value)}
@@ -743,10 +759,10 @@ function EventModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+        <div className="px-5 py-3.5 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
           {isEdit ? (
             <button onClick={handleDelete} disabled={deleting} className="text-xs font-bold text-red-600 hover:bg-red-50 px-3 py-2 rounded-xl transition-all">
-              {deleting ? 'Deleting…' : 'Delete Item'}
+              {deleting ? 'Deleting…' : 'Delete'}
             </button>
           ) : <span />}
           <div className="flex items-center gap-2">
@@ -767,18 +783,18 @@ function EventModal({
   )
 }
 
-// ─── Main Calendar Page ───────────────────────────────────────────────────────
+// ─── Main Calendar Page Component ─────────────────────────────────────────────
 
 export default function CalendarPage() {
   const session = useZuriSession()
   const token = session.data?.accessToken
   const { addToast } = useToast()
-  const today = new Date()
+  const today = useMemo(() => new Date(), [])
 
   const [view, setView] = useState<CalendarView>('month')
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
-  const [selectedDate, setSelectedDate] = useState<Date | null>(today)
+  const [selectedDate, setSelectedDate] = useState<Date>(today)
   const [activeFilter, setActiveFilter] = useState<'all' | 'promises' | 'ai' | 'overdue'>('all')
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -856,7 +872,6 @@ export default function CalendarPage() {
       idx === itemIdx ? { ...item, done: !item.done } : item
     )
 
-    // Optimistic UI update
     setEvents(prev => prev.map(e => e.id === eventId ? { ...e, actionItems: updatedItems } : e))
 
     try {
@@ -881,6 +896,27 @@ export default function CalendarPage() {
     setModalOpen(true)
   }
 
+  const handleSavedEvent = (savedDateStr: string) => {
+    const targetDate = parseEventDate(savedDateStr)
+    setSelectedDate(targetDate)
+    setViewYear(targetDate.getFullYear())
+    setViewMonth(targetDate.getMonth())
+    setActiveFilter('all')
+    refetch()
+  }
+
+  // Mobile horizontal week strip days (14 days centered around selectedDate)
+  const mobileStripDays = useMemo(() => {
+    const base = selectedDate ? new Date(selectedDate) : new Date()
+    const days: Date[] = []
+    for (let i = -6; i <= 7; i++) {
+      const d = new Date(base)
+      d.setDate(base.getDate() + i)
+      days.push(d)
+    }
+    return days
+  }, [selectedDate])
+
   if (session.status === 'loading' || loading) {
     return (
       <div className="flex flex-col h-full bg-slate-50">
@@ -891,19 +927,19 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50">
+    <div className="flex flex-col h-full bg-slate-50/50 pb-20 md:pb-6">
       <PageHeader
         title="Calendar & Promises"
         description="Unified temporal intelligence center tracking meetings, deal commitments, and relationship deadlines."
       />
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 max-w-7xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-3.5 md:p-6 space-y-4 md:space-y-6 max-w-7xl mx-auto w-full">
 
-        {/* Hero Control Bar */}
-        <div className="rounded-3xl bg-white border border-gray-200/80 shadow-sm p-5 md:p-6 flex flex-wrap items-center justify-between gap-4">
+        {/* Hero Control & Stats Bar */}
+        <div className="rounded-2xl md:rounded-3xl bg-white border border-gray-200/80 shadow-xs p-4 md:p-6 flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
-            <h2 className="text-xl md:text-2xl font-black text-gray-950 flex items-center gap-2.5">
-              <CalendarIcon size={24} className="text-indigo-600" />
+            <h2 className="text-lg md:text-2xl font-black text-gray-950 flex items-center gap-2">
+              <CalendarIcon size={22} className="text-indigo-600" />
               Relationship Control Center
             </h2>
             <p className="text-xs font-medium text-gray-500">
@@ -911,15 +947,15 @@ export default function CalendarPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto justify-between md:justify-end">
             {/* View Switcher */}
             <div className="flex items-center bg-gray-100 p-1 rounded-2xl border border-gray-200/80">
               {(['month', 'week', 'day', 'agenda'] as const).map(v => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
-                  className={`px-3.5 py-1.5 text-xs font-extrabold rounded-xl uppercase tracking-wider transition-all ${
-                    view === v ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                  className={`px-2.5 py-1 md:px-3.5 md:py-1.5 text-[11px] md:text-xs font-extrabold rounded-xl uppercase tracking-wider transition-all ${
+                    view === v ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   {v}
@@ -929,16 +965,17 @@ export default function CalendarPage() {
 
             <button
               onClick={() => openAddModal()}
-              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 rounded-2xl flex items-center gap-2 shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02]"
+              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3.5 py-2 md:px-4 md:py-2.5 rounded-2xl flex items-center gap-1.5 shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02]"
             >
               <Plus size={16} />
-              Add Schedule Item
+              <span className="hidden sm:inline">Add Schedule Item</span>
+              <span className="sm:hidden">Add</span>
             </button>
           </div>
         </div>
 
         {/* Filters Row */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex items-center gap-1.5 md:gap-2 overflow-x-auto pb-1 no-scrollbar">
           {([
             { id: 'all', label: 'All Items' },
             { id: 'promises', label: `🤝 Promises (${promiseCount})` },
@@ -948,9 +985,9 @@ export default function CalendarPage() {
             <button
               key={f.id}
               onClick={() => setActiveFilter(f.id)}
-              className={`px-3.5 py-2 text-xs font-bold rounded-2xl border transition-all whitespace-nowrap ${
+              className={`px-3 py-1.5 md:px-3.5 md:py-2 text-xs font-bold rounded-2xl border transition-all whitespace-nowrap ${
                 activeFilter === f.id
-                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
                   : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -959,11 +996,57 @@ export default function CalendarPage() {
           ))}
         </div>
 
-        {/* Main View Layout */}
+        {/* MOBILE HORIZONTAL DATE STRIP (Visible on Mobile < 768px when Month View is selected) */}
         {view === 'month' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            {/* Month Grid */}
-            <div className="lg:col-span-2 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+          <div className="block md:hidden bg-white border border-gray-200/80 rounded-2xl p-3 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-black text-gray-950">
+                {MONTHS[viewMonth]} {viewYear}
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={prevMonth} className="p-1 rounded-lg border bg-gray-50 text-gray-600"><ChevronLeft size={16} /></button>
+                <button onClick={nextMonth} className="p-1 rounded-lg border bg-gray-50 text-gray-600"><ChevronRight size={16} /></button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+              {mobileStripDays.map((d, idx) => {
+                const isSelected = isSameDay(d, selectedDate)
+                const isTod = isSameDay(d, today)
+                const count = filteredEvents.filter(e => isSameDay(e.startDate, d)).length
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setSelectedDate(d)
+                      setViewMonth(d.getMonth())
+                      setViewYear(d.getFullYear())
+                    }}
+                    className={`flex flex-col items-center justify-center min-w-[48px] py-2 px-1.5 rounded-2xl border transition-all shrink-0 ${
+                      isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-500/30' :
+                      isTod ? 'bg-indigo-50 text-indigo-900 border-indigo-200 font-black' :
+                      'bg-gray-50/80 text-gray-700 border-gray-200/80'
+                    }`}
+                  >
+                    <span className={`text-[10px] font-extrabold uppercase ${isSelected ? 'text-indigo-100' : 'text-gray-400'}`}>
+                      {DAYS[d.getDay()]}
+                    </span>
+                    <span className="text-sm font-black mt-0.5">{d.getDate()}</span>
+                    {count > 0 && (
+                      <span className={`w-1.5 h-1.5 rounded-full mt-1 ${isSelected ? 'bg-white' : 'bg-indigo-600'}`} />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Main Month Layout */}
+        {view === 'month' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 items-start">
+            {/* Desktop Month Grid */}
+            <div className="hidden md:block lg:col-span-2 rounded-3xl border border-gray-200 bg-white p-5 shadow-xs space-y-4">
               <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-2xl border border-gray-100">
                 <button onClick={prevMonth} className="p-1.5 rounded-xl hover:bg-white text-gray-600 shadow-2xs"><ChevronLeft size={20} /></button>
                 <span className="text-base font-black text-gray-950">{MONTHS[viewMonth]} {viewYear}</span>
@@ -991,7 +1074,7 @@ export default function CalendarPage() {
                       onClick={() => setSelectedDate(date)}
                       onDoubleClick={() => openAddModal(date)}
                       className={`relative flex flex-col items-start p-2 rounded-2xl border min-h-[82px] transition-all text-left ${
-                        isSelected ? 'bg-indigo-50/90 border-indigo-500 ring-2 ring-indigo-500/40 shadow-sm' :
+                        isSelected ? 'bg-indigo-50/90 border-indigo-500 ring-2 ring-indigo-500/40 shadow-xs' :
                         isToday ? 'bg-indigo-50/30 border-indigo-300' :
                         hasOverdue ? 'bg-red-50/30 border-red-300' : 'border-gray-100 hover:bg-gray-50/80'
                       }`}
@@ -1032,8 +1115,8 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            {/* Selected Date Detail Panel */}
-            <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+            {/* Selected Date Detail Panel / Mobile Agenda Panel */}
+            <div className="rounded-2xl md:rounded-3xl border border-gray-200 bg-white p-4 md:p-5 shadow-xs space-y-4 lg:col-span-1">
               <div className="flex items-center justify-between border-b pb-3">
                 <div>
                   <span className="text-xs font-black uppercase tracking-wider text-gray-400">
@@ -1052,10 +1135,10 @@ export default function CalendarPage() {
               {selectedEvents.length === 0 ? (
                 <div className="text-center py-10 space-y-2">
                   <p className="text-sm font-bold text-gray-400">Clear slate for this date</p>
-                  <p className="text-xs text-gray-400">Click "+ Add Item" above or double-click any date cell</p>
+                  <p className="text-xs text-gray-400">Click "+ Add Item" above to schedule an event</p>
                 </div>
               ) : (
-                <div className="space-y-3.5">
+                <div className="space-y-3">
                   {selectedEvents.map(e => (
                     <EventCard
                       key={e.id}
@@ -1076,12 +1159,12 @@ export default function CalendarPage() {
 
         {/* Agenda View */}
         {view === 'agenda' && (
-          <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="rounded-2xl md:rounded-3xl border border-gray-200 bg-white p-4 md:p-6 shadow-xs space-y-4">
             <h3 className="text-base font-bold text-gray-950">Chronological Relationship Timeline</h3>
             {filteredEvents.length === 0 ? (
               <div className="text-center py-12 text-gray-400 text-xs">No matching agenda items found</div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 {filteredEvents.map(e => (
                   <EventCard
                     key={e.id}
@@ -1099,9 +1182,9 @@ export default function CalendarPage() {
           </div>
         )}
 
-        {/* Week / Day Timeline Grid Placeholder */}
+        {/* Week / Day Timeline Grid View */}
         {(view === 'day' || view === 'week') && (
-          <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center space-y-3 shadow-sm">
+          <div className="rounded-2xl md:rounded-3xl border border-gray-200 bg-white p-6 md:p-8 text-center space-y-3 shadow-xs">
             <Clock size={28} className="mx-auto text-indigo-600" />
             <h3 className="text-base font-bold text-gray-950">{view.toUpperCase()} Timeline Overview</h3>
             <p className="text-xs text-gray-500 max-w-md mx-auto leading-relaxed">
@@ -1115,12 +1198,21 @@ export default function CalendarPage() {
 
       </div>
 
+      {/* Floating Action Button for Mobile */}
+      <button
+        onClick={() => openAddModal()}
+        className="fixed bottom-6 right-6 md:hidden z-40 w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-xl flex items-center justify-center hover:scale-105 transition-all"
+        title="Add Schedule Item"
+      >
+        <Plus size={24} />
+      </button>
+
       <EventModal
         open={modalOpen}
         event={editingEvent}
         initialDate={selectedDate || undefined}
         onClose={() => setModalOpen(false)}
-        onSave={() => refetch()}
+        onSave={handleSavedEvent}
         token={token ?? undefined}
       />
     </div>
