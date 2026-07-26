@@ -783,7 +783,7 @@ export default function KnowledgeBasePage() {
       )}
 
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="sticky top-0 z-40 flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white/95 backdrop-blur-md p-5 md:p-6 rounded-2xl border border-gray-200/90 shadow-sm">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">

@@ -122,22 +122,22 @@ const BOTTOM_NAV: Record<WorkspaceMode, BottomNavEntry[]> = {
   business: [
     { href: '/dashboard',   label: 'Home',     icon: LayoutDashboard },
     { href: '/inbox',       label: 'Inbox',    icon: MessageSquare, badge: true },
-    { href: '/studio',      label: 'Business Hub', icon: Users },
-    { isSearchToggle: true },
+    { href: '/studio',      label: 'Studio',   icon: FolderKanban },
+    { href: '/business',    label: 'Documents', icon: FileText },
     { isMenuToggle: true },
   ],
   personal: [
     { href: '/dashboard',     label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',         label: 'Inbox',     icon: MessageSquare, badge: true },
     { href: '/relationships', label: 'People',    icon: HeartPulse },
-    { isSearchToggle: true },
+    { href: '/business',      label: 'Documents', icon: FileText },
     { isMenuToggle: true },
   ],
   hybrid: [
     { href: '/dashboard',  label: 'Home',      icon: LayoutDashboard },
     { href: '/inbox',      label: 'Inbox',     icon: MessageSquare, badge: true },
-    { href: '/studio',     label: 'Business Hub',  icon: Users },
-    { isSearchToggle: true },
+    { href: '/studio',     label: 'Studio',    icon: FolderKanban },
+    { href: '/business',   label: 'Documents', icon: FileText },
     { isMenuToggle: true },
   ],
 }

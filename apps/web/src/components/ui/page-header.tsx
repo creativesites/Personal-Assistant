@@ -16,7 +16,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, breadcrumbs, action, className = '' }: PageHeaderProps) {
   return (
-    <div className={`flex items-start justify-between gap-4 px-6 py-5 border-b border-gray-200 bg-white ${className}`}>
+    <div className={`sticky top-0 z-30 flex items-start justify-between gap-4 px-6 py-4 md:py-5 border-b border-gray-200/80 bg-white/95 backdrop-blur-md shadow-2xs ${className}`}>
       <div className="min-w-0">
         {breadcrumbs && breadcrumbs.length > 0 && (
           <nav className="flex items-center gap-1.5 mb-1 flex-wrap" aria-label="Breadcrumb">

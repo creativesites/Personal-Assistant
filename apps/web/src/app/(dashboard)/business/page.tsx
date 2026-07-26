@@ -439,51 +439,51 @@ export default function BusinessPage() {
       </div>
 
       {/* Primary Workspace Section Sub-Nav */}
-      <div className="px-4 md:px-6 pt-5">
-        <div data-tour="doc-sub-nav" className="max-w-5xl mx-auto flex items-center gap-1.5 p-1.5 bg-white/80 backdrop-blur-md rounded-2xl border border-gray-200/80 shadow-sm w-fit">
+      <div className="px-4 md:px-6 pt-5 overflow-x-auto scrollbar-none">
+        <div data-tour="doc-sub-nav" className="max-w-5xl mx-auto flex items-center gap-1.5 p-1.5 bg-white/90 backdrop-blur-md rounded-2xl border border-gray-200/80 shadow-xs w-full sm:w-fit overflow-x-auto scrollbar-none flex-nowrap min-w-max">
           <button
             onClick={() => setMainTab('documents')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               mainTab === 'documents'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
             }`}
           >
-            <FileText className="w-3.5 h-3.5" />
-            Documents Library
+            <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Documents <span className="hidden sm:inline">Library</span></span>
           </button>
           <button
             onClick={() => setMainTab('payments')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               mainTab === 'payments'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
             }`}
           >
-            <CreditCard className="w-3.5 h-3.5" />
-            Payment Settings
+            <CreditCard className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Payment <span className="hidden sm:inline">Settings</span></span>
           </button>
           <button
             onClick={() => setMainTab('signatures')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               mainTab === 'signatures'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
             }`}
           >
-            <PenTool className="w-3.5 h-3.5" />
-            E-Signatures &amp; Compliance
+            <PenTool className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>E-Signatures <span className="hidden sm:inline">&amp; Compliance</span></span>
           </button>
           <button
             onClick={() => setMainTab('brand')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
               mainTab === 'brand'
                 ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
             }`}
           >
-            <Palette className="w-3.5 h-3.5" />
-            Brand Settings
+            <Palette className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Brand <span className="hidden sm:inline">Settings</span></span>
           </button>
         </div>
       </div>
@@ -492,12 +492,12 @@ export default function BusinessPage() {
         <div data-tour="doc-tab-documents">
           <div className="px-4 md:px-6 pt-4">
             <div data-tour="doc-filters-search" className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
-              <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0 flex-nowrap">
                 {TYPE_FILTERS.map(f => (
                   <button
                     key={f.key}
                     onClick={() => setTypeFilter(f.key)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0 ${
                       typeFilter === f.key ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >

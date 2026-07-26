@@ -545,100 +545,133 @@ function ServiceCard({
   }
 
   return (
-    <div className="bg-white rounded-[1.75rem] border border-gray-100 shadow-sm shadow-gray-200/70 overflow-hidden">
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-start gap-2.5 min-w-0 flex-1">
-            <div className="w-9 h-9 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
-              <Wrench className="w-4 h-4" />
+    <div className="bg-white rounded-3xl border border-slate-200/80 hover:border-indigo-300/80 shadow-sm shadow-slate-200/50 transition-all overflow-hidden">
+      {/* Mobile-First Header */}
+      <div className="p-4 sm:p-5 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-50 to-violet-100 text-indigo-600 border border-indigo-100 flex items-center justify-center shrink-0 shadow-xs">
+              <Wrench className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <p className="font-semibold text-gray-900 text-sm">{service.name}</p>
-              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                <Badge variant="purple">{service.itemType.replace('_', ' ')}</Badge>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-extrabold text-slate-950 text-base tracking-tight leading-snug">{service.name}</p>
+                <span className="px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200/60 text-[10px] font-bold uppercase tracking-wider">
+                  {service.itemType.replace('_', ' ')}
+                </span>
                 {service.pricingModel && (
-                  <Badge variant="default">{PRICING_MODEL_LABELS[service.pricingModel] ?? service.pricingModel}</Badge>
+                  <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                    {PRICING_MODEL_LABELS[service.pricingModel] ?? service.pricingModel}
+                  </span>
                 )}
-                {service.status === 'archived' && <Badge variant="default">archived</Badge>}
-                {service.status === 'discontinued' && <Badge variant="error">discontinued</Badge>}
+                {service.status === 'archived' && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold">Archived</span>}
+                {service.status === 'discontinued' && <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold">Discontinued</span>}
               </div>
-              {service.description && <p className="text-xs text-gray-500 mt-1.5">{service.description}</p>}
+              {service.description && <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{service.description}</p>}
             </div>
           </div>
+
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-sm font-semibold text-gray-900">
-              {service.sellingPrice != null ? formatCurrency(service.sellingPrice, service.currency) : 'Quote'}
-            </span>
-            <button onClick={onToggle} className="min-w-11 min-h-11 flex items-center justify-center rounded-lg hover:bg-gray-50 text-gray-400">
-              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            <div className="text-right">
+              <span className="text-base font-black text-slate-950 tracking-tight block">
+                {service.sellingPrice != null ? formatCurrency(service.sellingPrice, service.currency) : 'Custom Quote'}
+              </span>
+              {service.pricingModel && (
+                <span className="text-[10px] font-medium text-slate-400 block">{PRICING_MODEL_LABELS[service.pricingModel] ?? ''}</span>
+              )}
+            </div>
+            <button
+              onClick={onToggle}
+              className="w-10 h-10 flex items-center justify-center rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 transition-colors shrink-0"
+              aria-label={isExpanded ? 'Collapse service details' : 'Expand service details'}
+            >
+              {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
             </button>
           </div>
         </div>
+
+        {/* Quick Mobile Action Bar */}
+        <div className="flex items-center gap-2 pt-1">
+          {onCreateQuote && (
+            <button
+              onClick={onCreateQuote}
+              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 min-h-[42px]"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Express Quote</span>
+            </button>
+          )}
+          <button
+            onClick={onEdit}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all min-h-[42px]"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+            <span>Edit</span>
+          </button>
+          <button
+            onClick={onToggle}
+            className="sm:hidden inline-flex items-center justify-center gap-1 px-3 py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 min-h-[42px] ml-auto"
+          >
+            <span>{isExpanded ? 'Less' : 'More'}</span>
+            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
       </div>
 
+      {/* Expanded Sub-Tabs & Content */}
       {isExpanded && (
-        <div className="border-t border-gray-100">
-          <div className="flex gap-1 overflow-x-auto px-4 pt-3">
-            {(Object.keys(TAB_LABELS) as ServiceTab[]).map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`shrink-0 min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                  tab === t ? 'bg-indigo-600 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {TAB_LABELS[t]}
-              </button>
-            ))}
+        <div className="border-t border-slate-100 bg-slate-50/40">
+          <div className="p-3 sm:p-4 overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-200/60 rounded-2xl w-full sm:w-fit overflow-x-auto scrollbar-none flex-nowrap min-w-max">
+              {(Object.keys(TAB_LABELS) as ServiceTab[]).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`shrink-0 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                    tab === t ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200/60' : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  {TAB_LABELS[t]}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="p-4">
+
+          <div className="px-4 pb-4">
             {tab === 'overview' && <ServiceOverviewTab service={service} token={token} onChanged={onChanged} />}
             {tab === 'packages' && <ServicePackagesTab service={service} token={token} />}
             {tab === 'deliverables' && <ServiceChecklistsTab service={service} token={token} onChanged={onChanged} />}
             {tab === 'capacity' && <ServiceCapacityTab service={service} token={token} />}
             {tab === 'workflow' && <ServiceWorkflowTab service={service} token={token} />}
           </div>
-          <div className="px-4 pb-4 pt-3 border-t border-gray-50 flex items-center gap-2 flex-wrap">
-            {onCreateQuote && (
-              <Button
-                size="sm"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
-                onClick={onCreateQuote}
-              >
-                <FileText className="w-3.5 h-3.5 mr-1" />
-                ⚡ Create Quote
-              </Button>
-            )}
-            <Button size="sm" variant="secondary" onClick={onEdit}>
-              <Edit2 className="w-3.5 h-3.5 mr-1" />
-              Edit
-            </Button>
+
+          <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
             {service.status === 'active' ? (
               <>
-                <Button size="sm" variant="secondary" onClick={onArchive}>
+                <Button size="sm" variant="secondary" onClick={onArchive} className="rounded-xl min-h-[38px]">
                   <Archive className="w-3.5 h-3.5 mr-1" />
                   Archive
                 </Button>
-                <Button size="sm" variant="secondary" onClick={onDiscontinue}>
+                <Button size="sm" variant="secondary" onClick={onDiscontinue} className="rounded-xl min-h-[38px]">
                   <Ban className="w-3.5 h-3.5 mr-1" />
                   Discontinue
                 </Button>
               </>
             ) : (
-              <Button size="sm" variant="secondary" onClick={onPromote}>
+              <Button size="sm" variant="secondary" onClick={onPromote} className="rounded-xl min-h-[38px]">
                 <Check className="w-3.5 h-3.5 mr-1" />
-                Promote to active
+                Promote to Active
               </Button>
             )}
             {deleteConfirm ? (
-              <div className="flex items-center gap-1.5 text-sm">
-                <span className="text-gray-500">Delete this service?</span>
-                <button onClick={onDelete} className="text-red-600 font-medium hover:underline">Yes</button>
-                <button onClick={onDeleteCancel} className="text-gray-500 hover:underline">No</button>
+              <div className="flex items-center gap-2 text-xs bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl">
+                <span className="text-rose-800 font-semibold">Delete permanently?</span>
+                <button onClick={onDelete} className="px-2 py-0.5 bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700">Yes</button>
+                <button onClick={onDeleteCancel} className="px-2 py-0.5 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300">No</button>
               </div>
             ) : (
-              <Button size="sm" variant="ghost" onClick={onDeleteConfirm}>
-                <Trash2 className="w-3.5 h-3.5 mr-1 text-red-500" />
+              <Button size="sm" variant="ghost" onClick={onDeleteConfirm} className="rounded-xl min-h-[38px] text-rose-600 hover:bg-rose-50">
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
                 Delete
               </Button>
             )}

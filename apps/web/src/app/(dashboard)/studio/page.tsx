@@ -2899,12 +2899,12 @@ function StudioPageInner() {
     }
   }
 
-  const PRESETS: Record<string, { label: string; icon: string; desc: string }> = {
-    retail_ecommerce: { label: 'Retail & E-commerce', icon: '🛍️', desc: 'Physical products, SKUs, inventory & POs' },
-    service_agency: { label: 'Service & B2B Agency', icon: '💼', desc: 'Retainers, hourly rates, SLAs & milestones' },
-    hospitality_booking: { label: 'Hospitality & Booking', icon: '🛎️', desc: 'Time slots, availability, deposits & terms' },
-    digital_education: { label: 'Digital & Education', icon: '🎓', desc: 'Courses, digital downloads & access keys' },
-    manufacturing_craft: { label: 'Manufacturing & Crafting', icon: '🛠️', desc: 'Bill of Materials (BOM) & component stock' },
+  const PRESETS: Record<string, { label: string; desc: string }> = {
+    retail_ecommerce: { label: 'Retail & E-commerce', desc: 'Physical products, SKUs, inventory & POs' },
+    service_agency: { label: 'Service & B2B Agency', desc: 'Retainers, hourly rates, SLAs & milestones' },
+    hospitality_booking: { label: 'Hospitality & Booking', desc: 'Time slots, availability, deposits & terms' },
+    digital_education: { label: 'Digital & Education', desc: 'Courses, digital downloads & access keys' },
+    manufacturing_craft: { label: 'Manufacturing & Crafting', desc: 'Bill of Materials (BOM) & component stock' },
   }
 
   return (
@@ -2916,15 +2916,7 @@ function StudioPageInner() {
           <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-64 h-64 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
 
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold tracking-wide">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Enterprise AI Enabled
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold tracking-wide">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Live Operations
-                </span>
-              </div>
+            <div className="space-y-1.5">
               <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
                 Studio Business Operating System
               </h1>
@@ -2934,33 +2926,30 @@ function StudioPageInner() {
             </div>
 
             <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-              <Button
-                variant="secondary"
-                size="sm"
+              <button
+                type="button"
                 onClick={() => startCustomTour(STUDIO_TOUR_STEPS)}
-                className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40 gap-1.5 text-xs font-bold shadow-sm backdrop-blur-md min-h-[42px]"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm min-h-[42px]"
               >
                 <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-                <span>⚡ Tour Studio</span>
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
+                <span>Tour Studio</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsAutoExtractOpen(true)}
-                className="bg-white/10 hover:bg-white/20 text-white border-white/15 gap-1.5 text-xs font-bold shadow-sm backdrop-blur-md min-h-[42px]"
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm min-h-[42px]"
               >
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                Auto-Extract
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
+                <span>Auto-Extract</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setIsPresetModalOpen(true)}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400/30 gap-1.5 text-xs font-bold shadow-lg shadow-indigo-600/30 min-h-[42px]"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white border border-indigo-400/40 rounded-xl text-xs font-extrabold transition-all shadow-lg shadow-indigo-600/30 min-h-[42px]"
               >
-                <span>{PRESETS[currentPreset]?.icon || '🏢'}</span>
+                <Building2 className="w-4 h-4 text-indigo-200" />
                 <span>{PRESETS[currentPreset]?.label || 'Retail & E-commerce'}</span>
-              </Button>
+              </button>
             </div>
           </div>
         </div>
@@ -3003,11 +2992,13 @@ function StudioPageInner() {
             <button
               key={key}
               onClick={() => handleSavePreset(key)}
-              className={`w-full text-left p-3 rounded-xl border transition-all flex items-start gap-3 ${
+              className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-start gap-3 ${
                 currentPreset === key ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600' : 'border-gray-200 hover:border-gray-300 bg-white'
               }`}
             >
-              <span className="text-2xl">{info.icon}</span>
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+                <Building2 className="w-4 h-4 text-indigo-600" />
+              </div>
               <div>
                 <p className="text-sm font-bold text-gray-900">{info.label}</p>
                 <p className="text-xs text-gray-500 mt-0.5">{info.desc}</p>

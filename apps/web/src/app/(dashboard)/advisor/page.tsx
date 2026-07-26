@@ -617,27 +617,30 @@ export default function AdvisorPage() {
       <div className="flex-1 flex flex-col h-full bg-transparent relative min-w-0">
 
         {/* HEADER */}
-        <header className="h-14 md:h-16 border-b border-white/80 bg-white/80 px-3 md:px-5 flex items-center justify-between flex-shrink-0 gap-2 z-20 backdrop-blur-xl shadow-sm shadow-indigo-100/50">
+        <header className="sticky top-0 z-40 h-14 md:h-16 border-b border-indigo-100/80 bg-white/90 px-3 md:px-5 flex items-center justify-between flex-shrink-0 gap-2 backdrop-blur-2xl shadow-sm shadow-indigo-100/30">
           <div className="flex items-center gap-2 md:gap-3 min-w-0">
             <button onClick={() => setSidebarOpen(true)} className="p-2 text-slate-500 hover:text-slate-950 lg:hidden">
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 to-cyan-500 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-200">
+            <div className="flex items-center gap-2.5 flex-shrink-0">
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-cyan-500 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
                 <Brain className="w-5 h-5 text-white" />
               </div>
-              <div className="hidden sm:block">
-                <h4 className="text-sm font-bold text-slate-950 leading-tight">AI Advisor</h4>
-                <p className="text-[10px] text-slate-500">Ask anything about your contacts & conversations</p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-black text-slate-950 tracking-tight leading-tight">AI Advisor</h4>
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200/60 text-[10px] font-bold text-indigo-700">Intelligence Core</span>
+                </div>
+                <p className="text-[10px] text-slate-500 hidden sm:block">Ask anything about your contacts, relationships &amp; business metrics</p>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
-            <button onClick={startNewChat} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-xl transition-colors">
-              <Plus className="w-3.5 h-3.5" /> New
+            <button onClick={startNewChat} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-md shadow-indigo-500/20">
+              <Plus className="w-3.5 h-3.5" /> <span className="hidden sm:inline">New Chat</span>
             </button>
-            <button onClick={() => setInspectorOpen(!inspectorOpen)} className="p-2 text-slate-500 hover:text-slate-950 hover:bg-slate-50 rounded-lg transition-colors xl:hidden" title="Context panel">
+            <button onClick={() => setInspectorOpen(!inspectorOpen)} className="p-2 text-slate-500 hover:text-slate-950 hover:bg-slate-100 rounded-xl transition-colors xl:hidden" title="Context panel">
               <Sliders className="w-4 h-4" />
             </button>
           </div>
