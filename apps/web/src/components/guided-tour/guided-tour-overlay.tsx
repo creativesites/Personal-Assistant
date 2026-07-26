@@ -82,11 +82,16 @@ export function GuidedTourOverlay({
   }, [currentStep.targetSelector])
 
   useEffect(() => {
+    if (currentStep.tabToOpen) {
+      window.dispatchEvent(new CustomEvent('zuri:tour-tab', { detail: currentStep.tabToOpen }))
+    }
+
     updateRect()
 
-    // Re-measure after CSS drawer transitions (e.g. mobile sidebar sliding open)
+    // Re-measure after tab switches, DOM updates, or drawer transitions
     const t1 = setTimeout(updateRect, 100)
-    const t2 = setTimeout(updateRect, 350)
+    const t2 = setTimeout(updateRect, 300)
+    const t3 = setTimeout(updateRect, 600)
 
     const handleResize = () => updateRect()
     const handleScroll = () => updateRect()
@@ -97,10 +102,11 @@ export function GuidedTourOverlay({
     return () => {
       clearTimeout(t1)
       clearTimeout(t2)
+      clearTimeout(t3)
       window.removeEventListener('resize', handleResize)
       window.removeEventListener('scroll', handleScroll, true)
     }
-  }, [updateRect])
+  }, [currentStep, updateRect])
 
   // Keyboard navigation shortcuts
   useEffect(() => {

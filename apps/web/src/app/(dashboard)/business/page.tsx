@@ -218,6 +218,18 @@ export default function BusinessPage() {
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const { startCustomTour } = useGuidedTour()
 
+  // Listen for guided tour tab switching events
+  useEffect(() => {
+    const handleTourTab = (e: Event) => {
+      const tab = (e as CustomEvent<string>).detail
+      if (tab === 'documents' || tab === 'payments' || tab === 'signatures' || tab === 'brand') {
+        setMainTab(tab)
+      }
+    }
+    window.addEventListener('zuri:tour-tab', handleTourTab)
+    return () => window.removeEventListener('zuri:tour-tab', handleTourTab)
+  }, [])
+
   const loadDocuments = () => {
     if (!token) return
     setLoading(true)
@@ -350,7 +362,7 @@ export default function BusinessPage() {
       <AnalyticsSubNav />
       <div className="p-4 md:p-6 pb-0">
         {/* Hero — value prop + manual-creation CTA front and center */}
-        <div className="relative rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">
+        <div data-tour="doc-header" className="relative rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-2xl shadow-indigo-200/40 ring-1 ring-white p-5 md:p-6 max-w-5xl mx-auto w-full">
           {/* Decorative gradient overlay clipped separately so it doesn't clip the dropdown */}
           <div className="absolute inset-0 rounded-[2rem] overflow-hidden pointer-events-none">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.28),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.22),transparent_30%)]" />
@@ -368,7 +380,7 @@ export default function BusinessPage() {
               Type a plain-English instruction, or fill one in yourself with live pricing as you go.
             </p>
 
-            <div className="flex flex-wrap gap-3 mt-4">
+            <div data-tour="doc-stats" className="flex flex-wrap gap-3 mt-4">
               <div className="rounded-2xl bg-white/80 px-3 py-2 shadow-sm ring-1 ring-gray-100">
                 <span className="text-lg font-black text-gray-950 tabular-nums">{stats.drafts}</span>
                 <span className="ml-1.5 text-[11px] font-semibold text-gray-500">drafts</span>
@@ -383,7 +395,7 @@ export default function BusinessPage() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2.5 mt-5">
+            <div data-tour="doc-actions" className="flex flex-col sm:flex-row gap-2.5 mt-5">
               <Link
                 href="/documents/new"
                 className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 text-white text-sm font-bold rounded-2xl hover:bg-indigo-500 active:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/25 min-h-[44px]"
@@ -403,22 +415,24 @@ export default function BusinessPage() {
               >
                 <HelpCircle className="w-4 h-4 text-indigo-600" />Document Tour
               </button>
-              <Dropdown
-                align="left"
-                trigger={
-                  <button className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white/85 border border-white text-gray-700 text-sm font-bold rounded-2xl hover:bg-white transition-all shadow-sm ring-1 ring-gray-100 min-h-[44px] w-full sm:w-auto">
-                    <MoreHorizontal className="w-4 h-4" />More tools
-                  </button>
-                }
-                items={[
-                  { label: 'Brand Studio & Customizer', icon: <Palette className="w-3.5 h-3.5 text-indigo-500" />, href: '/business/brand-studio' },
-                  { label: 'Document & Financial Analytics', icon: <BarChart3 className="w-3.5 h-3.5 text-emerald-500" />, href: '/business/analytics' },
-                  { label: 'Insights', icon: <Lightbulb className="w-3.5 h-3.5 text-amber-500" />, onClick: () => setShowInsights(true) },
-                  { label: 'Business Packs', icon: <Package className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowPacks(true) },
-                  { label: 'Recurring Documents', icon: <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowRecurring(true) },
-                  { label: 'Full Form (advanced)', icon: <FileText className="w-3.5 h-3.5 text-gray-500" />, href: '/documents/new' },
-                ]}
-              />
+              <div data-tour="doc-more-tools">
+                <Dropdown
+                  align="left"
+                  trigger={
+                    <button className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white/85 border border-white text-gray-700 text-sm font-bold rounded-2xl hover:bg-white transition-all shadow-sm ring-1 ring-gray-100 min-h-[44px] w-full sm:w-auto">
+                      <MoreHorizontal className="w-4 h-4" />More tools
+                    </button>
+                  }
+                  items={[
+                    { label: 'Brand Studio & Customizer', icon: <Palette className="w-3.5 h-3.5 text-indigo-500" />, href: '/business/brand-studio' },
+                    { label: 'Document & Financial Analytics', icon: <BarChart3 className="w-3.5 h-3.5 text-emerald-500" />, href: '/business/analytics' },
+                    { label: 'Insights', icon: <Lightbulb className="w-3.5 h-3.5 text-amber-500" />, onClick: () => setShowInsights(true) },
+                    { label: 'Business Packs', icon: <Package className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowPacks(true) },
+                    { label: 'Recurring Documents', icon: <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />, onClick: () => setShowRecurring(true) },
+                    { label: 'Full Form (advanced)', icon: <FileText className="w-3.5 h-3.5 text-gray-500" />, href: '/documents/new' },
+                  ]}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -426,7 +440,7 @@ export default function BusinessPage() {
 
       {/* Primary Workspace Section Sub-Nav */}
       <div className="px-4 md:px-6 pt-5">
-        <div className="max-w-5xl mx-auto flex items-center gap-1.5 p-1.5 bg-white/80 backdrop-blur-md rounded-2xl border border-gray-200/80 shadow-sm w-fit">
+        <div data-tour="doc-sub-nav" className="max-w-5xl mx-auto flex items-center gap-1.5 p-1.5 bg-white/80 backdrop-blur-md rounded-2xl border border-gray-200/80 shadow-sm w-fit">
           <button
             onClick={() => setMainTab('documents')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
@@ -475,9 +489,9 @@ export default function BusinessPage() {
       </div>
 
       {mainTab === 'documents' && (
-        <>
+        <div data-tour="doc-tab-documents">
           <div className="px-4 md:px-6 pt-4">
-            <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
+            <div data-tour="doc-filters-search" className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2.5">
               <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl bg-white p-1.5 shadow-sm shadow-gray-200/70 ring-1 ring-gray-100 flex-shrink-0">
                 {TYPE_FILTERS.map(f => (
                   <button
@@ -518,15 +532,10 @@ export default function BusinessPage() {
                   <div className="p-6 text-center text-xs text-gray-400">No documents found matching &ldquo;{searchQuery}&rdquo;</div>
                 ) : (
                   searchResults.map(res => (
-                    <div key={res.id} className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                      <div>
-                        <p className="text-xs font-bold text-gray-900">{res.title || res.documentNumber}</p>
-                        <p className="text-[11px] text-gray-500">{res.contactName || 'No contact'} · {res.documentType}</p>
-                      </div>
-                      <button onClick={() => openPreview(res.id)} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100">
-                        View PDF
-                      </button>
-                    </div>
+                    <Link key={res.id} href={`/documents/${res.id}/edit`} className="block p-3 bg-white rounded-xl border border-gray-100 hover:border-indigo-200 transition-all">
+                      <p className="text-xs font-bold text-gray-900">{res.title}</p>
+                      <p className="text-[10px] text-gray-400">{res.documentNumber} · {res.documentType}</p>
+                    </Link>
                   ))
                 )}
               </div>
@@ -537,19 +546,21 @@ export default function BusinessPage() {
                 <SkeletonCard className="h-20" />
               </div>
             ) : documents.length === 0 ? (
-              <EmptyState
-                icon={<FileText className="w-8 h-8 text-indigo-600" />}
-                title="No documents yet"
-                description="Create your first invoice or quotation in seconds — or generate one with AI."
-                action={
-                  <Link href="/documents/new" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-500">
-                    <Plus className="w-3.5 h-3.5" />New Document
-                  </Link>
-                }
-              />
+              <div data-tour="doc-card-actions">
+                <EmptyState
+                  icon={<FileText className="w-8 h-8 text-indigo-600" />}
+                  title="No documents yet"
+                  description="Create your first invoice or quotation in seconds — or generate one with AI."
+                  action={
+                    <Link href="/documents/new" className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-500">
+                      <Plus className="w-3.5 h-3.5" />New Document
+                    </Link>
+                  }
+                />
+              </div>
             ) : (
               <div className="space-y-3">
-                {documents.map((doc: any) => (
+                {documents.map((doc: any, index: number) => (
                   <div key={doc.id} className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm hover:border-gray-200 transition-all space-y-3">
                     {/* Header: Contact & Status */}
                     <div className="flex items-center justify-between gap-2">
@@ -597,7 +608,7 @@ export default function BusinessPage() {
                     )}
 
                     {/* Touch-Friendly Action Bar */}
-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
+                    <div {...(index === 0 ? { 'data-tour': 'doc-card-actions' } : {})} className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
                       <button
                         onClick={() => openPreview(doc.id)}
                         className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-sm"
@@ -702,18 +713,18 @@ export default function BusinessPage() {
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
 
-      <div className={mainTab === 'payments' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
+      <div data-tour="doc-tab-payments" className={mainTab === 'payments' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
         <PaymentSettingsModule token={token ?? null} />
       </div>
 
-      <div className={mainTab === 'signatures' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
+      <div data-tour="doc-tab-signatures" className={mainTab === 'signatures' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
         <SignaturesModule token={token ?? undefined} />
       </div>
 
-      <div className={mainTab === 'brand' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
+      <div data-tour="doc-tab-brand" className={mainTab === 'brand' ? 'p-4 md:p-6 max-w-5xl mx-auto' : 'hidden'}>
         <BrandModule token={token ?? undefined} />
       </div>
 
