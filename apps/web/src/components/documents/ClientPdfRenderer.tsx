@@ -40,7 +40,7 @@ export default function ClientPdfRenderer({ documentId, templateKey, data, fileN
   )
 
   const [persistStatus, setPersistStatus] = useState<PersistStatus>('idle')
-  const seenBlobRef = useRef<Blob | null>(null)
+  const persistedKeyRef = useRef<string | null>(null)
 
   const persist = useCallback(async (blob: Blob) => {
     if (!token) return
@@ -64,8 +64,9 @@ export default function ClientPdfRenderer({ documentId, templateKey, data, fileN
     <div className="space-y-4">
       <BlobProvider document={element}>
         {({ blob, url, loading, error }: { blob: Blob | null; url: string | null; loading: boolean; error: Error | null }) => {
-          if (blob && blob !== seenBlobRef.current) {
-            seenBlobRef.current = blob
+          const persistKey = `${documentId}_${templateKey}_${dataHash}`
+          if (blob && persistedKeyRef.current !== persistKey) {
+            persistedKeyRef.current = persistKey
             queueMicrotask(() => { persist(blob) })
           }
 

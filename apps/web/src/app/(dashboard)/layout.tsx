@@ -815,23 +815,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             mobileNavMinimized ? 'pb-20 md:pb-0' : 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0'
           }`}
         >
-          {/* Free Testing Mode & BYOK Fast-Track Banner */}
-          <div className="hidden md:flex bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-4 py-2 items-center justify-between text-xs border-b border-indigo-500/20 shadow-xs">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex-shrink-0">
-                🎉 Free Testing Mode Active
-              </span>
-              <span className="truncate font-medium text-slate-200 hidden sm:inline">
-                All Business &amp; Career features unlocked for testing!
-              </span>
-            </div>
-
+          {/* BYOK Fast-Track Banner */}
+          <div className="hidden md:flex bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-4 py-1.5 items-center justify-end text-xs border-b border-indigo-500/20 shadow-xs">
             <Link
               href="/settings/ai"
               className="inline-flex items-center gap-1.5 bg-indigo-600/80 hover:bg-indigo-500 text-white font-bold text-[11px] px-3 py-1 rounded-lg border border-indigo-400/40 transition-all flex-shrink-0"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>⚡ Fast-Track AI: Free BYOK Speed →</span>
+              <span>Fast-Track AI: Free BYOK Speed →</span>
             </Link>
           </div>
 

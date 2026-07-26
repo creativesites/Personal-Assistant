@@ -75,12 +75,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
       return (
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 24, paddingTop: 12 }}>
           <View style={{ width: '42%', alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
+            <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 2, textAlign: 'right' }}>
               {supplierSignerName}
             </Text>
-            <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 2 }}>
+            <View style={{ height: 24, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 0 }}>
               {supplierSigUri ? (
-                <Image src={supplierSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+                <Image src={supplierSigUri} style={{ maxHeight: 22, maxWidth: 110, objectFit: 'contain' }} />
               ) : null}
             </View>
             <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
@@ -96,12 +96,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
       return (
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 24, paddingTop: 12 }}>
           <View style={{ width: '42%', alignItems: 'flex-end' }}>
-            <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
+            <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 2, textAlign: 'right' }}>
               {contact.name || 'Client / Counterparty'}
             </Text>
-            <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 2 }}>
+            <View style={{ height: 24, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 0 }}>
               {clientSigUri ? (
-                <Image src={clientSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+                <Image src={clientSigUri} style={{ maxHeight: 22, maxWidth: 110, objectFit: 'contain' }} />
               ) : null}
             </View>
             <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
@@ -116,12 +116,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
     return (
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 24, paddingTop: 12 }}>
         <View style={{ width: '42%' }}>
-          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4 }}>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 2 }}>
             {supplierSignerName}
           </Text>
-          <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 2 }}>
+          <View style={{ height: 24, justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 0 }}>
             {supplierSigUri ? (
-              <Image src={supplierSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+              <Image src={supplierSigUri} style={{ maxHeight: 22, maxWidth: 110, objectFit: 'contain' }} />
             ) : null}
           </View>
           <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
@@ -131,12 +131,12 @@ export function DocContent({ document, business, contact }: TemplateProps) {
         </View>
 
         <View style={{ width: '42%', alignItems: 'flex-end' }}>
-          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 4, textAlign: 'right' }}>
+          <Text style={{ fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#111827', marginBottom: 2, textAlign: 'right' }}>
             {contact.name || 'Client / Counterparty'}
           </Text>
-          <View style={{ height: 32, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 2 }}>
+          <View style={{ height: 24, justifyContent: 'flex-end', alignItems: 'flex-end', marginBottom: 0 }}>
             {clientSigUri ? (
-              <Image src={clientSigUri} style={{ maxHeight: 30, maxWidth: 120, objectFit: 'contain' }} />
+              <Image src={clientSigUri} style={{ maxHeight: 22, maxWidth: 110, objectFit: 'contain' }} />
             ) : null}
           </View>
           <View style={{ borderBottomWidth: 1, borderBottomColor: '#9ca3af', width: '100%', marginBottom: 4 }} />
@@ -269,11 +269,15 @@ export function DocContent({ document, business, contact }: TemplateProps) {
           <View style={[styles.card, { marginBottom: 10 }]}>
             <Text style={[styles.cardTitle, { color: themeColor }]}>Custom Industry Specifications</Text>
             {shortPairs.length > 0 ? (
-              <View style={styles.grid2}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 8, columnGap: 16, marginBottom: 4 }}>
                 {shortPairs.map((pair: any, idx: number) => (
-                  <View key={idx} style={styles.fieldBlock}>
+                  <View key={idx} style={{ width: '47%' }}>
                     <Text style={styles.label}>{pair.key || pair.name}</Text>
-                    <Text style={styles.valueBold}>{String(pair.value !== undefined ? pair.value : pair.val)}</Text>
+                    <Text style={styles.valueBold}>
+                      {pair.type === 'checkbox'
+                        ? (pair.value === 'Yes' || pair.value === 'true' || pair.value === true ? 'Yes / Compliant' : 'No')
+                        : String(pair.value !== undefined ? pair.value : pair.val)}
+                    </Text>
                   </View>
                 ))}
               </View>
@@ -282,7 +286,11 @@ export function DocContent({ document, business, contact }: TemplateProps) {
             {longPairs.map((pair: any, idx: number) => (
               <View key={idx} style={{ marginTop: shortPairs.length > 0 || idx > 0 ? 6 : 0 }}>
                 <Text style={styles.label}>{pair.key || pair.name}</Text>
-                <Text style={styles.bodyText}>{String(pair.value !== undefined ? pair.value : pair.val)}</Text>
+                <Text style={styles.bodyText}>
+                  {pair.type === 'checkbox'
+                    ? (pair.value === 'Yes' || pair.value === 'true' || pair.value === true ? 'Yes / Compliant' : 'No')
+                    : String(pair.value !== undefined ? pair.value : pair.val)}
+                </Text>
               </View>
             ))}
           </View>
