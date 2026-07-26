@@ -47,7 +47,9 @@ import {
   Users2,
   ListChecks,
   GitBranch,
+  HelpCircle,
 } from 'lucide-react'
+import { useGuidedTour, STUDIO_TOUR_STEPS } from '@/components/guided-tour'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -677,7 +679,7 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
         </div>
 
         {/* Right Column: AI Business Advisor Chat */}
-        <div className={`md:col-span-7 lg:sticky lg:top-24 z-10 ${viewMode === 'advisor' ? 'block' : 'hidden md:block'}`}>
+        <div data-tour="studio-advisor" className={`md:col-span-7 lg:sticky lg:top-24 z-10 ${viewMode === 'advisor' ? 'block' : 'hidden md:block'}`}>
           <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-xl border border-gray-100 flex flex-col" style={{ height: '620px' }}>
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.16),transparent_30%)] pointer-events-none" />
 
@@ -2793,7 +2795,20 @@ function StudioPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
+  const { startCustomTour } = useGuidedTour()
   const consumedDeepLink = useRef(false)
+
+  useEffect(() => {
+    const handleTourTab = (e: Event) => {
+      const customEvent = e as CustomEvent<string>
+      if (customEvent.detail) {
+        setActiveModule(customEvent.detail as Module)
+      }
+    }
+    window.addEventListener('zuri:tour-tab', handleTourTab)
+    return () => window.removeEventListener('zuri:tour-tab', handleTourTab)
+  }, [])
+
   useEffect(() => {
     if (consumedDeepLink.current) return
     consumedDeepLink.current = true
@@ -2896,7 +2911,7 @@ function StudioPageInner() {
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)] pt-14 pb-14 md:pt-0 md:pb-0">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {/* Executive Studio Header */}
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 border border-indigo-900/50 p-6 md:p-8 text-white shadow-2xl">
+        <div data-tour="studio-header" className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 border border-indigo-900/50 p-6 md:p-8 text-white shadow-2xl">
           <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-64 h-64 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
 
@@ -2922,11 +2937,20 @@ function StudioPageInner() {
               <Button
                 variant="secondary"
                 size="sm"
+                onClick={() => startCustomTour(STUDIO_TOUR_STEPS)}
+                className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/40 gap-1.5 text-xs font-bold shadow-sm backdrop-blur-md min-h-[42px]"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+                <span>⚡ Tour Studio</span>
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setIsAutoExtractOpen(true)}
                 className="bg-white/10 hover:bg-white/20 text-white border-white/15 gap-1.5 text-xs font-bold shadow-sm backdrop-blur-md min-h-[42px]"
               >
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                Auto-Extract Data
+                Auto-Extract
               </Button>
               <Button
                 variant="secondary"
@@ -2949,6 +2973,7 @@ function StudioPageInner() {
               return (
                 <button
                   key={id}
+                  data-tour={`studio-tab-${id}`}
                   onClick={() => setActiveModule(id)}
                   className={`inline-flex min-h-11 items-center gap-2.5 whitespace-nowrap rounded-xl px-4 text-xs font-bold transition-all ${
                     isActive

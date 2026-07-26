@@ -3,6 +3,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  Browsers,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -317,13 +318,20 @@ export class BaileysTransport extends WhatsAppTransport {
   }
 
   private async requestPairingCodeWithRetry(phone: string, maxAttempts = 3): Promise<string> {
-    const digits = phone.replace(/\D/g, '');
+    const digits = phone.replace(/\D/g, '').replace(/^0+/, '');
     console.log(`[baileys:${this.userId}] requesting pairing code for number: ${digits} (${digits.length} digits)`);
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         if (!this.sock) throw new Error('Socket not ready');
-        const code = await this.sock.requestPairingCode(digits);
-        console.log(`[baileys:${this.userId}] pairing code generated (attempt ${attempt})`);
+        let rawCode = await this.sock.requestPairingCode(digits);
+        let code = rawCode;
+        if (code) {
+          const clean = code.replace(/[^A-Za-z0-9]/g, '');
+          if (clean.length === 8) {
+            code = `${clean.slice(0, 4)}-${clean.slice(4)}`;
+          }
+        }
+        console.log(`[baileys:${this.userId}] pairing code generated: ${code} (attempt ${attempt})`);
         this.emitLinkCode(code);
         return code;
       } catch (err) {
@@ -338,6 +346,18 @@ export class BaileysTransport extends WhatsAppTransport {
   private async _boot(): Promise<void> {
     const version = await this.getBaileysVersion();
 
+    if (this.forceNewQR || this.pairingPhone) {
+      try {
+        const { state: existingState } = await useMultiFileAuthState(this.authPath);
+        if (!existingState.creds.registered) {
+          console.log(`[baileys:${this.userId}] purging unregistered auth directory before fresh connect: ${this.authPath}`);
+          await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
 
     const sock = makeWASocket({
@@ -345,7 +365,7 @@ export class BaileysTransport extends WhatsAppTransport {
       auth: state,
       printQRInTerminal: false,
       logger: P({ level: 'silent' }),
-      browser: ['Zuri', 'Chrome', '120.0.0'],
+      browser: Browsers.ubuntu('Chrome'),
       syncFullHistory: true,
     });
 
@@ -357,7 +377,7 @@ export class BaileysTransport extends WhatsAppTransport {
       this.writeQueue.enqueue(saveCreds);
     });
 
-    // For phone-code pairing: call requestPairingCode with retry after a short handshake delay.
+    // For phone-code pairing: call requestPairingCode with retry after a 3s handshake delay.
     if (this.pairingPhone) {
       setTimeout(async () => {
         try {
@@ -367,7 +387,7 @@ export class BaileysTransport extends WhatsAppTransport {
           console.error(`[baileys:${this.userId}] pairing code retry exhausted:`, err);
           this.emitDisconnected('bad_session');
         }
-      }, 1500); // small delay for initial handshake
+      }, 3000); // 3-second delay for initial WS handshake
     }
 
     sock.ev.on('connection.update', async (update) => {

@@ -9,6 +9,7 @@ import {
   Pencil, HelpCircle, ShieldCheck, CheckCircle2, RefreshCw, Trash2
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { useGuidedTour, INBOX_TOUR_STEPS } from '@/components/guided-tour'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
 import { Avatar, EmptyState, SkeletonListItem, useToast, Modal, Input, Button } from '@/components/ui'
@@ -131,6 +132,7 @@ export default function InboxPage() {
   const [newNote, setNewNote] = useState('')
   const [notes, setNotes] = useState<InternalNote[]>([])
   const [editingSuggId, setEditingSuggId] = useState<string | null>(null)
+  const { startCustomTour } = useGuidedTour()
   const [editedText, setEditedText] = useState('')
   const [isOnline, setIsOnline] = useState(true)
   const [promises, setPromises] = useState<ContactPromise[]>([])
@@ -1611,7 +1613,7 @@ export default function InboxPage() {
       <div className={`${mobileView !== 'list' ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[272px] border-r border-gray-200 flex-shrink-0 bg-white`}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-3 border-b border-gray-100 flex-shrink-0">
+        <div data-tour="inbox-header" className="flex items-center justify-between px-3 py-3 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold text-gray-900">Inbox</h1>
             {totalUnread > 0 && (
@@ -1635,12 +1637,12 @@ export default function InboxPage() {
               Queue
             </a>
             <button
-              onClick={() => setShowTutorialModal(true)}
-              title="Shared Inbox Guide & Privacy Rules"
-              className="flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-1.5 rounded-lg transition-colors"
+              onClick={() => startCustomTour(INBOX_TOUR_STEPS)}
+              title="Interactive Tour of Shared Inbox"
+              className="flex items-center gap-1.5 text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-lg transition-all shadow-xs"
             >
-              <HelpCircle size={12} />
-              Guide
+              <Zap size={12} className="text-amber-500 fill-amber-400" />
+              <span>⚡ Tour Inbox</span>
             </button>
           </div>
         </div>
@@ -1841,7 +1843,7 @@ export default function InboxPage() {
                 conversation (and stays null on a load failure), so it
                 renders a skeleton instead of the header simply vanishing. */}
             {/* Dark Mobile-First Sticky Header */}
-            <div className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800/80 bg-gradient-to-r from-slate-950 via-slate-900/95 to-indigo-950/90 backdrop-blur-xl text-white shadow-2xl shadow-slate-950/50 transition-all duration-300 relative overflow-hidden">
+            <div data-tour="inbox-locking-status" className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800/80 bg-gradient-to-r from-slate-950 via-slate-900/95 to-indigo-950/90 backdrop-blur-xl text-white shadow-2xl shadow-slate-950/50 transition-all duration-300 relative overflow-hidden">
               <div className="flex items-center gap-3 min-w-0 z-10">
                 <button
                   onClick={() => setMobileView('list')}
@@ -1923,6 +1925,7 @@ export default function InboxPage() {
                 {/* ⚡ Quick Doc Action Trigger */}
                 {contact && (
                   <button
+                    data-tour="inbox-quick-actions"
                     onClick={() => setShowQuickDocModal(true)}
                     className="flex items-center gap-1 text-xs font-bold text-indigo-200 hover:text-white bg-indigo-600/50 hover:bg-indigo-600/80 border border-indigo-500/50 px-2.5 py-1.5 rounded-xl transition-all shadow-sm"
                     title="⚡ Create Quick Quote/Invoice for Contact"
@@ -2062,40 +2065,42 @@ export default function InboxPage() {
                   </div>
                 )}
 
-                <ReplyDock
-                  suggestions={suggestions}
-                  draft={draft}
-                  draftRef={draftRef}
-                  selectedMsgId={selectedMsgId}
-                  regenerating={regenerating}
-                  showAIActions={showAIActions}
-                  aiActionLoading={aiActionLoading}
-                  aiActionResult={aiActionResult}
-                  aiAskInput={aiAskInput}
-                  onDraftChange={setDraft}
-                  onSendDraft={sendDraft}
-                  onSelectSuggestion={selectSuggestionAsDraft}
-                  onUseAIResult={(text) => { setDraft(text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
-                  onDismissAIResult={() => setAIActionResult(null)}
-                  onToggleAIActions={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
-                  onSummarize={aiSummarize}
-                  onFollowup={aiFollowup}
-                  onAsk={aiAsk}
-                  onAskInputChange={setAIAskInput}
-                  onRegenerate={regenerate}
-                  onAnalyzeLatest={() => runManualAnalysis('latest')}
-                  onAnalyzeRecent={() => runManualAnalysis('recent')}
-                  isGroup={contact?.isGroup ?? false}
-                  aiNotice={aiNotice}
-                  activeLock={selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id ? selectedConvLock : null}
-                  replyingToMessage={replyingToMessage}
-                  onCancelReply={() => setReplyingToMessage(null)}
-                />
+                <div data-tour="inbox-ai-suggestions">
+                  <ReplyDock
+                    suggestions={suggestions}
+                    draft={draft}
+                    draftRef={draftRef}
+                    selectedMsgId={selectedMsgId}
+                    regenerating={regenerating}
+                    showAIActions={showAIActions}
+                    aiActionLoading={aiActionLoading}
+                    aiActionResult={aiActionResult}
+                    aiAskInput={aiAskInput}
+                    onDraftChange={setDraft}
+                    onSendDraft={sendDraft}
+                    onSelectSuggestion={selectSuggestionAsDraft}
+                    onUseAIResult={(text) => { setDraft(text); setAIActionResult(null); setShowAIActions(false); setTimeout(() => draftRef.current?.focus(), 50) }}
+                    onDismissAIResult={() => setAIActionResult(null)}
+                    onToggleAIActions={() => { setShowAIActions(v => !v); setAIActionResult(null) }}
+                    onSummarize={aiSummarize}
+                    onFollowup={aiFollowup}
+                    onAsk={aiAsk}
+                    onAskInputChange={setAIAskInput}
+                    onRegenerate={regenerate}
+                    onAnalyzeLatest={() => runManualAnalysis('latest')}
+                    onAnalyzeRecent={() => runManualAnalysis('recent')}
+                    isGroup={contact?.isGroup ?? false}
+                    aiNotice={aiNotice}
+                    activeLock={selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id ? selectedConvLock : null}
+                    replyingToMessage={replyingToMessage}
+                    onCancelReply={() => setReplyingToMessage(null)}
+                  />
+                </div>
               </div>
 
               {/* Right: Intelligence panel (desktop) */}
               {showAIPanel && contact && (
-                <div className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
+                <div data-tour="inbox-lead-context" className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
                   <IntelPanel {...intelPanelProps} onClose={() => setShowAIPanel(false)} />
                 </div>
               )}

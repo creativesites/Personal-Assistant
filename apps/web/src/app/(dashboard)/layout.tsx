@@ -816,7 +816,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           }`}
         >
           {/* Free Testing Mode & BYOK Fast-Track Banner */}
-          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-4 py-2 flex items-center justify-between text-xs border-b border-indigo-500/20 shadow-xs">
+          <div className="hidden md:flex bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-4 py-2 items-center justify-between text-xs border-b border-indigo-500/20 shadow-xs">
             <div className="flex items-center gap-2 min-w-0">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex-shrink-0">
                 🎉 Free Testing Mode Active

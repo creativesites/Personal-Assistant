@@ -280,3 +280,160 @@ export const CAREER_TOUR_STEPS: TourStep[] = [
     requiresSidebar: false,
   },
 ]
+
+export const STUDIO_TOUR_STEPS: TourStep[] = [
+  {
+    id: 'studio_welcome',
+    title: 'Studio Business Operating System',
+    description:
+      'Welcome to Studio — your continuous business intelligence & operations engine. Manage catalog, sales, documents, brand identity, and AI workforce in one integrated workspace.',
+    targetSelector: '[data-tour="studio-header"]',
+    badge: '🏢 Studio OS',
+    iconName: 'Sparkles',
+    actionHint: 'Your complete business management hub',
+    placement: 'bottom',
+    tabToOpen: 'overview',
+    requiresSidebar: false,
+  },
+  {
+    id: 'studio_overview_advisor',
+    title: 'AI Business Advisor & Financial Radar',
+    description:
+      'Zuri\'s AI advisor knows your catalog, stock levels, suppliers, and customer purchasing history. Get critical stockout warnings, automated PO restocks, and real-time margin advice.',
+    targetSelector: '[data-tour="studio-advisor"]',
+    badge: '🧠 AI Advisor',
+    iconName: 'Brain',
+    actionHint: 'Ask queries or request restock POs',
+    placement: 'left',
+    tabToOpen: 'overview',
+    requiresSidebar: false,
+  },
+  {
+    id: 'studio_catalog',
+    title: '30s Product Entry & Express Quotation Wizard',
+    description:
+      'List products with photos and cost margins. Use the Express Quote Wizard to select contacts, confirm line items, add E-Signatures, and export vector PDFs or send via WhatsApp in seconds!',
+    targetSelector: '[data-tour="studio-tab-catalog"]',
+    badge: '📦 Product Catalog',
+    iconName: 'Building2',
+    actionHint: 'Fast quote creation & product intelligence',
+    placement: 'bottom',
+    tabToOpen: 'catalog',
+    requiresSidebar: false,
+  },
+  {
+    id: 'studio_services',
+    title: 'Service Packages & SOW Proposal Builder',
+    description:
+      'Offer service packages, hourly consulting, or retainers. Generate quick quotes and Statements of Work directly from service items.',
+    targetSelector: '[data-tour="studio-tab-services"]',
+    badge: '💼 Services Hub',
+    iconName: 'Briefcase',
+    actionHint: 'Retainers, SLAs & project proposals',
+    placement: 'bottom',
+    tabToOpen: 'services',
+    requiresSidebar: false,
+  },
+  {
+    id: 'studio_sales',
+    title: 'Sales Engine: Quotations, Invoices & Orders',
+    description:
+      'Complete order lifecycle management! Convert quotes to invoices, track payment status, issue digital receipts, and trigger auto-dunning reminders.',
+    targetSelector: '[data-tour="studio-tab-sales"]',
+    badge: '💰 Sales & Invoices',
+    iconName: 'FileText',
+    actionHint: 'Quotes to receipts lifecycle',
+    placement: 'bottom',
+    tabToOpen: 'sales',
+    requiresSidebar: false,
+  },
+  {
+    id: 'studio_brand',
+    title: 'Brand Studio & E-Signature Canvas',
+    description:
+      'Customize company logos, brand color palettes, default invoice footers, and sign binding legal contracts with Bézier-smoothed HTML5 E-Signatures.',
+    targetSelector: '[data-tour="studio-tab-brand"]',
+    badge: '🎨 Brand Studio',
+    iconName: 'Building2',
+    actionHint: 'Branding & digital signatures',
+    placement: 'bottom',
+    tabToOpen: 'brand',
+    requiresSidebar: false,
+  },
+  {
+    id: 'studio_knowledge',
+    title: 'Knowledge Brain & Document RAG Search',
+    description:
+      'Upload company PDFs, supplier price lists, or policy docs. Zuri uses vector embeddings so your AI advisor can answer complex business queries accurately.',
+    targetSelector: '[data-tour="studio-tab-knowledge"]',
+    badge: '📚 Knowledge Brain',
+    iconName: 'Search',
+    actionHint: 'Semantic RAG vector search',
+    placement: 'bottom',
+    tabToOpen: 'knowledge',
+    requiresSidebar: false,
+  },
+]
+
+export const INBOX_TOUR_STEPS: TourStep[] = [
+  {
+    id: 'inbox_welcome',
+    title: 'Shared Team Inbox & AI Co-Pilot',
+    description:
+      'Welcome to Zuri Shared Inbox! Collaborate with team members, view live WhatsApp chats, and leverage AI to draft responses with instant context.',
+    targetSelector: '[data-tour="inbox-header"]',
+    badge: '💬 Shared Inbox',
+    iconName: 'MessageSquare',
+    actionHint: 'Real-time collaborative WhatsApp inbox',
+    placement: 'bottom',
+    requiresSidebar: false,
+  },
+  {
+    id: 'inbox_locking',
+    title: 'Active Team Locking & Collision Warning',
+    description:
+      'Prevents double-replying! When a teammate opens a conversation, Zuri displays live locking badges and collision warnings.',
+    targetSelector: '[data-tour="inbox-locking-status"]',
+    badge: '🔒 Collision Guard',
+    iconName: 'Smartphone',
+    actionHint: 'Avoid customer double-contacts',
+    placement: 'bottom',
+    requiresSidebar: false,
+  },
+  {
+    id: 'inbox_suggestions',
+    title: 'AI Voice-Matched Reply Suggestions',
+    description:
+      'Zuri analyzes incoming customer messages and generates instant, voice-matched reply options. Approve, tweak, or send with 1 click.',
+    targetSelector: '[data-tour="inbox-ai-suggestions"]',
+    badge: '✨ AI Drafts',
+    iconName: 'Sparkles',
+    actionHint: '1-click smart replies',
+    placement: 'top',
+    requiresSidebar: false,
+  },
+  {
+    id: 'inbox_lead_context',
+    title: 'Customer Relationship & Lead Intelligence',
+    description:
+      'See lead scores, stage pipeline, psychological profile, lifetime value, and past business transactions right beside the chat.',
+    targetSelector: '[data-tour="inbox-lead-context"]',
+    badge: '📊 Lead Context',
+    iconName: 'Brain',
+    actionHint: 'Complete CRM & transaction history',
+    placement: 'left',
+    requiresSidebar: false,
+  },
+  {
+    id: 'inbox_quick_actions',
+    title: 'Quick Quotation & Document Dispatch',
+    description:
+      'Draft express quotes, issue payment links, or request E-Signatures directly within the active conversation without leaving the inbox.',
+    targetSelector: '[data-tour="inbox-quick-actions"]',
+    badge: '⚡ Quick Dispatch',
+    iconName: 'Zap',
+    actionHint: 'Create quotes & receipts inside chat',
+    placement: 'bottom',
+    requiresSidebar: false,
+  },
+]
