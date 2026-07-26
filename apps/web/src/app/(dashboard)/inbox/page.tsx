@@ -1878,13 +1878,13 @@ export default function InboxPage() {
                           <Pencil size={10} className="text-slate-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
                         </div>
 
-                        {/* Real-Time Sentiment Indicator Pill */}
+                        {/* Real-Time Sentiment Indicator Pill (Desktop Only to keep Mobile Header Clean) */}
                         {(() => {
                           const score = selectedConv?.healthScore ?? 70
                           const label = score >= 80 ? 'Warm & Engaged' : score >= 50 ? 'Pending Action' : 'Strained / Urgent'
                           const style = score >= 80 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : score >= 50 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                           return (
-                            <span className={`inline-flex items-center gap-1 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border tracking-wide transition-all ${style}`}>
+                            <span className={`hidden sm:inline-flex items-center gap-1 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border tracking-wide transition-all ${style}`}>
                               <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                               {label}
                             </span>
