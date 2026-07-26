@@ -637,6 +637,18 @@ export function CatalogModule({ token }: { token: string | undefined }) {
   const imgInputRef                         = useRef<HTMLInputElement>(null)
   const [imgTargetId,    setImgTargetId]    = useState<string | null>(null)
 
+  // 30s Express Product Form & Guardrails State
+  const [showFastAdd, setShowFastAdd] = useState(false)
+  const [fastForm, setFastForm] = useState({ name: '', sellingPrice: '', purchaseCost: '', category: '', stock: '10' })
+  const [showMarginWarning, setShowMarginWarning] = useState(false)
+  const [pendingProductPayload, setPendingProductPayload] = useState<any>(null)
+
+  // Bulk CSV Import State
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [csvText, setCsvText] = useState('')
+  const [csvParsed, setCsvParsed] = useState<Array<{ name: string; price: number; cost: number; stock: number; category: string }>>([])
+  const [bulkImporting, setBulkImporting] = useState(false)
+
   const formOpen = showAdd || !!editingProduct
 
   function openEdit(p: Product) {
@@ -853,9 +865,23 @@ export function CatalogModule({ token }: { token: string | undefined }) {
             <Layers className="w-4 h-4 mr-1.5" />
             Product Types
           </Button>
-          <Button onClick={() => { if (formOpen) { closeForm() } else { setShowAdd(true) } }}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add item
+          <Button
+            variant="secondary"
+            onClick={() => setShowBulkImport(true)}
+            className="text-xs font-semibold"
+          >
+            <Upload className="w-3.5 h-3.5 mr-1" /> Bulk CSV Import
+          </Button>
+
+          <Button
+            onClick={() => setShowFastAdd(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" /> 30s Express Item
+          </Button>
+
+          <Button onClick={() => { closeForm(); setShowAdd(true) }} className="text-xs font-bold">
+            <Plus className="w-3.5 h-3.5 mr-1" /> Full Product
           </Button>
         </div>
       </div>
@@ -1264,6 +1290,243 @@ export function CatalogModule({ token }: { token: string | undefined }) {
           })}
         </div>
       )}
+
+      {/* 30-SECOND EXPRESS PRODUCT CREATION MODAL */}
+      <Modal
+        open={showFastAdd}
+        onClose={() => setShowFastAdd(false)}
+        title="⚡ 30-Second Express Product Form"
+        description="Add a new catalog item with required fields only in under 30 seconds."
+      >
+        <div className="space-y-4 text-sm pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Product Name *</label>
+            <input
+              type="text"
+              value={fastForm.name}
+              onChange={(e) => setFastForm({ ...fastForm, name: e.target.value })}
+              placeholder="e.g. Wireless Bluetooth Earbuds"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Selling Price (ZMW) *</label>
+              <input
+                type="number"
+                value={fastForm.sellingPrice}
+                onChange={(e) => setFastForm({ ...fastForm, sellingPrice: e.target.value })}
+                placeholder="250"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Purchase Cost (ZMW) *</label>
+              <input
+                type="number"
+                value={fastForm.purchaseCost}
+                onChange={(e) => setFastForm({ ...fastForm, purchaseCost: e.target.value })}
+                placeholder="150"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Category</label>
+              <input
+                type="text"
+                value={fastForm.category}
+                onChange={(e) => setFastForm({ ...fastForm, category: e.target.value })}
+                placeholder="Electronics"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Initial Stock *</label>
+              <input
+                type="number"
+                value={fastForm.stock}
+                onChange={(e) => setFastForm({ ...fastForm, stock: e.target.value })}
+                placeholder="10"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          {fastForm.sellingPrice && fastForm.purchaseCost && (
+            <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 flex justify-between items-center text-xs">
+              <span className="font-medium text-indigo-700">Calculated Profit Margin:</span>
+              <span className="font-bold text-indigo-900">
+                {(calcMargin(parseFloat(fastForm.sellingPrice), parseFloat(fastForm.purchaseCost))?.toFixed(1) ?? '0.0')}%
+              </span>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button variant="secondary" size="sm" onClick={() => setShowFastAdd(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              onClick={async () => {
+                if (!fastForm.name || !fastForm.sellingPrice) {
+                  addToast({ title: 'Validation Error', description: 'Product name and selling price are required.', variant: 'error' })
+                  return
+                }
+
+                const price = parseFloat(fastForm.sellingPrice)
+                const cost = parseFloat(fastForm.purchaseCost) || 0
+                const margin = calcMargin(price, cost)
+
+                const payload = {
+                  name: fastForm.name,
+                  sellingPrice: price,
+                  purchaseCost: cost,
+                  category: fastForm.category || 'General',
+                  stock: parseInt(fastForm.stock) || 0,
+                  currency: 'ZMW',
+                  itemType: 'product'
+                }
+
+                if (cost > 0 && margin != null && margin < 15) {
+                  setPendingProductPayload(payload)
+                  setShowMarginWarning(true)
+                  return
+                }
+
+                try {
+                  await apiClient('/api/products', { method: 'POST', token, body: JSON.stringify(payload) })
+                  addToast({ title: 'Product Added', description: `${fastForm.name} saved successfully!`, variant: 'success' })
+                  setShowFastAdd(false)
+                  setFastForm({ name: '', sellingPrice: '', purchaseCost: '', category: '', stock: '10' })
+                  refetch()
+                } catch (e: any) {
+                  addToast({ title: 'Error', description: e.message || 'Failed to add product', variant: 'error' })
+                }
+              }}
+            >
+              Save Product
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* MARGIN GUARDRAIL WARNING MODAL */}
+      <Modal
+        open={showMarginWarning}
+        onClose={() => setShowMarginWarning(false)}
+        title="⚠️ Margin Guardrail Safety Warning"
+      >
+        <div className="space-y-4 text-sm pt-2">
+          <p className="text-xs text-rose-700 font-semibold bg-rose-50 p-3 rounded-xl border border-rose-200">
+            Warning: The calculated profit margin for this product is below the target 15% minimum safety threshold (or cost exceeds selling price).
+          </p>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowMarginWarning(false)}>Cancel & Adjust Price</Button>
+            <Button
+              size="sm"
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+              onClick={async () => {
+                if (!pendingProductPayload) return
+                try {
+                  await apiClient('/api/products', { method: 'POST', token, body: JSON.stringify(pendingProductPayload) })
+                  addToast({ title: 'Override Approved', description: 'Product saved with low-margin override.', variant: 'warning' })
+                  setShowMarginWarning(false)
+                  setShowFastAdd(false)
+                  setPendingProductPayload(null)
+                  refetch()
+                } catch (e: any) {
+                  addToast({ title: 'Error', description: e.message, variant: 'error' })
+                }
+              }}
+            >
+              Admin Override & Save
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* BULK CSV IMPORT MODAL */}
+      <Modal
+        open={showBulkImport}
+        onClose={() => setShowBulkImport(false)}
+        title="📦 Bulk CSV Catalog Import"
+        description="Paste CSV lines or upload a CSV catalog file to import multiple products at once."
+      >
+        <div className="space-y-4 text-sm pt-2">
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-bold text-gray-700">CSV Data Format: Name, SellingPrice, PurchaseCost, Category, Stock</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="text-xs"
+              onClick={() => {
+                const sample = "Wireless Mouse, 250, 120, Electronics, 20\nMechanical Keyboard, 850, 500, Electronics, 15\nUSB-C Cable, 90, 35, Accessories, 50"
+                setCsvText(sample)
+              }}
+            >
+              Load Sample Data
+            </Button>
+          </div>
+
+          <textarea
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+            placeholder="Name, SellingPrice, PurchaseCost, Category, Stock"
+            className="w-full h-36 font-mono text-xs rounded-xl border border-gray-200 p-3 focus:ring-2 focus:ring-indigo-500"
+          />
+
+          <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowBulkImport(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={bulkImporting || !csvText.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+              onClick={async () => {
+                setBulkImporting(true)
+                try {
+                  const lines = csvText.trim().split('\n').filter(l => l.trim().length > 0)
+                  let count = 0
+                  for (const line of lines) {
+                    const [name, price, cost, cat, stock] = line.split(',').map(s => s.trim())
+                    if (!name || isNaN(parseFloat(price))) continue
+
+                    await apiClient('/api/products', {
+                      method: 'POST',
+                      token,
+                      body: JSON.stringify({
+                        name,
+                        sellingPrice: parseFloat(price) || 0,
+                        purchaseCost: parseFloat(cost) || 0,
+                        category: cat || 'Imported',
+                        stock: parseInt(stock) || 0,
+                        currency: 'ZMW',
+                        itemType: 'product'
+                      })
+                    })
+                    count++
+                  }
+
+                  addToast({ title: 'Import Complete', description: `Successfully imported ${count} items!`, variant: 'success' })
+                  setShowBulkImport(false)
+                  setCsvText('')
+                  refetch()
+                } catch (e: any) {
+                  addToast({ title: 'Import Error', description: e.message || 'Failed to import CSV lines', variant: 'error' })
+                } finally {
+                  setBulkImporting(false)
+                }
+              }}
+            >
+              {bulkImporting ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Upload className="w-3.5 h-3.5 mr-1" />}
+              Import Items
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

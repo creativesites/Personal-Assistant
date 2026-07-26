@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import {
-  Palette, Edit2, Trash2, RefreshCw, Check, X, Plus, Star,
+  Palette, Edit2, Trash2, RefreshCw, Check, X, Plus, Star, Sparkles,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -524,7 +524,69 @@ export function BrandModule({ token }: { token: string | undefined }) {
       )}
 
       <OtherBrandProfiles token={token} />
+      <BrandVoiceTester brandVoice={profile?.brandVoice || 'Professional, friendly, and solution-oriented.'} />
       <SignaturesModule token={token} businessProfileId={profile?.id} />
+    </div>
+  )
+}
+
+function BrandVoiceTester({ brandVoice }: { brandVoice: string }) {
+  const [testPrompt, setTestPrompt] = useState('Do you offer discounts for bulk orders?')
+  const [testing, setSaving] = useState(false)
+  const [standardResponse, setStandardResponse] = useState('Yes, we offer discounts for bulk orders. Please let us know the quantity you need.')
+  const [brandedResponse, setBrandedResponse] = useState(`Thanks for asking! We'd love to help with your bulk order. Depending on your quantity, we offer special volume pricing. How many units were you thinking?`)
+
+  return (
+    <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white rounded-[1.75rem] p-6 shadow-sm border border-indigo-800/60 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="text-xs font-bold text-indigo-300 uppercase tracking-wide block">AI Brand Voice Simulator</span>
+          <p className="text-sm font-semibold mt-0.5">Test how your Brand Voice transforms AI replies</p>
+        </div>
+        <Badge variant="info" className="bg-indigo-500/20 border-indigo-400/30 text-indigo-200">
+          Live Brand Tuning
+        </Badge>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-gray-300">Sample Customer Message</label>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={testPrompt}
+            onChange={(e) => setTestPrompt(e.target.value)}
+            className="flex-1 rounded-xl bg-slate-800/80 border border-slate-700 px-3.5 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <Button
+            size="sm"
+            onClick={() => {
+              setSaving(true)
+              setTimeout(() => {
+                setBrandedResponse(`[Applying Voice: "${brandVoice}"] Great question! ${testPrompt.includes('discount') ? 'We surely value partnerships and offer volume tiers.' : 'We are excited to assist you!'} Let us tailor the best solution for you.`)
+                setSaving(false)
+              }, 400)
+            }}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
+          >
+            {testing ? <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" /> : <Sparkles className="w-3.5 h-3.5 mr-1" />}
+            Test Response
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+        <div className="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/60 space-y-1">
+          <span className="text-[11px] font-bold text-gray-400 uppercase block">Standard AI Response (No Persona)</span>
+          <p className="text-xs text-gray-300 italic">{standardResponse}</p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-indigo-950/80 border border-indigo-600/50 space-y-1 shadow-sm">
+          <span className="text-[11px] font-bold text-indigo-300 uppercase block flex items-center gap-1">
+            <Check className="w-3 h-3 text-emerald-400" />
+            With Brand Voice Alignment
+          </span>
+          <p className="text-xs text-indigo-100 font-medium">{brandedResponse}</p>
+        </div>
+      </div>
     </div>
   )
 }

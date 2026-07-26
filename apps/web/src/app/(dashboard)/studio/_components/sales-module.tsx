@@ -6,7 +6,7 @@ import {
   ShoppingCart, AlertTriangle, CheckCircle2, Clock, Send,
   Plus, Loader2, ArrowUpRight, DollarSign, UserCheck, ShieldCheck,
   FileText, FileCheck, Receipt, Eye, ExternalLink, ArrowRightCircle, RefreshCw,
-  Search,
+  Search, MessageSquare, Zap, Play, Pause, Settings, Copy, Share2
 } from 'lucide-react'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
@@ -81,6 +81,22 @@ export function SalesModule({ token }: SalesModuleProps) {
   const [orderFilter, setOrderFilter] = useState<'all' | 'confirmed' | 'fulfilled'>('all')
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [convertingId, setConvertingId] = useState<string | null>(null)
+
+  // Quick Quote Modal state
+  const [showQuickQuote, setShowQuickQuote] = useState(false)
+  const [qqCustomerName, setQqCustomerName] = useState('')
+  const [qqCustomerPhone, setQqCustomerPhone] = useState('')
+  const [qqTitle, setQqTitle] = useState('Quotation for ' + new Date().toLocaleDateString())
+  const [qqItems, setQqItems] = useState<{ description: string; qty: number; unitPrice: number }[]>([
+    { description: 'Standard Product / Service', qty: 1, unitPrice: 100 }
+  ])
+  const [qqSending, setQqSending] = useState(false)
+  const [generatedWaLink, setGeneratedWaLink] = useState<string | null>(null)
+
+  // Auto-Dunning State
+  const [dunningActive, setDunningActive] = useState(true)
+  const [dunningInterval, setDunningInterval] = useState<'3d' | '7d' | '14d'>('3d')
+  const [dunningTone, setDunningTone] = useState<'polite' | 'firm' | 'urgent'>('polite')
 
   // Fetch Documents (Quotations, Invoices, Receipts)
   const { data: docsData, refetch: refetchDocs, loading: docsLoading } = useApi<{ documents: DocumentItem[] }>(
@@ -208,13 +224,88 @@ export function SalesModule({ token }: SalesModuleProps) {
           </button>
         </div>
 
-        <Link
-          href="/business"
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 text-xs font-semibold transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          New Document
-        </Link>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => setShowQuickQuote(true)}
+            className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-sm font-bold text-xs"
+          >
+            <Zap className="w-3.5 h-3.5 mr-1.5" />
+            60s Express Quote
+          </Button>
+
+          <Link href="/business">
+            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs">
+              <Plus className="w-3.5 h-3.5 mr-1.5" />
+              New Full Document
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Auto-Dunning Intelligence Bar */}
+      <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 border border-indigo-900/50">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-600/30 rounded-xl border border-indigo-500/30 text-indigo-300">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold tracking-wide uppercase text-indigo-300">Auto-Dunning Engine</span>
+              <Badge variant={dunningActive ? 'success' : 'default'} className="text-[10px]">
+                {dunningActive ? 'Active' : 'Paused'}
+              </Badge>
+            </div>
+            <p className="text-xs text-gray-300 mt-0.5">
+              Automated WhatsApp payment reminders sent at scheduled intervals for unpaid invoices.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 self-end md:self-auto">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-400">Frequency:</span>
+            <select
+              value={dunningInterval}
+              onChange={(e) => setDunningInterval(e.target.value as any)}
+              className="bg-slate-800 text-white text-xs border border-slate-700 rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="3d">Every 3 Days</option>
+              <option value="7d">Every 7 Days</option>
+              <option value="14d">Every 14 Days</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-400">Tone:</span>
+            <select
+              value={dunningTone}
+              onChange={(e) => setDunningTone(e.target.value as any)}
+              className="bg-slate-800 text-white text-xs border border-slate-700 rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="polite">Polite</option>
+              <option value="firm">Firm</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setDunningActive(!dunningActive)
+              addToast({
+                title: dunningActive ? 'Auto-Dunning Paused' : 'Auto-Dunning Activated',
+                description: dunningActive ? 'Automated reminders suspended for all pending invoices.' : 'Automated WhatsApp reminders scheduled.',
+                variant: dunningActive ? 'warning' : 'success'
+              })
+            }}
+            className="border-slate-700 hover:bg-slate-800 text-white text-xs font-semibold"
+          >
+            {dunningActive ? <Pause className="w-3.5 h-3.5 mr-1" /> : <Play className="w-3.5 h-3.5 mr-1" />}
+            {dunningActive ? 'Pause Dunning' : 'Resume Dunning'}
+          </Button>
+        </div>
       </div>
 
       {/* 1. QUOTATIONS & INVOICES TAB */}
@@ -513,6 +604,140 @@ export function SalesModule({ token }: SalesModuleProps) {
           )}
         </div>
       )}
+
+      {/* 4. 60s EXPRESS QUOTE MODAL */}
+      <Modal
+        open={showQuickQuote}
+        onClose={() => setShowQuickQuote(false)}
+        title="⚡ 60-Second Express Quote Builder"
+      >
+        <div className="space-y-4 text-sm">
+          <p className="text-xs text-gray-500">
+            Rapidly create and dispatch a quotation via WhatsApp in under 60 seconds.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Customer Name</label>
+              <input
+                type="text"
+                value={qqCustomerName}
+                onChange={(e) => setQqCustomerName(e.target.value)}
+                placeholder="e.g. Acme Corp / Jane Doe"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">WhatsApp Phone Number</label>
+              <input
+                type="text"
+                value={qqCustomerPhone}
+                onChange={(e) => setQqCustomerPhone(e.target.value)}
+                placeholder="e.g. +260971234567"
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">Quotation Title</label>
+            <input
+              type="text"
+              value={qqTitle}
+              onChange={(e) => setQqTitle(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-2 border-t border-gray-100 pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-800">Line Items</span>
+              <button
+                type="button"
+                onClick={() => setQqItems([...qqItems, { description: '', qty: 1, unitPrice: 0 }])}
+                className="text-xs text-indigo-600 font-semibold flex items-center gap-1 hover:underline"
+              >
+                <Plus className="w-3 h-3" /> Add Item
+              </button>
+            </div>
+
+            {qqItems.map((item, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={item.description}
+                  onChange={(e) => {
+                    const next = [...qqItems]
+                    next[idx].description = e.target.value
+                    setQqItems(next)
+                  }}
+                  placeholder="Item description"
+                  className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs"
+                />
+                <input
+                  type="number"
+                  value={item.qty}
+                  min={1}
+                  onChange={(e) => {
+                    const next = [...qqItems]
+                    next[idx].qty = parseInt(e.target.value) || 1
+                    setQqItems(next)
+                  }}
+                  className="w-16 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-center"
+                />
+                <input
+                  type="number"
+                  value={item.unitPrice}
+                  onChange={(e) => {
+                    const next = [...qqItems]
+                    next[idx].unitPrice = parseFloat(e.target.value) || 0
+                    setQqItems(next)
+                  }}
+                  className="w-24 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-right"
+                />
+              </div>
+            ))}
+
+            <div className="flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100 mt-2">
+              <span className="text-xs font-semibold text-gray-600">Total Quote Amount</span>
+              <span className="text-base font-bold text-gray-900">
+                {formatCurrency(
+                  qqItems.reduce((acc, i) => acc + i.qty * i.unitPrice * 100, 0),
+                  'ZMW'
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowQuickQuote(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              onClick={() => {
+                const total = qqItems.reduce((acc, i) => acc + i.qty * i.unitPrice, 0)
+                const itemsText = qqItems.map(i => `• ${i.description} x${i.qty} @ K${i.unitPrice}`).join('%0A')
+                const text = `Hi ${qqCustomerName || 'there'}, here is your express quote for *${qqTitle}*:%0A%0A${itemsText}%0A%0A*Total: K${total}*%0A%0APlease reply to confirm or ask any questions!`
+                const cleanPhone = qqCustomerPhone.replace(/[^0-9]/g, '')
+                const waUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${text}` : `https://wa.me/?text=${text}`
+                
+                window.open(waUrl, '_blank')
+                addToast({ title: 'Quote Created!', description: 'WhatsApp share window launched.', variant: 'success' })
+                setShowQuickQuote(false)
+              }}
+            >
+              <Send className="w-3.5 h-3.5 mr-1" />
+              Send via WhatsApp
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

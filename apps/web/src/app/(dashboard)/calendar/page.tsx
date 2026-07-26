@@ -113,8 +113,20 @@ function formatTime(iso: string, allDay: boolean) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+function parseEventDate(iso: string | Date): Date {
+  if (!iso) return new Date()
+  if (typeof iso === 'object') return iso
+  if (iso.includes('T00:00:00')) {
+    const datePart = iso.split('T')[0]
+    const [y, m, d] = datePart.split('-').map(Number)
+    if (y && m && d) return new Date(y, m - 1, d)
+  }
+  return new Date(iso)
+}
+
+function isSameDay(a: Date | string, b: Date) {
+  const dateA = typeof a === 'string' ? parseEventDate(a) : a
+  return dateA.getFullYear() === b.getFullYear() && dateA.getMonth() === b.getMonth() && dateA.getDate() === b.getDate()
 }
 
 function daysUntil(iso: string) {
@@ -793,7 +805,7 @@ export default function CalendarPage() {
   const selectedEvents = useMemo(() => {
     if (!selectedDate) return []
     return filteredEvents
-      .filter(e => isSameDay(new Date(e.startDate), selectedDate))
+      .filter(e => isSameDay(e.startDate, selectedDate))
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
   }, [filteredEvents, selectedDate])
 
@@ -970,7 +982,7 @@ export default function CalendarPage() {
                   const date = new Date(viewYear, viewMonth, day)
                   const isToday = isSameDay(date, today)
                   const isSelected = selectedDate && isSameDay(date, selectedDate)
-                  const dayEvents = filteredEvents.filter(e => isSameDay(new Date(e.startDate), date))
+                  const dayEvents = filteredEvents.filter(e => isSameDay(e.startDate, date))
                   const hasOverdue = dayEvents.some(e => e.isOverdue)
 
                   return (

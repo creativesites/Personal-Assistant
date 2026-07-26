@@ -5,7 +5,7 @@ import { authenticate } from '../plugins/authenticate';
 export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── GET /api/calendar/events ─────────────────────────────────────────────────
-  // Returns unified timeline events with rich metadata and contact details
+  // Returns unified timeline events with rich metadata, contact details, and fallback dates
   fastify.get('/api/calendar/events', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
 
@@ -16,8 +16,8 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
          e.event_type::text       AS item_kind,
          e.title,
          e.description,
-         e.event_date::text      AS event_date,
-         e.event_datetime,
+         COALESCE(e.event_date::text, e.event_datetime::date::text, e.created_at::date::text) AS event_date,
+         COALESCE(e.event_datetime, e.event_date::timestamptz, e.created_at)                 AS event_datetime,
          e.is_recurring,
          e.source::text          AS source,
          e.confidence_score,
@@ -44,8 +44,7 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
        LEFT JOIN contacts co ON co.id = e.contact_id
        LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = e.user_id
        WHERE e.user_id = $1
-         AND (e.event_date IS NOT NULL OR e.event_datetime IS NOT NULL)
-       LIMIT 300`,
+       LIMIT 500`,
       [userId],
     );
 
@@ -59,8 +58,8 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
            WHEN p.promised_by = 'user' THEN 'Our Commitment to Client' 
            ELSE 'Client Commitment to Us' 
          END                     AS description,
-         p.due_date::date::text  AS event_date,
-         p.due_date              AS event_datetime,
+         COALESCE(p.due_date::date::text, p.created_at::date::text) AS event_date,
+         COALESCE(p.due_date, p.created_at)                        AS event_datetime,
          false                   AS is_recurring,
          'promise_tracker'       AS source,
          p.confidence            AS confidence_score,
@@ -87,9 +86,8 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
        LEFT JOIN contacts co ON co.id = p.contact_id
        LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = p.user_id
        WHERE p.user_id = $1
-         AND p.due_date IS NOT NULL
          AND p.status != 'dismissed'
-       LIMIT 300`,
+       LIMIT 500`,
       [userId],
     );
 
@@ -116,8 +114,8 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
           description: r.description ?? null,
           startDate,
           endDate: null,
-          allDay: !r.event_datetime,
-          eventType: r.item_kind,
+          allDay: !r.event_datetime || (r.event_date && !r.event_datetime),
+          eventType: r.item_kind || 'other',
           source: r.source === 'user_input' ? 'user' : r.source === 'promise_tracker' ? 'promise_tracker' : 'ai_extracted',
           isConfirmed: r.is_confirmed,
           confidenceScore: r.confidence_score ? parseFloat(r.confidence_score) : 1.0,
@@ -150,7 +148,6 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // ── POST /api/calendar/events ────────────────────────────────────────────────
-  // Creates a manually entered calendar event with rich metadata
   fastify.post('/api/calendar/events', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { 
@@ -177,6 +174,9 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Title is required' });
     }
 
+    const validTypes = ['meeting', 'follow_up', 'reminder', 'appointment', 'deadline', 'birthday', 'anniversary', 'travel', 'celebration', 'job_change', 'life_event', 'loss', 'other'];
+    const safeEventType = validTypes.includes(eventType || '') ? eventType : 'other';
+
     const { rows: [newEvent] } = await db.query(
       `INSERT INTO events (
          user_id, contact_id, event_type, title, description,
@@ -192,7 +192,7 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       [
         userId,
         contactId || null,
-        eventType || 'other',
+        safeEventType,
         title.trim(),
         description || null,
         eventDate || null,
@@ -213,13 +213,11 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // ── PATCH /api/calendar/events/:id ───────────────────────────────────────────
-  // Updates event details including rich metadata
   fastify.patch('/api/calendar/events/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
     const body = request.body as Record<string, unknown>;
 
-    // Verify ownership
     const { rows: [existing] } = await db.query('SELECT id FROM events WHERE id = $1 AND user_id = $2', [id, userId]);
     if (!existing) {
       return reply.code(404).send({ error: 'Event not found' });
@@ -248,10 +246,16 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       ['actionItems', 'action_items'],
     ];
 
+    const validTypes = ['meeting', 'follow_up', 'reminder', 'appointment', 'deadline', 'birthday', 'anniversary', 'travel', 'celebration', 'job_change', 'life_event', 'loss', 'other'];
+
     for (const [key, dbCol] of fields) {
       if (body[key] !== undefined) {
         if (dbCol === 'event_type') {
+          const safeType = validTypes.includes(String(body[key])) ? String(body[key]) : 'other';
           updates.push(`${dbCol} = $${index}::event_type`);
+          params.push(safeType);
+          index++;
+          continue;
         } else if (dbCol === 'action_items') {
           updates.push(`${dbCol} = $${index}::jsonb`);
           params.push(JSON.stringify(body[key]));
@@ -298,7 +302,6 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── PROMISES ENDPOINTS ────────────────────────────────────────────────────────
 
-  // POST /api/calendar/promises — Create/track new promise
   fastify.post('/api/calendar/promises', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { contactId, conversationId, sourceMessageId, promiseText, promisedBy, dueDate, dealValue, location, tags } = request.body as {
@@ -340,7 +343,6 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ promise });
   });
 
-  // PATCH /api/calendar/promises/:id/fulfill — Mark promise fulfilled
   fastify.patch('/api/calendar/promises/:id/fulfill', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
@@ -359,7 +361,6 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({ success: true });
   });
 
-  // DELETE /api/calendar/promises/:id — Dismiss promise
   fastify.delete('/api/calendar/promises/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
