@@ -648,6 +648,24 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { addToast } = useToast()
   const [unreadNotifications, setUnreadNotifications] = useState(0)
 
+  const [hasByokKey, setHasByokKey] = useState<boolean>(true)
+
+  useEffect(() => {
+    if (!session.data?.accessToken) return
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/byok/keys`, {
+      headers: { Authorization: `Bearer ${session.data.accessToken}` }
+    })
+      .then(res => res.json())
+      .then((data: any) => {
+        if (Array.isArray(data?.keys) && data.keys.length > 0) {
+          setHasByokKey(true)
+        } else {
+          setHasByokKey(false)
+        }
+      })
+      .catch(() => setHasByokKey(false))
+  }, [session.data?.accessToken])
+
   useEffect(() => {
     if (!session.data?.accessToken) return
     fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'}/api/notifications`, {
@@ -815,16 +833,18 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             mobileNavMinimized ? 'pb-20 md:pb-0' : 'pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0'
           }`}
         >
-          {/* BYOK Fast-Track Banner */}
-          <div className="hidden md:flex bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-4 py-1.5 items-center justify-end text-xs border-b border-indigo-500/20 shadow-xs">
-            <Link
-              href="/settings/ai"
-              className="inline-flex items-center gap-1.5 bg-indigo-600/80 hover:bg-indigo-500 text-white font-bold text-[11px] px-3 py-1 rounded-lg border border-indigo-400/40 transition-all flex-shrink-0"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>Fast-Track AI: Free BYOK Speed →</span>
-            </Link>
-          </div>
+          {/* BYOK Fast-Track Banner (Only shown if no BYOK key is configured) */}
+          {!hasByokKey && (
+            <div className="hidden md:flex bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white px-4 py-1.5 items-center justify-end text-xs border-b border-indigo-500/20 shadow-xs">
+              <Link
+                href="/settings/ai"
+                className="inline-flex items-center gap-1.5 bg-indigo-600/80 hover:bg-indigo-500 text-white font-bold text-[11px] px-3 py-1 rounded-lg border border-indigo-400/40 transition-all flex-shrink-0"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-300" />
+                <span>Fast-Track AI: Free BYOK Speed →</span>
+              </Link>
+            </div>
+          )}
 
           <SubscriptionStatusBanner token={session.data?.accessToken} />
           {!wa.connected && wa.status !== 'unknown' && wa.status !== 'connecting' && pathname !== '/onboarding' && (

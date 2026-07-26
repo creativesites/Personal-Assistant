@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sparkles, Key, Zap, ExternalLink, Check, ShieldCheck, ArrowRight } from 'lucide-react'
 import { useToast } from '@/components/ui'
 import { apiClient } from '@/lib/api'
@@ -18,6 +18,27 @@ export function ByokFastTrackCard({
   const [apiKey, setApiKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [hasKey, setHasKey] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    if (!token) return
+    let isMounted = true
+    apiClient<{ keys?: unknown[] }>('/api/byok/keys', { token })
+      .then((res) => {
+        if (!isMounted) return
+        if (Array.isArray(res?.keys) && res.keys.length > 0) {
+          setHasKey(true)
+        } else {
+          setHasKey(false)
+        }
+      })
+      .catch(() => {
+        if (isMounted) setHasKey(false)
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [token])
 
   const handleSave = async () => {
     if (!apiKey.trim()) {
@@ -36,6 +57,7 @@ export function ByokFastTrackCard({
         }
       )
       setSaved(true)
+      setHasKey(true)
       addToast({ title: '⚡ Dedicated Gemini API Key Saved!', description: 'Your AI requests will now run at maximum speed with zero shared queues.', variant: 'success' })
       if (onSaved) onSaved()
     } catch (err: any) {
@@ -43,6 +65,11 @@ export function ByokFastTrackCard({
     } finally {
       setLoading(false)
     }
+  }
+
+  // Do not show prompt card if key is already added or saved
+  if (hasKey === true || saved) {
+    return null
   }
 
   if (compact) {
