@@ -294,4 +294,60 @@ export async function diagnosticsRoutes(fastify: FastifyInstance): Promise<void>
       })
     }
   })
+
+  // ── AI Advisor Page Execution Logs ───────────────────────────────────────
+  fastify.get('/api/diagnostics/advisor-logs', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const limit = Math.min(parseInt((request.query as any)?.limit || '50', 10), 100)
+
+    const result = await db.query(
+      `SELECT
+         m.id,
+         m.session_id,
+         s.session_category,
+         s.title AS session_title,
+         m.role,
+         m.content,
+         m.metadata,
+         m.initiated,
+         m.created_at
+       FROM advisor_messages m
+       JOIN advisor_sessions s ON s.id = m.session_id
+       WHERE s.user_id = $1
+       ORDER BY m.created_at DESC
+       LIMIT $2`,
+      [userId, limit]
+    )
+
+    const logs = result.rows.map((r: any) => {
+      const isError = Boolean(
+        r.metadata?.errorMeta ||
+        r.metadata?.is_error ||
+        r.content?.startsWith('⚠️')
+      )
+      return {
+        id: r.id,
+        sessionId: r.session_id,
+        sessionCategory: r.session_category || 'general',
+        sessionTitle: r.session_title || 'Advisor Chat',
+        role: r.role,
+        content: r.content,
+        metadata: r.metadata,
+        initiated: r.initiated,
+        createdAt: r.created_at,
+        isError,
+        errorType: r.metadata?.errorMeta?.error_type || (isError ? 'error' : null),
+        errorDetail: r.metadata?.errorMeta?.error_detail || null,
+        httpStatus: r.metadata?.errorMeta?.http_status || null,
+      }
+    })
+
+    const errorCount = logs.filter((l: any) => l.isError).length
+
+    return reply.send({
+      totalLogs: logs.length,
+      errorCount,
+      logs,
+    })
+  })
 }

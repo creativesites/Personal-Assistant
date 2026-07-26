@@ -4,6 +4,7 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { sendWhatsAppMessage } from '../lib/whatsapp-send';
 import { actionRequestApiShape } from '../lib/advisor-actions';
+import { parseAiErrorResponse } from '../lib/ai-error-parser';
 
 const INTELLIGENCE_URL = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
 
@@ -127,9 +128,10 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
     // the global advisor now returns richer per-turn metadata
     // (assistantState/memorySuggestion) via AdvisorCompanionService; the
     // conversation-scoped and studio advisors still return only {answer}
-    // for now (their own orchestration is a later phase).
     let assistantState: Record<string, unknown> | null = null;
     let memorySuggestion: Record<string, unknown> | null = null;
+    let errorMeta: Record<string, unknown> | null = null;
+
     try {
       const endpoint = convId
         ? `/internal/conversations/${convId}/ask`
@@ -153,18 +155,28 @@ export async function advisorRoutes(fastify: FastifyInstance): Promise<void> {
         assistantState = data.assistantState ?? null;
         memorySuggestion = data.memorySuggestion ?? null;
       } else {
-        answer = 'The AI service returned an error. Please try again.';
+        const errRes = await parseAiErrorResponse(res);
+        answer = errRes.answer;
+        errorMeta = errRes.errorMeta;
       }
-    } catch {
-      answer = 'Unable to reach the intelligence service. Please check that it is running.';
+    } catch (err: any) {
+      const errRes = await parseAiErrorResponse(null, err);
+      answer = errRes.answer;
+      errorMeta = errRes.errorMeta;
     }
 
     // Persist assistant message
+    const metadataToSave = {
+      ...(assistantState ? { assistantState } : {}),
+      ...(memorySuggestion ? { memorySuggestion } : {}),
+      ...(errorMeta ? { errorMeta } : {}),
+    };
+
     const { rows: [assistantMsg] } = await db.query(
       `INSERT INTO advisor_messages (session_id, role, content, metadata)
        VALUES ($1, 'assistant', $2, $3::jsonb)
        RETURNING id, role, content, metadata, created_at`,
-      [id, answer, JSON.stringify(assistantState ? { assistantState, memorySuggestion } : {})],
+      [id, answer, JSON.stringify(metadataToSave)],
     );
 
     // Bump session counters

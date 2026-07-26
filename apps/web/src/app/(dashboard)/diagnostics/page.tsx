@@ -58,26 +58,248 @@ function CheckRow({ check }: { check: Check }) {
             <p className="text-xs text-gray-400 truncate">{check.description}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-          {check.latencyMs !== undefined && (
-            <span className="text-xs text-gray-400 tabular-nums">{check.latencyMs}ms</span>
-          )}
-          <svg
-            className={`w-4 h-4 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+        <div className="flex items-center gap-2 text-xs text-gray-400 shrink-0 ml-2">
+          {check.latencyMs !== undefined && <span className="tabular-nums">{check.latencyMs}ms</span>}
+          <span>{expanded ? '▲' : '▼'}</span>
         </div>
       </button>
+
       {expanded && (
-        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
-          <p className="text-xs text-gray-700 mb-2 leading-relaxed">{check.detail}</p>
+        <div className="px-4 pb-4 pt-1 border-t border-gray-100 bg-gray-50/50 space-y-2 text-xs">
+          <p className="text-gray-600 font-mono break-all">{check.detail || 'No detail available.'}</p>
           {check.raw !== undefined && (
-            <pre className="text-xs bg-white border border-gray-200 rounded-lg p-3 overflow-x-auto text-gray-800 max-h-48">
+            <pre className="p-2.5 bg-gray-900 text-green-400 rounded-lg overflow-x-auto text-[11px] font-mono">
               {JSON.stringify(check.raw, null, 2)}
             </pre>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface AdvisorLog {
+  id: string
+  sessionId: string
+  sessionCategory: string
+  sessionTitle: string
+  role: string
+  content: string
+  metadata?: any
+  initiated?: boolean
+  createdAt: string
+  isError: boolean
+  errorType?: string | null
+  errorDetail?: string | null
+  httpStatus?: number | null
+}
+
+function AdvisorLogsTable({ token }: { token: string | null }) {
+  const [logs, setLogs] = useState<AdvisorLog[]>([])
+  const [loading, setLoading] = useState(false)
+  const [errorCount, setErrorCount] = useState(0)
+  const [filter, setFilter] = useState<'all' | 'errors' | 'user' | 'assistant'>('all')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const fetchLogs = useCallback(async () => {
+    if (!token) return
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/diagnostics/advisor-logs?limit=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setLogs(data.logs || [])
+        setErrorCount(data.errorCount || 0)
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setLoading(false)
+    }
+  }, [token])
+
+  useEffect(() => {
+    fetchLogs()
+  }, [fetchLogs])
+
+  const filtered = logs.filter(item => {
+    if (filter === 'errors' && !item.isError) return false
+    if (filter === 'user' && item.role !== 'user') return false
+    if (filter === 'assistant' && item.role !== 'assistant') return false
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase()
+      return (
+        item.content.toLowerCase().includes(q) ||
+        item.sessionTitle.toLowerCase().includes(q) ||
+        (item.errorDetail && item.errorDetail.toLowerCase().includes(q))
+      )
+    }
+    return true
+  })
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+            <span>AI Advisor Turn &amp; Error Logs</span>
+            {errorCount > 0 && (
+              <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-semibold">
+                {errorCount} Error(s)
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Real-time execution log of Advisor requests, responses, and rate-limit error details.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => fetchLogs()}
+            disabled={loading}
+            className="text-xs border border-gray-200 hover:bg-gray-50 px-2.5 py-1.5 rounded-lg text-gray-700 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : 'Refresh Logs'}
+          </button>
+          <a
+            href="/settings"
+            className="text-xs bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
+          >
+            Manage BYOK Key
+          </a>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="flex items-center gap-2 flex-wrap text-xs">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+          {(['all', 'errors', 'user', 'assistant'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1 font-medium capitalize transition-colors ${
+                filter === f ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {f === 'errors' ? `Errors (${errorCount})` : f}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          placeholder="Filter by keyword or error..."
+          className="text-xs border border-gray-200 rounded-lg px-2.5 py-1 text-gray-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 min-w-[200px]"
+        />
+      </div>
+
+      {/* Log list */}
+      {loading && logs.length === 0 ? (
+        <div className="space-y-2 py-4">
+          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-6 text-center text-xs text-gray-500">
+          No Advisor logs found matching filter.
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
+          {filtered.map(log => {
+            const isExp = expandedId === log.id
+            return (
+              <div
+                key={log.id}
+                className={`text-xs transition-colors ${
+                  log.isError ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-gray-50'
+                }`}
+              >
+                <div
+                  onClick={() => setExpandedId(isExp ? null : log.id)}
+                  className="p-3 cursor-pointer flex items-start justify-between gap-3 select-none"
+                >
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider shrink-0 ${
+                        log.isError
+                          ? 'bg-red-100 text-red-700'
+                          : log.role === 'user'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {log.isError ? log.errorType || 'Error' : log.role}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-gray-900 truncate">
+                          {log.sessionTitle}
+                        </span>
+                        <span className="text-[10px] text-gray-400 capitalize">
+                          • {log.sessionCategory}
+                        </span>
+                      </div>
+                      <p className="text-gray-600 line-clamp-1 mt-0.5 font-mono text-[11px]">
+                        {log.content}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 text-right">
+                    <span className="text-[11px] text-gray-400">
+                      {new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    <span className="text-gray-400">{isExp ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+
+                {/* Expanded Details */}
+                {isExp && (
+                  <div className="px-3 pb-3 pt-1 border-t border-gray-100/80 bg-gray-50/80 space-y-2">
+                    {log.isError && log.errorDetail && (
+                      <div className="p-2.5 bg-red-100/60 border border-red-200 rounded-lg text-red-800 text-xs space-y-1">
+                        <p className="font-bold flex items-center gap-1.5">
+                          <span>⚠️ Error Detail ({log.errorType || 'AI Failure'}):</span>
+                        </p>
+                        <p className="font-mono text-[11px] whitespace-pre-wrap break-all">
+                          {log.errorDetail}
+                        </p>
+                        {(log.errorType === 'rate_limit' || log.content.includes('BYOK')) && (
+                          <div className="pt-1">
+                            <a
+                              href="/settings"
+                              className="text-xs font-bold text-red-900 underline hover:text-black"
+                            >
+                              Click here to add your free Gemini API key in Settings →
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <span className="font-semibold text-gray-700">Full Content:</span>
+                      <p className="mt-1 p-2 bg-white border border-gray-200 rounded text-gray-800 whitespace-pre-wrap font-sans text-xs">
+                        {log.content}
+                      </p>
+                    </div>
+
+                    {log.metadata && Object.keys(log.metadata).length > 0 && (
+                      <div>
+                        <span className="font-semibold text-gray-700">Raw Metadata:</span>
+                        <pre className="mt-1 p-2 bg-gray-900 text-green-400 rounded text-[10px] overflow-x-auto font-mono">
+                          {JSON.stringify(log.metadata, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -308,6 +530,7 @@ export default function DiagnosticsPage() {
     { id: 'authme',     label: 'Authenticated API Call',           description: `GET ${API_URL}/api/auth/me — requires JWT from sync`,          status: 'idle', detail: '' },
     { id: 'contacts',   label: 'Contacts API',                    description: `GET ${API_URL}/api/contacts — verifies DB data access`,         status: 'idle', detail: '' },
     { id: 'ai_pipeline',label: 'AI Analysis Pipeline',             description: `GET ${API_URL}/api/diagnostics/ai-pipeline — is the intelligence service actually analyzing messages?`, status: 'idle', detail: '' },
+    { id: 'advisor_logs',label: 'AI Advisor Execution Logs',       description: `GET ${API_URL}/api/diagnostics/advisor-logs — verifies Advisor AI turn responses and rate limit errors`, status: 'idle', detail: '' },
     { id: 'wa_service', label: 'WhatsApp Service Health',          description: 'Internal whatsapp service — DB, Redis, Chromium',              status: 'idle', detail: '' },
     { id: 'wa_instance',label: 'WhatsApp Instance Status',         description: 'Your WhatsApp connection state from the database',             status: 'idle', detail: '' },
   ])
@@ -446,6 +669,37 @@ export default function DiagnosticsPage() {
         setCheck('ai_pipeline', { status: aiStatus, detail, latencyMs, raw: body })
       } catch (err: any) {
         setCheck('ai_pipeline', { status: 'error', detail: err.message, latencyMs: Date.now() - t5b })
+      }
+    }
+
+    // 5c. AI Advisor Execution Logs Check
+    if (!currentToken) {
+      setCheck('advisor_logs', { status: 'warn', detail: 'No JWT available — fix the sync step first.' })
+    } else {
+      const t5c = Date.now()
+      try {
+        const r = await fetch(`${API_URL}/api/diagnostics/advisor-logs`, { headers: { Authorization: `Bearer ${currentToken}` } })
+        const latencyMs = Date.now() - t5c
+        const body = await r.json().catch(() => null)
+        if (!r.ok) {
+          setCheck('advisor_logs', { status: 'error', detail: `HTTP ${r.status} — ${body?.error || 'Failed to fetch advisor logs'}`, latencyMs, raw: body })
+        } else if (body?.errorCount > 0) {
+          setCheck('advisor_logs', {
+            status: 'warn',
+            detail: `${body.errorCount} error/rate-limit event(s) in the last ${body.totalLogs} Advisor turns. Check Advisor Execution Logs below.`,
+            latencyMs,
+            raw: body,
+          })
+        } else {
+          setCheck('advisor_logs', {
+            status: 'ok',
+            detail: `All ${body?.totalLogs ?? 0} recent AI Advisor turn(s) executed smoothly without rate limits or errors.`,
+            latencyMs,
+            raw: body,
+          })
+        }
+      } catch (err: any) {
+        setCheck('advisor_logs', { status: 'error', detail: err.message, latencyMs: Date.now() - t5c })
       }
     }
 
@@ -818,6 +1072,12 @@ export default function DiagnosticsPage() {
                 </>
               )}
             </div>
+          </div>
+
+          {/* AI Advisor Execution Logs Table */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">AI Advisor Execution Logs</p>
+            <AdvisorLogsTable token={token ?? null} />
           </div>
 
           {/* Historical Intelligence Sync */}

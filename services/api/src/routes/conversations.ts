@@ -11,6 +11,7 @@ import { config } from '../config';
 import { getEffectiveScope } from '../lib/org-scope';
 import { redis } from '../lib/redis';
 import { transcribeAudioMessage } from '../lib/transcription';
+import { parseAiErrorResponse } from '../lib/ai-error-parser';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1181,6 +1182,8 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     let memorySuggestion: Record<string, unknown> | null = null;
     let analysis: Record<string, unknown> | null = null;
     let proposedAction: { actionType: string; payload: Record<string, unknown>; riskLevel: string; autoSend?: boolean } | null = null;
+    let errorMeta: Record<string, unknown> | null = null;
+
     try {
       const res = await fetch(`${intelligenceUrl}/internal/conversations/${id}/ask`, {
         method: 'POST',
@@ -1201,18 +1204,29 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         analysis = data.analysis ?? null;
         proposedAction = data.proposedAction ?? null;
       } else {
-        answer = 'The AI service returned an error. Please try again.';
+        const errRes = await parseAiErrorResponse(res);
+        answer = errRes.answer;
+        errorMeta = errRes.errorMeta;
       }
-    } catch {
-      answer = 'Unable to reach the intelligence service. Please check that it is running.';
+    } catch (err: any) {
+      const errRes = await parseAiErrorResponse(null, err);
+      answer = errRes.answer;
+      errorMeta = errRes.errorMeta;
     }
+
+    const metadataToSave = {
+      ...(assistantState ? { assistantState } : {}),
+      ...(memorySuggestion ? { memorySuggestion } : {}),
+      ...(analysis ? { analysis } : {}),
+      ...(errorMeta ? { errorMeta } : {}),
+    };
 
     // Persist assistant response
     const { rows: [assistantMsg] } = await db.query(
       `INSERT INTO advisor_messages (session_id, role, content, metadata)
        VALUES ($1, 'assistant', $2, $3::jsonb)
        RETURNING id, role, content, metadata, created_at`,
-      [sessionId, answer, JSON.stringify(assistantState ? { assistantState, memorySuggestion, analysis } : {})],
+      [sessionId, answer, JSON.stringify(metadataToSave)],
     );
 
     // Bump session counters
