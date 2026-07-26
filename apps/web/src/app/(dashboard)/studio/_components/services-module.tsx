@@ -32,6 +32,7 @@ import {
   type Product, type ProductFamily,
   formatCurrency, buildFamilyTree, PRICING_MODEL_LABELS,
 } from './shared'
+import { QuickQuoteWizardModal, ProductSalesIntelligenceModal } from './catalog-module'
 
 // ─── Services Module ──────────────────────────────────────────────────────────
 // Services Management System (docs/SERVICES_PROJECTS_PLAN.md, Part B). A
@@ -110,6 +111,12 @@ export function ServicesModule({ token }: { token: string | undefined }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Quick Quotation Wizard & Sales Intelligence State
+  const [quoteWizardOpen, setQuoteWizardOpen] = useState(false)
+  const [selectedQuoteProduct, setSelectedQuoteProduct] = useState<Product | null>(null)
+  const [salesIntelOpen, setSalesIntelOpen] = useState(false)
+  const [selectedIntelProduct, setSelectedIntelProduct] = useState<Product | null>(null)
 
   const services = showHidden ? allServices : allServices.filter(p => p.status === 'active')
   const filteredServices = services.filter(s => {
@@ -232,6 +239,15 @@ export function ServicesModule({ token }: { token: string | undefined }) {
               {showHidden ? 'Hide' : 'Show'} archived ({hiddenCount})
             </Button>
           )}
+          <Button
+            onClick={() => {
+              setSelectedQuoteProduct(null)
+              setQuoteWizardOpen(true)
+            }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold min-h-[44px]"
+          >
+            <FileText className="w-4 h-4 mr-1.5" /> ⚡ Express Quote Wizard
+          </Button>
           <Button onClick={() => setShowAdd(v => !v)} className="min-h-[44px]">
             <Plus className="w-4 h-4 mr-1.5" />
             Add service
@@ -461,12 +477,39 @@ export function ServicesModule({ token }: { token: string | undefined }) {
               onDeleteCancel={() => setDeleteConfirm(null)}
               onDelete={() => handleDelete(svc.id)}
               onEdit={() => openEdit(svc)}
+              onCreateQuote={() => {
+                setSelectedQuoteProduct(svc)
+                setQuoteWizardOpen(true)
+              }}
               onArchive={() => setServiceStatus(svc, 'archived', 'archived')}
               onDiscontinue={() => setServiceStatus(svc, 'discontinued', 'discontinued')}
               onPromote={() => setServiceStatus(svc, 'active', 'promoted to active')}
             />
           ))}
         </div>
+      )}
+      {/* QUICK QUOTATION WIZARD MODAL */}
+      {quoteWizardOpen && (
+        <QuickQuoteWizardModal
+          token={token}
+          initialProduct={selectedQuoteProduct}
+          onClose={() => {
+            setQuoteWizardOpen(false)
+            setSelectedQuoteProduct(null)
+          }}
+        />
+      )}
+
+      {/* PRODUCT SALES INTELLIGENCE MODAL */}
+      {salesIntelOpen && selectedIntelProduct && (
+        <ProductSalesIntelligenceModal
+          token={token}
+          product={selectedIntelProduct}
+          onClose={() => {
+            setSalesIntelOpen(false)
+            setSelectedIntelProduct(null)
+          }}
+        />
       )}
     </div>
   )
@@ -477,7 +520,7 @@ type ServiceTab = 'overview' | 'packages' | 'deliverables' | 'capacity' | 'workf
 function ServiceCard({
   service, token, isExpanded, onToggle, onChanged,
   deleteConfirm, onDeleteConfirm, onDeleteCancel, onDelete,
-  onEdit, onArchive, onDiscontinue, onPromote,
+  onEdit, onCreateQuote, onArchive, onDiscontinue, onPromote,
 }: {
   service: Product
   token: string | undefined
@@ -489,6 +532,7 @@ function ServiceCard({
   onDeleteCancel: () => void
   onDelete: () => void
   onEdit: () => void
+  onCreateQuote?: () => void
   onArchive: () => void
   onDiscontinue: () => void
   onPromote: () => void
@@ -555,6 +599,16 @@ function ServiceCard({
             {tab === 'workflow' && <ServiceWorkflowTab service={service} token={token} />}
           </div>
           <div className="px-4 pb-4 pt-3 border-t border-gray-50 flex items-center gap-2 flex-wrap">
+            {onCreateQuote && (
+              <Button
+                size="sm"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                onClick={onCreateQuote}
+              >
+                <FileText className="w-3.5 h-3.5 mr-1" />
+                ⚡ Create Quote
+              </Button>
+            )}
             <Button size="sm" variant="secondary" onClick={onEdit}>
               <Edit2 className="w-3.5 h-3.5 mr-1" />
               Edit

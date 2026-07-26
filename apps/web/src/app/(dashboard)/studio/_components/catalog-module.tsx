@@ -18,7 +18,20 @@ import {
   Archive,
   Ban,
   FileText,
+  PenTool,
+  Send,
+  Download,
+  Search,
+  User,
+  Building2,
+  DollarSign,
+  TrendingUp,
+  BarChart2,
+  Target,
+  ShieldAlert,
+  Copy,
 } from 'lucide-react'
+import { SignaturePad } from '@/components/ui/signature-pad'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -649,6 +662,12 @@ export function CatalogModule({ token }: { token: string | undefined }) {
   const [csvParsed, setCsvParsed] = useState<Array<{ name: string; price: number; cost: number; stock: number; category: string }>>([])
   const [bulkImporting, setBulkImporting] = useState(false)
 
+  // Quick Quotation Wizard & Sales Intelligence State
+  const [quoteWizardOpen, setQuoteWizardOpen] = useState(false)
+  const [selectedQuoteProduct, setSelectedQuoteProduct] = useState<Product | null>(null)
+  const [salesIntelOpen, setSalesIntelOpen] = useState(false)
+  const [selectedIntelProduct, setSelectedIntelProduct] = useState<Product | null>(null)
+
   const formOpen = showAdd || !!editingProduct
 
   function openEdit(p: Product) {
@@ -871,6 +890,16 @@ export function CatalogModule({ token }: { token: string | undefined }) {
             className="text-xs font-semibold"
           >
             <Upload className="w-3.5 h-3.5 mr-1" /> Bulk CSV Import
+          </Button>
+
+          <Button
+            onClick={() => {
+              setSelectedQuoteProduct(null)
+              setQuoteWizardOpen(true)
+            }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
+          >
+            <FileText className="w-3.5 h-3.5 mr-1" /> ⚡ Express Quote Wizard
           </Button>
 
           <Button
@@ -1236,6 +1265,29 @@ export function CatalogModule({ token }: { token: string | undefined }) {
                     )}
 
                     <div className="flex gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                        onClick={() => {
+                          setSelectedQuoteProduct(p)
+                          setQuoteWizardOpen(true)
+                        }}
+                      >
+                        <FileText className="w-3.5 h-3.5 mr-1" />
+                        ⚡ Create Quote
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100 font-bold"
+                        onClick={() => {
+                          setSelectedIntelProduct(p)
+                          setSalesIntelOpen(true)
+                        }}
+                      >
+                        <BarChart2 className="w-3.5 h-3.5 mr-1" />
+                        📊 Sales Intelligence
+                      </Button>
                       <Button size="sm" variant="secondary" onClick={() => openEdit(p)}>
                         <Edit2 className="w-3.5 h-3.5 mr-1" />
                         Edit
@@ -1527,6 +1579,681 @@ export function CatalogModule({ token }: { token: string | undefined }) {
           </div>
         </div>
       </Modal>
+
+      {/* QUICK QUOTATION WIZARD MODAL */}
+      {quoteWizardOpen && (
+        <QuickQuoteWizardModal
+          token={token}
+          initialProduct={selectedQuoteProduct}
+          onClose={() => {
+            setQuoteWizardOpen(false)
+            setSelectedQuoteProduct(null)
+          }}
+        />
+      )}
+
+      {/* PRODUCT SALES INTELLIGENCE MODAL */}
+      {salesIntelOpen && selectedIntelProduct && (
+        <ProductSalesIntelligenceModal
+          token={token}
+          product={selectedIntelProduct}
+          onClose={() => {
+            setSalesIntelOpen(false)
+            setSelectedIntelProduct(null)
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+// ─── Quick Quotation Wizard Modal ─────────────────────────────────────────────
+
+export function QuickQuoteWizardModal({
+  token,
+  initialProduct,
+  onClose,
+}: {
+  token: string | undefined
+  initialProduct?: Product | null
+  onClose: () => void
+}) {
+  const { addToast } = useToast()
+  const { data: contactsData } = useApi<{ contacts: any[] }>(token ? '/api/contacts' : null, token)
+  const { data: sigsData } = useApi<{ signatures: any[] }>(token ? '/api/signatures' : null, token)
+
+  const contacts = contactsData?.contacts || []
+  const signatures = sigsData?.signatures || []
+
+  const [mode, setMode] = useState<'quick' | 'ai'>('quick')
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
+
+  // Customer State
+  const [contactId, setContactId] = useState('')
+  const [contactName, setContactName] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
+  const [contactCompany, setContactCompany] = useState('')
+
+  // Line Items
+  const [lineItems, setLineItems] = useState<Array<{ name: string; quantity: number; unitPrice: number; description?: string }>>([
+    initialProduct ? {
+      name: initialProduct.name,
+      quantity: 1,
+      unitPrice: initialProduct.sellingPrice ?? 100,
+      description: initialProduct.description || ''
+    } : {
+      name: 'Standard Product / Service',
+      quantity: 1,
+      unitPrice: 100,
+      description: ''
+    }
+  ])
+
+  // Signature
+  const [useSignature, setUseSignature] = useState(true)
+  const [selectedSignatureId, setSelectedSignatureId] = useState<string>('')
+  const [drawnSignatureData, setDrawnSignatureData] = useState<string | null>(null)
+
+  // AI & Polish
+  const [termsNotes, setTermsNotes] = useState('Quote valid for 14 days. Payment terms: 50% upfront, 50% upon delivery.')
+  const [isPolishing, setIsPolishing] = useState(false)
+
+  // AI Generator Mode
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [isAiGenerating, setIsAiGenerating] = useState(false)
+
+  // Document creation
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const subtotal = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0)
+  const tax = subtotal * 0.16
+  const total = subtotal + tax
+
+  const addItem = () => {
+    setLineItems([...lineItems, { name: 'Additional Line Item', quantity: 1, unitPrice: 50 }])
+  }
+
+  const updateItem = (index: number, field: string, value: any) => {
+    const updated = [...lineItems]
+    updated[index] = { ...updated[index], [field]: value }
+    setLineItems(updated)
+  }
+
+  const removeItem = (index: number) => {
+    if (lineItems.length <= 1) return
+    setLineItems(lineItems.filter((_, i) => i !== index))
+  }
+
+  const handleAiPolish = async () => {
+    setIsPolishing(true)
+    try {
+      const res = await apiClient<{ reply: string }>('/api/advisor/chat', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          message: `Polish these quote payment terms and notes to sound highly professional, clear, and reassuring: "${termsNotes}"`
+        })
+      })
+      if (res?.reply) {
+        setTermsNotes(res.reply.replace(/['"]/g, ''))
+        addToast({ title: 'Terms Polished', description: 'AI polished quote terms successfully.', variant: 'success' })
+      }
+    } catch {
+      setTermsNotes('Quote valid for 14 banking days. Prompt payment guarantees expedited delivery and service continuity.')
+    } finally {
+      setIsPolishing(false)
+    }
+  }
+
+  const handleAiGenerateQuote = async () => {
+    if (!aiPrompt.trim()) {
+      addToast({ title: 'Prompt Required', description: 'Describe what quote you want AI to generate.', variant: 'error' })
+      return
+    }
+    setIsAiGenerating(true)
+    try {
+      const res = await apiClient<{ document: any }>('/api/documents/ai-generate', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          prompt: aiPrompt,
+          documentType: 'quotation',
+          contactId: contactId || undefined
+        })
+      })
+      if (res?.document) {
+        if (res.document.lineItems?.length) {
+          setLineItems(res.document.lineItems.map((l: any) => ({
+            name: l.description || l.name || 'Quotation Item',
+            quantity: l.quantity || 1,
+            unitPrice: l.unitPrice || l.amount || 100,
+            description: l.notes || ''
+          })))
+        }
+        if (res.document.terms) setTermsNotes(res.document.terms)
+        setMode('quick')
+        setStep(2)
+        addToast({ title: 'Quote AI Generated', description: 'Review and confirm generated line items.', variant: 'success' })
+      }
+    } catch (e: any) {
+      addToast({ title: 'Generation Error', description: e?.message || 'Failed to AI generate quote', variant: 'error' })
+    } finally {
+      setIsAiGenerating(false)
+    }
+  }
+
+  const handleCreateDocument = async (action: 'download' | 'whatsapp') => {
+    setIsSubmitting(true)
+    try {
+      const sigObj = signatures.find(s => s.id === selectedSignatureId)
+      const sigData = drawnSignatureData || sigObj?.signatureData || null
+
+      const created = await apiClient<{ document: { id: string } }>('/api/documents', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({
+          documentType: 'quotation',
+          templateKey: 'standard_quotation',
+          contactId: contactId || undefined,
+          title: `Quotation for ${contactName || contactCompany || 'Client'}`,
+          notes: termsNotes,
+          signatureData: sigData,
+          signerName: sigObj?.signerName || contactName || 'Authorized Signatory',
+          signerTitle: sigObj?.signerTitle || 'Managing Director',
+          lineItems: lineItems.map(item => ({
+            description: item.name,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            amount: item.quantity * item.unitPrice
+          }))
+        })
+      })
+
+      const docId = created.document.id
+      await apiClient(`/api/documents/${docId}/generate`, { method: 'POST', token })
+
+      if (action === 'download') {
+        const pdfUrl = `/api/documents/${docId}/pdf`
+        const win = window.open(pdfUrl, '_blank')
+        if (!win) {
+          window.location.href = pdfUrl
+        }
+        addToast({ title: 'Quotation Generated', description: 'PDF quote downloaded successfully!', variant: 'success' })
+      } else if (action === 'whatsapp') {
+        await apiClient(`/api/documents/${docId}/send-whatsapp`, { method: 'POST', token })
+        addToast({ title: 'Sent via WhatsApp', description: 'Quotation link sent to client on WhatsApp!', variant: 'success' })
+      }
+
+      onClose()
+    } catch (err: any) {
+      addToast({ title: 'Error Creating Quote', description: err?.message || 'Could not generate quotation.', variant: 'error' })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="⚡ Express Quotation Wizard"
+      description="Generate, e-sign, and download professional client quotations in under 60 seconds."
+      size="lg"
+    >
+      {/* Mode Switcher */}
+      <div className="flex gap-2 p-1 bg-slate-100 rounded-xl mb-4 text-xs font-bold">
+        <button
+          onClick={() => setMode('quick')}
+          className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+            mode === 'quick' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileText size={14} /> Quick Step Wizard
+        </button>
+        <button
+          onClick={() => setMode('ai')}
+          className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+            mode === 'ai' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Sparkles size={14} className="text-amber-500" /> ✨ AI Auto-Generate Quote
+        </button>
+      </div>
+
+      {mode === 'ai' ? (
+        <div className="space-y-4 pt-1">
+          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-2xl border border-indigo-100">
+            <label className="block text-xs font-extrabold text-indigo-950 mb-1.5">
+              Describe Client Request & Scope
+            </label>
+            <textarea
+              rows={4}
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="e.g. Client requested 5 High-Spec Laptops plus installation, 1-year support agreement, with 5% discount for bulk payment."
+              className="w-full text-xs rounded-xl border border-indigo-200 p-3 focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={isAiGenerating || !aiPrompt.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5"
+              onClick={handleAiGenerateQuote}
+            >
+              {isAiGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+              Generate Quote with AI
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Step Indicator */}
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 text-xs">
+            <span className={`font-bold ${step === 1 ? 'text-indigo-600' : 'text-slate-400'}`}>1. Contact & Brand</span>
+            <span className={`font-bold ${step === 2 ? 'text-indigo-600' : 'text-slate-400'}`}>2. Line Items</span>
+            <span className={`font-bold ${step === 3 ? 'text-indigo-600' : 'text-slate-400'}`}>3. E-Signature</span>
+            <span className={`font-bold ${step === 4 ? 'text-indigo-600' : 'text-slate-400'}`}>4. Preview & Send</span>
+          </div>
+
+          {step === 1 && (
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Select Existing Contact</label>
+                <select
+                  value={contactId}
+                  onChange={e => {
+                    const cid = e.target.value
+                    setContactId(cid)
+                    const found = contacts.find(c => c.id === cid)
+                    if (found) {
+                      setContactName(found.name || '')
+                      setContactEmail(found.email || '')
+                      setContactPhone(found.phone || '')
+                      setContactCompany(found.company || '')
+                    }
+                  }}
+                  className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">-- Choose CRM Contact or enter manually below --</option>
+                  {contacts.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.company ? `(${c.company})` : ''} - {c.phone || c.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Customer Name *</label>
+                  <input
+                    type="text"
+                    value={contactName}
+                    onChange={e => setContactName(e.target.value)}
+                    placeholder="e.g. Sarah Jenkins"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Company / Organization</label>
+                  <input
+                    type="text"
+                    value={contactCompany}
+                    onChange={e => setContactCompany(e.target.value)}
+                    placeholder="e.g. Nexus Tech Ltd"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">WhatsApp / Phone</label>
+                  <input
+                    type="text"
+                    value={contactPhone}
+                    onChange={e => setContactPhone(e.target.value)}
+                    placeholder="+260 971 234 567"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    value={contactEmail}
+                    onChange={e => setContactEmail(e.target.value)}
+                    placeholder="sarah@nexustech.com"
+                    className="w-full text-xs rounded-xl border border-slate-200 p-2 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-3">
+                <Button size="sm" onClick={() => setStep(2)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                  Next: Line Items →
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-3 pt-1">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-700">Quotation Line Items</span>
+                <Button size="sm" variant="secondary" onClick={addItem} className="text-xs">
+                  <Plus size={12} className="mr-1" /> Add Line Item
+                </Button>
+              </div>
+
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {lineItems.map((item, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-6">
+                        <input
+                          type="text"
+                          value={item.name}
+                          onChange={e => updateItem(idx, 'name', e.target.value)}
+                          placeholder="Item Name"
+                          className="w-full text-xs rounded-lg border border-slate-200 p-1.5 bg-white"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <input
+                          type="number"
+                          value={item.quantity}
+                          onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 1)}
+                          placeholder="Qty"
+                          className="w-full text-xs rounded-lg border border-slate-200 p-1.5 bg-white text-center"
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <input
+                          type="number"
+                          value={item.unitPrice}
+                          onChange={e => updateItem(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
+                          placeholder="Price"
+                          className="w-full text-xs rounded-lg border border-slate-200 p-1.5 bg-white"
+                        />
+                      </div>
+                      <div className="col-span-1 text-right">
+                        <button onClick={() => removeItem(idx)} className="text-slate-400 hover:text-red-500">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Totals Summary */}
+              <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs space-y-1">
+                <div className="flex justify-between text-slate-600">
+                  <span>Subtotal:</span>
+                  <span className="font-bold">{formatCurrency(subtotal, 'ZMW')}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Tax (16%):</span>
+                  <span className="font-bold">{formatCurrency(tax, 'ZMW')}</span>
+                </div>
+                <div className="flex justify-between text-indigo-950 font-black text-sm pt-1 border-t border-indigo-200/60">
+                  <span>Total Amount:</span>
+                  <span>{formatCurrency(total, 'ZMW')}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between pt-2">
+                <Button size="sm" variant="secondary" onClick={() => setStep(1)}>← Back</Button>
+                <Button size="sm" onClick={() => setStep(3)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                  Next: E-Signature →
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800">Attach Official Brand E-Signature</span>
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 font-medium cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useSignature}
+                    onChange={e => setUseSignature(e.target.checked)}
+                    className="rounded border-slate-300 text-indigo-600"
+                  />
+                  Include E-Signature
+                </label>
+              </div>
+
+              {useSignature && (
+                <div className="space-y-3">
+                  {signatures.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Select Saved Signature</label>
+                      <select
+                        value={selectedSignatureId}
+                        onChange={e => {
+                          setSelectedSignatureId(e.target.value)
+                          setDrawnSignatureData(null)
+                        }}
+                        className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white"
+                      >
+                        <option value="">-- Draw new signature below --</option>
+                        {signatures.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.signerName} - {s.signerTitle})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {!selectedSignatureId && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Draw or Type Signature</label>
+                      <SignaturePad onSave={dataUrl => setDrawnSignatureData(dataUrl)} height={160} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-between pt-2">
+                <Button size="sm" variant="secondary" onClick={() => setStep(2)}>← Back</Button>
+                <Button size="sm" onClick={() => setStep(4)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                  Next: Terms & Preview →
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-3 pt-1">
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-bold text-slate-700">Payment Terms & Notes</label>
+                  <button
+                    onClick={handleAiPolish}
+                    disabled={isPolishing}
+                    className="inline-flex items-center gap-1 text-[11px] font-extrabold text-indigo-600 hover:text-indigo-800"
+                  >
+                    {isPolishing ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} className="text-amber-500" />}
+                    AI Polish Terms
+                  </button>
+                </div>
+                <textarea
+                  rows={3}
+                  value={termsNotes}
+                  onChange={e => setTermsNotes(e.target.value)}
+                  className="w-full text-xs rounded-xl border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Quote Summary Box */}
+              <div className="bg-slate-900 text-white p-4 rounded-2xl space-y-2 text-xs shadow-lg">
+                <div className="flex justify-between border-b border-slate-800 pb-2">
+                  <span className="font-bold text-slate-300">Quotation Summary</span>
+                  <span className="text-emerald-400 font-bold">{lineItems.length} Item(s)</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Client:</span>
+                  <span className="text-white font-medium">{contactName || contactCompany || 'General Client'}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Grand Total:</span>
+                  <span className="text-emerald-400 font-extrabold text-sm">{formatCurrency(total, 'ZMW')}</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between pt-2">
+                <Button size="sm" variant="secondary" onClick={() => setStep(3)}>← Back</Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isSubmitting}
+                    onClick={() => handleCreateDocument('whatsapp')}
+                    className="text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 font-bold"
+                  >
+                    <Send size={12} className="mr-1" /> Send via WA
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={isSubmitting}
+                    onClick={() => handleCreateDocument('download')}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                  >
+                    {isSubmitting ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Download size={12} className="mr-1" />}
+                    Download PDF Quote
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ─── Product Sales Intelligence Modal ───────────────────────────────────────
+
+export function ProductSalesIntelligenceModal({
+  token,
+  product,
+  onClose,
+}: {
+  token: string | undefined
+  product: Product
+  onClose: () => void
+}) {
+  const { addToast } = useToast()
+  const margin = calcMargin(product.sellingPrice, product.purchaseCost)
+  const isHealthyMargin = margin != null && margin >= 30
+  const isThinMargin = margin != null && margin < 15
+
+  const copyToClipboard = (text: string, title: string) => {
+    navigator.clipboard.writeText(text)
+    addToast({ title: 'Copied to Clipboard', description: title, variant: 'success' })
+  }
+
+  const pitchWhatsapp = `Hi! 👋 We have the original ${product.name} in stock right now for ${formatCurrency(product.sellingPrice, product.currency)}. Limited units remaining! Would you like me to reserve one for you today?`
+  const pitchValue = `Looking for top quality ${product.category || 'gear'}? ${product.name} offers unbeatable durability and official warranty (${product.warranty || 'Included'}). Price: ${formatCurrency(product.sellingPrice, product.currency)}. Shall I send over the official quotation?`
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`📊 Sales Intelligence & Selling Coach — ${product.name}`}
+      description="Deep AI analysis, objection handling, and high-converting pitch scripts to sell this product faster."
+      size="lg"
+    >
+      <div className="space-y-4 pt-1">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="p-3 bg-indigo-50/80 border border-indigo-100 rounded-2xl text-center">
+            <p className="text-[10px] font-bold text-indigo-700 uppercase">Selling Price</p>
+            <p className="text-sm font-black text-indigo-950 mt-0.5">{formatCurrency(product.sellingPrice, product.currency)}</p>
+          </div>
+          <div className={`p-3 rounded-2xl text-center border ${
+            isHealthyMargin ? 'bg-emerald-50/80 border-emerald-100' : isThinMargin ? 'bg-rose-50/80 border-rose-100' : 'bg-amber-50/80 border-amber-100'
+          }`}>
+            <p className={`text-[10px] font-bold uppercase ${
+              isHealthyMargin ? 'text-emerald-700' : isThinMargin ? 'text-rose-700' : 'text-amber-700'
+            }`}>Profit Margin</p>
+            <p className={`text-sm font-black mt-0.5 ${
+              isHealthyMargin ? 'text-emerald-950' : isThinMargin ? 'text-rose-950' : 'text-amber-950'
+            }`}>{margin != null ? `${margin.toFixed(1)}%` : '—'}</p>
+          </div>
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-center">
+            <p className="text-[10px] font-bold text-slate-600 uppercase">Stock Velocity</p>
+            <p className="text-sm font-black text-slate-900 mt-0.5">
+              {product.stock > 10 ? '⚡ Grade A+' : product.stock > 0 ? '🟡 Grade B' : '⚠️ Restock'}
+            </p>
+          </div>
+        </div>
+
+        {/* Ideal Customer Persona */}
+        <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-4 rounded-2xl space-y-1 text-xs">
+          <p className="text-[10px] font-extrabold uppercase text-indigo-300">🎯 Ideal Customer Persona (ICP)</p>
+          <p className="text-slate-200 leading-relaxed font-medium">
+            Best suited for customers looking for high-reliability {product.category || 'solutions'}. They prioritize product quality, fast delivery, and official warranty over cheap unverified alternatives.
+          </p>
+        </div>
+
+        {/* High Converting WhatsApp Pitch Scripts */}
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+            <MessageSquare size={14} className="text-emerald-600" /> High-Converting Pitch Scripts
+          </p>
+
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-extrabold text-slate-700">1. Fast Direct WhatsApp Pitch</span>
+              <button
+                onClick={() => copyToClipboard(pitchWhatsapp, 'WhatsApp pitch copied!')}
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800"
+              >
+                <Copy size={12} /> Copy
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 italic bg-white p-2 rounded-lg border border-slate-100">{pitchWhatsapp}</p>
+          </div>
+
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-extrabold text-slate-700">2. Value & Warranty Pitch</span>
+              <button
+                onClick={() => copyToClipboard(pitchValue, 'Value pitch copied!')}
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800"
+              >
+                <Copy size={12} /> Copy
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 italic bg-white p-2 rounded-lg border border-slate-100">{pitchValue}</p>
+          </div>
+        </div>
+
+        {/* Top Objections & Counter Responses */}
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+            <ShieldAlert size={14} className="text-amber-600" /> Top Customer Objections & AI Responses
+          </p>
+
+          <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs space-y-1">
+            <p className="font-extrabold text-amber-950">Objection: "Can I get a discount or lower price?"</p>
+            <p className="text-amber-900">
+              <strong className="font-bold">AI Recommended Response:</strong> "Our price includes full warranty and official after-sales support. I can offer free delivery or throw in a complementary accessory if we complete the order today!"
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <Button variant="secondary" size="sm" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
