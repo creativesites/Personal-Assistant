@@ -827,8 +827,9 @@ export default function KnowledgeBasePage() {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto border-b border-gray-200 pb-2 no-scrollbar">
+      {/* Navigation Tabs Header - Sticky with non-transparent solid background */}
+      <div className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur-md py-3 -mx-4 px-4 sm:-mx-6 sm:px-6 border-b border-gray-200/80 shadow-xs transition-all">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
         {[
           { id: 'overview', label: 'Memory Dashboard', icon: BarChart3 },
           { id: 'queue', label: `Approval Queue (${suggestions.length})`, icon: ShieldAlert, badge: suggestions.length },
@@ -861,6 +862,7 @@ export default function KnowledgeBasePage() {
             </button>
           )
         })}
+        </div>
       </div>
 
       {/* ── TAB 1: OVERVIEW & HEALTH DASHBOARD ───────────────────────────────── */}
