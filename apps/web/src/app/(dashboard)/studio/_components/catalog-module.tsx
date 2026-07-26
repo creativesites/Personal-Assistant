@@ -38,6 +38,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Modal } from '@/components/ui/modal'
 import { SkeletonCard } from '@/components/ui/skeleton'
 import { useToast } from '@/components/ui/toast'
+import DocumentPreviewModal from '@/components/documents/DocumentPreviewModal'
 import { useApi } from '@/hooks/use-api'
 import { apiClient } from '@/lib/api'
 import { uploadProductImage } from '@/lib/storage'
@@ -1627,6 +1628,7 @@ export function QuickQuoteWizardModal({
 
   const [mode, setMode] = useState<'quick' | 'ai'>('quick')
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null)
 
   // Customer State
   const [contactId, setContactId] = useState('')
@@ -1771,26 +1773,38 @@ export function QuickQuoteWizardModal({
       })
 
       const docId = created.document.id
-      await apiClient(`/api/documents/${docId}/generate`, { method: 'POST', token })
+      await apiClient(`/api/documents/${docId}/generate`, { method: 'POST', token }).catch(() => {})
 
-      if (action === 'download') {
-        const pdfUrl = `/api/documents/${docId}/pdf`
-        const win = window.open(pdfUrl, '_blank')
-        if (!win) {
-          window.location.href = pdfUrl
-        }
-        addToast({ title: 'Quotation Generated', description: 'PDF quote downloaded successfully!', variant: 'success' })
-      } else if (action === 'whatsapp') {
-        await apiClient(`/api/documents/${docId}/send-whatsapp`, { method: 'POST', token })
-        addToast({ title: 'Sent via WhatsApp', description: 'Quotation link sent to client on WhatsApp!', variant: 'success' })
+      if (action === 'whatsapp') {
+        const calcTotal = lineItems.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0)
+        const text = encodeURIComponent(`Hi ${contactName || 'there'},\n\nHere is your official quotation for ${lineItems[0]?.name || 'services'}.\n\nTotal: ZMW ${calcTotal.toFixed(2)}\n\nYou can view and download your document here. Thank you for your business!`)
+        const waUrl = contactPhone ? `https://wa.me/${contactPhone.replace(/[^0-9]/g, '')}?text=${text}` : `https://wa.me/?text=${text}`
+        window.open(waUrl, '_blank')
+        addToast({ title: 'Quotation Created', description: 'Opening WhatsApp & PDF Preview Modal...', variant: 'success' })
+      } else {
+        addToast({ title: 'Quotation Created', description: 'Opening Document PDF Preview...', variant: 'success' })
       }
 
-      onClose()
+      setPreviewDocId(docId)
     } catch (err: any) {
       addToast({ title: 'Error Creating Quote', description: err?.message || 'Could not generate quotation.', variant: 'error' })
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (previewDocId) {
+    return (
+      <DocumentPreviewModal
+        open={!!previewDocId}
+        onClose={() => {
+          setPreviewDocId(null)
+          onClose()
+        }}
+        documentId={previewDocId}
+        token={token}
+      />
+    )
   }
 
   return (

@@ -677,7 +677,7 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
         </div>
 
         {/* Right Column: AI Business Advisor Chat */}
-        <div className={`md:col-span-7 ${viewMode === 'advisor' ? 'block' : 'hidden md:block'}`}>
+        <div className={`md:col-span-7 lg:sticky lg:top-24 z-10 ${viewMode === 'advisor' ? 'block' : 'hidden md:block'}`}>
           <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-white via-indigo-50 to-cyan-50 shadow-xl border border-gray-100 flex flex-col" style={{ height: '620px' }}>
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_6%_84%,rgba(129,140,248,0.16),transparent_30%)] pointer-events-none" />
 
@@ -2895,35 +2895,54 @@ function StudioPageInner() {
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#eef2ff_0%,#f8fafc_260px,#f8fafc_100%)] pt-14 pb-14 md:pt-0 md:pb-0">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <PageHeader
-            title="Business Knowledge Hub"
-            description="Single source of truth for your business data — feeds Zuri's AI intelligence engines."
-          />
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setIsAutoExtractOpen(true)}
-              className="gap-1.5 text-xs font-semibold"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-              Auto-Extract Data
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setIsPresetModalOpen(true)}
-              className="gap-1.5 text-xs font-semibold"
-            >
-              <span>{PRESETS[currentPreset]?.icon || '🏢'}</span>
-              <span>{PRESETS[currentPreset]?.label || 'Retail & E-commerce'}</span>
-            </Button>
+        {/* Executive Studio Header */}
+        <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 border border-indigo-900/50 p-6 md:p-8 text-white shadow-2xl">
+          <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-64 h-64 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold tracking-wide">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> Enterprise AI Enabled
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold tracking-wide">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Live Operations
+                </span>
+              </div>
+              <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+                Studio Business Operating System
+              </h1>
+              <p className="text-xs md:text-sm text-slate-300 max-w-2xl leading-relaxed">
+                Single source of truth for your products, sales, customers, documents, brand studio &amp; AI workforce.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsAutoExtractOpen(true)}
+                className="bg-white/10 hover:bg-white/20 text-white border-white/15 gap-1.5 text-xs font-bold shadow-sm backdrop-blur-md min-h-[42px]"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                Auto-Extract Data
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsPresetModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-400/30 gap-1.5 text-xs font-bold shadow-lg shadow-indigo-600/30 min-h-[42px]"
+              >
+                <span>{PRESETS[currentPreset]?.icon || '🏢'}</span>
+                <span>{PRESETS[currentPreset]?.label || 'Retail & E-commerce'}</span>
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Module Tab Bar */}
-        <div className="sticky top-0 z-10 overflow-x-auto rounded-2xl border border-slate-100 bg-white/90 backdrop-blur-xl p-2 shadow-sm">
+        {/* Premium Sticky Module Tab Bar (z-50) */}
+        <div className="sticky top-0 z-50 overflow-x-auto rounded-2xl border border-indigo-500/20 bg-slate-950/95 backdrop-blur-2xl p-2.5 shadow-2xl ring-1 ring-white/10">
           <div className="flex min-w-max gap-1.5">
             {MODULES.map(({ id, label, Icon }) => {
               const isActive = activeModule === id
@@ -2931,13 +2950,13 @@ function StudioPageInner() {
                 <button
                   key={id}
                   onClick={() => setActiveModule(id)}
-                  className={`inline-flex min-h-10 items-center gap-2 whitespace-nowrap rounded-2xl px-3.5 text-xs font-bold transition-all ${
+                  className={`inline-flex min-h-11 items-center gap-2.5 whitespace-nowrap rounded-xl px-4 text-xs font-bold transition-all ${
                     isActive
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
+                      ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/30 scale-[1.02] ring-1 ring-white/20'
+                      : 'bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800/90 border border-slate-800/80'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                   <span>{label}</span>
                 </button>
               )
