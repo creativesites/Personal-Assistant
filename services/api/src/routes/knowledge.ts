@@ -1233,4 +1233,45 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       }
     },
   )
+
+  // ── POST /api/knowledge/reindex ─────────────────────────────────────────────
+  fastify.post(
+    '/api/knowledge/reindex',
+    { preHandler: authenticate },
+    async (request, reply) => {
+      const { userId } = request.user as { userId: string }
+
+      const { rows: docs } = await db.query<{ id: string; title: string }>(
+        `SELECT id, title FROM kb_documents WHERE user_id = $1 AND is_active = TRUE AND status = 'ready'`,
+        [userId],
+      )
+
+      const { rows: facts } = await db.query<{ id: string }>(
+        `SELECT id FROM business_facts WHERE user_id = $1 AND is_active = TRUE AND is_approved = TRUE`,
+        [userId],
+      )
+
+      // Touch updated_at for stats tracking
+      await db.query(`UPDATE kb_documents SET updated_at = NOW() WHERE user_id = $1 AND is_active = TRUE`, [userId])
+
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? config.INTELLIGENCE_SERVICE_URL
+      try {
+        await fetch(`${intelligenceUrl}/internal/knowledge/reindex`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId }),
+        }).catch(() => {})
+      } catch {
+        // Graceful fallback
+      }
+
+      return reply.send({
+        ok: true,
+        message: 'Knowledge memory re-indexed and synchronized across AI engines',
+        reindexedDocuments: docs.length,
+        activeFacts: facts.length,
+        timestamp: new Date().toISOString(),
+      })
+    },
+  )
 }

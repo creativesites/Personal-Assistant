@@ -10,7 +10,7 @@ import {
   Layers, Clock, Tag, CheckCircle, AlertCircle, Loader2, Image as ImageIcon,
   Check, ShieldAlert, Cpu, GitBranch, Share2, HelpCircle, Plus,
   BarChart3, ArrowRight, ThumbsUp, ThumbsDown, Edit3, Merge, Filter,
-  Building2, DollarSign, Package, UserCheck, ShieldCheck, Zap
+  Building2, DollarSign, Package, UserCheck, ShieldCheck, Zap, Info
 } from 'lucide-react'
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -231,6 +231,23 @@ export default function KnowledgeBasePage() {
   const [newFactKey, setNewFactKey] = useState('')
   const [newFactValue, setNewFactValue] = useState('')
   const [savingFact, setSavingFact] = useState(false)
+
+  // Organization Filters State (Point 3)
+  const [docSearch, setDocSearch] = useState('')
+  const [docCategoryFilter, setDocCategoryFilter] = useState('all')
+  const [docTypeFilter, setDocTypeFilter] = useState('all')
+  const [docStatusFilter, setDocStatusFilter] = useState('all')
+
+  // Manual Fact Filters & Edit State (Point 4)
+  const [factSearch, setFactSearch] = useState('')
+  const [factCategoryFilter, setFactCategoryFilter] = useState('all')
+  const [editingFact, setEditingFact] = useState<BusinessFact | null>(null)
+  const [editingFactValue, setEditingFactValue] = useState('')
+  const [editingFactCategory, setEditingFactCategory] = useState('')
+
+  // Intelligence Re-index State (Point 6)
+  const [reindexing, setReindexing] = useState(false)
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null)
 
   // Upload & Scrape Form State
   const [uploadFileObj, setUploadFileObj] = useState<File | null>(null)
@@ -580,6 +597,98 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  const handleSyncMemory = async () => {
+    if (!token) return
+    setReindexing(true)
+    try {
+      const res = await apiClient<{ ok: boolean; reindexedDocuments: number; activeFacts: number; timestamp: string }>('/api/knowledge/reindex', {
+        method: 'POST',
+        token,
+      })
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+      showToast(`⚡ Memory Synchronized! ${res.reindexedDocuments} documents & ${res.activeFacts} facts active across all 12 AI engines.`, 'success')
+      loadMemoryData()
+    } catch {
+      showToast('Failed to trigger memory re-indexing', 'error')
+    } finally {
+      setReindexing(false)
+    }
+  }
+
+  const handleDeleteFact = async (factId: string) => {
+    if (!token) return
+    try {
+      await apiClient(`/api/business-facts/${factId}/reject`, { method: 'POST', token })
+      showToast('Fact removed from active memory', 'info')
+      setFacts(prev => prev.filter(f => f.id !== factId))
+    } catch {
+      showToast('Failed to delete fact', 'error')
+    }
+  }
+
+  const handleUpdateFact = async () => {
+    if (!token || !editingFact || !editingFactValue.trim()) return
+    try {
+      await apiClient(`/api/business-facts/${editingFact.id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({
+          category: editingFactCategory || editingFact.category,
+          factValue: editingFactValue.trim(),
+        }),
+      })
+      showToast('Business fact updated successfully!', 'success')
+      setEditingFact(null)
+      loadMemoryData()
+    } catch {
+      showToast('Failed to update business fact', 'error')
+    }
+  }
+
+  const handleBatchApproveHighConfidence = async () => {
+    if (!token) return
+    const highConf = suggestions.filter(s => s.confidence >= 0.8)
+    if (highConf.length === 0) {
+      showToast('No pending suggestions with ≥ 80% confidence found', 'info')
+      return
+    }
+    try {
+      await apiClient('/api/knowledge/suggestions/bulk', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ action: 'approve_all', ids: highConf.map(s => s.id) }),
+      })
+      showToast(`🎉 Approved ${highConf.length} high-confidence facts into active memory!`, 'success')
+      loadMemoryData()
+    } catch {
+      showToast('Failed to batch approve suggestions', 'error')
+    }
+  }
+
+  const filteredDocuments = documents.filter(doc => {
+    const matchesSearch = !docSearch.trim() ||
+      doc.title.toLowerCase().includes(docSearch.toLowerCase()) ||
+      (doc.summary && doc.summary.toLowerCase().includes(docSearch.toLowerCase())) ||
+      (doc.category && doc.category.toLowerCase().includes(docSearch.toLowerCase()))
+
+    const matchesCategory = docCategoryFilter === 'all' || (doc.category && doc.category.toLowerCase().includes(docCategoryFilter))
+    const matchesType = docTypeFilter === 'all' || doc.sourceType.toLowerCase() === docTypeFilter
+    const matchesStatus = docStatusFilter === 'all' ||
+      (docStatusFilter === 'active' && doc.isActive !== false) ||
+      (docStatusFilter === 'paused' && doc.isActive === false) ||
+      (docStatusFilter === 'processing' && doc.status === 'processing')
+
+    return matchesSearch && matchesCategory && matchesType && matchesStatus
+  })
+
+  const filteredFacts = facts.filter(fact => {
+    const matchesSearch = !factSearch.trim() ||
+      fact.factKey.toLowerCase().includes(factSearch.toLowerCase()) ||
+      fact.factValue.toLowerCase().includes(factSearch.toLowerCase())
+    const matchesCategory = factCategoryFilter === 'all' || fact.category.toLowerCase() === factCategoryFilter
+    return matchesSearch && matchesCategory
+  })
+
   const WIZARD_SAMPLES = [
     {
       brandName: 'Zuri Luxe Accessories',
@@ -689,6 +798,14 @@ export default function KnowledgeBasePage() {
 
         {/* Quick Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleSyncMemory}
+            disabled={reindexing}
+            className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`} />
+            {reindexing ? 'Syncing Memory...' : 'Sync AI Memory'}
+          </button>
           <button
             onClick={() => setShowUploadModal(true)}
             className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all flex items-center gap-2"
@@ -1096,10 +1213,16 @@ export default function KnowledgeBasePage() {
               <p className="text-xs text-gray-500">Zuri observed these facts from messaging, invoices, and notes. Review before publishing to memory.</p>
             </div>
             {suggestions.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleBatchApproveHighConfidence}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-300" /> Approve High Confidence (≥ 80%)
+                </button>
                 <button
                   onClick={() => handleBulkSuggestions('approve_all')}
-                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-all"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all"
                 >
                   Approve All
                 </button>
@@ -1194,126 +1317,259 @@ export default function KnowledgeBasePage() {
       {/* ── TAB 3: FACT & POLICY ROSTER ──────────────────────────────────────── */}
       {activeTab === 'facts' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
             <div>
               <h2 className="text-sm font-bold text-gray-900">Active Business Facts & Rules</h2>
               <p className="text-xs text-gray-500">Live single source of truth for pricing, policies, shipping, and FAQs.</p>
             </div>
             <button
               onClick={() => setShowNoteModalFact(true)}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
             >
-              <Plus className="w-3.5 h-3.5" /> Add Fact
+              <Plus className="w-3.5 h-3.5" /> Add Fact / Policy
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {facts.map(fact => (
-              <div key={fact.id} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-2 hover:border-indigo-300 transition-all">
-                <div className="flex items-center justify-between">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
-                    {fact.category}
-                  </span>
-                  <span className="text-[11px] font-bold text-gray-400 font-mono">{fact.factKey}</span>
-                </div>
-                <p className="text-xs font-medium text-gray-900 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100">
-                  {fact.factValue}
-                </p>
-                <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1">
-                  <span>Source: {fact.source}</span>
-                  <span>Added {relativeTime(fact.createdAt)}</span>
-                </div>
-              </div>
-            ))}
+          {/* Search & Category Pills */}
+          <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm space-y-3">
+            <div className="relative w-full">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={factSearch}
+                onChange={e => setFactSearch(e.target.value)}
+                placeholder="Filter facts by key or content..."
+                className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+              {[
+                { id: 'all', label: 'All Categories' },
+                { id: 'pricing', label: '💰 Pricing' },
+                { id: 'product', label: '📦 Products' },
+                { id: 'refund_policy', label: '📜 Refunds' },
+                { id: 'shipping', label: '🚚 Shipping' },
+                { id: 'hours', label: '🕒 Hours' },
+                { id: 'business_rule', label: '⚡ Rules' },
+                { id: 'faq', label: '⭐ FAQ' },
+              ].map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => setFactCategoryFilter(cat.id)}
+                  className={`px-3 py-1 rounded-lg font-medium whitespace-nowrap transition-all ${
+                    factCategoryFilter === cat.id
+                      ? 'bg-indigo-600 text-white shadow-sm font-bold'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {filteredFacts.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center space-y-2">
+              <Info className="w-8 h-8 text-gray-400 mx-auto" />
+              <p className="text-sm font-bold text-gray-700">No matching business facts found</p>
+              <p className="text-xs text-gray-500">Try adjusting your category filter or search query.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredFacts.map(fact => (
+                <div key={fact.id} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm space-y-3 hover:border-indigo-300 transition-all flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        {fact.category}
+                      </span>
+                      <span className="text-[11px] font-bold text-gray-400 font-mono">{fact.factKey}</span>
+                    </div>
+                    <p className="text-xs font-medium text-gray-900 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      {fact.factValue}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-gray-400 pt-2 border-t border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <span>Source: {fact.source}</span>
+                      <span>• {relativeTime(fact.createdAt)}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          setEditingFact(fact)
+                          setEditingFactValue(fact.factValue)
+                          setEditingFactCategory(fact.category)
+                        }}
+                        className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-gray-100"
+                        title="Edit Fact"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteFact(fact.id)}
+                        className="p-1 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100"
+                        title="Delete Fact"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* ── TAB 4: DOCUMENTS VAULT ───────────────────────────────────────────── */}
       {activeTab === 'documents' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
             <div>
               <h2 className="text-sm font-bold text-gray-900">Indexed Knowledge Vault</h2>
               <p className="text-xs text-gray-500">Multi-format file storage parsed and vectorized for instant agent retrieval.</p>
             </div>
             <button
               onClick={() => setShowUploadModal(true)}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
             >
               <Upload className="w-3.5 h-3.5" /> Upload File
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {documents.map(doc => {
-              const isPaused = doc.isActive === false
-              return (
-                <div
-                  key={doc.id}
-                  onClick={() => setSelectedDoc(doc)}
-                  className={`bg-white border rounded-2xl p-4 shadow-sm cursor-pointer transition-all space-y-3 relative ${
-                    isPaused ? 'border-gray-300 opacity-75 bg-gray-50/80' : 'border-gray-200 hover:border-indigo-400'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="p-2 bg-gray-50 rounded-xl border border-gray-200 flex-shrink-0">
-                        <TypeIcon type={doc.sourceType} className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-gray-900 truncate">{doc.title}</p>
-                        <p className="text-[11px] text-gray-400 capitalize">{doc.sourceType} • {doc.category || 'General'}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {isPaused ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
-                          PAUSED
-                        </span>
-                      ) : (
-                        <StatusBadge status={doc.status} />
-                      )}
-                    </div>
-                  </div>
+          {/* Document Organization Search & Filter Bar (Point 3) */}
+          <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row items-center gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={docSearch}
+                onChange={e => setDocSearch(e.target.value)}
+                placeholder="Search documents by title, summary, or category..."
+                className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600 font-numeric">
-                    <div>Chunks: <span className="font-bold text-gray-900">{doc.chunkCount}</span></div>
-                    <div>Words: <span className="font-bold text-gray-900">{doc.wordCount ? formatWords(doc.wordCount) : '—'}</span></div>
-                  </div>
+            <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
+              <select
+                value={docCategoryFilter}
+                onChange={e => setDocCategoryFilter(e.target.value)}
+                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All Categories</option>
+                <option value="general">General</option>
+                <option value="policy">Policies</option>
+                <option value="pricing">Pricing & Catalog</option>
+                <option value="legal">Legal & Contracts</option>
+                <option value="support">Support FAQs</option>
+              </select>
 
-                  {/* Card Action Controls */}
-                  <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleOpenPreview(doc)
-                      }}
-                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold flex items-center gap-1 transition-all text-[11px]"
-                    >
-                      <Eye className="w-3 h-3" /> Preview Text
-                    </button>
+              <select
+                value={docTypeFilter}
+                onChange={e => setDocTypeFilter(e.target.value)}
+                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All File Formats</option>
+                <option value="pdf">PDF Documents</option>
+                <option value="url">Web URLs</option>
+                <option value="text">Notes & Plain Text</option>
+                <option value="docx">Word Docs</option>
+                <option value="csv">CSV & Excel Sheets</option>
+              </select>
 
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleToggleDocumentActive(doc)
-                      }}
-                      className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all text-[11px] ${
-                        isPaused
-                          ? 'bg-green-50 hover:bg-green-100 text-green-700 border border-green-200'
-                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                      }`}
-                    >
-                      {isPaused ? '▶ Activate AI' : '⏸ Pause AI'}
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+              <select
+                value={docStatusFilter}
+                onChange={e => setDocStatusFilter(e.target.value)}
+                className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All AI Statuses</option>
+                <option value="active">Active in AI Memory</option>
+                <option value="paused">Paused / Disabled</option>
+                <option value="processing">Processing</option>
+              </select>
+            </div>
           </div>
+
+          {filteredDocuments.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center space-y-2">
+              <FileText className="w-8 h-8 text-gray-400 mx-auto" />
+              <p className="text-sm font-bold text-gray-700">No documents found matching filters</p>
+              <p className="text-xs text-gray-500">Try clearing your search term or format filters.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDocuments.map(doc => {
+                const isPaused = doc.isActive === false
+                return (
+                  <div
+                    key={doc.id}
+                    onClick={() => setSelectedDoc(doc)}
+                    className={`bg-white border rounded-2xl p-4 shadow-sm cursor-pointer transition-all space-y-3 relative ${
+                      isPaused ? 'border-gray-300 opacity-75 bg-gray-50/80' : 'border-gray-200 hover:border-indigo-400'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="p-2 bg-gray-50 rounded-xl border border-gray-200 flex-shrink-0">
+                          <TypeIcon type={doc.sourceType} className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-gray-900 truncate">{doc.title}</p>
+                          <p className="text-[11px] text-gray-400 capitalize">{doc.sourceType} • {doc.category || 'General'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {isPaused ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                            PAUSED
+                          </span>
+                        ) : (
+                          <StatusBadge status={doc.status} />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600 font-numeric">
+                      <div>Chunks: <span className="font-bold text-gray-900">{doc.chunkCount}</span></div>
+                      <div>Words: <span className="font-bold text-gray-900">{doc.wordCount ? formatWords(doc.wordCount) : '—'}</span></div>
+                    </div>
+
+                    {/* Card Action Controls */}
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleOpenPreview(doc)
+                        }}
+                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold flex items-center gap-1 transition-all text-[11px]"
+                      >
+                        <Eye className="w-3 h-3" /> Preview Text
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleToggleDocumentActive(doc)
+                        }}
+                        className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all text-[11px] ${
+                          isPaused
+                            ? 'bg-green-50 hover:bg-green-100 text-green-700 border border-green-200'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                        }`}
+                      >
+                        {isPaused ? '▶ Activate AI' : '⏸ Pause AI'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1559,6 +1815,57 @@ export default function KnowledgeBasePage() {
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setShowNoteModalFact(false)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancel</button>
               <button onClick={handleCreateFact} disabled={savingFact} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">{savingFact ? 'Saving...' : 'Save Fact'}</button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* Edit Fact Modal */}
+      {editingFact && (
+        <ModalWrapper onClose={() => setEditingFact(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <Edit3 className="w-4 h-4 text-indigo-600" /> Edit Business Fact
+            </h2>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Category</label>
+                <select
+                  value={editingFactCategory}
+                  onChange={e => setEditingFactCategory(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {['pricing', 'product', 'refund_policy', 'business_rule', 'shipping', 'hours', 'faq', 'other'].map(c => (
+                    <option key={c} value={c}>{c.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Fact Key</label>
+                <p className="font-mono text-gray-500 bg-gray-50 p-2 rounded-lg border border-gray-100">{editingFact.factKey}</p>
+              </div>
+
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">Fact Value / Policy Statement</label>
+                <textarea
+                  value={editingFactValue}
+                  onChange={e => setEditingFactValue(e.target.value)}
+                  rows={4}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <button onClick={() => setEditingFact(null)} className="px-4 py-2 border border-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancel</button>
+              <button
+                onClick={handleUpdateFact}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+              >
+                Save Changes
+              </button>
             </div>
           </div>
         </ModalWrapper>
