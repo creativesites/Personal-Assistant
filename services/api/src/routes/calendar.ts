@@ -5,7 +5,7 @@ import { authenticate } from '../plugins/authenticate';
 export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── GET /api/calendar/events ─────────────────────────────────────────────────
-  // Returns unified timeline events from `events`, `contact_promises`, and `proactive_queue`
+  // Returns unified timeline events with rich metadata and contact details
   fastify.get('/api/calendar/events', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
 
@@ -25,16 +25,27 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
          e.send_wa_reminder,
          e.wa_reminder_offset_minutes,
          e.wa_reminder_status,
+         e.location,
+         e.meeting_link,
+         e.deal_value,
+         e.tags,
+         e.action_items,
+         e.metadata,
          COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
          co.id                   AS contact_id,
          co.avatar_url           AS contact_avatar,
+         co.phone_number         AS contact_phone,
+         co.company_name         AS contact_company,
+         r.relationship_type,
+         r.health_score,
          NULL::text              AS promise_status,
          NULL::text              AS promised_by
        FROM events e
        LEFT JOIN contacts co ON co.id = e.contact_id
+       LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = e.user_id
        WHERE e.user_id = $1
          AND (e.event_date IS NOT NULL OR e.event_datetime IS NOT NULL)
-       LIMIT 200`,
+       LIMIT 300`,
       [userId],
     );
 
@@ -57,17 +68,28 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
          false                   AS send_wa_reminder,
          60                      AS wa_reminder_offset_minutes,
          'none'                  AS wa_reminder_status,
+         p.location,
+         NULL::text              AS meeting_link,
+         p.deal_value,
+         p.tags,
+         p.action_items,
+         p.metadata,
          COALESCE(co.custom_name, co.display_name, co.phone_number) AS contact_name,
          co.id                   AS contact_id,
          co.avatar_url           AS contact_avatar,
+         co.phone_number         AS contact_phone,
+         co.company_name         AS contact_company,
+         r.relationship_type,
+         r.health_score,
          p.status                AS promise_status,
          p.promised_by           AS promised_by
        FROM contact_promises p
        LEFT JOIN contacts co ON co.id = p.contact_id
+       LEFT JOIN relationships r ON r.contact_id = co.id AND r.user_id = p.user_id
        WHERE p.user_id = $1
          AND p.due_date IS NOT NULL
          AND p.status != 'dismissed'
-       LIMIT 200`,
+       LIMIT 300`,
       [userId],
     );
 
@@ -98,14 +120,29 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
           eventType: r.item_kind,
           source: r.source === 'user_input' ? 'user' : r.source === 'promise_tracker' ? 'promise_tracker' : 'ai_extracted',
           isConfirmed: r.is_confirmed,
+          confidenceScore: r.confidence_score ? parseFloat(r.confidence_score) : 1.0,
           promiseStatus: r.promise_status,
           promisedBy: r.promised_by,
           isOverdue,
           sendWaReminder: r.send_wa_reminder ?? false,
           waReminderOffsetMinutes: r.wa_reminder_offset_minutes ?? 60,
           waReminderStatus: r.wa_reminder_status ?? 'none',
+          location: r.location ?? null,
+          meetingLink: r.meeting_link ?? null,
+          dealValue: r.deal_value ? parseFloat(r.deal_value) : null,
+          tags: r.tags ?? [],
+          actionItems: r.action_items ?? [],
+          metadata: r.metadata ?? {},
           contact: r.contact_id
-            ? { id: r.contact_id, name: r.contact_name, avatarUrl: r.contact_avatar ?? null }
+            ? {
+                id: r.contact_id,
+                name: r.contact_name,
+                avatarUrl: r.contact_avatar ?? null,
+                phone: r.contact_phone ?? null,
+                company: r.contact_company ?? null,
+                relationshipType: r.relationship_type ?? 'contact',
+                healthScore: r.health_score ?? 75,
+              }
             : undefined,
         };
       }),
@@ -113,12 +150,12 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // ── POST /api/calendar/events ────────────────────────────────────────────────
-  // Creates a manually entered calendar event
+  // Creates a manually entered calendar event with rich metadata
   fastify.post('/api/calendar/events', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { 
       title, description, eventDate, eventDatetime, eventType, contactId, isRecurring,
-      sendWaReminder, waReminderOffsetMinutes 
+      sendWaReminder, waReminderOffsetMinutes, location, meetingLink, dealValue, tags, actionItems
     } = request.body as {
       title: string;
       description?: string;
@@ -129,6 +166,11 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       isRecurring?: boolean;
       sendWaReminder?: boolean;
       waReminderOffsetMinutes?: number;
+      location?: string;
+      meetingLink?: string;
+      dealValue?: number;
+      tags?: string[];
+      actionItems?: Array<{ text: string; done: boolean }>;
     };
 
     if (!title?.trim()) {
@@ -139,12 +181,14 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       `INSERT INTO events (
          user_id, contact_id, event_type, title, description,
          event_date, event_datetime, is_recurring, source, is_confirmed, confidence_score,
-         send_wa_reminder, wa_reminder_offset_minutes, wa_reminder_status
+         send_wa_reminder, wa_reminder_offset_minutes, wa_reminder_status,
+         location, meeting_link, deal_value, tags, action_items
        ) VALUES (
          $1, $2, $3::event_type, $4, $5,
          $6, $7, $8, 'user_input', true, 1.0,
-         $9, $10, $11
-       ) RETURNING id, event_type, title, description, event_date::text AS event_date, event_datetime, is_recurring, source, is_confirmed, send_wa_reminder, wa_reminder_offset_minutes, wa_reminder_status`,
+         $9, $10, $11,
+         $12, $13, $14, $15, $16
+       ) RETURNING *`,
       [
         userId,
         contactId || null,
@@ -156,7 +200,12 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
         isRecurring || false,
         sendWaReminder || false,
         waReminderOffsetMinutes || 60,
-        sendWaReminder ? 'scheduled' : 'none'
+        sendWaReminder ? 'scheduled' : 'none',
+        location || null,
+        meetingLink || null,
+        dealValue || null,
+        tags || [],
+        JSON.stringify(actionItems || [])
       ]
     );
 
@@ -164,7 +213,7 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // ── PATCH /api/calendar/events/:id ───────────────────────────────────────────
-  // Updates event details or confirms an AI suggested event
+  // Updates event details including rich metadata
   fastify.patch('/api/calendar/events/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
@@ -191,13 +240,23 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
       ['isConfirmed', 'is_confirmed'],
       ['sendWaReminder', 'send_wa_reminder'],
       ['waReminderOffsetMinutes', 'wa_reminder_offset_minutes'],
-      ['waReminderStatus', 'wa_reminder_status']
+      ['waReminderStatus', 'wa_reminder_status'],
+      ['location', 'location'],
+      ['meetingLink', 'meeting_link'],
+      ['dealValue', 'deal_value'],
+      ['tags', 'tags'],
+      ['actionItems', 'action_items'],
     ];
 
     for (const [key, dbCol] of fields) {
       if (body[key] !== undefined) {
         if (dbCol === 'event_type') {
           updates.push(`${dbCol} = $${index}::event_type`);
+        } else if (dbCol === 'action_items') {
+          updates.push(`${dbCol} = $${index}::jsonb`);
+          params.push(JSON.stringify(body[key]));
+          index++;
+          continue;
         } else {
           updates.push(`${dbCol} = $${index}`);
         }
@@ -242,13 +301,16 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/calendar/promises — Create/track new promise
   fastify.post('/api/calendar/promises', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
-    const { contactId, conversationId, sourceMessageId, promiseText, promisedBy, dueDate } = request.body as {
+    const { contactId, conversationId, sourceMessageId, promiseText, promisedBy, dueDate, dealValue, location, tags } = request.body as {
       contactId: string;
       conversationId?: string;
       sourceMessageId?: string;
       promiseText: string;
       promisedBy?: 'user' | 'contact';
       dueDate?: string;
+      dealValue?: number;
+      location?: string;
+      tags?: string[];
     };
 
     if (!promiseText?.trim() || !contactId) {
@@ -258,8 +320,8 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: [promise] } = await db.query(
       `INSERT INTO contact_promises (
          user_id, contact_id, conversation_id, source_message_id,
-         promise_text, promised_by, due_date, status
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+         promise_text, promised_by, due_date, status, deal_value, location, tags
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10)
        RETURNING *`,
       [
         userId,
@@ -268,7 +330,10 @@ export async function calendarRoutes(fastify: FastifyInstance): Promise<void> {
         sourceMessageId || null,
         promiseText.trim(),
         promisedBy || 'user',
-        dueDate || new Date(Date.now() + 86400000).toISOString()
+        dueDate || new Date(Date.now() + 86400000).toISOString(),
+        dealValue || null,
+        location || null,
+        tags || []
       ]
     );
 

@@ -574,7 +574,12 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
           {financials && (
             <div className="rounded-[1.75rem] border border-gray-100 bg-white shadow-sm shadow-gray-200/70 p-4">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-gray-900">Financial Overview</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-900">Financial Overview</p>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-600 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live
+                  </span>
+                </div>
                 <button
                   onClick={() => refetchFinancials()}
                   disabled={financialsLoading}
@@ -610,6 +615,46 @@ function OverviewModule({ token, initialPrompt, onConsumedPrompt }: {
                   Expenses: {formatCurrency(financials.expenses.totalCents / 100)} across {financials.expenses.claimCount} claim{financials.expenses.claimCount !== 1 ? 's' : ''}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* ⚡ Critical Stockout Forecast & 1-Click PO Restock Action Card */}
+          {insights && (insights.suggestedPurchaseOrders.length > 0 || insights.stockoutForecasts.length > 0) && (
+            <div className="rounded-[1.75rem] border border-amber-200/80 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/50 shadow-sm p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-xl bg-amber-500/10 text-amber-600">
+                    <AlertTriangle size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-900">Critical Stockout Warning</h4>
+                    <p className="text-[10px] text-gray-500">Items below reorder point</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300/60">
+                  {insights.suggestedPurchaseOrders.length || insights.stockoutForecasts.length} Alerts
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {(insights.suggestedPurchaseOrders.length > 0 ? insights.suggestedPurchaseOrders : insights.stockoutForecasts).slice(0, 2).map((item: any, idx) => (
+                  <div key={idx} className="bg-white/90 border border-amber-100 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                    <div>
+                      <p className="font-bold text-gray-900 truncate max-w-[150px]">{item.productName}</p>
+                      <p className="text-[10px] text-amber-700 font-medium">
+                        {item.available !== undefined ? `Stock: ${item.available} units` : `Expected stockout: ${item.expectedStockoutDate}`}
+                      </p>
+                    </div>
+                    <Link
+                      href="/documents"
+                      className="inline-flex items-center gap-1 text-[10px] font-extrabold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition-all"
+                      title="Create Purchase Order for this product"
+                    >
+                      ⚡ Draft PO
+                    </Link>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

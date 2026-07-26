@@ -1,11 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { 
   Calendar as CalendarIcon, Clock, CheckCircle2, AlertTriangle, 
   Plus, Users, MessageSquare, ChevronLeft, ChevronRight, Check,
-  Trash2, X, Sparkles, AlertCircle, Phone, Send, ShieldCheck, RefreshCw
+  Trash2, X, Sparkles, AlertCircle, Phone, Send, ShieldCheck, RefreshCw,
+  MapPin, Video, DollarSign, Tag, ListTodo, ExternalLink, ArrowUpRight,
+  Heart, Zap, ChevronDown, ChevronUp, Edit3
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useApi } from '@/hooks/use-api'
@@ -13,6 +15,12 @@ import { apiClient } from '@/lib/api'
 import { Avatar, EmptyState, PageHeader, SkeletonCard, useToast } from '@/components/ui'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+interface ActionItem {
+  id?: string
+  text: string
+  done: boolean
+}
 
 interface CalendarEvent {
   id: string
@@ -24,14 +32,28 @@ interface CalendarEvent {
   eventType: string
   source: 'user' | 'ai_extracted' | 'promise_tracker'
   isConfirmed: boolean
+  confidenceScore?: number
   isOverdue?: boolean
   promiseStatus?: 'pending' | 'fulfilled' | 'broken' | 'dismissed'
   promisedBy?: 'user' | 'contact'
   sendWaReminder?: boolean
   waReminderOffsetMinutes?: number
   waReminderStatus?: 'none' | 'scheduled' | 'sent' | 'failed'
-  priority?: 'high' | 'medium' | 'low'
-  contact?: { id: string; name: string; avatarUrl: string | null }
+  location?: string | null
+  meetingLink?: string | null
+  dealValue?: number | null
+  tags?: string[]
+  actionItems?: ActionItem[]
+  metadata?: Record<string, unknown>
+  contact?: {
+    id: string
+    name: string
+    avatarUrl: string | null
+    phone?: string | null
+    company?: string | null
+    relationshipType?: string
+    healthScore?: number
+  }
 }
 
 interface EventFormData {
@@ -44,34 +66,36 @@ interface EventFormData {
   contactId: string
   sendWaReminder: boolean
   waReminderOffsetMinutes: number
+  location: string
+  meetingLink: string
+  dealValue: string
+  tagsInput: string
+  actionItems: ActionItem[]
 }
 
 type CalendarView = 'month' | 'week' | 'day' | 'agenda'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const EVENT_COLORS: Record<string, { bg: string; text: string; dot: string; border: string; badgeBg: string; badgeText: string }> = {
-  promise:     { bg: 'bg-amber-50/80',   text: 'text-amber-900',   dot: 'bg-amber-500',   border: 'border-amber-300',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-800' },
-  meeting:     { bg: 'bg-blue-50/60',    text: 'text-blue-800',    dot: 'bg-blue-500',    border: 'border-blue-200',    badgeBg: 'bg-blue-100',    badgeText: 'text-blue-700' },
-  birthday:    { bg: 'bg-pink-50/60',    text: 'text-pink-800',    dot: 'bg-pink-500',    border: 'border-pink-200',    badgeBg: 'bg-pink-100',    badgeText: 'text-pink-700' },
-  follow_up:   { bg: 'bg-indigo-50/60',  text: 'text-indigo-800',  dot: 'bg-indigo-500',  border: 'border-indigo-200',  badgeBg: 'bg-indigo-100',  badgeText: 'text-indigo-700' },
-  deadline:    { bg: 'bg-red-50/60',     text: 'text-red-800',     dot: 'bg-red-500',     border: 'border-red-200',     badgeBg: 'bg-red-100',     badgeText: 'text-red-700' },
-  reminder:    { bg: 'bg-amber-50/60',   text: 'text-amber-800',   dot: 'bg-amber-500',   border: 'border-amber-200',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-700' },
-  appointment: { bg: 'bg-teal-50/60',    text: 'text-teal-800',    dot: 'bg-teal-500',    border: 'border-teal-200',    badgeBg: 'bg-teal-100',    badgeText: 'text-teal-700' },
-  anniversary: { bg: 'bg-rose-50/60',    text: 'text-rose-800',    dot: 'bg-rose-500',    border: 'border-rose-200',    badgeBg: 'bg-rose-100',    badgeText: 'text-rose-700' },
-  travel:      { bg: 'bg-sky-50/60',     text: 'text-sky-800',     dot: 'bg-sky-500',     border: 'border-sky-200',     badgeBg: 'bg-sky-100',     badgeText: 'text-sky-700' },
-  celebration: { bg: 'bg-yellow-50/60',  text: 'text-yellow-800',  dot: 'bg-yellow-500',  border: 'border-yellow-200',  badgeBg: 'bg-yellow-100',  badgeText: 'text-yellow-700' },
-  job_change:  { bg: 'bg-emerald-50/60', text: 'text-emerald-800', dot: 'bg-emerald-500', border: 'border-emerald-200', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-700' },
-  life_event:  { bg: 'bg-violet-50/60',  text: 'text-violet-800',  dot: 'bg-violet-500',  border: 'border-violet-200',  badgeBg: 'bg-violet-100',  badgeText: 'text-violet-700' },
-  loss:        { bg: 'bg-gray-100/60',   text: 'text-gray-700',    dot: 'bg-gray-400',    border: 'border-gray-200',    badgeBg: 'bg-gray-100',    badgeText: 'text-gray-600' },
-  other:       { bg: 'bg-slate-50/60',   text: 'text-slate-700',   dot: 'bg-slate-400',   border: 'border-slate-200',   badgeBg: 'bg-slate-100',   badgeText: 'text-slate-600' },
-  default:     { bg: 'bg-slate-50/60',   text: 'text-slate-700',   dot: 'bg-slate-400',   border: 'border-slate-200',   badgeBg: 'bg-slate-100',   badgeText: 'text-slate-600' },
+const EVENT_STYLES: Record<string, { bg: string; text: string; dot: string; border: string; badgeBg: string; badgeText: string; gradient: string }> = {
+  promise:     { bg: 'bg-amber-50/90',   text: 'text-amber-950',   dot: 'bg-amber-500',   border: 'border-amber-200/90',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-900', gradient: 'from-amber-50/80 via-white to-orange-50/40' },
+  meeting:     { bg: 'bg-indigo-50/90',  text: 'text-indigo-950',  dot: 'bg-indigo-500',  border: 'border-indigo-200/90',  badgeBg: 'bg-indigo-100',  badgeText: 'text-indigo-900', gradient: 'from-indigo-50/80 via-white to-blue-50/40' },
+  birthday:    { bg: 'bg-pink-50/90',    text: 'text-pink-950',    dot: 'bg-pink-500',    border: 'border-pink-200/90',    badgeBg: 'bg-pink-100',    badgeText: 'text-pink-900', gradient: 'from-pink-50/80 via-white to-rose-50/40' },
+  follow_up:   { bg: 'bg-sky-50/90',     text: 'text-sky-950',     dot: 'bg-sky-500',     border: 'border-sky-200/90',     badgeBg: 'bg-sky-100',     badgeText: 'text-sky-900', gradient: 'from-sky-50/80 via-white to-cyan-50/40' },
+  deadline:    { bg: 'bg-red-50/90',     text: 'text-red-950',     dot: 'bg-red-500',     border: 'border-red-200/90',     badgeBg: 'bg-red-100',     badgeText: 'text-red-900', gradient: 'from-red-50/80 via-white to-amber-50/40' },
+  reminder:    { bg: 'bg-amber-50/90',   text: 'text-amber-950',   dot: 'bg-amber-500',   border: 'border-amber-200/90',   badgeBg: 'bg-amber-100',   badgeText: 'text-amber-900', gradient: 'from-amber-50/80 via-white to-yellow-50/40' },
+  appointment: { bg: 'bg-teal-50/90',    text: 'text-teal-950',    dot: 'bg-teal-500',    border: 'border-teal-200/90',    badgeBg: 'bg-teal-100',    badgeText: 'text-teal-900', gradient: 'from-teal-50/80 via-white to-emerald-50/40' },
+  anniversary: { bg: 'bg-rose-50/90',    text: 'text-rose-950',    dot: 'bg-rose-500',    border: 'border-rose-200/90',    badgeBg: 'bg-rose-100',    badgeText: 'text-rose-900', gradient: 'from-rose-50/80 via-white to-pink-50/40' },
+  travel:      { bg: 'bg-blue-50/90',    text: 'text-blue-950',    dot: 'bg-blue-500',    border: 'border-blue-200/90',    badgeBg: 'bg-blue-100',    badgeText: 'text-blue-900', gradient: 'from-blue-50/80 via-white to-sky-50/40' },
+  celebration: { bg: 'bg-purple-50/90',  text: 'text-purple-950',  dot: 'bg-purple-500',  border: 'border-purple-200/90',  badgeBg: 'bg-purple-100',  badgeText: 'text-purple-900', gradient: 'from-purple-50/80 via-white to-indigo-50/40' },
+  job_change:  { bg: 'bg-emerald-50/90', text: 'text-emerald-950', dot: 'bg-emerald-500', border: 'border-emerald-200/90', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-900', gradient: 'from-emerald-50/80 via-white to-teal-50/40' },
+  default:     { bg: 'bg-slate-50/90',   text: 'text-slate-950',   dot: 'bg-slate-500',   border: 'border-slate-200/90',   badgeBg: 'bg-slate-100',   badgeText: 'text-slate-900', gradient: 'from-slate-50/80 via-white to-gray-50/40' },
 }
 
 const EVENT_TYPE_OPTIONS = [
-  { value: 'meeting',     label: 'Meeting' },
+  { value: 'meeting',     label: 'Meeting / Call' },
   { value: 'follow_up',  label: 'Follow-up' },
-  { value: 'deadline',   label: 'Deadline' },
+  { value: 'deadline',   label: 'Deadline / Promise' },
   { value: 'reminder',   label: 'Reminder' },
   { value: 'appointment',label: 'Appointment' },
   { value: 'birthday',   label: 'Birthday' },
@@ -105,21 +129,257 @@ function toLocalDateStr(date: Date) {
   return `${y}-${m}-${d}`
 }
 
+// ─── Interactive Event Card Component ───────────────────────────────────────
+
+function EventCard({
+  event,
+  onConfirm,
+  onFulfillPromise,
+  onDismissPromise,
+  onEdit,
+  onToggleActionItem,
+  token,
+}: {
+  event: CalendarEvent
+  onConfirm: (id: string) => void
+  onFulfillPromise: (id: string) => void
+  onDismissPromise: (id: string) => void
+  onEdit: (event: CalendarEvent) => void
+  onToggleActionItem: (eventId: string, itemIdx: number) => void
+  token?: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const styles = EVENT_STYLES[event.eventType] ?? EVENT_STYLES.default
+  const isAiPending = event.source === 'ai_extracted' && !event.isConfirmed
+  const isPromise = event.eventType === 'promise'
+
+  return (
+    <div
+      className={`group relative rounded-2xl border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl bg-gradient-to-br ${styles.gradient} ${
+        event.isOverdue ? 'border-red-300 ring-2 ring-red-400/30 bg-red-50/50' :
+        isAiPending ? 'border-dashed border-amber-300 shadow-sm bg-amber-50/40' :
+        `${styles.border} shadow-sm`
+      }`}
+    >
+      {/* Header Row */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          {/* Contact Avatar */}
+          {event.contact ? (
+            <div className="relative shrink-0">
+              <Avatar
+                name={event.contact.name}
+                src={event.contact.avatarUrl ?? undefined}
+                size="md"
+              />
+              {event.contact.healthScore !== undefined && (
+                <span className={`absolute -bottom-1 -right-1 text-[9px] font-black px-1 rounded-full border border-white text-white ${
+                  event.contact.healthScore >= 70 ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}>
+                  {event.contact.healthScore}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${styles.badgeBg} ${styles.badgeText} font-bold text-xs shadow-xs`}>
+              <CalendarIcon size={18} />
+            </div>
+          )}
+
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full border ${styles.badgeBg} ${styles.badgeText} ${styles.border}`}>
+                {event.eventType}
+              </span>
+
+              {event.isOverdue && (
+                <span className="text-[10px] font-black uppercase tracking-wider text-white bg-red-600 px-2 py-0.5 rounded-full animate-pulse shadow-2xs">
+                  🚨 OVERDUE
+                </span>
+              )}
+
+              {isAiPending && (
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Sparkles size={10} className="text-amber-600 animate-spin" />
+                  AI Suggested ({Math.round((event.confidenceScore || 0.9) * 100)}%)
+                </span>
+              )}
+
+              {event.dealValue && (
+                <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-2xs">
+                  <DollarSign size={10} />
+                  {event.dealValue.toLocaleString()} Deal
+                </span>
+              )}
+            </div>
+
+            <h3 className="text-sm font-bold text-gray-950 leading-snug group-hover:text-indigo-600 transition-colors">
+              {event.title}
+            </h3>
+
+            {event.contact && (
+              <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5 pt-0.5">
+                <span>👤 {event.contact.name}</span>
+                {event.contact.company && <span className="text-gray-400">· {event.contact.company}</span>}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Time & Quick Edit */}
+        <div className="flex flex-col items-end shrink-0 gap-1">
+          <span className="text-xs font-bold text-gray-700 bg-white/80 border border-gray-200/80 px-2.5 py-1 rounded-xl shadow-2xs flex items-center gap-1.5">
+            <Clock size={12} className="text-indigo-600" />
+            {formatTime(event.startDate, event.allDay)}
+          </span>
+
+          <button
+            onClick={() => onEdit(event)}
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white/80 transition-colors"
+            title="Edit event details"
+          >
+            <Edit3 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Description / Context Note */}
+      {event.description && (
+        <p className="mt-2.5 text-xs text-gray-700 font-medium leading-relaxed bg-white/60 p-2.5 rounded-xl border border-black/5">
+          {event.description}
+        </p>
+      )}
+
+      {/* Metadata Pills Row (Location, Virtual Link, Tags) */}
+      <div className="mt-3 flex items-center gap-2 flex-wrap text-xs">
+        {event.meetingLink && (
+          <a
+            href={event.meetingLink.startsWith('http') ? event.meetingLink : `https://${event.meetingLink}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] shadow-sm transition-all"
+          >
+            <Video size={12} />
+            Join Virtual Call
+            <ExternalLink size={10} />
+          </a>
+        )}
+
+        {event.location && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/90 border border-gray-200 text-gray-800 font-semibold text-[11px] shadow-2xs">
+            <MapPin size={12} className="text-red-500" />
+            {event.location}
+          </span>
+        )}
+
+        {event.tags && event.tags.map((tag, i) => (
+          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-gray-100 text-gray-700 font-bold text-[10px] border border-gray-200/80">
+            <Tag size={9} />
+            #{tag}
+          </span>
+        ))}
+      </div>
+
+      {/* Interactive Action Items Checklist */}
+      {event.actionItems && event.actionItems.length > 0 && (
+        <div className="mt-3 pt-2.5 border-t border-black/5 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-gray-500 flex items-center gap-1">
+              <ListTodo size={11} />
+              Preparation Checklist ({event.actionItems.filter(a => a.done).length}/{event.actionItems.length})
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            {event.actionItems.map((item, idx) => (
+              <label
+                key={idx}
+                className="flex items-center gap-2 text-xs font-medium text-gray-800 hover:bg-white/80 p-1 rounded-lg cursor-pointer transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={() => onToggleActionItem(event.id, idx)}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                />
+                <span className={item.done ? 'line-through text-gray-400' : ''}>{item.text}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Action Footer Bar */}
+      <div className="mt-3.5 pt-2.5 border-t border-black/5 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          {event.contact && (
+            <Link
+              href={`/inbox?contactId=${event.contact.id}`}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/80 hover:bg-white border border-gray-200 text-gray-800 font-bold text-xs transition-all shadow-2xs"
+            >
+              <MessageSquare size={12} className="text-emerald-600" />
+              Chat on WhatsApp
+            </Link>
+          )}
+
+          {event.sendWaReminder && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-900 font-bold text-[10px]">
+              <MessageSquare size={10} />
+              WA Reminder Scheduled
+            </span>
+          )}
+        </div>
+
+        {/* State Action Buttons */}
+        <div className="flex items-center gap-2">
+          {isAiPending && (
+            <button
+              onClick={() => onConfirm(event.id)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition-all"
+            >
+              <Check size={12} />
+              Confirm Schedule
+            </button>
+          )}
+
+          {isPromise && event.promiseStatus === 'pending' && (
+            <>
+              <button
+                onClick={() => onFulfillPromise(event.id)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all"
+              >
+                <CheckCircle2 size={12} />
+                Mark Fulfilled
+              </button>
+              <button
+                onClick={() => onDismissPromise(event.id)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/80 hover:bg-white text-gray-600 font-semibold text-xs border border-gray-200 transition-all"
+              >
+                Dismiss
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Event Modal ─────────────────────────────────────────────────────────────
 
 function EventModal({
-  open, event, initialDate, onClose, onSave, onDelete, token,
+  open, event, initialDate, onClose, onSave, token,
 }: {
   open: boolean
   event: CalendarEvent | null
   initialDate?: Date | null
   onClose: () => void
   onSave: () => void
-  onDelete?: () => void
   token?: string
 }) {
   const { addToast } = useToast()
   const isEdit = Boolean(event)
+
   const emptyForm: EventFormData = {
     title: '',
     description: '',
@@ -130,17 +390,22 @@ function EventModal({
     contactId: '',
     sendWaReminder: false,
     waReminderOffsetMinutes: 60,
+    location: '',
+    meetingLink: '',
+    dealValue: '',
+    tagsInput: '',
+    actionItems: [],
   }
 
   const [form, setForm] = useState<EventFormData>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [contacts, setContacts] = useState<Array<{ id: string; name: string }>>([])
+  const [contacts, setContacts] = useState<Array<{ id: string; name: string; avatarUrl: string | null }>>([])
+  const [newItemText, setNewItemText] = useState('')
 
   useEffect(() => {
     if (open) {
-      // Fetch contacts for picker
-      apiClient<{ contacts: Array<{ id: string; name: string }> }>('/api/contacts', { token })
+      apiClient<{ contacts: Array<{ id: string; name: string; avatarUrl: string | null }> }>('/api/contacts', { token })
         .then(res => setContacts(res.contacts || []))
         .catch(() => {})
 
@@ -156,6 +421,11 @@ function EventModal({
           contactId: event.contact?.id || '',
           sendWaReminder: event.sendWaReminder || false,
           waReminderOffsetMinutes: event.waReminderOffsetMinutes || 60,
+          location: event.location || '',
+          meetingLink: event.meetingLink || '',
+          dealValue: event.dealValue ? String(event.dealValue) : '',
+          tagsInput: event.tags ? event.tags.join(', ') : '',
+          actionItems: event.actionItems || [],
         })
       } else {
         setForm({
@@ -169,10 +439,27 @@ function EventModal({
   const set = <K extends keyof EventFormData>(k: K, v: EventFormData[K]) =>
     setForm(f => ({ ...f, [k]: v }))
 
+  const handleAddActionItem = () => {
+    if (!newItemText.trim()) return
+    setForm(f => ({
+      ...f,
+      actionItems: [...f.actionItems, { text: newItemText.trim(), done: false }],
+    }))
+    setNewItemText('')
+  }
+
+  const handleRemoveActionItem = (idx: number) => {
+    setForm(f => ({
+      ...f,
+      actionItems: f.actionItems.filter((_, i) => i !== idx),
+    }))
+  }
+
   const handleSave = async () => {
     if (!form.title.trim()) { addToast({ variant: 'error', title: 'Title is required' }); return }
     setSaving(true)
     try {
+      const tags = form.tagsInput.split(',').map(t => t.trim()).filter(Boolean)
       const body: Record<string, unknown> = {
         title: form.title.trim(),
         description: form.description || null,
@@ -180,7 +467,13 @@ function EventModal({
         contactId: form.contactId || null,
         sendWaReminder: form.sendWaReminder,
         waReminderOffsetMinutes: form.waReminderOffsetMinutes,
+        location: form.location || null,
+        meetingLink: form.meetingLink || null,
+        dealValue: form.dealValue ? parseFloat(form.dealValue) : null,
+        tags,
+        actionItems: form.actionItems,
       }
+
       if (form.allDay || !form.eventTime) {
         body.eventDate = form.eventDate
       } else {
@@ -189,10 +482,10 @@ function EventModal({
 
       if (isEdit && event) {
         await apiClient(`/api/calendar/events/${event.id}`, { method: 'PATCH', body: JSON.stringify(body), token })
-        addToast({ variant: 'success', title: 'Event updated' })
+        addToast({ variant: 'success', title: 'Schedule item updated' })
       } else {
         await apiClient('/api/calendar/events', { method: 'POST', body: JSON.stringify(body), token })
-        addToast({ variant: 'success', title: 'Event created' })
+        addToast({ variant: 'success', title: 'Schedule item created' })
       }
       onSave()
       onClose()
@@ -203,40 +496,57 @@ function EventModal({
     }
   }
 
+  const handleDelete = async () => {
+    if (!event) return
+    setDeleting(true)
+    try {
+      await apiClient(`/api/calendar/events/${event.id}`, { method: 'DELETE', token })
+      addToast({ variant: 'success', title: 'Schedule item deleted' })
+      onSave()
+      onClose()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to delete event' })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" aria-modal="true" role="dialog">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md bg-white shadow-2xl flex flex-col h-full overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50/70">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-indigo-50/40">
           <div>
-            <h2 className="text-base font-bold text-slate-900">{isEdit ? 'Edit Schedule Item' : 'New Schedule Item'}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Map meetings, promises and customer touchpoints</p>
+            <h2 className="text-base font-bold text-gray-950">{isEdit ? 'Edit Schedule Item' : 'New Schedule Item'}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Add rich metadata, checklists, and automated reminders</p>
           </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-800 transition-all shadow-sm">
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-xl bg-white border border-gray-200 text-gray-500 hover:text-gray-800 shadow-2xs">
             <X size={16} />
           </button>
         </div>
 
+        {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Title *</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Title *</label>
             <input
               type="text"
               value={form.title}
               onChange={e => set('title', e.target.value)}
-              placeholder="e.g. Send Invoice for 50x Solar Panels"
-              className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 font-medium transition-all"
+              placeholder="e.g. Contract Sign-off Call for 50x Units"
+              className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium transition-all"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Associated Contact</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Associated Contact</label>
             <select
               value={form.contactId}
               onChange={e => set('contactId', e.target.value)}
-              className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 font-medium transition-all"
+              className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium transition-all"
             >
               <option value="">-- No Contact Attached --</option>
               {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -245,11 +555,11 @@ function EventModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Type</label>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Type</label>
               <select
                 value={form.eventType}
                 onChange={e => set('eventType', e.target.value)}
-                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 font-medium transition-all"
+                className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium transition-all"
               >
                 {EVENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -257,13 +567,13 @@ function EventModal({
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Date</label>
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Date</label>
                 <button
                   type="button"
                   onClick={() => set('allDay', !form.allDay)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 cursor-pointer"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 cursor-pointer"
                 >
-                  <span className={`relative w-7 h-3.5 rounded-full transition-colors flex-shrink-0 ${form.allDay ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                  <span className={`relative w-7 h-3.5 rounded-full transition-colors flex-shrink-0 ${form.allDay ? 'bg-indigo-600' : 'bg-gray-300'}`}>
                     <span className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full shadow transition-transform ${form.allDay ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
                   </span>
                   All day
@@ -273,34 +583,120 @@ function EventModal({
                 type="date"
                 value={form.eventDate}
                 onChange={e => set('eventDate', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 font-medium transition-all"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium transition-all"
               />
             </div>
           </div>
 
           {!form.allDay && (
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Time</label>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Time</label>
               <input
                 type="time"
                 value={form.eventTime}
                 onChange={e => set('eventTime', e.target.value)}
-                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 font-medium transition-all"
+                className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium transition-all"
               />
             </div>
           )}
+
+          {/* Location & Virtual Meeting Link */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
+                <MapPin size={12} className="text-red-500" /> Location
+              </label>
+              <input
+                type="text"
+                value={form.location}
+                onChange={e => set('location', e.target.value)}
+                placeholder="e.g. Office / Cape Town"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50/50 font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
+                <Video size={12} className="text-indigo-600" /> Virtual Link
+              </label>
+              <input
+                type="text"
+                value={form.meetingLink}
+                onChange={e => set('meetingLink', e.target.value)}
+                placeholder="e.g. meet.google.com/abc"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50/50 font-medium"
+              />
+            </div>
+          </div>
+
+          {/* Deal Value & Tags */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
+                <DollarSign size={12} className="text-emerald-600" /> Deal Value ($)
+              </label>
+              <input
+                type="number"
+                value={form.dealValue}
+                onChange={e => set('dealValue', e.target.value)}
+                placeholder="e.g. 5000"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50/50 font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
+                <Tag size={12} className="text-purple-600" /> Tags
+              </label>
+              <input
+                type="text"
+                value={form.tagsInput}
+                onChange={e => set('tagsInput', e.target.value)}
+                placeholder="Contract, Invoice, VIP"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50/50 font-medium"
+              />
+            </div>
+          </div>
+
+          {/* Preparation Checklist */}
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide flex items-center gap-1">
+              <ListTodo size={12} className="text-indigo-600" /> Preparation Checklist
+            </label>
+            <div className="space-y-2">
+              {form.actionItems.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between gap-2 p-2 bg-gray-50 rounded-xl border border-gray-200 text-xs">
+                  <span>{item.text}</span>
+                  <button onClick={() => handleRemoveActionItem(idx)} className="text-gray-400 hover:text-red-600">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newItemText}
+                  onChange={e => setNewItemText(e.target.value)}
+                  placeholder="Add preparation item…"
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddActionItem())}
+                  className="flex-1 px-3 py-1.5 text-xs border border-gray-200 rounded-xl bg-gray-50/50"
+                />
+                <button type="button" onClick={handleAddActionItem} className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 rounded-xl">
+                  + Add
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* WhatsApp Reminder Toggle */}
           <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/80 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquare size={16} className="text-emerald-600" />
-                <span className="text-xs font-bold text-emerald-950">WhatsApp Reminder</span>
+                <span className="text-xs font-bold text-emerald-950">WhatsApp Auto-Reminder</span>
               </div>
               <button
                 type="button"
                 onClick={() => set('sendWaReminder', !form.sendWaReminder)}
-                className={`relative w-8 h-4 rounded-full transition-colors ${form.sendWaReminder ? 'bg-emerald-600' : 'bg-slate-300'}`}
+                className={`relative w-8 h-4 rounded-full transition-colors ${form.sendWaReminder ? 'bg-emerald-600' : 'bg-gray-300'}`}
               >
                 <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform ${form.sendWaReminder ? 'translate-x-4' : 'translate-x-0.5'}`} />
               </button>
@@ -323,28 +719,36 @@ function EventModal({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Notes</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Context Notes</label>
             <textarea
               value={form.description}
               onChange={e => set('description', e.target.value)}
               rows={3}
-              placeholder="Context, commitments, or agenda…"
-              className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 text-slate-900 font-medium transition-all resize-none"
+              placeholder="Commitment context, quotation details, or agenda…"
+              className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl bg-gray-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium transition-all resize-none"
             />
           </div>
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between gap-3">
-          <button onClick={onClose} className="text-sm font-semibold text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-xl border border-slate-200 bg-white">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !form.title.trim()}
-            className="text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-5 py-2 rounded-xl disabled:opacity-50 shadow-sm"
-          >
-            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
-          </button>
+        {/* Modal Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+          {isEdit ? (
+            <button onClick={handleDelete} disabled={deleting} className="text-xs font-bold text-red-600 hover:bg-red-50 px-3 py-2 rounded-xl transition-all">
+              {deleting ? 'Deleting…' : 'Delete Item'}
+            </button>
+          ) : <span />}
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="text-xs font-semibold text-gray-600 hover:bg-gray-100 px-4 py-2 rounded-xl border border-gray-200 bg-white">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !form.title.trim()}
+              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-5 py-2 rounded-xl disabled:opacity-50 shadow-sm"
+            >
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Item'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -367,10 +771,13 @@ export default function CalendarPage() {
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null)
-  const [actioningId, setActioningId] = useState<string | null>(null)
 
   const { data, loading, refetch } = useApi<{ events: CalendarEvent[] }>('/api/calendar/events', token)
-  const events = data?.events ?? []
+  const [events, setEvents] = useState<CalendarEvent[]>([])
+
+  useEffect(() => {
+    if (data?.events) setEvents(data.events)
+  }, [data])
 
   const promiseCount = events.filter(e => e.eventType === 'promise').length
   const overdueCount = events.filter(e => e.isOverdue).length
@@ -399,29 +806,55 @@ export default function CalendarPage() {
     else setViewMonth(m => m + 1)
   }
 
+  const handleConfirm = async (id: string) => {
+    try {
+      await apiClient(`/api/calendar/events/${id}`, { method: 'PATCH', body: JSON.stringify({ isConfirmed: true }), token: token ?? undefined })
+      addToast({ variant: 'success', title: 'Schedule item confirmed!' })
+      refetch()
+    } catch {
+      addToast({ variant: 'error', title: 'Failed to confirm item' })
+    }
+  }
+
   const handleFulfillPromise = async (id: string) => {
-    setActioningId(id)
     try {
       await apiClient(`/api/calendar/promises/${id}/fulfill`, { method: 'PATCH', token: token ?? undefined })
       addToast({ variant: 'success', title: 'Promise marked fulfilled! 🎉' })
       refetch()
     } catch {
       addToast({ variant: 'error', title: 'Failed to update promise' })
-    } finally {
-      setActioningId(null)
     }
   }
 
   const handleDismissPromise = async (id: string) => {
-    setActioningId(id)
     try {
       await apiClient(`/api/calendar/promises/${id}`, { method: 'DELETE', token: token ?? undefined })
       addToast({ variant: 'success', title: 'Promise dismissed' })
       refetch()
     } catch {
       addToast({ variant: 'error', title: 'Failed to dismiss promise' })
-    } finally {
-      setActioningId(null)
+    }
+  }
+
+  const handleToggleActionItem = async (eventId: string, itemIdx: number) => {
+    const ev = events.find(e => e.id === eventId)
+    if (!ev || !ev.actionItems) return
+
+    const updatedItems = ev.actionItems.map((item, idx) =>
+      idx === itemIdx ? { ...item, done: !item.done } : item
+    )
+
+    // Optimistic UI update
+    setEvents(prev => prev.map(e => e.id === eventId ? { ...e, actionItems: updatedItems } : e))
+
+    try {
+      await apiClient(`/api/calendar/events/${eventId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ actionItems: updatedItems }),
+        token: token ?? undefined,
+      })
+    } catch {
+      refetch()
     }
   }
 
@@ -431,11 +864,16 @@ export default function CalendarPage() {
     setModalOpen(true)
   }
 
+  const openEditModal = (event: CalendarEvent) => {
+    setEditingEvent(event)
+    setModalOpen(true)
+  }
+
   if (session.status === 'loading' || loading) {
     return (
       <div className="flex flex-col h-full bg-slate-50">
         <PageHeader title="Calendar Intelligence" />
-        <div className="p-6 space-y-4 max-w-5xl mx-auto w-full"><SkeletonCard /><SkeletonCard /></div>
+        <div className="p-6 space-y-4 max-w-6xl mx-auto w-full"><SkeletonCard /><SkeletonCard /></div>
       </div>
     )
   }
@@ -444,32 +882,32 @@ export default function CalendarPage() {
     <div className="flex flex-col h-full bg-slate-50/50">
       <PageHeader
         title="Calendar & Promises"
-        description="Unified temporal intelligence center tracking meetings, customer promises, and relationship deadlines."
+        description="Unified temporal intelligence center tracking meetings, deal commitments, and relationship deadlines."
       />
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 max-w-7xl mx-auto w-full">
 
         {/* Hero Control Bar */}
-        <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-5 flex flex-wrap items-center justify-between gap-4">
+        <div className="rounded-3xl bg-white border border-gray-200/80 shadow-sm p-5 md:p-6 flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-1">
-            <h2 className="text-xl font-bold text-gray-950 flex items-center gap-2">
-              <CalendarIcon size={20} className="text-indigo-600" />
-              Relationship Calendar
+            <h2 className="text-xl md:text-2xl font-black text-gray-950 flex items-center gap-2.5">
+              <CalendarIcon size={24} className="text-indigo-600" />
+              Relationship Control Center
             </h2>
-            <p className="text-xs text-gray-500">
-              {events.length} schedule items tracked · {overdueCount > 0 ? `${overdueCount} overdue commitments` : 'All promises on track'}
+            <p className="text-xs font-medium text-gray-500">
+              {events.length} schedule items tracked · {overdueCount > 0 ? `${overdueCount} overdue commitments` : 'All commitments on track'}
             </p>
           </div>
 
           <div className="flex items-center gap-3">
             {/* View Switcher */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <div className="flex items-center bg-gray-100 p-1 rounded-2xl border border-gray-200/80">
               {(['month', 'week', 'day', 'agenda'] as const).map(v => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg uppercase tracking-wider transition-all ${
-                    view === v ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  className={`px-3.5 py-1.5 text-xs font-extrabold rounded-xl uppercase tracking-wider transition-all ${
+                    view === v ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   {v}
@@ -479,16 +917,16 @@ export default function CalendarPage() {
 
             <button
               onClick={() => openAddModal()}
-              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 rounded-2xl flex items-center gap-2 shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02]"
             >
-              <Plus size={14} />
-              Add Item
+              <Plus size={16} />
+              Add Schedule Item
             </button>
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-2 overflow-x-auto">
+        {/* Filters Row */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {([
             { id: 'all', label: 'All Items' },
             { id: 'promises', label: `🤝 Promises (${promiseCount})` },
@@ -498,9 +936,9 @@ export default function CalendarPage() {
             <button
               key={f.id}
               onClick={() => setActiveFilter(f.id)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all ${
+              className={`px-3.5 py-2 text-xs font-bold rounded-2xl border transition-all whitespace-nowrap ${
                 activeFilter === f.id
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-bold'
+                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
                   : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -509,21 +947,24 @@ export default function CalendarPage() {
           ))}
         </div>
 
-        {/* View Rendering */}
+        {/* Main View Layout */}
         {view === 'month' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-            <div className="md:col-span-2 rounded-2xl border border-gray-200 bg-white p-4 shadow-2xs">
-              <div className="flex items-center justify-between mb-4 bg-slate-50 p-2 rounded-xl">
-                <button onClick={prevMonth} className="p-1 rounded-lg hover:bg-white text-slate-600"><ChevronLeft size={18} /></button>
-                <span className="text-sm font-bold text-slate-900">{MONTHS[viewMonth]} {viewYear}</span>
-                <button onClick={nextMonth} className="p-1 rounded-lg hover:bg-white text-slate-600"><ChevronRight size={18} /></button>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            {/* Month Grid */}
+            <div className="lg:col-span-2 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between bg-gray-50 p-2.5 rounded-2xl border border-gray-100">
+                <button onClick={prevMonth} className="p-1.5 rounded-xl hover:bg-white text-gray-600 shadow-2xs"><ChevronLeft size={20} /></button>
+                <span className="text-base font-black text-gray-950">{MONTHS[viewMonth]} {viewYear}</span>
+                <button onClick={nextMonth} className="p-1.5 rounded-xl hover:bg-white text-gray-600 shadow-2xs"><ChevronRight size={20} /></button>
               </div>
 
-              {/* Month Grid */}
-              <div className="grid grid-cols-7 mb-2">
-                {DAYS.map(d => <div key={d} className="text-center text-[11px] font-bold text-slate-400 py-1">{d}</div>)}
+              {/* Day Labels */}
+              <div className="grid grid-cols-7 mb-1">
+                {DAYS.map(d => <div key={d} className="text-center text-[11px] font-extrabold text-gray-400 uppercase tracking-wider py-1">{d}</div>)}
               </div>
-              <div className="grid grid-cols-7 gap-1">
+
+              {/* Month Cells */}
+              <div className="grid grid-cols-7 gap-1.5">
                 {Array.from({ length: new Date(viewYear, viewMonth, 1).getDay() }).map((_, i) => <div key={`empty-${i}`} />)}
                 {Array.from({ length: new Date(viewYear, viewMonth + 1, 0).getDate() }, (_, i) => i + 1).map(day => {
                   const date = new Date(viewYear, viewMonth, day)
@@ -537,28 +978,40 @@ export default function CalendarPage() {
                       key={day}
                       onClick={() => setSelectedDate(date)}
                       onDoubleClick={() => openAddModal(date)}
-                      className={`relative flex flex-col items-start p-1.5 rounded-xl border min-h-[64px] transition-all text-left ${
-                        isSelected ? 'bg-indigo-50/90 border-indigo-500 ring-1 ring-indigo-500' :
-                        isToday ? 'bg-indigo-50/40 border-indigo-200' :
-                        hasOverdue ? 'bg-red-50/40 border-red-200' : 'border-gray-100 hover:bg-gray-50'
+                      className={`relative flex flex-col items-start p-2 rounded-2xl border min-h-[82px] transition-all text-left ${
+                        isSelected ? 'bg-indigo-50/90 border-indigo-500 ring-2 ring-indigo-500/40 shadow-sm' :
+                        isToday ? 'bg-indigo-50/30 border-indigo-300' :
+                        hasOverdue ? 'bg-red-50/30 border-red-300' : 'border-gray-100 hover:bg-gray-50/80'
                       }`}
                     >
-                      <span className={`text-xs font-bold ${isToday ? 'text-indigo-600' : 'text-slate-700'}`}>{day}</span>
-                      <div className="w-full space-y-1 mt-1">
+                      <div className="flex items-center justify-between w-full">
+                        <span className={`text-xs font-black ${isToday ? 'text-indigo-600' : 'text-gray-900'}`}>{day}</span>
+                        {dayEvents.length > 0 && (
+                          <span className="text-[9px] font-extrabold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                            {dayEvents.length}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Day Event Micro-Cards */}
+                      <div className="w-full space-y-1 mt-1.5">
                         {dayEvents.slice(0, 2).map(e => (
                           <div
                             key={e.id}
-                            className={`text-[9px] font-bold truncate px-1 py-0.5 rounded ${
-                              e.isOverdue ? 'bg-red-600 text-white animate-pulse' :
-                              e.eventType === 'promise' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
-                              'bg-indigo-100 text-indigo-900'
+                            className={`flex items-center gap-1 text-[9px] font-extrabold truncate px-1.5 py-0.5 rounded-lg border shadow-2xs ${
+                              e.isOverdue ? 'bg-red-600 text-white border-red-700 animate-pulse' :
+                              e.eventType === 'promise' ? 'bg-amber-100 text-amber-950 border-amber-200' :
+                              'bg-indigo-100 text-indigo-950 border-indigo-200'
                             }`}
                           >
-                            {e.title}
+                            {e.contact && (
+                              <Avatar name={e.contact.name} src={e.contact.avatarUrl ?? undefined} size="xs" />
+                            )}
+                            <span className="truncate">{e.title}</span>
                           </div>
                         ))}
                         {dayEvents.length > 2 && (
-                          <span className="text-[9px] font-bold text-slate-400 pl-1">+{dayEvents.length - 2} more</span>
+                          <span className="text-[9px] font-bold text-gray-400 pl-1 block">+{dayEvents.length - 2} more</span>
                         )}
                       </div>
                     </button>
@@ -567,53 +1020,42 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            {/* Sidebar Agenda for Selected Date */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
-              <div className="flex items-center justify-between border-b pb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {selectedDate ? selectedDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Agenda'}
-                </span>
-                <button onClick={() => openAddModal(selectedDate || undefined)} className="text-xs font-bold text-indigo-600 hover:underline">+ Add</button>
+            {/* Selected Date Detail Panel */}
+            <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider text-gray-400">
+                    {selectedDate ? selectedDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'Agenda'}
+                  </span>
+                  <p className="text-xs text-gray-500 mt-0.5">{selectedEvents.length} scheduled item{selectedEvents.length !== 1 ? 's' : ''}</p>
+                </div>
+                <button
+                  onClick={() => openAddModal(selectedDate || undefined)}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl transition-all"
+                >
+                  + Add Item
+                </button>
               </div>
 
               {selectedEvents.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 text-xs font-medium">No items scheduled for this date</div>
+                <div className="text-center py-10 space-y-2">
+                  <p className="text-sm font-bold text-gray-400">Clear slate for this date</p>
+                  <p className="text-xs text-gray-400">Click "+ Add Item" above or double-click any date cell</p>
+                </div>
               ) : (
-                <div className="space-y-2.5">
-                  {selectedEvents.map(e => {
-                    const colors = EVENT_COLORS[e.eventType] ?? EVENT_COLORS.default
-                    return (
-                      <div key={e.id} className={`p-3 rounded-xl border space-y-2 ${e.isOverdue ? 'bg-red-50/80 border-red-300' : colors.bg}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{e.eventType}</span>
-                            <h4 className="text-xs font-bold text-slate-900">{e.title}</h4>
-                            {e.contact && <p className="text-[10px] font-semibold text-indigo-600">👤 {e.contact.name}</p>}
-                          </div>
-                          {e.isOverdue && <span className="text-[9px] font-black uppercase text-red-600 bg-red-100 px-1.5 py-0.5 rounded">OVERDUE</span>}
-                        </div>
-
-                        {e.eventType === 'promise' && e.promiseStatus === 'pending' && (
-                          <div className="flex items-center gap-2 pt-1 border-t border-black/5">
-                            <button
-                              onClick={() => handleFulfillPromise(e.id)}
-                              disabled={actioningId === e.id}
-                              className="text-[10px] font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-1 rounded-md"
-                            >
-                              ✓ Fulfill
-                            </button>
-                            <button
-                              onClick={() => handleDismissPromise(e.id)}
-                              disabled={actioningId === e.id}
-                              className="text-[10px] font-bold text-slate-600 hover:bg-slate-200 px-2 py-1 rounded-md"
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                <div className="space-y-3.5">
+                  {selectedEvents.map(e => (
+                    <EventCard
+                      key={e.id}
+                      event={e}
+                      onConfirm={handleConfirm}
+                      onFulfillPromise={handleFulfillPromise}
+                      onDismissPromise={handleDismissPromise}
+                      onEdit={openEditModal}
+                      onToggleActionItem={handleToggleActionItem}
+                      token={token ?? undefined}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -622,43 +1064,40 @@ export default function CalendarPage() {
 
         {/* Agenda View */}
         {view === 'agenda' && (
-          <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-3">
-            <h3 className="text-sm font-bold text-slate-900 mb-2">Chronological Schedule Agenda</h3>
+          <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+            <h3 className="text-base font-bold text-gray-950">Chronological Relationship Timeline</h3>
             {filteredEvents.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-xs">No matching agenda items</div>
+              <div className="text-center py-12 text-gray-400 text-xs">No matching agenda items found</div>
             ) : (
-              <div className="divide-y divide-gray-100 space-y-2">
+              <div className="space-y-4">
                 {filteredEvents.map(e => (
-                  <div key={e.id} className="pt-2 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 text-center flex-shrink-0">
-                        <span className="text-[10px] font-bold uppercase text-slate-400 block">{new Date(e.startDate).toLocaleDateString([], { month: 'short' })}</span>
-                        <span className="text-sm font-black text-slate-900">{new Date(e.startDate).getDate()}</span>
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-slate-900">{e.title}</p>
-                        <p className="text-[10px] text-slate-500">{e.description || formatTime(e.startDate, e.allDay)} {e.contact ? `· ${e.contact.name}` : ''}</p>
-                      </div>
-                    </div>
-                    {e.eventType === 'promise' && e.promiseStatus === 'pending' && (
-                      <button onClick={() => handleFulfillPromise(e.id)} className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-                        Mark Fulfilled
-                      </button>
-                    )}
-                  </div>
+                  <EventCard
+                    key={e.id}
+                    event={e}
+                    onConfirm={handleConfirm}
+                    onFulfillPromise={handleFulfillPromise}
+                    onDismissPromise={handleDismissPromise}
+                    onEdit={openEditModal}
+                    onToggleActionItem={handleToggleActionItem}
+                    token={token ?? undefined}
+                  />
                 ))}
               </div>
             )}
           </div>
         )}
 
-        {/* Day / Week Fallback Views */}
+        {/* Week / Day Timeline Grid Placeholder */}
         {(view === 'day' || view === 'week') && (
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center space-y-3">
-            <Clock size={24} className="mx-auto text-indigo-600" />
-            <h3 className="text-sm font-bold text-slate-900">{view.toUpperCase()} Timeline Grid</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto">Click any time cell below or switch to Agenda view for vertical layout.</p>
-            <button onClick={() => setView('agenda')} className="text-xs font-bold text-indigo-600 underline">Switch to Agenda View</button>
+          <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center space-y-3 shadow-sm">
+            <Clock size={28} className="mx-auto text-indigo-600" />
+            <h3 className="text-base font-bold text-gray-950">{view.toUpperCase()} Timeline Overview</h3>
+            <p className="text-xs text-gray-500 max-w-md mx-auto leading-relaxed">
+              Full vertical hourly timeline. Use Month or Agenda view for detailed interactive cards.
+            </p>
+            <button onClick={() => setView('month')} className="text-xs font-bold text-indigo-600 hover:underline">
+              Switch to Month View
+            </button>
           </div>
         )}
 
