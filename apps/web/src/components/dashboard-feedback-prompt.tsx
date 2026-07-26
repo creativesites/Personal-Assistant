@@ -68,7 +68,7 @@ export function DashboardFeedbackPrompt() {
                 Leave Review
               </button>
               <a
-                href="/feedback"
+                href="/give-feedback"
                 className="px-2.5 py-1.5 border border-gray-200 hover:bg-gray-50 text-gray-600 font-semibold text-[11px] rounded-xl transition-colors"
               >
                 Send Feedback

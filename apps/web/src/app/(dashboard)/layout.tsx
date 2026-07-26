@@ -104,7 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/organization',  label: 'Organization & Team',   icon: Building2, showForModes: ['business', 'hybrid'] },
       { href: '/billing',       label: 'Billing & Plans',       icon: CreditCard },
       { href: '/settings',      label: 'Settings & BYOK',       icon: Settings },
-      { href: '/feedback',      label: 'Give Feedback',         icon: MessageSquare },
+      { href: '/give-feedback', label: 'Give Feedback',         icon: MessageSquare },
       { href: '/diagnostics',   label: 'System Diagnostics',    icon: Wrench, muted: true },
     ],
   },
