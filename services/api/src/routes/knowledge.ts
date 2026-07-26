@@ -58,6 +58,8 @@ const patchDocumentBody = z.object({
   category: z.string().max(100).optional(),
   tags: z.array(z.string()).optional(),
   summary: z.string().optional(),
+  isActive: z.boolean().optional(),
+  rawContent: z.string().optional(),
 })
 
 const searchBody = z.object({
@@ -105,7 +107,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const sql = `
-      SELECT id, title, source_type, category, tags, status,
+      SELECT id, title, source_type, category, tags, status, is_active,
              chunk_count, word_count, file_size_bytes, used_count,
              last_used_at, summary, error_message, created_at, updated_at
       FROM kb_documents
@@ -120,6 +122,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
       category: string | null
       tags: string[] | null
       status: string
+      is_active: boolean
       chunk_count: number | null
       word_count: number | null
       file_size_bytes: number | null
@@ -139,6 +142,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
         category: d.category,
         tags: d.tags ?? [],
         status: d.status,
+        isActive: d.is_active ?? true,
         chunkCount: d.chunk_count ?? 0,
         wordCount: d.word_count ?? 0,
         fileSizeBytes: d.file_size_bytes,
@@ -392,6 +396,19 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
         values.push(body.summary)
       }
 
+      if (body.isActive !== undefined) {
+        updates.push(`is_active = $${idx++}`)
+        values.push(body.isActive)
+      }
+
+      if (body.rawContent !== undefined) {
+        updates.push(`raw_content = $${idx++}`)
+        values.push(body.rawContent)
+        const wordCount = body.rawContent.split(/\s+/).filter(Boolean).length
+        updates.push(`word_count = $${idx++}`)
+        values.push(wordCount)
+      }
+
       if (updates.length === 0) {
         return reply.code(400).send({ error: 'No fields to update' })
       }
@@ -401,10 +418,10 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
 
       const { rows: [updated] } = await db.query<{
         id: string; title: string; category: string | null; tags: string[] | null
-        summary: string | null; updated_at: string
+        summary: string | null; is_active: boolean; updated_at: string
       }>(
         `UPDATE kb_documents SET ${updates.join(', ')} WHERE id = $${idx}
-         RETURNING id, title, category, tags, summary, updated_at`,
+         RETURNING id, title, category, tags, summary, is_active, updated_at`,
         values,
       )
 
@@ -415,6 +432,7 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
           category: updated.category,
           tags: updated.tags ?? [],
           summary: updated.summary,
+          isActive: updated.is_active,
           updatedAt: updated.updated_at,
         },
       })

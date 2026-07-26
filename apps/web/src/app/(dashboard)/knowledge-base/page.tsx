@@ -23,6 +23,7 @@ interface KbDocument {
   category: string | null
   tags: string[]
   status: 'ready' | 'processing' | 'error' | string
+  isActive?: boolean
   chunkCount: number
   wordCount: number | null
   fileSizeBytes: number | null
@@ -239,6 +240,25 @@ export default function KnowledgeBasePage() {
   const [scrapeUrl, setScrapeUrl] = useState('')
   const [scrapeCategory, setScrapeCategory] = useState('general')
   const [scrapingUrl, setScrapingUrl] = useState(false)
+
+  // Extraction Preview Modal State
+  const [previewDoc, setPreviewDoc] = useState<KbDocument | null>(null)
+  const [previewText, setPreviewText] = useState('')
+  const [loadingPreviewText, setLoadingPreviewText] = useState(false)
+  const [savingPreviewText, setSavingPreviewText] = useState(false)
+
+  // 5-Minute Setup Wizard State
+  const [wizardStep, setWizardStep] = useState(0)
+  const [wizardInputs, setWizardInputs] = useState({
+    brandName: '',
+    brandBio: '',
+    hours: '',
+    location: '',
+    refundPolicy: '',
+    topProducts: '',
+    paymentDelivery: '',
+  })
+  const [wizardSaving, setWizardSaving] = useState(false)
 
   // Chunk Editing State
   const [editingChunk, setEditingChunk] = useState<{ id: string; chunkIndex: number; content: string; documentTitle?: string } | null>(null)
@@ -506,6 +526,137 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  const handleToggleDocumentActive = async (doc: KbDocument) => {
+    if (!token) return
+    const newActive = doc.isActive === false ? true : false
+    try {
+      await apiClient(`/api/knowledge/${doc.id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ isActive: newActive }),
+      })
+      showToast(`Document ${newActive ? 'activated' : 'paused (excluded from AI retrieval)'}`, 'success')
+      setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, isActive: newActive } : d))
+    } catch {
+      showToast('Failed to update document status', 'error')
+    }
+  }
+
+  const handleOpenPreview = async (doc: KbDocument) => {
+    if (!token) return
+    setPreviewDoc(doc)
+    setLoadingPreviewText(true)
+    try {
+      const res = await apiClient<{ document: { rawContentPreview?: string } }>(`/api/knowledge/${doc.id}`, { token })
+      setPreviewText(res.document.rawContentPreview || '')
+    } catch {
+      setPreviewText('')
+    } finally {
+      setLoadingPreviewText(false)
+    }
+  }
+
+  const handleSavePreviewText = async (andReindex: boolean = false) => {
+    if (!token || !previewDoc) return
+    setSavingPreviewText(true)
+    try {
+      await apiClient(`/api/knowledge/${previewDoc.id}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ rawContent: previewText }),
+      })
+      if (andReindex) {
+        await apiClient(`/api/knowledge/${previewDoc.id}/reindex`, { method: 'POST', token })
+        showToast('Extracted text saved & vector embeddings regenerated!', 'success')
+      } else {
+        showToast('Extracted text saved successfully', 'success')
+      }
+      setPreviewDoc(null)
+      loadMemoryData()
+    } catch {
+      showToast('Failed to save extracted text', 'error')
+    } finally {
+      setSavingPreviewText(false)
+    }
+  }
+
+  const WIZARD_SAMPLES = [
+    {
+      brandName: 'Zuri Luxe Accessories',
+      brandBio: 'Handcrafted leather goods, silk scarves, and custom engraved accessories shipped worldwide.',
+    },
+    {
+      hours: 'Mon - Sat: 8:30 AM - 6:00 PM EST. Sunday: Closed.',
+      location: '104 Commerce St, Suite 2B & Online via WhatsApp Catalog.',
+    },
+    {
+      refundPolicy: '100% money-back refund within 14 days of receipt provided items are unworn with original tags attached.',
+    },
+    {
+      topProducts: 'Leather Tote Bag ($120), Engraved Cufflinks ($45), Silk Scarf ($35). Custom engraving +$10.',
+    },
+    {
+      paymentDelivery: 'We accept M-Pesa Till #90211, Credit Card, and Wire Transfer. Local shipping arrives in 24 hours ($5).',
+    },
+  ]
+
+  const handlePreFillWizardStep = (stepIdx: number) => {
+    const sample = WIZARD_SAMPLES[stepIdx]
+    setWizardInputs(prev => ({ ...prev, ...sample }))
+  }
+
+  const handleSaveWizardStep = async (stepIdx: number) => {
+    if (!token) return
+    setWizardSaving(true)
+    try {
+      if (stepIdx === 0 && wizardInputs.brandBio) {
+        await apiClient('/api/business-facts', {
+          method: 'POST', token,
+          body: JSON.stringify({ category: 'brand_voice', factKey: 'company_bio', factValue: `${wizardInputs.brandName ? wizardInputs.brandName + ': ' : ''}${wizardInputs.brandBio}` }),
+        })
+      } else if (stepIdx === 1) {
+        if (wizardInputs.hours) {
+          await apiClient('/api/business-facts', {
+            method: 'POST', token,
+            body: JSON.stringify({ category: 'hours', factKey: 'business_hours', factValue: wizardInputs.hours }),
+          })
+        }
+        if (wizardInputs.location) {
+          await apiClient('/api/business-facts', {
+            method: 'POST', token,
+            body: JSON.stringify({ category: 'business_rule', factKey: 'business_location', factValue: wizardInputs.location }),
+          })
+        }
+      } else if (stepIdx === 2 && wizardInputs.refundPolicy) {
+        await apiClient('/api/business-facts', {
+          method: 'POST', token,
+          body: JSON.stringify({ category: 'refund_policy', factKey: 'refund_policy', factValue: wizardInputs.refundPolicy }),
+        })
+      } else if (stepIdx === 3 && wizardInputs.topProducts) {
+        await apiClient('/api/business-facts', {
+          method: 'POST', token,
+          body: JSON.stringify({ category: 'pricing', factKey: 'core_catalog_pricing', factValue: wizardInputs.topProducts }),
+        })
+      } else if (stepIdx === 4 && wizardInputs.paymentDelivery) {
+        await apiClient('/api/business-facts', {
+          method: 'POST', token,
+          body: JSON.stringify({ category: 'business_rule', factKey: 'payment_delivery_terms', factValue: wizardInputs.paymentDelivery }),
+        })
+      }
+      showToast(`Step ${stepIdx + 1} saved to business memory!`, 'success')
+      if (stepIdx < 4) {
+        setWizardStep(stepIdx + 1)
+      } else {
+        showToast('🎉 Setup Complete! Your AI engines are now trained.', 'success')
+      }
+      loadMemoryData()
+    } catch {
+      showToast('Failed to save step facts', 'error')
+    } finally {
+      setWizardSaving(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50/50 pb-20 pt-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-6">
       
@@ -598,6 +749,192 @@ export default function KnowledgeBasePage() {
       {/* ── TAB 1: OVERVIEW & HEALTH DASHBOARD ───────────────────────────────── */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+
+          {/* Interactive 5-Minute Setup Wizard Card */}
+          <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900 text-white rounded-2xl p-6 shadow-md space-y-4 border border-indigo-700">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-700/60 pb-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-400 text-amber-950">
+                    5-Minute Onboarding Wizard
+                  </span>
+                  <h2 className="text-base font-bold">Train Your AI Knowledge Engine</h2>
+                </div>
+                <p className="text-xs text-indigo-200">
+                  Step {wizardStep + 1} of 5: {[
+                    'Brand Identity & Bio',
+                    'Business Hours & Location',
+                    'Return & Refund Policy',
+                    'Core Pricing & Catalog',
+                    'Payment & Delivery Terms',
+                  ][wizardStep]}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {[0, 1, 2, 3, 4].map(idx => (
+                  <button
+                    key={idx}
+                    onClick={() => setWizardStep(idx)}
+                    className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
+                      wizardStep === idx
+                        ? 'bg-amber-400 text-amber-950 font-black shadow'
+                        : wizardStep > idx
+                        ? 'bg-indigo-700 text-indigo-200 hover:bg-indigo-600'
+                        : 'bg-indigo-950/60 text-indigo-400 border border-indigo-800'
+                    }`}
+                  >
+                    {idx + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Step Content */}
+            <div className="space-y-3 bg-indigo-950/40 p-4 rounded-xl border border-indigo-700/50 text-xs">
+              {wizardStep === 0 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-indigo-100 flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-amber-400" /> Step 1: Brand Name & Business Description
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-indigo-200 font-semibold block mb-1">Business / Brand Name</label>
+                      <input
+                        value={wizardInputs.brandName}
+                        onChange={e => setWizardInputs({ ...wizardInputs, brandName: e.target.value })}
+                        placeholder="e.g. Zuri Luxe Accessories"
+                        className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-indigo-200 font-semibold block mb-1">Tagline or Short Bio</label>
+                      <textarea
+                        value={wizardInputs.brandBio}
+                        onChange={e => setWizardInputs({ ...wizardInputs, brandBio: e.target.value })}
+                        rows={2}
+                        placeholder="e.g. Handcrafted leather bags and silk scarves delivered worldwide."
+                        className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 1 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-indigo-100 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-400" /> Step 2: Business Hours & Location
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-indigo-200 font-semibold block mb-1">Business Opening Hours</label>
+                      <input
+                        value={wizardInputs.hours}
+                        onChange={e => setWizardInputs({ ...wizardInputs, hours: e.target.value })}
+                        placeholder="e.g. Mon - Sat: 8:30 AM - 6:00 PM. Sun: Closed."
+                        className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-indigo-200 font-semibold block mb-1">Physical Location or Online Channels</label>
+                      <input
+                        value={wizardInputs.location}
+                        onChange={e => setWizardInputs({ ...wizardInputs, location: e.target.value })}
+                        placeholder="e.g. 104 Commerce St, Suite 2B / Online via WhatsApp"
+                        className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 2 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-indigo-100 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-amber-400" /> Step 3: Return & Refund Terms
+                  </h3>
+                  <div>
+                    <label className="text-indigo-200 font-semibold block mb-1">Refund Policy Details</label>
+                    <textarea
+                      value={wizardInputs.refundPolicy}
+                      onChange={e => setWizardInputs({ ...wizardInputs, refundPolicy: e.target.value })}
+                      rows={3}
+                      placeholder="e.g. Full refund within 14 days if item is unworn with tags attached."
+                      className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 3 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-indigo-100 flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-amber-400" /> Step 4: Core Product Pricing
+                  </h3>
+                  <div>
+                    <label className="text-indigo-200 font-semibold block mb-1">Top Products, Services & Rates</label>
+                    <textarea
+                      value={wizardInputs.topProducts}
+                      onChange={e => setWizardInputs({ ...wizardInputs, topProducts: e.target.value })}
+                      rows={3}
+                      placeholder="e.g. Leather Bag ($120), Wallet ($45), Custom Engraving ($15 extra)."
+                      className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {wizardStep === 4 && (
+                <div className="space-y-3">
+                  <h3 className="font-bold text-sm text-indigo-100 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-amber-400" /> Step 5: Payment Methods & Shipping Timelines
+                  </h3>
+                  <div>
+                    <label className="text-indigo-200 font-semibold block mb-1">Bank, Till, & Delivery Terms</label>
+                    <textarea
+                      value={wizardInputs.paymentDelivery}
+                      onChange={e => setWizardInputs({ ...wizardInputs, paymentDelivery: e.target.value })}
+                      rows={3}
+                      placeholder="e.g. We accept M-Pesa Till #90211, Card, and Wire. Delivery takes 24 hours ($5)."
+                      className="w-full bg-indigo-900/60 border border-indigo-700 rounded-xl p-2.5 text-white placeholder-indigo-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-indigo-800/80">
+                <button
+                  type="button"
+                  onClick={() => handlePreFillWizardStep(wizardStep)}
+                  className="px-3 py-1.5 bg-indigo-800/80 hover:bg-indigo-700 text-amber-300 rounded-xl font-semibold flex items-center gap-1.5 transition-all text-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> ✨ 1-Click Sample Fill
+                </button>
+
+                <div className="flex gap-2">
+                  {wizardStep > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setWizardStep(wizardStep - 1)}
+                      className="px-3.5 py-1.5 bg-indigo-900 border border-indigo-700 text-indigo-200 rounded-xl font-bold transition-all text-xs"
+                    >
+                      Back
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleSaveWizardStep(wizardStep)}
+                    disabled={wizardSaving}
+                    className="px-4 py-1.5 bg-amber-400 hover:bg-amber-300 text-amber-950 font-black rounded-xl transition-all flex items-center gap-1.5 text-xs shadow"
+                  >
+                    {wizardSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    {wizardStep < 4 ? 'Save & Next Step' : 'Finish Onboarding'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
           
           {/* Health & Completeness Score Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -909,31 +1246,73 @@ export default function KnowledgeBasePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {documents.map(doc => (
-              <div
-                key={doc.id}
-                onClick={() => setSelectedDoc(doc)}
-                className="bg-white border border-gray-200 hover:border-indigo-400 rounded-2xl p-4 shadow-sm cursor-pointer transition-all space-y-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="p-2 bg-gray-50 rounded-xl border border-gray-200 flex-shrink-0">
-                      <TypeIcon type={doc.sourceType} className="w-5 h-5" />
+            {documents.map(doc => {
+              const isPaused = doc.isActive === false
+              return (
+                <div
+                  key={doc.id}
+                  onClick={() => setSelectedDoc(doc)}
+                  className={`bg-white border rounded-2xl p-4 shadow-sm cursor-pointer transition-all space-y-3 relative ${
+                    isPaused ? 'border-gray-300 opacity-75 bg-gray-50/80' : 'border-gray-200 hover:border-indigo-400'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="p-2 bg-gray-50 rounded-xl border border-gray-200 flex-shrink-0">
+                        <TypeIcon type={doc.sourceType} className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-gray-900 truncate">{doc.title}</p>
+                        <p className="text-[11px] text-gray-400 capitalize">{doc.sourceType} • {doc.category || 'General'}</p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-gray-900 truncate">{doc.title}</p>
-                      <p className="text-[11px] text-gray-400 capitalize">{doc.sourceType} • {doc.category || 'General'}</p>
+                    <div className="flex items-center gap-1.5">
+                      {isPaused ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                          PAUSED
+                        </span>
+                      ) : (
+                        <StatusBadge status={doc.status} />
+                      )}
                     </div>
                   </div>
-                  <StatusBadge status={doc.status} />
-                </div>
 
-                <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600 font-numeric">
-                  <div>Chunks: <span className="font-bold text-gray-900">{doc.chunkCount}</span></div>
-                  <div>Words: <span className="font-bold text-gray-900">{doc.wordCount ? formatWords(doc.wordCount) : '—'}</span></div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] bg-gray-50 p-2.5 rounded-xl text-gray-600 font-numeric">
+                    <div>Chunks: <span className="font-bold text-gray-900">{doc.chunkCount}</span></div>
+                    <div>Words: <span className="font-bold text-gray-900">{doc.wordCount ? formatWords(doc.wordCount) : '—'}</span></div>
+                  </div>
+
+                  {/* Card Action Controls */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleOpenPreview(doc)
+                      }}
+                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold flex items-center gap-1 transition-all text-[11px]"
+                    >
+                      <Eye className="w-3 h-3" /> Preview Text
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleToggleDocumentActive(doc)
+                      }}
+                      className={`px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all text-[11px] ${
+                        isPaused
+                          ? 'bg-green-50 hover:bg-green-100 text-green-700 border border-green-200'
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      {isPaused ? '▶ Activate AI' : '⏸ Pause AI'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -1435,6 +1814,80 @@ export default function KnowledgeBasePage() {
               <button onClick={() => setSelectedDoc(null)} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold">
                 Close
               </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* Extraction Review & Verification Modal */}
+      {previewDoc && (
+        <ModalWrapper onClose={() => setPreviewDoc(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <TypeIcon type={previewDoc.sourceType} className="w-5 h-5" />
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900">Extraction Preview: {previewDoc.title}</h2>
+                  <p className="text-[11px] text-gray-400 capitalize">Format: {previewDoc.sourceType} • Category: {previewDoc.category || 'General'}</p>
+                </div>
+              </div>
+              <button onClick={() => setPreviewDoc(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Verify Extracted Raw Content</p>
+                <p className="text-[11px] text-amber-800">
+                  Review extracted text before vectorization. Correct typos or OCR formatting errors to guarantee 100% accurate AI replies.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-2 flex flex-col">
+              <label className="text-xs font-bold text-gray-700">Extracted Plain Text Content:</label>
+              {loadingPreviewText ? (
+                <div className="flex-1 py-12 flex items-center justify-center text-xs text-gray-400 gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> Fetching raw extracted text...
+                </div>
+              ) : (
+                <textarea
+                  value={previewText}
+                  onChange={e => setPreviewText(e.target.value)}
+                  rows={10}
+                  className="w-full flex-1 border border-gray-200 rounded-xl p-3 text-xs font-mono text-gray-800 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Raw content preview..."
+                />
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-gray-100 text-xs">
+              <button
+                onClick={() => setPreviewDoc(null)}
+                className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold"
+              >
+                Cancel
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleSavePreviewText(false)}
+                  disabled={savingPreviewText}
+                  className="px-3.5 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-800 rounded-xl font-bold shadow-sm"
+                >
+                  Save Text
+                </button>
+                <button
+                  onClick={() => handleSavePreviewText(true)}
+                  disabled={savingPreviewText}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-sm flex items-center gap-1.5"
+                >
+                  {savingPreviewText ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  Save & Regenerate Vector Embeddings
+                </button>
+              </div>
             </div>
           </div>
         </ModalWrapper>

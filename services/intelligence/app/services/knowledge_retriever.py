@@ -423,6 +423,7 @@ async def retrieve_relevant_chunks(
                     OR kd.category ILIKE ANY(ARRAY['company','business','policies','products','pricing'])
                   )
                   AND kd.status = 'ready'
+                  AND (kd.is_active = TRUE OR kd.is_active IS NULL)
                 ORDER BY kc.embedding <-> $1
                 LIMIT $4
                 """,
@@ -442,6 +443,7 @@ async def retrieve_relevant_chunks(
                 WHERE kc.user_id = $2
                   AND kc.embedding IS NOT NULL
                   AND kd.status = 'ready'
+                  AND (kd.is_active = TRUE OR kd.is_active IS NULL)
                 ORDER BY kc.embedding <-> $1
                 LIMIT $3
                 """,
@@ -565,6 +567,7 @@ async def search_knowledge(user_id: str, query: str, limit: int = 10) -> list[di
             WHERE kc.user_id = $2
               AND kc.embedding IS NOT NULL
               AND kd.status = 'ready'
+              AND (kd.is_active = TRUE OR kd.is_active IS NULL)
             ORDER BY kc.embedding <-> $1
             LIMIT $3
             """,
