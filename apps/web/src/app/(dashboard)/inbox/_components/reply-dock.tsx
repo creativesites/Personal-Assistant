@@ -209,40 +209,29 @@ export function ReplyDock({
     setTimeout(() => draftRef.current?.focus(), 50)
   }
 
-  // Redesigned 3 Multi-Tone Quick Reply Chips
-  const toneChips = useMemo(() => {
-    const defaultChips = [
-      {
-        tone: 'Warm & Casual',
-        icon: '🌟',
-        color: 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100/70',
-        text: `Hi ${contactName || 'there'}! Thanks for reaching out. I'm happy to help you with this right away! 😊`,
-      },
-      {
-        tone: 'Direct & Professional',
-        icon: '💼',
-        color: 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100/70',
-        text: `Hello ${contactName || 'there'}. I have reviewed your request and confirmed the details. Let us know how you would like to proceed.`,
-      },
-      {
-        tone: 'Action & Scheduling',
-        icon: '⚡',
-        color: 'bg-purple-50 border-purple-200 text-purple-900 hover:bg-purple-100/70',
-        text: `Hi ${contactName || 'there'}, let's set up a quick 15-minute call or share a quotation so we can get this resolved today!`,
-      },
-    ]
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
 
-    if (suggestions.length >= 3) {
-      return suggestions.slice(0, 3).map((s, idx) => ({
-        tone: s.tone || defaultChips[idx].tone,
-        icon: idx === 0 ? '🌟' : idx === 1 ? '💼' : '⚡',
-        color: idx === 0 ? defaultChips[0].color : idx === 1 ? defaultChips[1].color : defaultChips[2].color,
-        text: s.text,
-      }))
-    }
+  // Reset dismissal when new suggestions or conversation selection changes
+  useEffect(() => {
+    setSuggestionsDismissed(false)
+  }, [selectedMsgId, suggestions])
 
-    return defaultChips
-  }, [suggestions, contactName])
+  // Filter real AI suggestions — NEVER fall back to hardcoded demo text!
+  const realSuggestions = useMemo(() => {
+    if (!suggestions || suggestions.length === 0) return []
+    return suggestions.map((s, idx) => ({
+      id: s.id || `sugg-${idx}`,
+      tone: s.tone || (idx === 0 ? 'Casual' : idx === 1 ? 'Professional' : 'Action'),
+      icon: idx === 0 ? '🌟' : idx === 1 ? '💼' : '⚡',
+      color: idx === 0
+        ? 'bg-emerald-50/90 border-emerald-200/80 text-emerald-900 hover:bg-emerald-100/80 hover:border-emerald-300'
+        : idx === 1
+        ? 'bg-blue-50/90 border-blue-200/80 text-blue-900 hover:bg-blue-100/80 hover:border-blue-300'
+        : 'bg-purple-50/90 border-purple-200/80 text-purple-900 hover:bg-purple-100/80 hover:border-purple-300',
+      text: s.text,
+      reasoning: s.reasoning,
+    }))
+  }, [suggestions])
 
   return (
     <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
@@ -338,39 +327,69 @@ export function ReplyDock({
         </div>
       )}
 
-      {/* Redesigned 3 Multi-Tone Quick Reply Chips */}
-      {!isGroup && (
-        <div className="border-b border-gray-100/80 bg-neutral-50/40">
-          <div className="px-4 py-2 flex items-center justify-between border-b border-neutral-100">
+      {/* AI Reply Suggestions Bar — ONLY rendered if real AI suggestions exist */}
+      {!isGroup && realSuggestions.length > 0 && !suggestionsDismissed && (
+        <div className="border-b border-neutral-200/60 bg-gradient-to-r from-neutral-50/90 via-indigo-50/30 to-neutral-50/90 backdrop-blur-xs">
+          <div className="px-3.5 py-1.5 flex items-center justify-between border-b border-neutral-100">
             <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500">
-              <Sparkles size={11} className="text-indigo-500 fill-indigo-500/20" />
-              Multi-Tone Quick Reply Options
+              <Sparkles size={11} className="text-indigo-500 fill-indigo-500/20 shrink-0" />
+              <span>AI Reply Suggestions ({realSuggestions.length})</span>
             </span>
-            <button
-              onClick={() => setSuggestionsCollapsed(prev => !prev)}
-              className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors"
-            >
-              {suggestionsCollapsed ? 'Show' : 'Hide'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSuggestionsCollapsed(prev => !prev)}
+                className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors"
+              >
+                {suggestionsCollapsed ? 'Show' : 'Hide'}
+              </button>
+              <button
+                onClick={() => setSuggestionsDismissed(true)}
+                className="text-neutral-400 hover:text-neutral-600 p-0.5 rounded transition-colors"
+                title="Dismiss suggestions"
+              >
+                <X size={12} />
+              </button>
+            </div>
           </div>
+
           {!suggestionsCollapsed && (
-            <div className="px-4 py-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 bg-white">
-              {toneChips.map((chip, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    onDraftChange(chip.text)
-                    draftRef.current?.focus()
-                  }}
-                  className={`group relative rounded-xl p-2.5 text-left transition-all duration-200 border shadow-2xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] ${chip.color}`}
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-xs">{chip.icon}</span>
-                    <span className="font-extrabold uppercase text-[9px] tracking-wider">{chip.tone}</span>
-                  </div>
-                  <p className="line-clamp-2 leading-relaxed text-[11px] font-semibold text-neutral-800">{chip.text}</p>
-                </button>
-              ))}
+            <div className="p-2">
+              {/* Mobile view: Non-intrusive, compact horizontal scrolling pills */}
+              <div className="sm:hidden flex items-center gap-2 overflow-x-auto no-scrollbar scrollbar-none py-0.5 px-1">
+                {realSuggestions.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      onDraftChange(item.text)
+                      draftRef.current?.focus()
+                    }}
+                    className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border shadow-2xs active:scale-95 transition-all max-w-[260px] truncate ${item.color}`}
+                  >
+                    <span>{item.icon}</span>
+                    <span className="truncate">{item.text}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Desktop view: Sleek multi-column grid */}
+              <div className="hidden sm:grid sm:grid-cols-3 gap-2">
+                {realSuggestions.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      onDraftChange(item.text)
+                      draftRef.current?.focus()
+                    }}
+                    className={`group relative rounded-xl p-2.5 text-left transition-all duration-200 border shadow-2xs hover:shadow-md hover:-translate-y-0.5 active:scale-[0.98] ${item.color}`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-xs">{item.icon}</span>
+                      <span className="font-extrabold uppercase text-[9px] tracking-wider">{item.tone}</span>
+                    </div>
+                    <p className="line-clamp-2 leading-relaxed text-[11px] font-semibold text-neutral-800">{item.text}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
