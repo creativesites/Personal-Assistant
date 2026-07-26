@@ -1,6 +1,6 @@
 'use client'
 
-import { TrendingUp, Clock, Users, Pin } from 'lucide-react'
+import { TrendingUp, Clock, Users, Pin, AlertCircle } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import type { Conversation } from '../_types/inbox'
 import { AI_PRIORITY, SENTIMENT_DOT } from '../_lib/constants'
@@ -18,6 +18,11 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
 }) {
   const priority = conv.aiPriority ? AI_PRIORITY[conv.aiPriority] : null
   const PIcon = priority?.icon
+
+  // SLA status badge logic
+  const slaMins = conv.slaMinutes ?? null
+  const hasUnread = conv.unreadCount > 0
+
   return (
     <button
       onClick={onClick}
@@ -85,12 +90,27 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
               {priority.label}
             </span>
           )}
-          {conv.slaMinutes != null && conv.slaMinutes > 60 && (
-            <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${conv.slaMinutes > 480 ? 'text-red-500' : 'text-amber-500'}`}>
-              <Clock size={9} />
-              {formatSLA(conv.slaMinutes)}
-            </span>
+
+          {/* SLA Badge */}
+          {hasUnread && slaMins !== null && (
+            slaMins < 60 ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded-md" title="SLA: < 1 hour wait time">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                &lt;1h SLA
+              </span>
+            ) : slaMins <= 240 ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md" title="SLA Attention: 1-4 hours wait time">
+                <Clock size={9} className="text-amber-600" />
+                {formatSLA(slaMins)} (1-4h)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200/90 px-1.5 py-0.5 rounded-md animate-pulse" title="SLA Breached: Over 4 hours wait time">
+                <AlertCircle size={9} className="text-red-600" />
+                {formatSLA(slaMins)} OVERDUE
+              </span>
+            )
           )}
+
           {mode !== 'personal' && (conv.leadScore ?? 0) > 70 && (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md">
               <TrendingUp size={9} />
