@@ -13,6 +13,7 @@ import {
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { ApiError } from '@/lib/api'
 import { ChatFormatter, type ParsedAction } from '@/components/ui/chat-formatter'
+import { ByokFastTrackCard } from '@/components/byok-fast-track-card'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -641,6 +642,11 @@ export default function AdvisorPage() {
             </button>
           </div>
         </header>
+
+        {/* Soft BYOK Fast-Track Banner */}
+        <div className="px-3 pt-2">
+          <ByokFastTrackCard compact token={session.data?.accessToken} />
+        </div>
 
         {/* COMPANION MODE CHIPS — Advisor Companion Plan Phase 1 (§4.4/§7.2) */}
         {/* <div className="flex-shrink-0 border-b border-white/80 bg-white/60 px-3 md:px-6 py-2 overflow-x-auto backdrop-blur-xl">

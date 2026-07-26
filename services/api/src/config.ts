@@ -23,6 +23,9 @@ const envSchema = z.object({
   MOBILE_MONEY_MTN_NUMBER: z.string().default('0762368105'),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().default('Zuri Alerts <alerts@zuri-ai.app>'),
+  // Free public testing access toggle — defaults to true so all users enjoy
+  // full Business Plan features until billing is toggled back on.
+  FREE_TESTING_MODE: z.preprocess((val) => val !== 'false' && val !== '0', z.boolean()).default(true),
 });
 
 export const config = envSchema.parse(process.env);

@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { db } from './db'
+import { config } from '../config'
 
 // Entitlement Engine (Membership Platform Phase 2, see
 // docs/MEMBERSHIP_PLATFORM_PLAN.md §Phase 2). Free-tier-available surfaces
@@ -62,6 +63,8 @@ function isPlanFamily(value: string | null): value is PlanFamily {
 }
 
 export async function getEffectivePlanFamily(userId: string): Promise<PlanFamily> {
+  if (config.FREE_TESTING_MODE) return 'business'
+
   const { rows: [row] } = await db.query<{ status: string; plan_family: string | null }>(
     `SELECT s.status, p.plan_family
      FROM subscriptions s

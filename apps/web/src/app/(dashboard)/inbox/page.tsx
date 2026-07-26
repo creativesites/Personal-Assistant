@@ -2102,12 +2102,25 @@ export default function InboxPage() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center bg-stone-50">
-            <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center mb-4">
-              <MessageSquare size={28} className="text-gray-400" />
+          <div className="flex-1 flex flex-col items-center justify-center bg-stone-50 p-6 text-center">
+            <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-purple-600 text-white rounded-2xl shadow-xl flex items-center justify-center mb-4">
+              <MessageSquare size={28} />
             </div>
-            <p className="text-sm font-semibold text-gray-900 mb-1">Select a conversation</p>
-            <p className="text-xs text-gray-500 mb-6">Choose from the list on the left.</p>
+            <p className="text-base font-bold text-gray-900 mb-1">Select a conversation or Explore Standalone Tools</p>
+            <p className="text-xs text-gray-500 mb-6 max-w-sm leading-relaxed">
+              Zuri works standalone for your business and career even if WhatsApp is not connected yet!
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
+              <a href="/business" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition-all">
+                Business ERP &amp; Quotes →
+              </a>
+              <a href="/contacts" className="px-4 py-2 bg-white border border-gray-200 text-gray-800 hover:bg-gray-50 text-xs font-bold rounded-xl shadow-sm transition-all">
+                Contacts CRM →
+              </a>
+              <a href="/career" className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-md transition-all">
+                Career OS &amp; CV Studio →
+              </a>
+            </div>
             <div className="flex items-center gap-5 text-xs text-gray-400">
               {[['⌘K', 'Search'], ['R', 'Regenerate'], ['⌘↵', 'Send']].map(([key, label]) => (
                 <span key={key} className="flex items-center gap-1.5">

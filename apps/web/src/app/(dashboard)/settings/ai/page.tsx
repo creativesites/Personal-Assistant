@@ -12,6 +12,7 @@ import {
   Building, ChevronRight, Sliders, AlertCircle, Info, RefreshCw as RotateCcw,
   XCircle, ShieldAlert
 } from 'lucide-react'
+import { ByokFastTrackCard } from '@/components/byok-fast-track-card'
 
 const OPENAI_MODELS = [
   { id: "gpt-5.6", name: "GPT-5.6 (Sol)", recommended: true },
@@ -417,6 +418,9 @@ export default function AISettingsPage() {
           </div>
         }
       />
+
+      {/* 30-Second BYOK Fast-Track Guide */}
+      <ByokFastTrackCard token={session.data?.accessToken} />
 
       {/* ── SECTION 1: OVERVIEW & ARCHITECTURE ────────────────────────────────────── */}
       <div className="relative bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-950 rounded-2xl p-6 md:p-8 text-white shadow-xl overflow-hidden border border-indigo-800/40">

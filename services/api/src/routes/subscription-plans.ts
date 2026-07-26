@@ -318,6 +318,31 @@ export async function subscriptionPlansRoutes(fastify: FastifyInstance): Promise
     async (request, reply) => {
       const { userId } = request.user as { userId: string }
 
+      if (config.FREE_TESTING_MODE) {
+        return reply.send({
+          plan: 'business',
+          planName: 'Business Unlimited (Free Testing)',
+          status: 'active',
+          currentPeriodEnd: null,
+          gracePeriodEndsAt: null,
+          credits: {
+            messagesRemaining: 99999,
+            messagesPerDay: 99999,
+            aiRepliesRemaining: 99999,
+            aiRepliesPerDay: 99999,
+            nudgesRemaining: 99999,
+            nudgesPerDay: 99999,
+            documentsRemaining: 99999,
+            documentsPerDay: 99999,
+          },
+          pendingPayment: null,
+          mobileMoneyNumbers: {
+            airtel: config.MOBILE_MONEY_AIRTEL_NUMBER,
+            mtn: config.MOBILE_MONEY_MTN_NUMBER,
+          },
+        })
+      }
+
       const { rows: [sub] } = await db.query<{
         id: string
         plan: string

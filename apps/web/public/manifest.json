@@ -1,0 +1,23 @@
+{
+  "name": "Zuri — AI Relationship & Business OS",
+  "short_name": "Zuri",
+  "description": "AI-powered relationship and business operating system. Smart inbox, CRM, document studio, e-signatures, and career OS.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#4F46E5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/zuri.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/zuri-logo.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
