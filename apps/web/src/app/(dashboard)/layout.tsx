@@ -62,7 +62,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/inbox',         label: 'Inbox',          icon: MessageSquare, badge: true },
       { href: '/inbox/queue',   label: 'AI Reply Queue',        icon: Zap, showForModes: ['business', 'hybrid'] },
       { href: '/proactive',     label: 'Proactive Nudges',      icon: Sparkles },
-      { href: '/broadcasts',    label: 'WhatsApp Broadcasts',   icon: Send, showForModes: ['business', 'hybrid'] },
       { href: '/advisor',        label: 'AI Advisor',            icon: Brain },
       { href: '/notifications', label: 'Notifications',         icon: Bell },
     ],
