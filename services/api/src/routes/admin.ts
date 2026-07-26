@@ -748,4 +748,165 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
       })
     },
   )
+
+  // ─── Reviews Moderation ──────────────────────────────────────────────────
+  fastify.get('/api/admin/reviews', { preHandler: authenticateAdmin }, async (_request, reply) => {
+    try {
+      const { rows } = await db.query(
+        `SELECT id, author_name, author_role, author_company, author_avatar_url, 
+                rating, review_text, is_approved, is_featured, source, created_at
+         FROM user_reviews
+         ORDER BY created_at DESC LIMIT 100`
+      )
+      return reply.send({
+        success: true,
+        reviews: rows.map(r => ({
+          id: r.id,
+          authorName: r.author_name,
+          authorRole: r.author_role,
+          authorCompany: r.author_company,
+          authorAvatarUrl: r.author_avatar_url,
+          rating: r.rating,
+          reviewText: r.review_text,
+          isApproved: r.is_approved,
+          isFeatured: r.is_featured,
+          source: r.source,
+          createdAt: r.created_at,
+        })),
+      })
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to list admin reviews')
+      return reply.status(500).send({ error: 'Failed to fetch reviews' })
+    }
+  })
+
+  fastify.patch('/api/admin/reviews/:id', { preHandler: authenticateAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { isApproved, isFeatured } = request.body as { isApproved?: boolean; isFeatured?: boolean }
+
+    try {
+      const updates: string[] = []
+      const values: any[] = [id]
+      let idx = 2
+
+      if (isApproved !== undefined) {
+        updates.push(`is_approved = $${idx++}`)
+        values.push(isApproved)
+      }
+      if (isFeatured !== undefined) {
+        updates.push(`is_featured = $${idx++}`)
+        values.push(isFeatured)
+      }
+
+      if (updates.length === 0) {
+        return reply.status(400).send({ error: 'No fields to update' })
+      }
+
+      const { rows } = await db.query(
+        `UPDATE user_reviews SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $1 RETURNING id`,
+        values
+      )
+
+      if (rows.length === 0) {
+        return reply.status(404).send({ error: 'Review not found' })
+      }
+
+      return reply.send({ success: true, message: 'Review updated successfully' })
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to update review')
+      return reply.status(500).send({ error: 'Failed to update review' })
+    }
+  })
+
+  fastify.delete('/api/admin/reviews/:id', { preHandler: authenticateAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    try {
+      await db.query('DELETE FROM user_reviews WHERE id = $1', [id])
+      return reply.send({ success: true, message: 'Review deleted' })
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to delete review')
+      return reply.status(500).send({ error: 'Failed to delete review' })
+    }
+  })
+
+  // ─── Feedback Moderation ─────────────────────────────────────────────────
+  fastify.get('/api/admin/feedback', { preHandler: authenticateAdmin }, async (_request, reply) => {
+    try {
+      const { rows } = await db.query(
+        `SELECT f.id, f.category, f.rating, f.message, f.status, f.admin_notes, 
+                f.contact_email, f.page_url, f.created_at, u.email AS user_email, u.full_name AS user_name
+         FROM platform_feedback f
+         LEFT JOIN users u ON u.id = f.user_id
+         ORDER BY f.created_at DESC LIMIT 100`
+      )
+      return reply.send({
+        success: true,
+        feedback: rows.map(r => ({
+          id: r.id,
+          category: r.category,
+          rating: r.rating,
+          message: r.message,
+          status: r.status,
+          adminNotes: r.admin_notes,
+          contactEmail: r.contact_email || r.user_email,
+          userName: r.user_name,
+          pageUrl: r.page_url,
+          createdAt: r.created_at,
+        })),
+      })
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to list admin feedback')
+      return reply.status(500).send({ error: 'Failed to fetch feedback' })
+    }
+  })
+
+  fastify.patch('/api/admin/feedback/:id', { preHandler: authenticateAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const { status, adminNotes } = request.body as { status?: string; adminNotes?: string }
+
+    try {
+      const updates: string[] = []
+      const values: any[] = [id]
+      let idx = 2
+
+      if (status) {
+        updates.push(`status = $${idx++}`)
+        values.push(status)
+      }
+      if (adminNotes !== undefined) {
+        updates.push(`admin_notes = $${idx++}`)
+        values.push(adminNotes)
+      }
+
+      if (updates.length === 0) {
+        return reply.status(400).send({ error: 'No fields to update' })
+      }
+
+      const { rows } = await db.query(
+        `UPDATE platform_feedback SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $1 RETURNING id`,
+        values
+      )
+
+      if (rows.length === 0) {
+        return reply.status(404).send({ error: 'Feedback entry not found' })
+      }
+
+      return reply.send({ success: true, message: 'Feedback updated' })
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to update feedback')
+      return reply.status(500).send({ error: 'Failed to update feedback' })
+    }
+  })
+
+  fastify.delete('/api/admin/feedback/:id', { preHandler: authenticateAdmin }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    try {
+      await db.query('DELETE FROM platform_feedback WHERE id = $1', [id])
+      return reply.send({ success: true, message: 'Feedback deleted' })
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to delete feedback')
+      return reply.status(500).send({ error: 'Failed to delete feedback' })
+    }
+  })
 }
+

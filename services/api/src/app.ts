@@ -76,6 +76,8 @@ import { salesErpRoutes } from './routes/sales-erp';
 import { organizationRoutes } from './routes/organization';
 import { milestonesRoutes } from './routes/milestones';
 import { statusRoutes } from './routes/statuses';
+import { reviewsRoutes } from './routes/reviews';
+import { feedbackRoutes } from './routes/feedback';
 import { readOnlyModeGuard } from './lib/entitlements';
 
 export async function buildApp() {
@@ -192,6 +194,8 @@ export async function buildApp() {
   await fastify.register(salesErpRoutes);
   await fastify.register(milestonesRoutes);
   await fastify.register(statusRoutes);
+  await fastify.register(reviewsRoutes);
+  await fastify.register(feedbackRoutes);
 
   return fastify;
 }

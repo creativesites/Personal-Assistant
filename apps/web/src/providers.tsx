@@ -2,6 +2,7 @@
 
 import { ClerkProvider } from '@clerk/nextjs'
 import { ToastProvider } from '@/components/ui/toast'
+import { PwaInstallPrompt } from '@/components/pwa-install-prompt'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -11,7 +12,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
       signInFallbackRedirectUrl="/inbox"
       signUpFallbackRedirectUrl="/onboarding"
     >
-      <ToastProvider>{children}</ToastProvider>
+      <ToastProvider>
+        {children}
+        <PwaInstallPrompt />
+      </ToastProvider>
     </ClerkProvider>
   )
 }

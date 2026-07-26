@@ -6,6 +6,7 @@ import {
   ShoppingBag, Wrench, Stethoscope, Building2, UtensilsCrossed, Plane, Scale, GraduationCap as SchoolIcon,
 } from 'lucide-react'
 import { AuthCta } from './_components/AuthCta'
+import { ReviewsSection } from './_components/ReviewsSection'
 
 export const metadata: Metadata = {
   title: 'Zuri — The AI System That Runs Your Business and Grows Your Career',
@@ -284,6 +285,9 @@ export default function UnifiedHomePage() {
           </div>
         </div>
       </section>
+
+      {/* ── Reviews Section ──────────────────────────────────────────────── */}
+      <ReviewsSection />
 
       {/* ── Final CTA ────────────────────────────────────────────────────── */}
       <section className="py-20 md:py-28 px-4 md:px-6">

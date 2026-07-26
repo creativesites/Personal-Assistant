@@ -1,43 +1,29 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Smartphone, Download, Share, PlusSquare, X } from 'lucide-react'
+import { Download, X, Smartphone } from 'lucide-react'
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
 
 export function PwaInstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
-  const [isIos, setIsIos] = useState(false)
-  const [isStandalone, setIsStandalone] = useState(false)
-  const [showPrompt, setShowPrompt] = useState(false)
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
-    // Check if already running as installed PWA
-    const inStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true
-
-    setIsStandalone(inStandalone)
-    if (inStandalone) return
-
-    // Check if user dismissed prompt recently
-    const dismissed = localStorage.getItem('zuri_pwa_prompt_dismissed')
-    if (dismissed && Date.now() - Number(dismissed) < 7 * 86_400_000) {
+    // Check if user previously dismissed prompt within the last 7 days
+    const dismissedUntil = localStorage.getItem('zuri_pwa_dismissed_until')
+    if (dismissedUntil && Date.now() < parseInt(dismissedUntil, 10)) {
       return
     }
 
-    // Detect iOS
-    const ua = window.navigator.userAgent
-    const isIosDevice = /iphone|ipad|ipod/i.test(ua)
-    setIsIos(isIosDevice)
-
-    if (isIosDevice) {
-      setShowPrompt(true)
-    }
-
-    // Android / Chrome listener
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault()
-      setDeferredPrompt(e)
-      setShowPrompt(true)
+      setDeferredPrompt(e as BeforeInstallPromptEvent)
+      // Slight delay so it doesn't pop up instantly on page load
+      setTimeout(() => setIsVisible(true), 3000)
     }
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
@@ -47,69 +33,62 @@ export function PwaInstallPrompt() {
     }
   }, [])
 
-  const handleInstallClick = async () => {
+  const handleInstall = async () => {
     if (!deferredPrompt) return
-    deferredPrompt.prompt()
+    setIsVisible(false)
+    await deferredPrompt.prompt()
     const { outcome } = await deferredPrompt.userChoice
     if (outcome === 'accepted') {
-      setShowPrompt(false)
+      localStorage.setItem('zuri_pwa_installed', 'true')
     }
     setDeferredPrompt(null)
   }
 
   const handleDismiss = () => {
-    localStorage.setItem('zuri_pwa_prompt_dismissed', String(Date.now()))
-    setShowPrompt(false)
+    setIsVisible(false)
+    // Suppress for 7 days
+    const sevenDays = Date.now() + 7 * 24 * 60 * 60 * 1000
+    localStorage.setItem('zuri_pwa_dismissed_until', sevenDays.toString())
   }
 
-  if (isStandalone || !showPrompt) return null
+  if (!isVisible || !deferredPrompt) return null
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 md:max-w-md z-50 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-indigo-500/30 backdrop-blur-xl animate-in slide-in-from-bottom duration-300">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 flex-shrink-0">
-            <Smartphone className="w-5 h-5 text-white" />
+    <div className="fixed bottom-16 sm:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-sm z-[90] animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="bg-white/95 backdrop-blur-xl border border-indigo-100 shadow-2xl shadow-indigo-500/10 rounded-2xl p-4 flex items-start gap-3.5 ring-1 ring-black/5">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-md shadow-indigo-500/20">
+          <Smartphone className="w-5 h-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="text-xs font-bold text-gray-900">Install Zuri AI Assistant</h4>
+            <button
+              onClick={handleDismiss}
+              className="text-gray-400 hover:text-gray-600 p-0.5 rounded-lg hover:bg-gray-100 transition-colors"
+              aria-label="Dismiss prompt"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <div>
-            <h4 className="text-xs font-black tracking-wide uppercase text-indigo-300">
-              Install Zuri OS
-            </h4>
-            <p className="text-xs font-semibold text-slate-100 mt-0.5">
-              Get the full app experience on your phone
-            </p>
+          <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+            Install on your home screen for fast access, instant notifications, and smooth mobile experience.
+          </p>
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={handleInstall}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-xs rounded-xl shadow-sm transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Install App</span>
+            </button>
+            <button
+              onClick={handleDismiss}
+              className="px-3 py-1.5 border border-gray-200 hover:bg-gray-50 text-gray-600 text-xs font-medium rounded-xl transition-colors"
+            >
+              Not now
+            </button>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleDismiss}
-          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          title="Close prompt"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="mt-3 pt-3 border-t border-slate-800 text-xs text-slate-300">
-        {isIos ? (
-          <div className="space-y-1.5 leading-relaxed">
-            <p className="flex items-center gap-1.5 font-medium text-slate-200">
-              1. Tap the <Share className="w-3.5 h-3.5 text-indigo-400 inline" /> <b>Share</b> button in Safari
-            </p>
-            <p className="flex items-center gap-1.5 font-medium text-slate-200">
-              2. Scroll down &amp; tap <PlusSquare className="w-3.5 h-3.5 text-indigo-400 inline" /> <b>Add to Home Screen</b>
-            </p>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={handleInstallClick}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition-all shadow-md active:scale-95"
-          >
-            <Download className="w-4 h-4" />
-            <span>Install Web App</span>
-          </button>
-        )}
       </div>
     </div>
   )

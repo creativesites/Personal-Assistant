@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { GuidedTourProvider, TourTriggerButton, useGuidedTour } from '@/components/guided-tour'
 import { PwaInstallPrompt } from '@/components/pwa-install-prompt'
+import { DashboardFeedbackPrompt } from '@/components/dashboard-feedback-prompt'
 
 type WorkspaceMode = 'business' | 'personal' | 'hybrid'
 type MarketingAccess = 'none' | 'waitlisted' | 'beta' | 'enabled'
@@ -103,6 +104,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/organization',  label: 'Organization & Team',   icon: Building2, showForModes: ['business', 'hybrid'] },
       { href: '/billing',       label: 'Billing & Plans',       icon: CreditCard },
       { href: '/settings',      label: 'Settings & BYOK',       icon: Settings },
+      { href: '/feedback',      label: 'Give Feedback',         icon: MessageSquare },
       { href: '/diagnostics',   label: 'System Diagnostics',    icon: Wrench, muted: true },
     ],
   },
@@ -886,6 +888,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
         {/* Native-like Web App Mobile Install Prompt */}
         <PwaInstallPrompt />
+        <DashboardFeedbackPrompt />
       </div>
     </>
   )
