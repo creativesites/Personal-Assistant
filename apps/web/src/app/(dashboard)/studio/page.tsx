@@ -2954,8 +2954,8 @@ function StudioPageInner() {
           </div>
         </div>
 
-        {/* Premium Sticky Module Tab Bar (z-50) */}
-        <div className="sticky top-0 z-50 overflow-x-auto rounded-2xl border border-indigo-500/20 bg-slate-950/95 backdrop-blur-2xl p-2.5 shadow-2xl ring-1 ring-white/10">
+        {/* Premium Sticky Module Tab Bar (z-30) */}
+        <div className="sticky top-0 z-30 overflow-x-auto rounded-2xl border border-indigo-500/20 bg-slate-950/95 backdrop-blur-2xl p-2.5 shadow-2xl ring-1 ring-white/10">
           <div className="flex min-w-max gap-1.5">
             {MODULES.map(({ id, label, Icon }) => {
               const isActive = activeModule === id

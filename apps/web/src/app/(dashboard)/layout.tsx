@@ -758,7 +758,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* Mobile background backdrop overlay */}
         {sidebarOpen && (
           <div
-            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
+            className="md:hidden fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm transition-opacity duration-300"
             onClick={closeSidebar}
           />
         )}
@@ -766,7 +766,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* Fixed: Explicit positional boundaries for mobile absolute tracking vs desktop relative flexibility */}
         <aside
           className={`
-            fixed top-0 bottom-0 left-0 z-50 md:z-auto md:relative
+            fixed top-0 bottom-0 left-0 z-[100] md:z-auto md:relative
             flex flex-col h-full bg-gray-900
             transition-all duration-300 ease-in-out
             ${sidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'} 
