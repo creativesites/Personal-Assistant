@@ -20,6 +20,7 @@ import {
   Calendar,
   CreditCard,
   Zap,
+  Maximize2,
 } from 'lucide-react'
 
 import { VoiceRecorderDock } from './voice-recorder-dock'
@@ -106,6 +107,26 @@ export function ReplyDock({
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false)
   const [showSlashMenu, setShowSlashMenu] = useState(false)
+  const [isExpandedModalOpen, setIsExpandedModalOpen] = useState(false)
+
+  // Calculate line & character metrics
+  const lineCount = useMemo(() => {
+    if (!draft) return 1
+    return draft.split('\n').length
+  }, [draft])
+
+  const charCount = draft.length
+
+  // Dynamic auto-grow height adjustment for draft textarea
+  useEffect(() => {
+    const el = draftRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const scrollH = el.scrollHeight
+    // Capped between 28px min and 220px max (~8-10 visible lines)
+    const newHeight = Math.min(Math.max(scrollH, 28), 220)
+    el.style.height = `${newHeight}px`
+  }, [draft, draftRef])
 
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -489,7 +510,30 @@ export function ReplyDock({
                 <Mic size={18} strokeWidth={2.2} />
               </button>
 
-              <div className="flex-1 min-w-0 self-center py-1 relative">
+              <div className="flex-1 min-w-0 self-stretch flex flex-col justify-center py-1 relative">
+                {/* Multi-line & Long Text Helper Toolbar */}
+                {draft.trim().length > 0 && (lineCount > 1 || charCount > 100) && (
+                  <div className="flex items-center justify-between px-2 py-0.5 bg-indigo-50/90 border border-indigo-100 rounded-lg text-[10px] text-indigo-950 mb-1 animate-in fade-in duration-150">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <span className="font-bold text-indigo-900">{lineCount} {lineCount === 1 ? 'line' : 'lines'}</span>
+                      <span className="text-indigo-300">•</span>
+                      <span>{charCount} chars</span>
+                      <span className="text-indigo-300 hidden sm:inline">•</span>
+                      <span className="text-indigo-600 hidden sm:inline">Shift+Enter for newline</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsExpandedModalOpen(true)}
+                      className="flex items-center gap-1 font-bold text-indigo-700 hover:text-indigo-950 bg-white/90 hover:bg-white border border-indigo-200/80 px-1.5 py-0.5 rounded-md shadow-2xs transition-all"
+                      title="Expand Editor"
+                    >
+                      <Maximize2 size={10} />
+                      <span>Expand</span>
+                    </button>
+                  </div>
+                )}
+
                 <textarea
                   ref={draftRef}
                   rows={1}
@@ -499,14 +543,17 @@ export function ReplyDock({
                     if (e.key === 'Tab' && ghostCompletion) {
                       e.preventDefault()
                       onDraftChange(draft + ghostCompletion)
+                    } else if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSend()
                     } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault()
                       handleSend()
                     }
                   }}
                   placeholder={selectedFile ? "Add a caption..." : "Type a message or '/' for shortcuts..."}
-                  className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 placeholder-neutral-400 focus:outline-none leading-relaxed align-middle"
-                  style={{ minHeight: '24px', maxHeight: '140px' }}
+                  className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 placeholder-neutral-400 focus:outline-none leading-relaxed align-middle transition-[height] duration-100 ease-out"
+                  style={{ minHeight: '28px', maxHeight: '220px' }}
                 />
 
                 {/* Inline Ghost Text Completion Pill */}
@@ -604,6 +651,73 @@ export function ReplyDock({
           )}
         </div>
       </div>
+
+      {/* Pop-Out Full Composer Modal */}
+      {isExpandedModalOpen && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-neutral-200/80 w-full max-w-2xl flex flex-col overflow-hidden max-h-[85vh]">
+            <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-neutral-900">Expanded Message Composer</h3>
+                  <p className="text-xs text-neutral-500">Replying to {contactName || 'contact'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsExpandedModalOpen(false)}
+                className="p-1.5 rounded-xl text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 flex-1 flex flex-col gap-3 overflow-y-auto">
+              <textarea
+                autoFocus
+                value={draft}
+                onChange={e => onDraftChange(e.target.value)}
+                placeholder="Type your detailed response, proposal, or quotation..."
+                className="w-full flex-1 min-h-[220px] p-4 rounded-2xl bg-neutral-50 border border-neutral-200/80 text-neutral-900 placeholder-neutral-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 leading-relaxed resize-none"
+              />
+
+              <div className="flex items-center justify-between text-xs text-neutral-500 pt-2 border-t border-neutral-100">
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-neutral-800">{lineCount} lines</span>
+                  <span className="text-neutral-300">•</span>
+                  <span>{charCount} characters</span>
+                </div>
+                <span className="text-neutral-400 font-mono text-[11px]">Shift+Enter for newline · Ctrl+Enter to send</span>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-neutral-50/80 border-t border-neutral-100 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setIsExpandedModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-neutral-200 hover:bg-neutral-100 text-neutral-700 font-bold text-xs transition-colors"
+              >
+                Close Full Editor
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExpandedModalOpen(false)
+                  handleSend()
+                }}
+                disabled={!draft.trim() && !selectedFile}
+                className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs shadow-md shadow-indigo-500/20 transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                <Send size={14} />
+                <span>Send Message</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

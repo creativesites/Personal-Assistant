@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { Star, CheckCircle, XCircle, Trash2, Eye, MessageSquare, ShieldAlert, Sparkles, Filter } from 'lucide-react'
+import { Star, CheckCircle, XCircle, Trash2, Eye, MessageSquare, ShieldAlert, Sparkles, Filter, RefreshCw } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
+import { apiClient } from '@/lib/api'
 
 interface ReviewItem {
   id: string
@@ -50,13 +51,10 @@ export default function AdminReviewsPage() {
     if (!token) return
     setLoadingReviews(true)
     try {
-      const res = await fetch('/api/admin/reviews', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
+      const data = await apiClient<{ success: boolean; reviews: ReviewItem[] }>('/api/admin/reviews', { token })
       if (data.success) setReviews(data.reviews || [])
-    } catch {
-      /* ignore */
+    } catch (err: any) {
+      console.error('Failed to fetch reviews:', err)
     } finally {
       setLoadingReviews(false)
     }
@@ -66,13 +64,10 @@ export default function AdminReviewsPage() {
     if (!token) return
     setLoadingFeedback(true)
     try {
-      const res = await fetch('/api/admin/feedback', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
+      const data = await apiClient<{ success: boolean; feedback: FeedbackItem[] }>('/api/admin/feedback', { token })
       if (data.success) setFeedback(data.feedback || [])
-    } catch {
-      /* ignore */
+    } catch (err: any) {
+      console.error('Failed to fetch feedback:', err)
     } finally {
       setLoadingFeedback(false)
     }
@@ -89,15 +84,13 @@ export default function AdminReviewsPage() {
   const toggleApprove = async (id: string, current: boolean) => {
     if (!token) return
     try {
-      const res = await fetch(`/api/admin/reviews/${id}`, {
+      await apiClient(`/api/admin/reviews/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        token,
         body: JSON.stringify({ isApproved: !current }),
       })
-      if (res.ok) {
-        setActionMsg(`Review ${!current ? 'Approved' : 'Unapproved'}`)
-        fetchReviews()
-      }
+      setActionMsg(`Review ${!current ? 'Approved' : 'Unapproved'}`)
+      fetchReviews()
     } catch {
       setActionMsg('Action failed')
     }
@@ -106,15 +99,13 @@ export default function AdminReviewsPage() {
   const toggleFeature = async (id: string, current: boolean) => {
     if (!token) return
     try {
-      const res = await fetch(`/api/admin/reviews/${id}`, {
+      await apiClient(`/api/admin/reviews/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        token,
         body: JSON.stringify({ isFeatured: !current }),
       })
-      if (res.ok) {
-        setActionMsg(`Review ${!current ? 'Featured' : 'Unfeatured'}`)
-        fetchReviews()
-      }
+      setActionMsg(`Review ${!current ? 'Featured' : 'Unfeatured'}`)
+      fetchReviews()
     } catch {
       setActionMsg('Action failed')
     }
@@ -123,14 +114,12 @@ export default function AdminReviewsPage() {
   const deleteReview = async (id: string) => {
     if (!token || !confirm('Are you sure you want to delete this review?')) return
     try {
-      const res = await fetch(`/api/admin/reviews/${id}`, {
+      await apiClient(`/api/admin/reviews/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        token,
       })
-      if (res.ok) {
-        setActionMsg('Review deleted')
-        fetchReviews()
-      }
+      setActionMsg('Review deleted')
+      fetchReviews()
     } catch {
       setActionMsg('Action failed')
     }
@@ -140,15 +129,13 @@ export default function AdminReviewsPage() {
   const updateFeedbackStatus = async (id: string, newStatus: string) => {
     if (!token) return
     try {
-      const res = await fetch(`/api/admin/feedback/${id}`, {
+      await apiClient(`/api/admin/feedback/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        token,
         body: JSON.stringify({ status: newStatus }),
       })
-      if (res.ok) {
-        setActionMsg(`Feedback set to ${newStatus}`)
-        fetchFeedback()
-      }
+      setActionMsg(`Feedback set to ${newStatus}`)
+      fetchFeedback()
     } catch {
       setActionMsg('Action failed')
     }
@@ -157,14 +144,12 @@ export default function AdminReviewsPage() {
   const deleteFeedback = async (id: string) => {
     if (!token || !confirm('Are you sure you want to delete this feedback?')) return
     try {
-      const res = await fetch(`/api/admin/feedback/${id}`, {
+      await apiClient(`/api/admin/feedback/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        token,
       })
-      if (res.ok) {
-        setActionMsg('Feedback deleted')
-        fetchFeedback()
-      }
+      setActionMsg('Feedback deleted')
+      fetchFeedback()
     } catch {
       setActionMsg('Action failed')
     }
@@ -177,11 +162,20 @@ export default function AdminReviewsPage() {
           <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">Reviews &amp; Feedback Moderation</h1>
           <p className="text-xs sm:text-sm text-gray-400">Moderate landing page testimonials and respond to user feedback</p>
         </div>
-        {actionMsg && (
-          <div className="px-3 py-1.5 bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-semibold rounded-xl">
-            {actionMsg}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { fetchReviews(); fetchFeedback(); }}
+            className="p-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+            title="Refresh Data"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          {actionMsg && (
+            <div className="px-3 py-1.5 bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-semibold rounded-xl">
+              {actionMsg}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tabs Header */}
@@ -212,7 +206,10 @@ export default function AdminReviewsPage() {
       {activeTab === 'reviews' && (
         <div className="space-y-4">
           {loadingReviews ? (
-            <div className="text-center py-12 text-gray-500 text-xs">Loading reviews...</div>
+            <div className="text-center py-12 text-gray-500 text-xs flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+              <span>Loading reviews from server...</span>
+            </div>
           ) : reviews.length === 0 ? (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center text-gray-400 text-xs">
               No reviews submitted yet.
@@ -300,7 +297,10 @@ export default function AdminReviewsPage() {
       {activeTab === 'feedback' && (
         <div className="space-y-4">
           {loadingFeedback ? (
-            <div className="text-center py-12 text-gray-500 text-xs">Loading feedback...</div>
+            <div className="text-center py-12 text-gray-500 text-xs flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+              <span>Loading feedback from server...</span>
+            </div>
           ) : feedback.length === 0 ? (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center text-gray-400 text-xs">
               No platform feedback submitted yet.
