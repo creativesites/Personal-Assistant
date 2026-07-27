@@ -413,7 +413,7 @@ export default function BusinessPage() {
                 onClick={() => startCustomTour(DOCUMENT_TOUR_STEPS)}
                 className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-50 text-indigo-700 border border-indigo-200 text-sm font-bold rounded-2xl hover:bg-indigo-100 transition-all shadow-sm min-h-[44px]"
               >
-                <HelpCircle className="w-4 h-4 text-indigo-600" />Document Tour
+                <HelpCircle className="w-4 h-4 text-indigo-600" />Tour
               </button>
               <div data-tour="doc-more-tools">
                 <Dropdown

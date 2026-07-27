@@ -1639,10 +1639,10 @@ export default function InboxPage() {
             <button
               onClick={() => startCustomTour(INBOX_TOUR_STEPS)}
               title="Interactive Tour of Shared Inbox"
-              className="flex items-center gap-1.5 text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-lg transition-all shadow-xs"
+              className="flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1.5 rounded-lg transition-all shadow-2xs"
             >
-              <Zap size={12} className="text-amber-500 fill-amber-400" />
-              <span>⚡ Tour Inbox</span>
+              <Zap size={12} className="text-amber-500 fill-amber-400 shrink-0" />
+              <span>Tour</span>
             </button>
           </div>
         </div>

@@ -428,7 +428,7 @@ function CareerPageInner() {
     className="inline-flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100 transition-all shadow-sm min-h-[44px]"
   >
     <HelpCircle className="w-4 h-4 text-indigo-600" />
-    <span>Career Tour</span>
+    <span>Tour</span>
   </button>
 </div>
         </div>

@@ -2932,7 +2932,7 @@ function StudioPageInner() {
                 className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-xs font-bold transition-all shadow-sm min-h-[42px]"
               >
                 <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-                <span>Tour Studio</span>
+                <span>Tour</span>
               </button>
               <button
                 type="button"

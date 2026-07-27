@@ -64,6 +64,7 @@ export class SessionManager {
     transport.on('link_code', async (code: string) => {
       try {
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+        await this.redis.setex(`wa:link_code:${userId}`, 300, code).catch(() => {});
         await this.db.query(
           `UPDATE whatsapp_instances
            SET status = 'link_code_pending', link_code = $1, link_code_expires_at = $2, updated_at = NOW()

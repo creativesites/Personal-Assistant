@@ -162,12 +162,16 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
           ? await redis.get(`wa:qr:${userId}`)
           : null;
 
+        const linkCode = instance.status === 'link_code_pending'
+          ? (await redis.get(`wa:link_code:${userId}`)) || instance.link_code
+          : (lcValid ? instance.link_code : null);
+
         return reply.send({
           connected: instance.status === 'connected',
           status: instance.status,
           phone: instance.phone_number,
           qrCode,
-          linkCode: lcValid ? instance.link_code : null,
+          linkCode,
           linkCodeExpiresAt: instance.link_code_expires_at,
           lastConnectedAt: instance.last_connected_at,
         });

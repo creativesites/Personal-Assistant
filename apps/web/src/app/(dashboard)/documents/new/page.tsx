@@ -736,7 +736,7 @@ export default function NewDocumentPage() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-sm"
         >
           <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Document Tour</span>
+          <span>Tour</span>
         </button>
       </div>
 

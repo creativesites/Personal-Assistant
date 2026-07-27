@@ -1,9 +1,8 @@
-'use client'
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Smartphone, RefreshCw, X, CheckCircle2, AlertCircle, Loader2, QrCode, Key, ArrowRight } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useWAStatus } from '@/hooks/use-wa-status'
+import { getSocket } from '@/lib/socket'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 
@@ -19,23 +18,78 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
 
   const [connectMode, setConnectMode] = useState<'qr' | 'phone'>('qr')
   const [loading, setLoading] = useState(false)
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false)
   const [qrCode, setQrCode] = useState<string | null>(null)
   const [linkCode, setLinkCode] = useState<string | null>(null)
   const [phoneNumber, setPhoneNumber] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  const pollStatus = useCallback(async () => {
+    if (!token) return
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.qrCode) setQrCode(data.qrCode)
+      if (data.linkCode) {
+        setLinkCode(data.linkCode)
+        setIsGeneratingCode(false)
+      }
+    } catch {
+      // ignore
+    }
+  }, [token])
+
+  // Initial trigger on modal open or mode switch
   useEffect(() => {
     if (open && token) {
       if (connectMode === 'qr') {
         initiateConnection()
+      } else {
+        pollStatus()
       }
     } else {
       setQrCode(null)
       setLinkCode(null)
       setError(null)
       setLoading(false)
+      setIsGeneratingCode(false)
     }
-  }, [open, token, connectMode])
+  }, [open, token, connectMode, pollStatus])
+
+  // Continuous background status polling & Socket.io listeners while modal is open
+  useEffect(() => {
+    if (!open || !token) return
+
+    pollStatus()
+    const interval = setInterval(pollStatus, 1500)
+
+    const socket = getSocket(token)
+    if (socket) {
+      const handleLinkCode = (code: string) => {
+        if (code) {
+          setLinkCode(code)
+          setIsGeneratingCode(false)
+        }
+      }
+      const handleQr = (dataUrl: string) => {
+        if (dataUrl) setQrCode(dataUrl)
+      }
+
+      socket.on('whatsapp:link_code', handleLinkCode)
+      socket.on('whatsapp:qr', handleQr)
+
+      return () => {
+        clearInterval(interval)
+        socket.off('whatsapp:link_code', handleLinkCode)
+        socket.off('whatsapp:qr', handleQr)
+      }
+    }
+
+    return () => clearInterval(interval)
+  }, [open, token, pollStatus])
 
   useEffect(() => {
     if (wa.status === 'connected') {
@@ -52,6 +106,7 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
     setError(null)
     setQrCode(null)
     setLinkCode(null)
+    if (phone) setIsGeneratingCode(true)
 
     try {
       const res = await fetch(`${API_URL}/api/whatsapp/connect`, {
@@ -65,6 +120,7 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
 
       const data = await res.json()
       if (!res.ok) {
+        setIsGeneratingCode(false)
         throw new Error(data.message || 'Failed to initiate WhatsApp reconnection')
       }
 
@@ -72,27 +128,15 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
         setQrCode(data.qrCode)
       } else if (data.linkCode) {
         setLinkCode(data.linkCode)
+        setIsGeneratingCode(false)
       } else {
         pollStatus()
       }
     } catch (err: any) {
       setError(err.message || 'Error connecting to WhatsApp backend')
+      setIsGeneratingCode(false)
     } finally {
       setLoading(false)
-    }
-  }
-
-  async function pollStatus() {
-    if (!token) return
-    try {
-      const res = await fetch(`${API_URL}/api/whatsapp/status`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-      if (data.qrCode) setQrCode(data.qrCode)
-      if (data.linkCode) setLinkCode(data.linkCode)
-    } catch {
-      // ignore
     }
   }
 
@@ -132,7 +176,11 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
         <div className="grid grid-cols-2 p-1 bg-gray-950 rounded-xl border border-gray-800 mb-5">
           <button
             type="button"
-            onClick={() => setConnectMode('qr')}
+            onClick={() => {
+              setConnectMode('qr')
+              setLinkCode(null)
+              setIsGeneratingCode(false)
+            }}
             className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
               connectMode === 'qr' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
             }`}
@@ -201,11 +249,19 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
                       <Key className="w-3.5 h-3.5 text-amber-400" />
                       <span>Pairing Code Ready</span>
                     </div>
-                    <div className="font-mono text-3xl font-black text-amber-400 tracking-widest py-2 bg-slate-900 rounded-xl border border-slate-800">
+                    <div className="font-mono text-3xl font-black text-amber-400 tracking-widest py-3 bg-slate-900 rounded-xl border border-slate-800 selection:bg-amber-400 selection:text-slate-950">
                       {linkCode}
                     </div>
                     <p className="text-xs text-gray-300 leading-relaxed">
                       On your phone open <b>WhatsApp</b> → <b>Settings</b> → <b>Linked Devices</b> → <b>Link with phone number instead</b> and enter the code above.
+                    </p>
+                  </div>
+                ) : isGeneratingCode || loading ? (
+                  <div className="p-6 bg-slate-950 rounded-2xl border border-amber-500/30 text-center space-y-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-amber-400 mx-auto" />
+                    <h4 className="text-sm font-bold text-amber-400">Generating Pairing Code...</h4>
+                    <p className="text-xs text-gray-300 leading-relaxed">
+                      Connecting to WhatsApp for <b>+{phoneNumber.replace(/\D/g, '')}</b>. Your 8-digit pairing code will appear here in just a few seconds...
                     </p>
                   </div>
                 ) : (
@@ -223,10 +279,10 @@ export function WAReconnectModal({ open, onClose }: WAReconnectModalProps) {
                     </div>
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || isGeneratingCode}
                       className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                      {loading || isGeneratingCode ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
                       <span>Get 8-Digit Pairing Code</span>
                     </button>
                   </form>
