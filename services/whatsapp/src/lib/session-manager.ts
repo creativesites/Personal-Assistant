@@ -49,11 +49,11 @@ export class SessionManager {
   async startSession(userId: string, phoneNumber?: string, forceNewQR = false): Promise<void> {
     const existing = this.sessions.get(userId);
     if (existing) {
-      if (existing.transport.getStatus() === 'connected') {
-        throw new Error('Session already active for this user');
+      if (existing.transport.getStatus() === 'connected' && !forceNewQR) {
+        return;
       }
-      // Stuck in reconnect loop — stop and replace with a fresh session
-      await existing.transport.stop();
+      // Stop existing transport before recreating or replacing
+      await existing.transport.stop().catch(() => {});
       this.sessions.delete(userId);
     }
 
@@ -476,14 +476,65 @@ export class SessionManager {
     console.log(`[session-manager] all sessions stopped.`);
   }
 
+  private async ensureActiveSession(userId: string): Promise<SessionEntry> {
+    let entry = this.sessions.get(userId);
+    if (entry && entry.transport.getStatus() === 'connected') {
+      return entry;
+    }
+
+    // Check if saved credentials exist on disk for auto-restoration
+    const authPath = path.join(config.SESSIONS_DIR, userId);
+    const credsPath = path.join(authPath, 'creds.json');
+    let hasCreds = false;
+    try {
+      const stats = await fs.stat(credsPath);
+      hasCreds = stats.isFile() && stats.size > 0;
+    } catch {
+      hasCreds = false;
+    }
+
+    if (!hasCreds) {
+      if (entry) {
+        await entry.transport.stop().catch(() => {});
+        this.sessions.delete(userId);
+      }
+      throw new Error(`No active WhatsApp session or saved credentials for user ${userId}. Please reconnect via QR code.`);
+    }
+
+    console.log(`[session-manager] auto-restoring session for user ${userId}...`);
+
+    if (entry) {
+      await entry.transport.stop().catch(() => {});
+      this.sessions.delete(userId);
+    }
+
+    await this.startSession(userId, undefined, false);
+
+    // Wait up to 10 seconds for the session to connect
+    const startTime = Date.now();
+    while (Date.now() - startTime < 10000) {
+      const current = this.sessions.get(userId);
+      if (current && current.transport.getStatus() === 'connected') {
+        return current;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    entry = this.sessions.get(userId);
+    if (!entry || entry.transport.getStatus() !== 'connected') {
+      throw new Error(`WhatsApp session auto-restore timed out for user ${userId}. Please click Reconnect.`);
+    }
+
+    return entry;
+  }
+
   async sendMessage(
     userId: string,
     jid: string,
     text: string,
     options?: { quotedWaMessageId?: string; quotedBody?: string }
   ): Promise<void> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     await entry.transport.sendText(jid, text, options);
   }
 
@@ -494,8 +545,7 @@ export class SessionManager {
     targetWaMessageId: string,
     fromMe: boolean
   ): Promise<void> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     await entry.transport.sendReaction(jid, emoji, targetWaMessageId, fromMe);
   }
 
@@ -505,14 +555,12 @@ export class SessionManager {
     waMessageId: string,
     fromMe: boolean
   ): Promise<void> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     await entry.transport.deleteMessage(jid, waMessageId, fromMe);
   }
 
   async fetchProfilePicture(userId: string, jid: string): Promise<string | null> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     return await entry.transport.fetchProfilePictureUrl(jid);
   }
 
@@ -522,8 +570,7 @@ export class SessionManager {
     content: string,
     options?: { caption?: string; backgroundColor?: string }
   ): Promise<void> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     await entry.transport.postStatus(mediaType, content, options);
   }
 
@@ -533,7 +580,7 @@ export class SessionManager {
     toJid: string
   ): Promise<void> {
     const entry = this.sessions.get(userId);
-    if (!entry) return; // Silent return if session not online
+    if (!entry || entry.transport.getStatus() !== 'connected') return; // Silent return if session not online
     await entry.transport.sendPresenceUpdate(presence, toJid);
   }
 
@@ -545,26 +592,22 @@ export class SessionManager {
     fileName: string,
     caption?: string,
   ): Promise<void> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     await entry.transport.sendDocument(jid, filePath, mimetype, fileName, caption);
   }
 
   async listCatalogProducts(userId: string, limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     return await entry.transport.listCatalogProducts(limit, cursor);
   }
 
   async createCatalogProduct(userId: string, product: CatalogProductInput): Promise<unknown> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
     return await entry.transport.createCatalogProduct(product);
   }
 
   async requestLinkCode(userId: string, phoneNumber: string): Promise<string> {
-    const entry = this.sessions.get(userId);
-    if (!entry) throw new Error(`No active session for user ${userId}`);
+    const entry = await this.ensureActiveSession(userId);
 
     const code = await entry.transport.requestLinkCode(phoneNumber);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute window

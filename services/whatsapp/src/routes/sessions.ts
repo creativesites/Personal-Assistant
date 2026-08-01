@@ -30,14 +30,15 @@ export function sessionRoutes(sessionManager: SessionManager) {
     fastify.post('/internal/sessions/connect', async (request, reply) => {
       const body = connectBody.parse(request.body);
 
-      if (sessionManager.status(body.userId) === 'connected') {
-        return reply.code(409).send({ error: 'Session already active' });
+      // User-initiated connects always force a fresh QR by default; restoreAll() / auto-heal does not.
+      const forceNewQR = body.forceNewQR ?? true;
+
+      if (sessionManager.status(body.userId) === 'connected' && !forceNewQR) {
+        return reply.send({ message: 'Session already active', userId: body.userId });
       }
 
       // Normalize phone number — digits only, no + or spaces
       const phoneNumber = body.phoneNumber ? body.phoneNumber.replace(/\D/g, '') : undefined;
-      // User-initiated connects always force a fresh QR by default; restoreAll() does not.
-      const forceNewQR = body.forceNewQR ?? true;
       await sessionManager.startSession(body.userId, phoneNumber, forceNewQR);
 
       return reply.code(202).send({

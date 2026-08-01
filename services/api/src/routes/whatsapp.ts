@@ -153,6 +153,33 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
           return reply.send({ connected: false, status: 'disconnected' });
         }
 
+        let isLiveConnected = instance.status === 'connected';
+
+        if (instance.status === 'connected') {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 2500);
+            const res = await fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/status/${userId}`, {
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (res.ok) {
+              const sessData = (await res.json()) as { status: string };
+              if (sessData.status !== 'connected') {
+                isLiveConnected = false;
+                // Automatically attempt background session restoration from saved credentials
+                fetch(`${config.WHATSAPP_SERVICE_URL}/internal/sessions/connect`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ userId, forceNewQR: false }),
+                }).catch(() => {});
+              }
+            }
+          } catch {
+            // Service check failed or timed out — keep DB status as fallback
+          }
+        }
+
         const now = new Date();
         const lcValid = instance.link_code_expires_at && new Date(instance.link_code_expires_at) > now;
 
@@ -167,8 +194,8 @@ export async function whatsappRoutes(fastify: FastifyInstance): Promise<void> {
           : (lcValid ? instance.link_code : null);
 
         return reply.send({
-          connected: instance.status === 'connected',
-          status: instance.status,
+          connected: isLiveConnected,
+          status: isLiveConnected ? 'connected' : (instance.status === 'connected' ? 'reconnecting' : instance.status),
           phone: instance.phone_number,
           qrCode,
           linkCode,
