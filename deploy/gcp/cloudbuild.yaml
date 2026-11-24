@@ -1,0 +1,52 @@
+# Builds the three backend images and pushes them to Artifact Registry.
+#   gcloud builds submit --config deploy/gcp/cloudbuild.yaml \
+#     --substitutions=_REGISTRY=europe-west2-docker.pkg.dev/PROJECT/zuri,_TAG=abc123 .
+substitutions:
+  _REGISTRY: ''
+  _TAG: latest
+
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  - id: api
+    name: gcr.io/cloud-builders/docker
+    waitFor: ['-']
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker pull ${_REGISTRY}/api:latest || true
+        docker build -f services/api/Dockerfile --cache-from ${_REGISTRY}/api:latest \
+          -t ${_REGISTRY}/api:${_TAG} -t ${_REGISTRY}/api:latest .
+
+  - id: whatsapp
+    name: gcr.io/cloud-builders/docker
+    waitFor: ['-']
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker pull ${_REGISTRY}/whatsapp:latest || true
+        docker build -f services/whatsapp/Dockerfile --cache-from ${_REGISTRY}/whatsapp:latest \
+          -t ${_REGISTRY}/whatsapp:${_TAG} -t ${_REGISTRY}/whatsapp:latest .
+
+  - id: intelligence
+    name: gcr.io/cloud-builders/docker
+    waitFor: ['-']
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        docker pull ${_REGISTRY}/intelligence:latest || true
+        docker build -f services/intelligence/Dockerfile --cache-from ${_REGISTRY}/intelligence:latest \
+          -t ${_REGISTRY}/intelligence:${_TAG} -t ${_REGISTRY}/intelligence:latest .
+
+images:
+  - ${_REGISTRY}/api:${_TAG}
+  - ${_REGISTRY}/api:latest
+  - ${_REGISTRY}/whatsapp:${_TAG}
+  - ${_REGISTRY}/whatsapp:latest
+  - ${_REGISTRY}/intelligence:${_TAG}
+  - ${_REGISTRY}/intelligence:latest

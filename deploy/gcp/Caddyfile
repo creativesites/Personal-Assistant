@@ -1,0 +1,7 @@
+{$API_HOST} {
+	encode gzip
+	# nginx keeps the rate limiting + websocket config; Caddy only adds TLS.
+	reverse_proxy nginx:5500 {
+		header_up X-Forwarded-Proto https
+	}
+}

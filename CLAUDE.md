@@ -224,16 +224,22 @@ curl http://localhost:8000/health   # Intelligence
 
 ## Production Infrastructure
 
+The backend runs on **Google Cloud** — one Compute Engine VM running Docker Compose. The old Alibaba ECS server (`47.84.205.81`) is retired. Full runbook: `deploy/gcp/README.md`.
+
 | Resource | Value |
 |----------|-------|
-| ECS server (Alibaba Cloud) | `47.84.205.81` |
-| API public port | `5500` (nginx proxies → api:3000) |
+| GCP project / zone | `propzi-imbk` / `europe-west2-b` (London, next to Supabase eu-west-1) |
+| VM | `zuri-backend` (e2-standard-2), static IP `34.13.48.134` |
+| Public API | `https://34-13-48-134.sslip.io` — Caddy (TLS) → nginx (rate limits) → api:3000 |
 | Web app | https://zuri-personal-assistant-delta.vercel.app |
-| Database | Supabase PostgreSQL (NOT local — see `.env` on server) |
-| Redis | Local Docker container on ECS |
-| Docker Compose file | `docker-compose.prod.yml` (no postgres container — uses Supabase) |
+| Database | Supabase PostgreSQL via the **transaction pooler, port 6543** (session pooler 5432 caps at 15 clients) |
+| Redis | Local Docker container on the VM |
+| Compose files | `docker-compose.prod.yml` + `docker-compose.gcp.yml` override |
+| Images | Artifact Registry `europe-west2-docker.pkg.dev/propzi-imbk/zuri/*`, built by Cloud Build |
 
-**Production `.env` location:** `/opt/zuri/.env`
+**Why a VM, not Cloud Run:** Baileys needs exactly one long-lived process per WhatsApp session with a persistent auth directory (Cloud Run overlaps instances on deploy → "conflict" logouts, and has no persistent disk), and intelligence runs 26 in-process schedulers that must be one always-on instance.
+
+**Production `.env`:** Secret Manager secret `zuri-prod-env`, written to `/opt/zuri/.env` on every deploy. Never edit the file on the VM directly.
 
 Required keys in production `.env`:
 ```
@@ -262,36 +268,24 @@ Model selection for Qwen calls is routed through `services/intelligence/app/ai/m
 
 **Vercel environment variables** (set in Vercel dashboard):
 ```
-NEXT_PUBLIC_API_URL=http://47.84.205.81:5500
-API_URL=http://47.84.205.81:5500
+NEXT_PUBLIC_API_URL=https://34-13-48-134.sslip.io
+API_URL=https://34-13-48-134.sslip.io
 INTERNAL_API_SECRET=98c2ba10361bc6678f860c7b53d953ff
-```
-
-### SSH access to ECS
-
-SSH key is stored at `.deploy-local/claude-local.pem` (gitignored — never commit).
-
-```bash
-ssh -i .deploy-local/claude-local.pem root@47.84.205.81
 ```
 
 ### Deploy to production
 
+Pushing to `main` deploys via `.github/workflows/deploy.yml` (Workload Identity Federation → Cloud Build → SSH rollout; skips itself until the one-time WIF setup in `deploy/gcp/README.md` is done). Manually:
+
 ```bash
-# On the server — pull latest + rebuild changed services
-ssh -i .deploy-local/claude-local.pem root@47.84.205.81 \
-  "cd /opt/zuri && git pull origin main && \
-   docker compose -f docker-compose.prod.yml up --build -d"
+PROJECT=propzi-imbk deploy/gcp/deploy.sh   # builds + deploys origin/main
 
-# Rebuild only specific services (faster)
-ssh -i .deploy-local/claude-local.pem root@47.84.205.81 \
-  "cd /opt/zuri && git pull origin main && \
-   docker compose -f docker-compose.prod.yml up --build -d --force-recreate intelligence api whatsapp"
-
-# Tail production logs
-ssh -i .deploy-local/claude-local.pem root@47.84.205.81 \
-  "docker compose -f /opt/zuri/docker-compose.prod.yml logs --tail=50 -f"
+# Shell / logs on the VM
+gcloud compute ssh zuri-backend --project propzi-imbk --zone europe-west2-b
+sudo docker compose -f /opt/zuri/docker-compose.prod.yml -f /opt/zuri/docker-compose.gcp.yml logs --tail=50 -f whatsapp
 ```
+
+WhatsApp sessions persist in the `zuri-prod_wa_sessions` volume and auto-restore on restart. Note WhatsApp only sends full history once, right after linking — avoid restarting `whatsapp` while an initial history sync is still writing.
 
 ---
 

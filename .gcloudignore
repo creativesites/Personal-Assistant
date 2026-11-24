@@ -1,0 +1,24 @@
+# Upload only what the three backend Dockerfiles need to Cloud Build.
+# Explicit (not #!include:.gitignore) so secrets can never ride along.
+.git
+.gitignore
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/__pycache__
+**/.venv
+.env
+**/.env
+**/.env.*
+!**/.env.example
+.deploy-local
+*.pem
+services/whatsapp/db/sessions
+services/whatsapp/db/media
+/whatsapp
+/apps
+/scratch
+/docs
+/.pnpm-store
+**/*.log

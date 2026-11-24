@@ -3,68 +3,60 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths:
+      - 'services/**'
+      - 'packages/**'
+      - 'db/migrations/**'
+      - 'deploy/gcp/**'
+      - 'docker-compose.prod.yml'
+      - 'docker-compose.gcp.yml'
+      - 'nginx.prod.conf'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch: {}
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write # Workload Identity Federation (no long-lived GCP keys)
+
 jobs:
   deploy-backend:
-    name: Deploy backend to ECS
+    name: Deploy backend to GCP (Compute Engine)
     runs-on: ubuntu-latest
     environment: production
+    env:
+      WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+      DEPLOY_SA: ${{ secrets.GCP_DEPLOY_SA }}
     steps:
+      - name: Check GCP deploy credentials are configured
+        id: guard
+        run: |
+          if [ -z "$WIF_PROVIDER" ] || [ -z "$DEPLOY_SA" ]; then
+            echo "GCP_WIF_PROVIDER / GCP_DEPLOY_SA not set — skipping deploy (see deploy/gcp/README.md)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+        if: steps.guard.outputs.enabled == 'true'
         with:
-          host: ${{ secrets.ECS_HOST }}
-          username: ${{ secrets.ECS_USER }}
-          key: ${{ secrets.ECS_SSH_KEY }}
-          port: ${{ secrets.ECS_PORT || 22 }}
-          script: |
-            set -e
-            cd /opt/zuri
+          fetch-depth: 0
 
-            # Pull latest code
-            git pull origin main
+      - uses: google-github-actions/auth@v2
+        if: steps.guard.outputs.enabled == 'true'
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOY_SA }}
 
-            # Write .env from GitHub secret
-            echo "${{ secrets.PROD_ENV }}" > .env
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.guard.outputs.enabled == 'true'
 
-            # Run pending DB migrations — db/ isn't baked into the api image,
-            # so this runs in a throwaway container against the checked-out
-            # repo instead. Must happen before the app containers restart so
-            # new code never runs against an old schema.
-            docker run --rm \
-              -v "$(pwd)":/app -w /app \
-              --env-file .env \
-              node:22-alpine \
-              sh -c "npm install pg --no-save --silent && node db/migrate.js"
-
-            # Build updated images
-            docker compose -f docker-compose.prod.yml build --no-cache api intelligence whatsapp
-
-            # Restart services
-            docker compose -f docker-compose.prod.yml up -d \
-              --no-deps --force-recreate api intelligence whatsapp
-
-            # Wait for API to become healthy
-            echo "Waiting for API..."
-            for i in $(seq 1 30); do
-              if curl -sf http://localhost:5500/health > /dev/null 2>&1; then
-                echo "API healthy after ${i}s"
-                break
-              fi
-              sleep 2
-            done
-
-            # Verify it came up
-            curl -sf http://localhost:5500/health || { echo "API health check failed"; exit 1; }
-
-            # Clean up old images
-            docker image prune -f
-
-            echo "Deployment complete"
+      - name: Build images and roll out to the VM
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          PROJECT: propzi-imbk
+        run: bash deploy/gcp/deploy.sh

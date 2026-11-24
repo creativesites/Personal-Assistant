@@ -1,0 +1,51 @@
+# GCP override for docker-compose.prod.yml — used on the Compute Engine VM:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.gcp.yml up -d --no-build
+#
+# Differences from the base file:
+#   - api/whatsapp/intelligence run prebuilt images from Artifact Registry
+#     (built by deploy/gcp/cloudbuild.yaml) instead of building on the VM.
+#   - Caddy terminates HTTPS on :80/:443 (automatic Let's Encrypt for
+#     $API_HOST) and proxies to nginx, which keeps its rate limiting.
+#   - nginx is no longer published directly on :5500.
+#
+# Required in .env (besides the base file's keys): REGISTRY, API_HOST.
+
+services:
+  api:
+    image: ${REGISTRY}/api:${TAG:-latest}
+    environment:
+      # Base file never passed this, so document share links sent over
+      # WhatsApp pointed at http://localhost:3000.
+      PUBLIC_API_URL: https://${API_HOST}
+
+  whatsapp:
+    image: ${REGISTRY}/whatsapp:${TAG:-latest}
+
+  intelligence:
+    image: ${REGISTRY}/intelligence:${TAG:-latest}
+
+  nginx:
+    ports: !reset []
+    expose:
+      - "5500"
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_HOST: ${API_HOST}
+    volumes:
+      - ./deploy/gcp/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nginx
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
