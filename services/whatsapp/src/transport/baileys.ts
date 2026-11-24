@@ -346,19 +346,17 @@ export class BaileysTransport extends WhatsAppTransport {
   private async _boot(): Promise<void> {
     const version = await this.getBaileysVersion();
 
-    if (this.forceNewQR || this.pairingPhone) {
-      try {
-        const { state: existingState } = await useMultiFileAuthState(this.authPath);
-        if (!existingState.creds.registered) {
-          console.log(`[baileys:${this.userId}] purging unregistered auth directory before fresh connect: ${this.authPath}`);
-          await fs.rm(this.authPath, { recursive: true, force: true }).catch(() => {});
-        }
-      } catch {
-        // ignore
-      }
-    }
-
+    // _boot() runs on EVERY internal reconnect (restartRequired, network
+    // drops), so it must never delete auth state. Stale auth is cleared once
+    // in start() for user-initiated connects. Purging here previously wiped
+    // freshly-paired credentials on the mandatory post-pairing restart
+    // (QR pairing never sets creds.registered), so pairing appeared to
+    // succeed on the phone but the server lost the session.
     const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
+
+    // A device is paired once WhatsApp has issued account details. Covers
+    // both QR (never sets `registered`) and phone-code pairing.
+    const isPaired = Boolean(state.creds.registered || state.creds.account);
 
     const sock = makeWASocket({
       version,
@@ -374,11 +372,18 @@ export class BaileysTransport extends WhatsAppTransport {
     // Queue credential updates to prevent write race conditions
     sock.ev.on('creds.update', () => {
       if (sock !== this.sock) return;
-      this.writeQueue.enqueue(saveCreds);
+      this.writeQueue.enqueue(async () => {
+        // Never let a missing directory silently drop credential writes.
+        await fs.mkdir(this.authPath, { recursive: true });
+        await saveCreds();
+      });
     });
 
-    // For phone-code pairing: call requestPairingCode with retry after a 3s handshake delay.
-    if (this.pairingPhone) {
+    // For phone-code pairing: request a code only while the device is still
+    // unpaired. After pairing succeeds WhatsApp forces a restart; requesting
+    // a code on that reconnect overwrites creds.me and gets the socket
+    // closed (the "Connection Closed" / status=error loop).
+    if (this.pairingPhone && !isPaired) {
       setTimeout(async () => {
         try {
           if (sock !== this.sock) return;

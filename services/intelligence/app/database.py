@@ -16,7 +16,13 @@ async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         ssl = 'require' if 'supabase.com' in settings.database_url else None
-        _pool = await asyncpg.create_pool(settings.database_url, init=_init_conn, ssl=ssl, min_size=1, max_size=5)
+        # statement_cache_size=0: production uses Supabase's transaction-mode
+        # pooler (port 6543), which can't hold server-side prepared
+        # statements across transactions. Harmless against a direct DB.
+        _pool = await asyncpg.create_pool(
+            settings.database_url, init=_init_conn, ssl=ssl, min_size=1, max_size=5,
+            statement_cache_size=0,
+        )
     return _pool
 
 

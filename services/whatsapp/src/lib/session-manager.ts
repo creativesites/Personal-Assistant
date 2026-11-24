@@ -152,7 +152,9 @@ export class SessionManager {
             await this.reconQueue.add(
               QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT,
               { userId, conversationId: chat.id, contactId: chat.contact_id },
-              { jobId: `recon:${chat.id}`, removeOnComplete: true, removeOnFail: false }
+              // BullMQ rejects ':' in custom job IDs ("Custom Id cannot contain :"),
+              // which silently broke reconnect message recovery.
+              { jobId: `recon-${chat.id}`, removeOnComplete: true, removeOnFail: false }
             );
           }
         } catch (err) {
