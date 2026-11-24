@@ -186,6 +186,29 @@ function ImagePreview({ src, alt }: { src: string; alt: string }) {
   )
 }
 
+function VideoPreview({ src }: { src: string }) {
+  const [error, setError] = useState(false)
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+        <Film size={14} />
+        <span>Video unavailable</span>
+      </div>
+    )
+  }
+  return (
+    <video
+      src={src}
+      controls
+      playsInline
+      preload="metadata"
+      onError={() => setError(true)}
+      className="max-w-[220px] rounded-lg bg-black"
+      style={{ maxHeight: 180 }}
+    />
+  )
+}
+
 export function MessageContent({
   msg,
   token,
@@ -278,7 +301,7 @@ export function MessageContent({
     if (href) {
       return (
         <div className="space-y-1">
-          <video src={href} controls preload="metadata" className="max-w-[220px] rounded-lg bg-black" style={{ maxHeight: 180 }} />
+          <VideoPreview src={href} />
           {msg.body && <p className={textClass}>{msg.body}</p>}
         </div>
       )

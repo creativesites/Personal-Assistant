@@ -72,6 +72,21 @@ export function sessionRoutes(sessionManager: SessionManager) {
       return reply.status(202).send({ started: true });
     });
 
+    // Download a message's media into the shared media volume (the API
+    // serves it). 404 when WhatsApp no longer has it or no keys were stored.
+    fastify.post('/internal/media/:userId/:messageId', async (request, reply) => {
+      const { userId, messageId } = z.object({
+        userId: z.string().uuid(),
+        messageId: z.string().uuid(),
+      }).parse(request.params);
+      try {
+        await sessionManager.media.fetch(userId, messageId);
+        return reply.send({ ok: true });
+      } catch (err) {
+        return reply.status(404).send({ error: (err as Error).message });
+      }
+    });
+
     fastify.post('/internal/sessions/:userId/send', async (request, reply) => {
       const { userId } = userIdParam.parse(request.params);
       const { jid, text } = sendBody.parse(request.body);

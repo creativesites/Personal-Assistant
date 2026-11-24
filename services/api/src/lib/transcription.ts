@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { Pool } from 'pg'
+import { ensureMessageMedia } from './message-media'
 
 const MEDIA_DIR = process.env.MEDIA_DIR ?? '/app/media'
 
@@ -35,7 +36,18 @@ export async function transcribeAudioMessage(
   const filename = path.basename(msg.media_url.split('?')[0])
   const localPath = path.join(MEDIA_DIR, filename)
 
-  if (fs.existsSync(localPath)) {
+  if (msg.media_url.startsWith('/api/messages/')) {
+    // WhatsApp media stored per message (downloaded on demand).
+    const { rows: [owner] } = await db.query<{ user_id: string }>(
+      `SELECT c.user_id FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.id = $1`,
+      [messageId],
+    )
+    if (owner) {
+      const media = await ensureMessageMedia(owner.user_id, messageId)
+      audioBuffer = fs.readFileSync(media.path)
+      mimeType = media.mimeType
+    }
+  } else if (fs.existsSync(localPath)) {
     audioBuffer = fs.readFileSync(localPath)
   } else if (/^https?:\/\//i.test(msg.media_url)) {
     // Remote media fetch
@@ -59,7 +71,9 @@ export async function transcribeAudioMessage(
   if (googleKey) {
     try {
       const base64Audio = audioBuffer.toString('base64')
-      const geminiModel = process.env.DEFAULT_AI_MODEL?.replace('gemini/', '') || 'gemini-2.0-flash'
+      // Audio needs a Gemini model; DEFAULT_AI_MODEL is usually Claude now.
+      const geminiModel = [process.env.TRANSCRIPTION_MODEL, process.env.FALLBACK_AI_MODEL, process.env.DEFAULT_AI_MODEL]
+        .find((m) => m?.startsWith('gemini/'))?.replace('gemini/', '') || 'gemini-3.5-flash'
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${googleKey}`,

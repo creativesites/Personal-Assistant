@@ -1,4 +1,5 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { ensureMessageMedia, MessageMediaError } from '../lib/message-media';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -21,7 +22,68 @@ const EXT_TO_MIME: Record<string, string> = {
   svg: 'image/svg+xml',
 };
 
+/** Stream a file with HTTP range support (video seeking, audio scrubbing). */
+function sendFile(request: FastifyRequest, reply: FastifyReply, filePath: string, contentType: string) {
+  const stat = fs.statSync(filePath);
+  const range = request.headers.range;
+
+  reply.header('Content-Type', contentType);
+  reply.header('Cache-Control', 'private, max-age=604800'); // 7 days
+  reply.header('Accept-Ranges', 'bytes');
+
+  if (range) {
+    const match = range.match(/bytes=(\d*)-(\d*)/);
+    if (match) {
+      const start = match[1] ? parseInt(match[1], 10) : 0;
+      const end = match[2] ? Math.min(parseInt(match[2], 10), stat.size - 1) : stat.size - 1;
+      if (start <= end && start < stat.size) {
+        reply.code(206);
+        reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+        reply.header('Content-Length', end - start + 1);
+        return reply.send(fs.createReadStream(filePath, { start, end }));
+      }
+    }
+    reply.header('Content-Range', `bytes */${stat.size}`);
+    return reply.code(416).send();
+  }
+
+  reply.header('Content-Length', stat.size);
+  return reply.send(fs.createReadStream(filePath));
+}
+
 export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
+  /**
+   * GET /api/messages/:id/media
+   * A WhatsApp message's image/video/audio/document, downloaded on first
+   * view. Auth: Bearer header, or ?token= for <img>/<video>/<audio> tags.
+   * Only the owner of the message's conversation can read it.
+   */
+  fastify.get('/api/messages/:id/media', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { token, download } = request.query as { token?: string; download?: string };
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    let userId: string | undefined;
+    try {
+      const payload = token
+        ? fastify.jwt.verify<{ userId: string }>(token)
+        : await request.jwtVerify<{ userId: string }>();
+      userId = payload.userId;
+    } catch {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+    if (!userId) return reply.code(401).send({ error: 'Unauthorized' });
+
+    try {
+      const media = await ensureMessageMedia(userId, id);
+      if (download) reply.header('Content-Disposition', 'attachment');
+      return sendFile(request, reply, media.path, media.mimeType);
+    } catch (err) {
+      if (err instanceof MessageMediaError) return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
+    }
+  });
+
   /**
    * GET /api/media/:filename
    * Serves downloaded WhatsApp media files.
@@ -54,32 +116,6 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const ext = path.extname(safeName).slice(1).toLowerCase();
-    const contentType = EXT_TO_MIME[ext] ?? 'application/octet-stream';
-    const stat = fs.statSync(filePath);
-    const range = request.headers.range;
-
-    reply.header('Content-Type', contentType);
-    reply.header('Cache-Control', 'private, max-age=604800'); // 7 days
-    reply.header('Accept-Ranges', 'bytes');
-
-    if (range) {
-      const match = range.match(/bytes=(\d*)-(\d*)/);
-      if (match) {
-        const start = match[1] ? parseInt(match[1], 10) : 0;
-        const end = match[2] ? Math.min(parseInt(match[2], 10), stat.size - 1) : stat.size - 1;
-        if (start <= end && start < stat.size) {
-          reply.code(206);
-          reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-          reply.header('Content-Length', end - start + 1);
-          return reply.send(fs.createReadStream(filePath, { start, end }));
-        }
-      }
-      reply.header('Content-Range', `bytes */${stat.size}`);
-      return reply.code(416).send();
-    }
-
-    reply.header('Content-Length', stat.size);
-
-    return reply.send(fs.createReadStream(filePath));
+    return sendFile(request, reply, filePath, EXT_TO_MIME[ext] ?? 'application/octet-stream');
   });
 }

@@ -23,6 +23,24 @@ export interface NormalisedMessage {
   groupSenderName: string | null;
   /** Group chats only: WhatsApp JID of the participant who sent this message. Null for 1:1 chats. */
   groupSenderJid: string | null;
+  /** What's needed to download this message's media later (media messages only). */
+  mediaMeta?: MediaMeta | null;
+}
+
+/**
+ * Everything needed to download (and decrypt) a message's media at any later
+ * time: the media sub-message as protobuf (mediaKey, directPath, mimetype…)
+ * plus the message key, which a re-upload request for expired media needs.
+ */
+export interface MediaMeta {
+  v: 1;
+  /** e.g. 'imageMessage', 'audioMessage' */
+  type: string;
+  /** base64 proto.Message holding only the media sub-message */
+  proto: string;
+  key: { remoteJid: string | null; id: string | null; fromMe: boolean; participant: string | null };
+  /** Bytes, when WhatsApp reported it. */
+  size: number | null;
 }
 
 /** One chat from a WhatsApp history-sync batch (subset of proto Conversation). */
@@ -156,6 +174,9 @@ export abstract class WhatsAppTransport extends EventEmitter {
 
   /** Re-fetch the address book (saved names, LID pairings); emits 'contact_hints'. */
   abstract resyncContacts(): Promise<void>;
+
+  /** Download and decrypt a message's media, asking the phone to re-upload it if WhatsApp's copy expired. */
+  abstract downloadMedia(meta: MediaMeta): Promise<Buffer>;
 
   /** Fetch recent messages for a JID from WA servers (for gap detection / self-healing). */
   abstract fetchRecentMessages(jid: string, limit: number): Promise<NormalisedMessage[]>;

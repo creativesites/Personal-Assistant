@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { MediaStore } from './media-store';
 import type Redis from 'ioredis';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -29,6 +30,7 @@ export class SessionManager {
   private readonly handler: MessageHandler;
   private readonly historyPipeline: HistorySyncPipeline;
   private readonly reconQueue: Queue;
+  readonly media: MediaStore;
 
   constructor(
     private readonly db: Pool,
@@ -36,7 +38,8 @@ export class SessionManager {
     private readonly redisUrl: string,
     private readonly createTransport: TransportFactory,
   ) {
-    this.handler = new MessageHandler(db, redis, redisUrl);
+    this.media = new MediaStore(db, (userId) => this.getTransport(userId));
+    this.handler = new MessageHandler(db, redis, redisUrl, this.media);
     this.historyPipeline = new HistorySyncPipeline(
       db,
       redis,

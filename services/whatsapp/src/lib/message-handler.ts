@@ -3,6 +3,7 @@ import type Redis from 'ioredis';
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES, MessageSenderType, MessageType } from '@zuri/types';
 import type { NormalisedMessage } from '../transport/types';
+import type { MediaStore } from './media-store';
 
 function parseRedisUrl(url: string) {
   const u = new URL(url);
@@ -58,6 +59,7 @@ export class MessageHandler {
     private readonly db: Pool,
     private readonly redis: Redis,
     redisUrl: string,
+    private readonly media?: MediaStore,
   ) {
     this.incomingQueue = new Queue(QUEUE_NAMES.MESSAGES_INCOMING, {
       connection: parseRedisUrl(redisUrl),
@@ -115,10 +117,19 @@ export class MessageHandler {
     const messageId = await this.insertMessage(
       conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
       timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
-      msg.groupSenderName ?? null, msg.groupSenderJid ?? null,
+      msg.groupSenderName ?? null, msg.groupSenderJid ?? null, msg.mediaMeta ?? null,
     );
 
     if (!messageId) return;
+
+    // Media is served privately by the API at /api/messages/:id/media and
+    // downloaded into the shared media volume (now, if it's small).
+    let mediaUrl = msg.mediaUrl ?? null;
+    if (msg.mediaMeta) {
+      mediaUrl = `/api/messages/${messageId}/media`;
+      await this.db.query(`UPDATE messages SET media_url = $2 WHERE id = $1`, [messageId, mediaUrl]);
+      if (!isHistorical) this.media?.prefetch(userId, messageId, msg.mediaMeta);
+    }
 
     if (!isHistorical && senderType === MessageSenderType.CONTACT) {
       await this.db.query(
@@ -159,7 +170,7 @@ export class MessageHandler {
         JSON.stringify({
           messageId, conversationId, contactId,
           senderType, messageType: msg.messageType, body: msg.body,
-          mediaUrl: msg.mediaUrl, mediaMimeType: msg.mediaMimeType,
+          mediaUrl, mediaMimeType: msg.mediaMimeType,
           transcription: null,
           quotedMessageId,
           senderDisplayName: msg.groupSenderName ?? null,
@@ -354,18 +365,19 @@ export class MessageHandler {
     quotedMessageId: string | null,
     senderDisplayName: string | null,
     senderJid: string | null,
+    mediaMeta: NormalisedMessage['mediaMeta'] = null,
   ): Promise<string | null> {
     const { rows: [row] } = await this.db.query<{ id: string }>(
       `INSERT INTO messages
          (conversation_id, whatsapp_message_id, sender_type, message_type, body,
           media_url, media_mime_type, quoted_message_id, whatsapp_timestamp,
-          sender_display_name, sender_jid)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          sender_display_name, sender_jid, media_meta)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (conversation_id, whatsapp_message_id) DO NOTHING
        RETURNING id`,
       [conversationId, waMessageId, senderType, messageType, body,
        mediaUrl, mediaMimeType, quotedMessageId, timestamp,
-       senderDisplayName, senderJid],
+       senderDisplayName, senderJid, mediaMeta ? JSON.stringify(mediaMeta) : null],
     );
     return row?.id ?? null;
   }

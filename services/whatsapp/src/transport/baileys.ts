@@ -3,6 +3,8 @@ import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  normalizeMessageContent,
+  getContentType,
   Browsers,
   proto,
   type WASocket,
@@ -32,8 +34,58 @@ import {
   type CatalogProductInput,
   type TransportDisconnectReason,
   type TransportStatus,
+  type MediaMeta,
 } from './types';
-import { uploadChatMedia } from '../lib/supabase-storage';
+
+const MEDIA_TYPES = new Set(['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage', 'ptvMessage']);
+const silentLogger = P({ level: 'silent' });
+
+/** The media sub-message + key, serialised so the media can be fetched later. */
+function buildMediaMeta(msg: WAMessage, content: proto.IMessage | undefined): MediaMeta | null {
+  if (!content) return null;
+  const type = getContentType(content);
+  if (!type || !MEDIA_TYPES.has(type)) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sub = (content as any)[type];
+  if (!sub?.mediaKey || !(sub.directPath || sub.url)) return null;
+  const encoded = proto.Message.encode({ [type]: sub } as proto.IMessage).finish();
+  const size = Number(sub.fileLength ?? 0);
+  return {
+    v: 1,
+    type,
+    proto: Buffer.from(encoded).toString('base64'),
+    key: {
+      remoteJid: msg.key.remoteJid ?? null,
+      id: msg.key.id ?? null,
+      fromMe: msg.key.fromMe ?? false,
+      participant: msg.key.participant ?? null,
+    },
+    size: Number.isFinite(size) && size > 0 ? size : null,
+  };
+}
+
+function mediaMimeOf(content: proto.IMessage | undefined): string | null {
+  if (!content) return null;
+  const type = getContentType(content);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return type && MEDIA_TYPES.has(type) ? ((content as any)[type]?.mimetype ?? null) : null;
+}
+
+/** Decrypt media from stored meta. With a socket, expired media is re-requested from the phone. */
+export async function downloadMediaFromMeta(meta: MediaMeta, sock?: WASocket | null): Promise<Buffer> {
+  const message = proto.Message.decode(Buffer.from(meta.proto, 'base64'));
+  const waMsg = {
+    key: {
+      remoteJid: meta.key.remoteJid ?? undefined,
+      id: meta.key.id ?? undefined,
+      fromMe: meta.key.fromMe,
+      participant: meta.key.participant ?? undefined,
+    },
+    message,
+  } as WAMessage;
+  const ctx = sock ? { logger: silentLogger, reuploadRequest: sock.updateMediaMessage } : undefined;
+  return (await downloadMediaMessage(waMsg, 'buffer', {}, ctx)) as Buffer;
+}
 
 const QR_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -703,11 +755,16 @@ export class BaileysTransport extends WhatsAppTransport {
     console.log(`[baileys] ${this.userId} address-book resync: ${seen} contact entries`);
   }
 
+  async downloadMedia(meta: MediaMeta): Promise<Buffer> {
+    return downloadMediaFromMeta(meta, this.sock);
+  }
+
   private async _normalise(msg: WAMessage): Promise<NormalisedMessage | null> {
     const jid = msg.key.remoteJid;
     if (!jid) return null;
 
-    const content = msg.message;
+    // Unwrap disappearing / view-once / document-with-caption envelopes.
+    const content = normalizeMessageContent(msg.message);
     if (!content) return null;
 
     // Skip pure protocol messages (delivery receipts etc.)
@@ -782,6 +839,7 @@ export class BaileysTransport extends WhatsAppTransport {
       content.imageMessage?.caption ??
       content.videoMessage?.caption ??
       content.documentMessage?.caption ??
+      content.documentMessage?.fileName ??
       null;
 
     // Quoted message ID from any media type's context info
@@ -800,31 +858,14 @@ export class BaileysTransport extends WhatsAppTransport {
       content.audioMessage ??
       content.documentMessage ??
       content.stickerMessage ??
+      content.ptvMessage ??
       null;
 
     const mediaMimeType: string | null = mediaMsg?.mimetype ?? null;
-
-    let mediaUrl: string | null = null;
-
-    if (mediaMsg) {
-      try {
-        const buffer = await downloadMediaMessage(msg, 'buffer', {}) as Buffer;
-        const ext = mimeToExt(mediaMimeType ?? '');
-        // Sanitise message ID for use as filename
-        const safeId = (msg.key.id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-        const fileName = `${safeId}.${ext}`;
-
-        const supabaseUrl = await uploadChatMedia(this.userId, fileName, buffer, mediaMimeType ?? 'application/octet-stream');
-        if (supabaseUrl) {
-          mediaUrl = supabaseUrl;
-        } else {
-          console.warn(`[baileys:${this.userId}] Supabase storage not configured or available. Skipping local write fallback.`);
-          mediaUrl = null;
-        }
-      } catch (err) {
-        console.error(`[baileys:${this.userId}] media download/upload failed for ${msg.key.id}:`, err);
-      }
-    }
+    // Media itself is fetched after the message is stored (MediaStore), so
+    // it can be keyed by the message row and served privately by the API.
+    const mediaMeta = buildMediaMeta(msg, content);
+    const mediaUrl: string | null = null;
 
     return {
       ...base,
@@ -832,6 +873,7 @@ export class BaileysTransport extends WhatsAppTransport {
       body: captionBody,
       mediaUrl,
       mediaMimeType,
+      mediaMeta,
       quotedWaMessageId: quotedWaMessageId ?? null,
     };
   }
@@ -840,7 +882,7 @@ export class BaileysTransport extends WhatsAppTransport {
   private async _normaliseHistorical(msg: WAMessage): Promise<NormalisedMessage | null> {
     const jid = msg.key.remoteJid;
     if (!jid) return null;
-    const content = msg.message;
+    const content = normalizeMessageContent(msg.message);
     if (!content) return null;
     if (content.protocolMessage || content.senderKeyDistributionMessage) return null;
     if (content.reactionMessage) return null;
@@ -874,12 +916,13 @@ export class BaileysTransport extends WhatsAppTransport {
       return { ...base, messageType: MessageType.TEXT,
         body: textBody, mediaUrl: null, mediaMimeType: null, quotedWaMessageId: quotedWaMessageId ?? null };
     }
-    // Non-text historical messages — record type without downloading media
+    // Non-text historical messages — keep what's needed to fetch the media on demand
     const messageType = this._detectType(content);
     const captionBody = (content.imageMessage?.caption ?? content.videoMessage?.caption
-      ?? content.documentMessage?.caption ?? null);
+      ?? content.documentMessage?.caption ?? content.documentMessage?.fileName ?? null);
     return { ...base, messageType, body: captionBody,
-      mediaUrl: null, mediaMimeType: null, quotedWaMessageId: null };
+      mediaUrl: null, mediaMimeType: mediaMimeOf(content), mediaMeta: buildMediaMeta(msg, content),
+      quotedWaMessageId: null };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -887,7 +930,7 @@ export class BaileysTransport extends WhatsAppTransport {
     if (content.conversation || content.extendedTextMessage) return MessageType.TEXT;
     if (content.imageMessage) return MessageType.IMAGE;
     if (content.audioMessage) return MessageType.AUDIO;
-    if (content.videoMessage) return MessageType.VIDEO;
+    if (content.videoMessage || content.ptvMessage) return MessageType.VIDEO;
     if (content.documentMessage) return MessageType.DOCUMENT;
     if (content.stickerMessage) return MessageType.STICKER;
     if (content.contactMessage || content.contactsArrayMessage) return MessageType.CONTACT_CARD;

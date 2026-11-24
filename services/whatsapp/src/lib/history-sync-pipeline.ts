@@ -586,12 +586,17 @@ export class HistorySyncPipeline {
     const { rowCount } = await this.db.query(
       `INSERT INTO messages
          (conversation_id, whatsapp_message_id, sender_type, message_type, body,
-          media_url, media_mime_type, whatsapp_timestamp, sender_display_name, sender_jid)
-       SELECT c, w, s::message_sender, t::message_type, b, mu, mm, ts, sn, sj
+          media_url, media_mime_type, whatsapp_timestamp, sender_display_name, sender_jid, media_meta)
+       SELECT c, w, s::message_sender, t::message_type, b, mu, mm, ts, sn, sj, md::jsonb
        FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[],
-                   $6::text[], $7::text[], $8::timestamptz[], $9::text[], $10::text[])
-            AS x(c, w, s, t, b, mu, mm, ts, sn, sj)
-       ON CONFLICT (conversation_id, whatsapp_message_id) DO NOTHING`,
+                   $6::text[], $7::text[], $8::timestamptz[], $9::text[], $10::text[], $11::text[])
+            AS x(c, w, s, t, b, mu, mm, ts, sn, sj, md)
+       ON CONFLICT (conversation_id, whatsapp_message_id) DO UPDATE
+         -- A re-link re-delivers history: backfill media keys on rows
+         -- imported before they were captured.
+         SET media_meta = EXCLUDED.media_meta,
+             media_mime_type = COALESCE(messages.media_mime_type, EXCLUDED.media_mime_type)
+         WHERE messages.media_meta IS NULL AND EXCLUDED.media_meta IS NOT NULL`,
       [
         rows.map((r) => r.convId),
         rows.map((r) => r.m.waMessageId),
@@ -603,7 +608,13 @@ export class HistorySyncPipeline {
         rows.map((r) => new Date(r.m.timestampMs)),
         rows.map((r) => r.m.groupSenderName),
         rows.map((r) => r.m.groupSenderJid),
+        rows.map((r) => (r.m.mediaMeta ? JSON.stringify(r.m.mediaMeta) : null)),
       ],
+    );
+    await this.db.query(
+      `UPDATE messages SET media_url = '/api/messages/' || id || '/media'
+       WHERE conversation_id = ANY($1::uuid[]) AND media_meta IS NOT NULL AND media_url IS NULL`,
+      [[...new Set(rows.map((r) => r.convId))]],
     );
 
     // Link replies to the messages they quote (both may be in this chunk).
