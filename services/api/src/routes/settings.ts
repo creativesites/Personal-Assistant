@@ -16,7 +16,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: [row] } = await db.query(
       `SELECT
          enabled, business_hours_start, business_hours_end, timezone, active_days,
-         send_delay_seconds, approval_mode,
+         send_delay_seconds, send_delay_max_seconds, approval_mode,
          respond_to_leads, respond_to_customers, respond_to_new_contacts,
          skip_groups, skip_broadcasts,
          escalation_keywords, escalation_notify_email,
@@ -35,6 +35,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         timezone: 'UTC',
         activeDays: [1, 2, 3, 4, 5],
         sendDelaySeconds: 30,
+        sendDelayMaxSeconds: 0,
         approvalMode: 'preview',
         respondToLeads: true,
         respondToCustomers: true,
@@ -58,6 +59,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
       timezone: row.timezone,
       activeDays: row.active_days,
       sendDelaySeconds: row.send_delay_seconds,
+      sendDelayMaxSeconds: row.send_delay_max_seconds,
       approvalMode: row.approval_mode,
       respondToLeads: row.respond_to_leads,
       respondToCustomers: row.respond_to_customers,
@@ -98,7 +100,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          escalation_keywords, escalation_notify_email,
          greeting_message, away_message,
          smart_followup_enabled, learn_from_corrections,
-         inclusion_mode
+         inclusion_mode, send_delay_max_seconds
        ) VALUES (
          $1,
          COALESCE($2, false),
@@ -119,7 +121,8 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          $17,
          COALESCE($18, false),
          COALESCE($19, true),
-         COALESCE($20, false)
+         COALESCE($20, false),
+         COALESCE($21, 0)
        )
        ON CONFLICT (user_id) DO UPDATE SET
          enabled                 = COALESCE($2, auto_response_settings.enabled),
@@ -141,6 +144,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
          smart_followup_enabled  = COALESCE($18, auto_response_settings.smart_followup_enabled),
          learn_from_corrections  = COALESCE($19, auto_response_settings.learn_from_corrections),
          inclusion_mode          = COALESCE($20, auto_response_settings.inclusion_mode),
+         send_delay_max_seconds  = COALESCE($21, auto_response_settings.send_delay_max_seconds),
          updated_at              = NOW()`,
       [
         userId,
@@ -163,6 +167,7 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
         body.smartFollowupEnabled ?? null,
         body.learnFromCorrections ?? null,
         body.inclusionMode ?? null,
+        body.sendDelayMaxSeconds ?? null,
       ],
     );
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from datetime import datetime, time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -46,7 +47,7 @@ class AutoResponseService:
                 """
                 SELECT
                   ars.enabled, ars.business_hours_start, ars.business_hours_end,
-                  ars.timezone, ars.active_days, ars.send_delay_seconds,
+                  ars.timezone, ars.active_days, ars.send_delay_seconds, ars.send_delay_max_seconds,
                   ars.approval_mode, ars.respond_to_leads, ars.respond_to_customers,
                   ars.respond_to_new_contacts, ars.skip_groups, ars.skip_broadcasts,
                   ars.escalation_keywords, ars.inclusion_mode,
@@ -144,6 +145,10 @@ class AutoResponseService:
             return AutoResponseDecision(False, 'outside_business_hours', approval_mode)
 
         delay_seconds = max(0, int(row['send_delay_seconds'] or 0))
+        max_delay = int(row['send_delay_max_seconds'] or 0)
+        if max_delay > delay_seconds:
+            # A human doesn't answer every message after the same pause.
+            delay_seconds = random.randint(delay_seconds, max_delay)
         return AutoResponseDecision(
             True,
             'eligible',

@@ -620,6 +620,7 @@ export default function SettingsPage() {
     timezone: string
     activeDays: number[]
     sendDelaySeconds: number
+    sendDelayMaxSeconds?: number
     approvalMode: 'auto' | 'preview' | 'manual'
     respondToLeads: boolean
     respondToCustomers: boolean
@@ -2234,8 +2235,8 @@ export default function SettingsPage() {
                         </div>
 
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Send delay (seconds)</label>
-                          <p className="text-xs text-gray-400 mb-2">Simulates natural typing time before sending</p>
+                          <label className="block text-xs text-gray-500 mb-1">Send delay</label>
+                          <p className="text-xs text-gray-400 mb-2">Wait before sending. With a range, each reply waits a random time inside it.</p>
                           <select
                             value={autoResponse.sendDelaySeconds}
                             onChange={e => setAutoResponse(s => ({ ...s, sendDelaySeconds: Number(e.target.value) }))}
@@ -2246,6 +2247,18 @@ export default function SettingsPage() {
                             <option value={60}>1 minute</option>
                             <option value={120}>2 minutes</option>
                             <option value={300}>5 minutes</option>
+                          </select>
+                          <label className="block text-xs text-gray-500 mt-3 mb-1">Up to</label>
+                          <select
+                            value={autoResponse.sendDelayMaxSeconds ?? 0}
+                            onChange={e => setAutoResponse(s => ({ ...s, sendDelayMaxSeconds: Number(e.target.value) }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          >
+                            <option value={0}>No range (fixed delay)</option>
+                            <option value={300}>5 minutes</option>
+                            <option value={600}>10 minutes</option>
+                            <option value={900}>15 minutes</option>
+                            <option value={1800}>30 minutes</option>
                           </select>
                         </div>
                       </div>

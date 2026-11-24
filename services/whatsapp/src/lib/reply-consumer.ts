@@ -41,18 +41,26 @@ export function startReplyConsumer(
         deleteFromMe,
       } = job.data;
 
-      // Automatic replies wait a few seconds before sending. If the user has
-      // answered the chat themselves since the message being replied to,
-      // drop the automatic reply instead of double-replying.
+      // Automatic replies wait (seconds to minutes) before sending. Drop one
+      // if, since the message it answers, the user has replied themselves or
+      // a newer message in the chat already has its own automatic reply
+      // queued — that newer reply was drafted with this message in context,
+      // and sending both would double-reply, possibly out of order.
       if (AUTOMATIC_JOBS.has(job.name) && job.data.messageId) {
         const { rows: [row] } = await db.query<{ answered: boolean }>(
           `SELECT EXISTS (
              SELECT 1 FROM messages src
              JOIN messages later ON later.conversation_id = src.conversation_id
              WHERE src.id = $1
-               AND later.sender_type = 'user'
                AND later.whatsapp_timestamp > src.whatsapp_timestamp
                AND later.created_at > NOW() - INTERVAL '1 day'
+               AND (
+                 later.sender_type = 'user'
+                 OR EXISTS (
+                   SELECT 1 FROM suggested_replies sr
+                   WHERE sr.message_id = later.id AND sr.status IN ('approved', 'sent')
+                 )
+               )
            ) AS answered`,
           [job.data.messageId],
         );
@@ -63,7 +71,7 @@ export function startReplyConsumer(
               [suggestedReplyId],
             );
           }
-          console.log(`[reply-consumer] skipped ${job.name} for message ${job.data.messageId}: user already replied`);
+          console.log(`[reply-consumer] skipped ${job.name} for message ${job.data.messageId}: superseded by a later reply`);
           return;
         }
       }
