@@ -14,6 +14,8 @@ function parseRedisUrl(url: string) {
   };
 }
 
+const AUTOMATIC_JOBS = new Set(['auto_send', 'agent_send', 'agent_auto_send']);
+
 export function startReplyConsumer(
   sessionManager: SessionManager,
   db: Pool,
@@ -38,6 +40,33 @@ export function startReplyConsumer(
         deleteWaMessageId,
         deleteFromMe,
       } = job.data;
+
+      // Automatic replies wait a few seconds before sending. If the user has
+      // answered the chat themselves since the message being replied to,
+      // drop the automatic reply instead of double-replying.
+      if (AUTOMATIC_JOBS.has(job.name) && job.data.messageId) {
+        const { rows: [row] } = await db.query<{ answered: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM messages src
+             JOIN messages later ON later.conversation_id = src.conversation_id
+             WHERE src.id = $1
+               AND later.sender_type = 'user'
+               AND later.whatsapp_timestamp > src.whatsapp_timestamp
+               AND later.created_at > NOW() - INTERVAL '1 day'
+           ) AS answered`,
+          [job.data.messageId],
+        );
+        if (row?.answered) {
+          if (suggestedReplyId) {
+            await db.query(
+              `UPDATE suggested_replies SET status = 'dismissed', updated_at = NOW() WHERE id = $1`,
+              [suggestedReplyId],
+            );
+          }
+          console.log(`[reply-consumer] skipped ${job.name} for message ${job.data.messageId}: user already replied`);
+          return;
+        }
+      }
 
       if (reactionEmoji !== undefined && reactionTargetWaMessageId) {
         await sessionManager.sendReaction(userId, recipientJid, reactionEmoji, reactionTargetWaMessageId, reactionFromMe ?? false);
