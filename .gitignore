@@ -92,3 +92,8 @@ apps/companion/local.properties
 **.node-persist**
 **_IGNORE_**
 # end managed by open-wa
+
+# API keys dropped in for local use — never commit
+**/key_main*.txt
+**/*_key.txt
+**/*-key.txt

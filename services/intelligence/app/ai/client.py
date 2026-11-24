@@ -6,6 +6,13 @@ import structlog
 from ..config import settings
 from .model_router import get_active_model, report_usage, force_advance
 from .byok_resolver import resolve_ai_context
+from .claude import (
+    claude_available,
+    claude_complete,
+    feature_model_overrides,
+    is_claude_model,
+    resolve_claude_model,
+)
 from .token_usage import (
     log_usage as log_token_usage,
     estimate_tokens_from_text,
@@ -120,10 +127,26 @@ class AIClient:
         litellm.set_verbose = False
 
     async def _resolve_model(self, model: str | None, pool: str) -> str:
-        if model:
+        if model and not is_claude_model(model):
             return _normalize_model(model)
         routed = await get_active_model(pool)
-        return routed or _normalize_model(settings.default_ai_model)
+        return routed or _normalize_model(settings.fallback_ai_model)
+
+    def _claude_model_for(self, model: str | None, pool: str, feature: str) -> str | None:
+        """Which Claude model (if any) should serve this call first.
+
+        Explicit Claude model > per-feature override > Claude default model
+        (text pool only). An explicit non-Claude model opts out."""
+        if not claude_available():
+            return None
+        if model:
+            return resolve_claude_model(model) if is_claude_model(model) else None
+        override = feature_model_overrides().get(feature)
+        if override and is_claude_model(override):
+            return resolve_claude_model(override)
+        if pool == 'text' and is_claude_model(settings.default_ai_model):
+            return resolve_claude_model(settings.default_ai_model)
+        return None
 
     async def _report_usage(self, model: str, pool: str, response) -> None:
         # model is the original dashscope/ name; track under that for pool rotation
@@ -216,6 +239,11 @@ class AIClient:
     ):
         """Call litellm with automatic pool advance and strict 8.0s timeout cap."""
         async def _execute():
+            # `model` is reassigned below (failover), so without nonlocal it
+            # becomes a local of _execute and the very first read raised
+            # UnboundLocalError — every AI call failed from b1aafcd until this
+            # fix (no token_usage_logs / message_analyses after 2026-07-21).
+            nonlocal model
             # 1. Resolve BYOK context if user_id is provided
             byok_ctx = await resolve_ai_context(user_id, requested_model=model)
             if byok_ctx and byok_ctx.get('is_byok') and byok_ctx.get('api_key'):
@@ -249,6 +277,27 @@ class AIClient:
                         await self._handle_byok_error(user_id, provider, exc)
                     log.info('falling_back_to_system_pool', user_id=user_id)
 
+            # 2. Claude first when selected (explicit model, per-feature
+            #    override, or Claude as DEFAULT_AI_MODEL). Any failure —
+            #    bad key, quota, refusal, API error — falls through to the
+            #    LiteLLM pools below rather than failing the caller.
+            claude_model = self._claude_model_for(model, pool, feature)
+            if claude_model:
+                try:
+                    response = await claude_complete(
+                        messages, claude_model, json_mode=json_mode,
+                        max_tokens=max_tokens, timeout_sec=timeout_sec,
+                    )
+                    await self._log_token_usage(
+                        claude_model, messages, response, service=service, feature=feature, user_id=user_id,
+                    )
+                    return claude_model, response
+                except Exception as exc:
+                    log.error('claude_completion_failed', model=claude_model, feature=feature,
+                              error=str(exc)[:300])
+                if is_claude_model(model):
+                    model = None  # let the pool choose a non-Claude fallback
+
             attempted: set[str] = set()
             consecutive_hard_failures = 0
             _GEMINI_FALLBACK_AFTER = 3
@@ -258,7 +307,7 @@ class AIClient:
 
                 # Dashscope pool exhausted — fall back to Gemini
                 if consecutive_hard_failures >= _GEMINI_FALLBACK_AFTER or m in attempted:
-                    gemini = _normalize_model(settings.default_ai_model)
+                    gemini = _normalize_model(settings.fallback_ai_model)
                     if gemini.startswith('gemini/') and settings.google_ai_api_key:
                         log.warning(
                             'ai_gemini_fallback', pool=pool,

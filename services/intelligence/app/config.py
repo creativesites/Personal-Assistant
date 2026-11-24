@@ -25,7 +25,19 @@ class Settings(BaseSettings):
     alibaba_api_host: str = ''                    # e.g. https://ws-xxxx.maas.aliyuncs.com/api/v1
     alibaba_openai_compatible_host: str = ''      # e.g. https://ws-xxxx.maas.aliyuncs.com/compatible-mode/v1
 
+    # Primary text model. 'anthropic/claude-haiku-5-5' (or 'haiku' /
+    # 'sonnet' / 'opus') routes through the native Claude path in
+    # ai/claude.py; anything else goes through the LiteLLM pools.
     default_ai_model: str = 'dashscope/qwen-max'
+    # Used when the primary model fails hard (bad key, quota, refusal) and
+    # the dashscope pool is exhausted. Must be a LiteLLM model, not Claude.
+    fallback_ai_model: str = 'gemini/gemini-2.5-flash'
+    # Claude: thinking effort (low|medium|high|xhigh|max) — 'low' keeps the
+    # short classification/extraction calls inside AIClient's timeout.
+    claude_effort: str = 'low'
+    # JSON map of feature tag → Claude model/alias, e.g.
+    # '{"advisor_chat": "sonnet", "chat_analysis": "opus"}'.
+    claude_feature_models: str = ''
 
     embedding_model: str = 'text-embedding-3-small'
 

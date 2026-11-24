@@ -29,6 +29,12 @@ DEFAULT_COST_RATES: dict[str, dict[str, float]] = {
     'dashscope/qwen-plus':     {'input_per_1k': 0.00008,  'output_per_1k': 0.00024},
     'dashscope/qwen-long':     {'input_per_1k': 0.00007,  'output_per_1k': 0.00007},
     'dashscope/qwen-max':      {'input_per_1k': 0.00016,  'output_per_1k': 0.00048},
+    # Claude 5.5 list prices (prompts ≤100K tokens for Haiku). Cache reads
+    # are billed lower than this; logged prompt tokens include cached ones,
+    # so these estimates err slightly high.
+    'claude-haiku-5-5':  {'input_per_1k': 0.0001, 'output_per_1k': 0.0005},
+    'claude-sonnet-5-5': {'input_per_1k': 0.002,  'output_per_1k': 0.01},
+    'claude-opus-5-5':   {'input_per_1k': 0.004,  'output_per_1k': 0.02},
     'default': {'input_per_1k': 0.0001, 'output_per_1k': 0.0003},
 }
 
