@@ -22,8 +22,7 @@ POOLS: dict[str, list[str]] = {
         'dashscope/qwen-max',
         'dashscope/qwen-plus',
         'dashscope/qwen-turbo',
-        'gemini/gemini-2.5-flash',
-        'gemini/gemini-1.5-flash',
+        'gemini/gemini-3.5-flash',  # 2.5/1.5 flash are retired (404)
     ],
 
     'vision': [

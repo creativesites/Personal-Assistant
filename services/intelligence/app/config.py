@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     default_ai_model: str = 'dashscope/qwen-max'
     # Used when the primary model fails hard (bad key, quota, refusal) and
     # the dashscope pool is exhausted. Must be a LiteLLM model, not Claude.
-    fallback_ai_model: str = 'gemini/gemini-2.5-flash'
+    fallback_ai_model: str = 'gemini/gemini-3.5-flash'
     # Claude: thinking effort (low|medium|high|xhigh|max) — 'low' keeps the
     # short classification/extraction calls inside AIClient's timeout.
     claude_effort: str = 'low'

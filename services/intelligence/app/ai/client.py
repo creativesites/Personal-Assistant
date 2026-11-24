@@ -45,6 +45,20 @@ def _is_hard_error(exc: Exception) -> bool:
     return False
 
 
+# Per-call deadline. Interactive reply drafting has a user waiting on it;
+# everything else (profiling, summaries, analysis, documents, crons) reads
+# whole conversations and needs far longer than the old blanket 8s cap,
+# which made every contact-profile rebuild time out.
+_FAST_FEATURE_TIMEOUTS: dict[str, float] = {'reply_generation': 15.0}
+_DEFAULT_TIMEOUT_SEC = 90.0
+
+
+def _timeout_for(feature: str, explicit: float | None) -> float:
+    if explicit is not None:
+        return explicit
+    return _FAST_FEATURE_TIMEOUTS.get(feature, _DEFAULT_TIMEOUT_SEC)
+
+
 class AITimeoutError(RuntimeError):
     """Raised when AI draft generation exceeds the 8.0s timeout cap."""
     pass
@@ -71,9 +85,6 @@ def _normalize_model(model: str) -> str:
     # Map hallucinated/legacy Qwen model names
     if any(q in model for q in ('qwen-3.8', 'qwen-3.7', 'qwen-3.6', 'qwen-3.5')):
         return 'dashscope/qwen-max'
-    # Map hallucinated/legacy Gemini model names
-    if any(g in model for q in ('gemini-3.6', 'gemini-3.5') for g in (q, f'gemini/{q}')):
-        return 'gemini/gemini-2.5-flash'
     if model.startswith('gemini-'):
         return f'gemini/{model}'
     if (model.startswith('qwen-') or model.startswith('qwen2')) and not model.startswith('dashscope/'):
@@ -238,9 +249,11 @@ class AIClient:
         service: str = 'intelligence',
         feature: str = 'unknown',
         user_id: str | None = None,
-        timeout_sec: float = 8.0,
+        timeout_sec: float | None = None,
     ):
-        """Call litellm with automatic pool advance and strict 8.0s timeout cap."""
+        """Claude first (when selected), then the LiteLLM pools, all under one
+        per-call deadline (see _timeout_for)."""
+        timeout_sec = _timeout_for(feature, timeout_sec)
         async def _execute():
             # `model` is reassigned below (failover), so without nonlocal it
             # becomes a local of _execute and the very first read raised
@@ -374,15 +387,16 @@ class AIClient:
             return await asyncio.wait_for(_execute(), timeout=timeout_sec)
         except asyncio.TimeoutError:
             log.warning('ai_generation_timeout_exceeded', user_id=user_id, feature=feature, timeout_sec=timeout_sec)
-            raise AITimeoutError(f'AI draft generation timed out after {timeout_sec}s')
+            raise AITimeoutError(f'AI call ({feature}) timed out after {timeout_sec}s')
 
     async def complete_json(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
         *, service: str = 'intelligence', feature: str = 'unknown', user_id: str | None = None,
+        timeout_sec: float | None = None,
     ) -> dict:
         _, response = await self._call_with_failover(
             messages, pool, model, json_mode=True, temperature=0.3, max_tokens=2048,
-            service=service, feature=feature, user_id=user_id,
+            service=service, feature=feature, user_id=user_id, timeout_sec=timeout_sec,
         )
         content = response.choices[0].message.content or '{}'
         return json.loads(content)
@@ -390,10 +404,11 @@ class AIClient:
     async def complete_text(
         self, messages: list[dict], model: str | None = None, pool: str = 'text',
         *, service: str = 'intelligence', feature: str = 'unknown', user_id: str | None = None,
+        timeout_sec: float | None = None,
     ) -> str:
         _, response = await self._call_with_failover(
             messages, pool, model, temperature=0.7, max_tokens=1024,
-            service=service, feature=feature, user_id=user_id,
+            service=service, feature=feature, user_id=user_id, timeout_sec=timeout_sec,
         )
         return response.choices[0].message.content or ''
 
