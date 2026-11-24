@@ -1,14 +1,18 @@
 'use client'
 
-import { TrendingUp, Clock, Users, Pin, AlertCircle } from 'lucide-react'
+import { TrendingUp, Clock, Users, Pin, AlertCircle, Check } from 'lucide-react'
 import { Avatar } from '@/components/ui'
 import type { Conversation } from '../_types/inbox'
 import { AI_PRIORITY, SENTIMENT_DOT } from '../_lib/constants'
 import { formatTime, formatSLA } from '../_lib/utils'
+import { contactLabel } from '@/lib/phone'
 
-export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false, onTogglePin, onAvatarClick }: {
+export function ConvRow({ conv, active, onClick, mode, syncing = false, analysing = false, onTogglePin, onAvatarClick, selectable = false, selected = false }: {
   conv: Conversation
   active: boolean
+  /** Bulk-select mode: the row toggles selection instead of opening the chat. */
+  selectable?: boolean
+  selected?: boolean
   onClick: () => void
   mode: string
   syncing?: boolean
@@ -26,17 +30,28 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
   return (
     <button
       onClick={onClick}
+      aria-pressed={selectable ? selected : undefined}
       className={`group w-full flex items-start gap-3 px-3 py-3 text-left transition-all border-l-[3px] ${
-        active ? 'bg-indigo-50/80 border-indigo-500' : 'hover:bg-white/70 border-transparent'
+        selectable && selected ? 'bg-indigo-50 border-indigo-500'
+          : active && !selectable ? 'bg-indigo-50/80 border-indigo-500' : 'hover:bg-white/70 border-transparent'
       }`}
     >
+      {selectable && (
+        <span
+          className={`mt-2.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+            selected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-300 bg-white'
+          }`}
+        >
+          {selected && <Check size={12} strokeWidth={3} />}
+        </span>
+      )}
       <div className="relative flex-shrink-0 mt-0.5">
         <Avatar
-          name={conv.contact.name}
+          name={contactLabel(conv.contact.name, conv.contact.phone)}
           src={conv.contact.avatarUrl ?? undefined}
           size="md"
           onClick={(e) => {
-            if (onAvatarClick) {
+            if (onAvatarClick && !selectable) {
               e.stopPropagation()
               onAvatarClick(e)
             }
@@ -57,13 +72,13 @@ export function ConvRow({ conv, active, onClick, mode, syncing = false, analysin
         <div className="flex items-center justify-between gap-1 mb-0.5">
           <span className={`flex items-center gap-1 min-w-0 text-sm truncate ${conv.unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
             {conv.contact.isGroup && <Users size={11} className="text-gray-400 flex-shrink-0" />}
-            <span className="truncate">{conv.contact.name}</span>
+            <span className="truncate">{contactLabel(conv.contact.name, conv.contact.phone)}</span>
             {conv.isPinned && (
               <span title="Pinned chat"><Pin size={11} className="text-amber-500 fill-amber-400/30 rotate-45 shrink-0" /></span>
             )}
           </span>
           <div className="flex items-center gap-1 flex-shrink-0">
-            {onTogglePin && (
+            {onTogglePin && !selectable && (
               <span
                 onClick={(e) => {
                   e.stopPropagation()

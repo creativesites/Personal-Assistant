@@ -1,5 +1,6 @@
 'use client'
 
+import { formatPhone, contactLabel } from '@/lib/phone'
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { apiClient } from '@/lib/api'
@@ -120,12 +121,6 @@ function formatLastSeen(ts: string | null) {
   return `${Math.floor(diff / 365)}y ago`
 }
 
-function formatPhone(phone: string | null | undefined): string {
-  if (!phone) return ''
-  const digits = phone.replace(/\D/g, '')
-  if (!digits) return phone
-  return phone.startsWith('+') ? phone : `+${digits}`
-}
 
 function getActivityBucket(ts: string | null): ActivityFilter {
   if (!ts) return 'dormant'
@@ -473,7 +468,10 @@ export default function ContactsPage() {
   const [updatingContactId, setUpdatingContactId] = useState<string | null>(null)
 
   const { data, loading, error, refetch } = useApi<{ contacts: Contact[] }>('/api/contacts', token)
-  const contacts = data?.contacts ?? []
+  const contacts = useMemo(
+    () => (data?.contacts ?? []).map(c => ({ ...c, name: contactLabel(c.name, c.phone) })),
+    [data],
+  )
 
   // Analytics pulse computations for the high-end dashboard widget
   const analyticsPulse = useMemo(() => {

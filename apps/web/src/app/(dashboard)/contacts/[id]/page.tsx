@@ -1,5 +1,6 @@
 'use client'
 
+import { formatPhone, contactLabel, isPhoneLikeName } from '@/lib/phone'
 import { use, useState, useRef, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -233,18 +234,12 @@ const DOC_ICON: Record<string, string> = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatPhone(phone: string | null | undefined): string {
-  if (!phone) return ''
-  const digits = phone.replace(/\D/g, '')
-  if (!digits) return phone
-  return phone.startsWith('+') ? phone : `+${digits}`
-}
 
 function isPhoneRedundant(contact: ContactDetail): boolean {
   if (!contact.phoneNumber) return false
   const phoneDigits = contact.phoneNumber.replace(/\D/g, '')
   const nameDigits  = contact.name.replace(/\D/g, '')
-  return /^\d+$/.test(contact.name.trim()) && nameDigits === phoneDigits
+  return isPhoneLikeName(contact.name) && nameDigits === phoneDigits
 }
 
 function formatDate(ts: string | null | undefined): string {
@@ -2018,7 +2013,12 @@ export default function ContactDetailPage({ params }: { params: Promise<{ id: st
   const [localProfile, setLocalProfile] = useState<ContactProfile | null>(null)
   const tabBarRef = useRef<HTMLDivElement>(null)
 
-  const contact = contactData?.contact
+  const contact = useMemo(
+    () => contactData?.contact
+      ? { ...contactData.contact, name: contactLabel(contactData.contact.name, contactData.contact.phoneNumber) }
+      : undefined,
+    [contactData],
+  )
   const mode    = zuriSession.data?.mode ?? 'hybrid'
 
   // sync local profile when data loads

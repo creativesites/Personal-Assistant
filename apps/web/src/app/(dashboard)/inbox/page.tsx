@@ -1,5 +1,6 @@
 'use client'
 
+import { contactLabel, formatPhone, isPhoneLikeName } from '@/lib/phone'
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -12,7 +13,7 @@ import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useGuidedTour, INBOX_TOUR_STEPS } from '@/components/guided-tour'
 import { apiClient } from '@/lib/api'
 import { getSocket } from '@/lib/socket'
-import { Avatar, EmptyState, SkeletonListItem, useToast, Modal, Input, Button } from '@/components/ui'
+import { Avatar, EmptyState, SkeletonListItem, useToast, Modal, Input, Button, ConfirmModal } from '@/components/ui'
 import { useCelebration } from '@/hooks/use-celebration'
 import { ChampagneConfettiCanvas, CelebrationBanner } from '@/components/ui/celebration-effects'
 import { ReplyDock } from './_components/reply-dock'
@@ -65,6 +66,8 @@ function parseSocketPayload<T>(payload: T | string): T {
   }
 }
 
+const CONV_PAGE_SIZE = 100
+
 function sortConversations(list: Conversation[]) {
   return [...list].sort((a, b) => {
     if (a.unreadCount > 0 && b.unreadCount === 0) return -1
@@ -103,6 +106,12 @@ export default function InboxPage() {
   const [contact, setContact] = useState<Contact | null>(null)
   const [contactDetail, setContactDetail] = useState<ContactDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [hasMoreConvs, setHasMoreConvs] = useState(false)
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [threadError, setThreadError] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -339,11 +348,70 @@ export default function InboxPage() {
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
+  const conversationsLenRef = useRef(0)
+  conversationsLenRef.current = conversations.length
+
+  const loadMoreConversations = useCallback(async () => {
+    if (!token) return
+    setLoadingMoreConvs(true)
+    try {
+      const data = await apiClient<{ conversations: Conversation[]; hasMore?: boolean }>(
+        `/api/conversations?limit=${CONV_PAGE_SIZE}&offset=${conversationsLenRef.current}`, { token },
+      )
+      setConversations(prev => {
+        const seen = new Set(prev.map(c => c.id))
+        return [...prev, ...data.conversations.filter(c => !seen.has(c.id))]
+      })
+      setHasMoreConvs(Boolean(data.hasMore))
+    } catch {
+      addToast({ variant: 'error', title: 'Couldn\'t load more conversations' })
+    } finally {
+      setLoadingMoreConvs(false)
+    }
+  }, [token, addToast])
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }, [])
+
+  const bulkDeleteConversations = useCallback(async () => {
+    if (!token || selectedIds.size === 0) return
+    setBulkDeleting(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const res = await apiClient<{ deleted: number; ids: string[] }>('/api/conversations/bulk-delete', {
+        method: 'POST', token, body: JSON.stringify({ ids }),
+      })
+      const gone = new Set(res.ids)
+      setConversations(prev => prev.filter(c => !gone.has(c.id)))
+      setSelectedId(prev => (prev && gone.has(prev) ? null : prev))
+      addToast({ variant: 'success', title: `Deleted ${res.deleted} chat${res.deleted === 1 ? '' : 's'}` })
+      setConfirmBulkDelete(false)
+      exitSelectMode()
+    } catch {
+      addToast({ variant: 'error', title: 'Couldn\'t delete those chats' })
+    } finally {
+      setBulkDeleting(false)
+    }
+  }, [token, selectedIds, addToast, exitSelectMode])
+
   const loadConversations = useCallback(async () => {
     if (!token) return
     try {
-      const data = await apiClient<{ conversations: Conversation[] }>('/api/conversations', { token })
+      // Refresh keeps however many pages the user has already scrolled through.
+      const limit = Math.min(Math.max(conversationsLenRef.current, CONV_PAGE_SIZE), 500)
+      const data = await apiClient<{ conversations: Conversation[]; hasMore?: boolean }>(`/api/conversations?limit=${limit}`, { token })
       setConversations(data.conversations)
+      setHasMoreConvs(Boolean(data.hasMore))
       setSyncConvCount(data.conversations.length)
       setError(false)
     } catch {
@@ -1397,7 +1465,7 @@ export default function InboxPage() {
 
   const filtered = conversations.filter(c => {
     const q = search.toLowerCase()
-    const matchSearch = !search || c.contact.name.toLowerCase().includes(q) || (c.lastMessagePreview ?? '').toLowerCase().includes(q)
+    const matchSearch = !search || c.contact.name.toLowerCase().includes(q) || (c.contact.phone ?? '').includes(q.replace(/\D/g, '') || '\u0000') || (c.lastMessagePreview ?? '').toLowerCase().includes(q)
     if (filter === 'assigned_to_me') {
       const currentUserId = session.data?.user?.id
       const currentUserEmail = session.data?.user?.email
@@ -1758,7 +1826,40 @@ export default function InboxPage() {
               {f.label}
             </button>
           ))}
+          {conversations.length > 0 && (
+            <button
+              onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+              className={`ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-colors ${
+                selectMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              {selectMode ? <><X size={11} /> Cancel</> : <><CheckCircle2 size={11} /> Select</>}
+            </button>
+          )}
         </div>
+
+        {/* Bulk action bar */}
+        {selectMode && (
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-indigo-100 bg-indigo-50/70 flex-shrink-0">
+            <button
+              onClick={() => {
+                const allSelected = filtered.length > 0 && filtered.every(c => selectedIds.has(c.id))
+                setSelectedIds(allSelected ? new Set() : new Set(filtered.map(c => c.id)))
+              }}
+              className="min-h-9 rounded-xl px-2.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+            >
+              {filtered.length > 0 && filtered.every(c => selectedIds.has(c.id)) ? 'Clear all' : `Select all (${filtered.length})`}
+            </button>
+            <span className="text-xs text-gray-500 tabular-nums">{selectedIds.size} selected</span>
+            <button
+              disabled={selectedIds.size === 0}
+              onClick={() => setConfirmBulkDelete(true)}
+              className="ml-auto inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-rose-600 px-3 text-xs font-bold text-white shadow-sm shadow-rose-200 hover:bg-rose-500 disabled:opacity-40 disabled:shadow-none"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+          </div>
+        )}
 
         {/* Stats bar */}
         {!loading && conversations.length > 0 && (
@@ -1829,7 +1930,9 @@ export default function InboxPage() {
                     key={conv.id}
                     conv={conv}
                     active={selectedId === conv.id}
-                    onClick={() => selectConversation(conv.id)}
+                    onClick={() => (selectMode ? toggleSelected(conv.id) : selectConversation(conv.id))}
+                    selectable={selectMode}
+                    selected={selectedIds.has(conv.id)}
                     onAvatarClick={() => setEnlargedAvatar({ id: conv.contact.id, name: conv.contact.name, avatarUrl: conv.contact.avatarUrl, phone: conv.contact.phone, isGroup: conv.contact.isGroup })}
                     mode={mode}
                     syncing={rowActive && syncState.phase === 'importing'}
@@ -1837,10 +1940,32 @@ export default function InboxPage() {
                   />
                 )
               })}
+              {hasMoreConvs && !search && (
+                <div className="p-3">
+                  <button
+                    onClick={loadMoreConversations}
+                    disabled={loadingMoreConvs}
+                    className="w-full min-h-11 rounded-2xl bg-white text-xs font-semibold text-indigo-700 ring-1 ring-indigo-100 hover:bg-indigo-50 disabled:opacity-60"
+                  >
+                    {loadingMoreConvs ? 'Loading…' : 'Load more conversations'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmBulkDelete}
+        onClose={() => !bulkDeleting && setConfirmBulkDelete(false)}
+        onConfirm={bulkDeleteConversations}
+        title={`Delete ${selectedIds.size} chat${selectedIds.size === 1 ? '' : 's'}?`}
+        description="This removes the chats and their messages from Zuri. Nothing is deleted on WhatsApp, and the contacts stay in your contact list."
+        confirmLabel="Delete"
+        destructive
+        loading={bulkDeleting}
+      />
 
       {/* ── Center: Chat ─────────────────────────────────────────────────── */}
       <div className={`${mobileView === 'list' ? 'hidden md:flex' : mobileView === 'intel' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-w-0 relative`}>
@@ -1881,7 +2006,7 @@ export default function InboxPage() {
                       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                         {contact.isGroup && <Users size={13} className="text-slate-400 flex-shrink-0" />}
                         <div className="flex items-center gap-1 group/name cursor-pointer" onClick={openEditContactModal}>
-                          <p className="text-sm font-extrabold text-white tracking-tight truncate max-w-[140px] sm:max-w-[200px]">{contact.name}</p>
+                          <p className="text-sm font-extrabold text-white tracking-tight truncate max-w-[140px] sm:max-w-[200px]">{contactLabel(contact.name, contact.phone)}</p>
                           <Pencil size={10} className="text-slate-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
                         </div>
 
@@ -1913,6 +2038,9 @@ export default function InboxPage() {
                         }`}>
                           {getPresenceText()}
                         </p>
+                        {!contact.isGroup && contact.phone && !isPhoneLikeName(contact.name) && (
+                          <span className="hidden sm:inline truncate text-slate-500 tabular-nums">· {formatPhone(contact.phone)}</span>
+                        )}
                       </div>
                     </div>
                   </>

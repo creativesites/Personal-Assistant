@@ -12,7 +12,7 @@ export async function leadsRoutes(fastify: FastifyInstance): Promise<void> {
     const { rows: leads } = await db.query(
       `SELECT
         co.id,
-        COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS name,
+        COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, CASE WHEN co.is_group THEN 'WhatsApp group' ELSE 'WhatsApp contact' END) AS name,
         co.phone_number,
         co.avatar_url,
         co.email,

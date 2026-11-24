@@ -90,7 +90,7 @@ export async function getInboxConversation(userId: string, conversationId: strin
       c.unread_count,
       c.is_pinned,
       co.id AS contact_id,
-      COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
+      COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, CASE WHEN co.is_group THEN 'WhatsApp group' ELSE 'WhatsApp contact' END) AS contact_name,
       co.avatar_url,
       co.phone_number,
       co.is_group,

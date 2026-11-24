@@ -22,6 +22,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get('/api/conversations', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const scope = await getEffectiveScope(userId);
+    const q = request.query as { limit?: string; offset?: string };
+    const limit = Math.min(Math.max(parseInt(q.limit ?? '100', 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(q.offset ?? '0', 10) || 0, 0);
 
     const { rows } = await db.query(
       `WITH latest_contact_msg AS (
@@ -35,8 +38,10 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           ma.requires_response,
           EXTRACT(EPOCH FROM (NOW() - m.whatsapp_timestamp)) / 60 AS sla_minutes
         FROM messages m
+        JOIN conversations mc ON mc.id = m.conversation_id
         LEFT JOIN message_analyses ma ON ma.message_id = m.id
         WHERE m.sender_type = 'contact' AND m.is_deleted = false
+          AND (($2::uuid IS NOT NULL AND mc.organization_id = $2::uuid) OR (mc.user_id = $1 OR mc.user_id = $3::uuid))
         ORDER BY m.conversation_id, m.whatsapp_timestamp DESC
       ),
       lead_scores AS (
@@ -53,7 +58,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
         c.unread_count,
         c.is_pinned,
         co.id   AS contact_id,
-        COALESCE(co.custom_name, co.display_name, co.phone_number, co.whatsapp_jid) AS contact_name,
+        COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, CASE WHEN co.is_group THEN 'WhatsApp group' ELSE 'WhatsApp contact' END) AS contact_name,
         co.avatar_url,
         co.phone_number,
         co.is_group,
@@ -84,12 +89,63 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       ORDER BY
         COALESCE(c.is_pinned, false) DESC,
         CASE WHEN c.unread_count > 0 THEN 0 ELSE 1 END,
-        c.last_message_at DESC NULLS LAST
-      LIMIT 100`,
-      [userId, scope.organizationId, scope.ownerUserId],
+        c.last_message_at DESC NULLS LAST,
+        c.id
+      LIMIT $4 OFFSET $5`,
+      [userId, scope.organizationId, scope.ownerUserId, limit + 1, offset],
     );
 
-    return reply.send({ conversations: rows.map(formatConversationRow) });
+    const hasMore = rows.length > limit;
+    return reply.send({ conversations: rows.slice(0, limit).map(formatConversationRow), hasMore });
+  });
+
+  // ── POST /api/conversations/bulk-delete ─────────────────────────────────────
+  // Deletes chats (and their messages) from Zuri only — nothing is deleted on
+  // WhatsApp itself. The contact record stays, so a new message from them
+  // simply starts a fresh conversation.
+  const bulkDeleteBody = z.object({ ids: z.array(z.string().uuid()).min(1).max(500) });
+
+  fastify.post('/api/conversations/bulk-delete', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string };
+    const scope = await getEffectiveScope(userId);
+    const { ids } = bulkDeleteBody.parse(request.body ?? {});
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: owned } = await client.query<{ id: string }>(
+        `SELECT id FROM conversations
+         WHERE id = ANY($1::uuid[])
+           AND (user_id = $2 OR user_id = $3::uuid
+                OR ($4::uuid IS NOT NULL AND organization_id = $4::uuid))`,
+        [ids, userId, scope.ownerUserId, scope.organizationId],
+      );
+      const ownedIds = owned.map((r) => r.id);
+      if (ownedIds.length > 0) {
+        // Two FKs into messages don't cascade: replies quoting these messages
+        // from other chats, and AI-extracted events sourced from them.
+        await client.query(
+          `UPDATE messages SET quoted_message_id = NULL
+           WHERE quoted_message_id IN (SELECT id FROM messages WHERE conversation_id = ANY($1::uuid[]))
+             AND conversation_id <> ALL($1::uuid[])`,
+          [ownedIds],
+        );
+        await client.query(
+          `UPDATE events SET source_message_id = NULL
+           WHERE source_message_id IN (SELECT id FROM messages WHERE conversation_id = ANY($1::uuid[]))`,
+          [ownedIds],
+        );
+        await client.query(`DELETE FROM messages WHERE conversation_id = ANY($1::uuid[])`, [ownedIds]);
+        await client.query(`DELETE FROM conversations WHERE id = ANY($1::uuid[])`, [ownedIds]);
+      }
+      await client.query('COMMIT');
+      return reply.send({ deleted: ownedIds.length, ids: ownedIds });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
   });
 
   // ── GET /api/inbox/sync-status ────────────────────────────────────────────
