@@ -241,4 +241,5 @@ class ContactProfileUpdate(BaseModel):
     goals: str = ''
     preferences: str = ''
     relationship_stage: str = ''
+    relationship_type: str = ''
     structured_attributes: ContactStructuredAttributes = Field(default_factory=ContactStructuredAttributes)

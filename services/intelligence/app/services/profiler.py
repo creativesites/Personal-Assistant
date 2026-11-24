@@ -8,6 +8,10 @@ log = structlog.get_logger()
 
 _MAX_MESSAGES = 100
 _PROMPT_CHAR_LIMIT = 8000
+_INFERABLE_RELATIONSHIP_TYPES = {
+    'spouse', 'partner', 'family', 'close_friend', 'friend',
+    'colleague', 'client', 'business_contact',
+}
 
 
 def build_transcript(rows, contact_name: str, user_name: str, char_limit: int) -> str:
@@ -190,6 +194,19 @@ class ContactProfiler:
                 profile_model.relationship_stage or '',
                 structured_delta,
             )
+
+            # Relationship type: nothing else infers it, so every contact sat
+            # at the 'acquaintance' default (including a spouse). Only fill
+            # the default — a type the user set is never overwritten.
+            rel_type = (profile_model.relationship_type or '').strip().lower()
+            if rel_type in _INFERABLE_RELATIONSHIP_TYPES:
+                await conn.execute(
+                    "UPDATE relationships SET relationship_type = $1, updated_at = NOW()"
+                    " WHERE contact_id = $2 AND user_id = $3 AND relationship_type = 'acquaintance'",
+                    rel_type,
+                    contact_id,
+                    user_id,
+                )
 
             # Retire old insights, write fresh batch — preserve evidence/provenance
             # trail via superseded_by rather than dropping it on the floor.

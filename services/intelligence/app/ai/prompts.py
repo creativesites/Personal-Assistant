@@ -175,6 +175,7 @@ Return ONLY valid JSON:
   "goals": "what they appear to be trying to achieve — business, personal, or both. Leave empty string if unclear.",
   "preferences": "communication preferences, product preferences, scheduling preferences, etc. Leave empty string if unclear.",
   "relationship_stage": "how far along the relationship is: new_contact|building_rapport|established|trusted_partner|at_risk|dormant",
+  "relationship_type": "what {contact_name} is to {user_name}: spouse|partner|family|close_friend|friend|colleague|client|business_contact|acquaintance. Judge from the conversation AND the saved contact name (e.g. 'My Wife', 'Mum', 'Boss'). Use acquaintance when the evidence is thin.",
   "structured_attributes": {{
     "lifetime_spend": "total amount spent if mentioned or inferable, else empty string",
     "buying_frequency": "e.g. monthly, end of month, sporadic — else empty string",
