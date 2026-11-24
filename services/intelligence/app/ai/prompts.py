@@ -115,9 +115,11 @@ Return ONLY valid JSON:
 """
 
 EXTRACT_CONTACT_INSIGHTS = """\
-Based on these recent WhatsApp messages from {contact_name} to {user_name}, extract specific, evidence-based insights about {contact_name}.
+Below is a WhatsApp conversation between {contact_name} and {user_name}. {user_name} is the account owner — the person using this assistant. You are building a profile of {contact_name}, the OTHER person in the chat.
 
-Messages:
+Each line starts with who wrote it: lines starting "{contact_name}:" were written by {contact_name}; lines starting "{user_name} (account owner):" were written by {user_name}. Use {user_name}'s lines only as context for what {contact_name} is responding to. Never describe {user_name}'s job, projects, beliefs, plans or habits as if they were {contact_name}'s.
+
+Conversation (oldest first):
 {messages_text}
 
 Extract insights covering BOTH personal/behavioral AND commercial/business signals. Return ONLY valid JSON:
@@ -144,17 +146,20 @@ Focus on:
 - Emotional tendencies and relationship dynamics
 
 Only include insights with confidence > 0.5. Maximum 12 insights.
-The supporting_text MUST be a verbatim quote from the messages — never paraphrase.
+The supporting_text MUST be a verbatim quote from one of {contact_name}'s own lines — never paraphrase, and never quote {user_name}.
+If {contact_name} wrote too little to support an insight, return fewer insights (an empty list is fine) rather than describing {user_name}.
 """
 
 BUILD_CONTACT_PROFILE = """\
-Synthesize a comprehensive profile of {contact_name} based on their WhatsApp communication with {user_name}.
+Synthesize a profile of {contact_name} from their WhatsApp conversation with {user_name}. {user_name} is the account owner (the person using this assistant); {contact_name} is the OTHER person in the chat, and the only person this profile describes.
+
+Lines starting "{contact_name}:" were written by {contact_name}; lines starting "{user_name} (account owner):" were written by {user_name}. Treat {user_name}'s lines as context only — never attribute {user_name}'s job, projects, beliefs, plans or communication style to {contact_name}. Every field must be about {contact_name}; where {contact_name}'s own messages give no evidence, use an empty string/list instead of filling it from {user_name}'s side.
 
 Messages analyzed: {message_count}
 Time range: {date_range}
-Key insights already known: {existing_insights}
+Key insights already known about {contact_name}: {existing_insights}
 
-Sample messages:
+Recent conversation (oldest first):
 {sample_messages}
 
 Return ONLY valid JSON:

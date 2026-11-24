@@ -10,6 +10,26 @@ _MAX_MESSAGES = 100
 _PROMPT_CHAR_LIMIT = 8000
 
 
+def build_transcript(rows, contact_name: str, user_name: str, char_limit: int) -> str:
+    """Chronological, name-labelled transcript of the newest messages that fit
+    in `char_limit`. `rows` arrive newest-first (the SQL orders DESC so LIMIT
+    keeps the most recent). Real names instead of [user]/[contact] tags: with
+    the bare tags the model routinely profiled the account owner instead of
+    the contact."""
+    owner_label = f'{user_name} (account owner)'
+    lines: list[str] = []
+    used = 0
+    for m in rows:  # newest → oldest
+        speaker = owner_label if m['sender_type'] == 'user' else contact_name
+        line = f"{speaker}: {m['body']}"
+        if used + len(line) + 1 > char_limit and lines:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    lines.reverse()  # oldest → newest, the order the conversation happened
+    return '\n'.join(lines)
+
+
 class ContactProfiler:
     async def profile(self, contact_id: str, user_id: str) -> None:
         pool = await get_pool()
@@ -50,9 +70,7 @@ class ContactProfiler:
         contact_name = contact['name'] if contact else 'Contact'
         user_name = user['name'] if user else 'User'
 
-        messages_text = '\n'.join(
-            f"[{m['sender_type']}]: {m['body']}" for m in messages
-        )[:_PROMPT_CHAR_LIMIT]
+        messages_text = build_transcript(messages, contact_name, user_name, _PROMPT_CHAR_LIMIT)
 
         dates = [m['whatsapp_timestamp'] for m in messages if m['whatsapp_timestamp']]
         date_range = 'unknown'
@@ -77,9 +95,7 @@ class ContactProfiler:
             f"{r['insight_key']}: {r['insight_value']}" for r in existing_insights
         ) or 'none'
 
-        sample = '\n'.join(
-            f"[{m['sender_type']}]: {m['body']}" for m in messages[:20]
-        )
+        sample = build_transcript(messages[:40], contact_name, user_name, 4000)
 
         profile_raw = await client.complete_json([{
             'role': 'user',
