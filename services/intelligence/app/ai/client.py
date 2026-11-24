@@ -21,8 +21,11 @@ from .token_usage import (
 
 log = structlog.get_logger()
 
-_HARD_FAIL_CODES = {401, 402, 403}
+# 404 included: a model the endpoint doesn't serve ("Model not exist") is
+# as dead as a revoked key — keep failing over instead of aborting the chain.
+_HARD_FAIL_CODES = {401, 402, 403, 404}
 _QUOTA_PHRASES = (
+    'model not exist', 'does not exist', 'access to model denied', 'not eligible',
     'quota', 'exhausted', 'insufficient_quota', 'free trial',
     'rate limit', 'too many requests', 'billing', 'access denied',
     # credential / key errors — treat as hard fail so Gemini fallback kicks in

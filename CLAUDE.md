@@ -249,11 +249,13 @@ JWT_SECRET=        # min 64 chars
 INTERNAL_API_SECRET=   # shared with Vercel — 98c2ba10361bc6678f860c7b53d953ff
 CORS_ORIGIN=https://zuri-personal-assistant-delta.vercel.app
 GOOGLE_AI_API_KEY=     # Gemini API key
-DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
+DEFAULT_AI_MODEL=anthropic/claude-haiku-5-5
 DASHSCOPE_API_KEY=     # Alibaba Cloud DashScope key (Qwen models — currently default text pool)
 SUPABASE_URL=              # for incoming WhatsApp media storage (services/whatsapp only)
 SUPABASE_SERVICE_ROLE_KEY= # service-role key, NOT the anon key — see "Groups & Media" below
 ```
+
+**Claude is the primary text model** (`DEFAULT_AI_MODEL=anthropic/claude-haiku-5-5`). Claude calls do **not** go through LiteLLM — `services/intelligence/app/ai/claude.py` calls the official Anthropic SDK directly (the 5.5 models reject `temperature`, have no JSON mode or assistant prefill, use adaptive thinking via `output_config.effort`, and signal refusals via `stop_reason`). `AIClient` tries Claude first, then falls through to the dashscope pool and `FALLBACK_AI_MODEL` on any failure. Choose models by alias — `haiku` (default), `sonnet`, `opus` — either per call (`complete_json(..., model='sonnet')`) or per feature tag with no code change via `CLAUDE_FEATURE_MODELS='{"advisor_chat":"sonnet"}'`. `CLAUDE_EFFORT` (default `low`) sets thinking depth. Only use the exact IDs `claude-haiku-5-5` / `claude-sonnet-5-5` / `claude-opus-5-5` — never date-suffixed variants.
 
 **CRITICAL — LiteLLM model naming:** All Gemini model names **must** use the `gemini/` prefix.
 - ✅ `gemini/gemini-3.5-flash` ← use this
