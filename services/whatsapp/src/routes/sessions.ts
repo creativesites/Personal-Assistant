@@ -59,6 +59,19 @@ export function sessionRoutes(sessionManager: SessionManager) {
       return reply.send({ userId, status, activeCount: sessionManager.activeCount() });
     });
 
+    // Replay the WhatsApp address book (saved names + LID pairings) into the
+    // contacts table without re-linking. Fire-and-forget: results land via the
+    // 'contact_hints' event on the history pipeline's per-user chain.
+    fastify.post('/internal/sessions/:userId/resync-contacts', async (request, reply) => {
+      const { userId } = userIdParam.parse(request.params);
+      const transport = sessionManager.getTransport(userId);
+      if (!transport) return reply.status(409).send({ error: 'WhatsApp session is not connected' });
+      transport.resyncContacts().catch((err) => {
+        console.error(`[sessions] resync-contacts failed userId=${userId}:`, err);
+      });
+      return reply.status(202).send({ started: true });
+    });
+
     fastify.post('/internal/sessions/:userId/send', async (request, reply) => {
       const { userId } = userIdParam.parse(request.params);
       const { jid, text } = sendBody.parse(request.body);

@@ -4,6 +4,7 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   downloadMediaMessage,
   Browsers,
+  proto,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -18,6 +19,7 @@ import {
   WhatsAppTransport,
   type NormalisedMessage,
   type HistorySetPayload,
+  type HistoryContact,
   type CatalogProductInput,
   type TransportDisconnectReason,
   type TransportStatus,
@@ -25,6 +27,49 @@ import {
 import { uploadChatMedia } from '../lib/supabase-storage';
 
 const QR_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * LID -> phone-number JID pairs WhatsApp sends in each history sync's top-level
+ * `phoneNumberToLidMappings`. Baileys 6.7 decodes that list but never passes it
+ * on, so we capture it from the decoder. A LID identifies one WhatsApp account
+ * globally, so a pair is true regardless of which session decoded it; each
+ * session only looks up JIDs that appear in its own batches.
+ */
+const LID_PN_CACHE_MAX = 200_000;
+const lidPnCache = new Map<string, string>();
+let historyDecodePatched = false;
+function captureHistoryLidMappings(): void {
+  if (historyDecodePatched) return;
+  historyDecodePatched = true;
+  const HS = proto.HistorySync as unknown as { decode: (...args: unknown[]) => proto.IHistorySync };
+  const original = HS.decode.bind(HS);
+  HS.decode = (...args: unknown[]) => {
+    const decoded = original(...args);
+    try {
+      for (const m of decoded.phoneNumberToLidMappings ?? []) {
+        if (m.lidJid && m.pnJid) lidPnCache.set(m.lidJid, m.pnJid);
+      }
+      while (lidPnCache.size > LID_PN_CACHE_MAX) {
+        lidPnCache.delete(lidPnCache.keys().next().value as string);
+      }
+    } catch { /* never break history decoding */ }
+    return decoded;
+  };
+}
+captureHistoryLidMappings();
+
+function toHistoryContact(c: { id?: string | null; name?: string | null; notify?: string | null; verifiedName?: string | null; lid?: string | null; jid?: string | null }): HistoryContact | null {
+  if (!c.id) return null;
+  return {
+    id: c.id,
+    name: c.name ?? null,
+    notify: c.notify ?? null,
+    verifiedName: c.verifiedName ?? null,
+    // The address book entry's id is usually the phone JID; `lid` is its LID.
+    // When the id is itself a LID, `jid` carries the phone JID instead.
+    lid: c.lid ?? (c.id.endsWith('@lid') ? c.id : null),
+  };
+}
 const RECONNECT_BASE_MS = 3_000;
 const RECONNECT_MAX_MS  = 60_000; // cap at 60 s — keeps trying forever
 const DEFAULT_MEDIA_DIR = '/app/media';
@@ -481,6 +526,17 @@ export class BaileysTransport extends WhatsAppTransport {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (sock !== this.sock) return;
       if (type !== 'notify') return;
+      const hints: HistoryContact[] = [];
+      for (const msg of messages) {
+        const key = msg.key as typeof msg.key & { senderPn?: string; participantPn?: string };
+        if (key.remoteJid?.endsWith('@lid') && key.senderPn?.endsWith('@s.whatsapp.net')) {
+          hints.push({ id: key.senderPn, name: null, notify: null, verifiedName: null, lid: key.remoteJid });
+        }
+        if (key.participant?.endsWith('@lid') && key.participantPn?.endsWith('@s.whatsapp.net')) {
+          hints.push({ id: key.participantPn, name: null, notify: null, verifiedName: null, lid: key.participant });
+        }
+      }
+      if (hints.length) this.emitContactHints(hints);
       for (const msg of messages) {
         try {
           const normalised = await this._normalise(msg);
@@ -490,6 +546,23 @@ export class BaileysTransport extends WhatsAppTransport {
         }
       }
     });
+
+    // Address book (app-state sync, right after a link or on resyncContacts()):
+    // saved names plus each contact's LID pairing. Also push-name changes.
+    const onContacts = (list: Array<Parameters<typeof toHistoryContact>[0]>) => {
+      if (sock !== this.sock) return;
+      const hints = list.flatMap((c) => {
+        const h = toHistoryContact(c);
+        if (!h) return [];
+        // id is a LID but the entry also names the phone JID: key it by phone.
+        const pn = (c as { jid?: string | null }).jid;
+        if (h.id.endsWith('@lid') && pn?.endsWith('@s.whatsapp.net')) return [{ ...h, id: pn, lid: h.id }];
+        return [h];
+      });
+      if (hints.length) this.emitContactHints(hints);
+    };
+    sock.ev.on('contacts.upsert', (list) => onContacts(list));
+    sock.ev.on('contacts.update', (list) => onContacts(list as Array<Parameters<typeof toHistoryContact>[0]>));
 
     sock.ev.on('presence.update', ({ id, presences }) => {
       if (sock !== this.sock) return;
@@ -574,12 +647,41 @@ export class BaileysTransport extends WhatsAppTransport {
         isLatest,
       };
 
+      // Attach LID pairs captured from this sync's phoneNumberToLidMappings for
+      // every @lid JID in the batch, as contact hints the pipeline learns from.
+      const lidsInBatch = new Set<string>();
+      for (const c of payload.chats) if (c.id.endsWith('@lid')) lidsInBatch.add(c.id);
+      for (const c of payload.contacts) if (c.id.endsWith('@lid')) lidsInBatch.add(c.id);
+      for (const m of normalisedMessages) {
+        if (m.jid.endsWith('@lid')) lidsInBatch.add(m.jid);
+        if (m.groupSenderJid?.endsWith('@lid')) lidsInBatch.add(m.groupSenderJid);
+      }
+      let mapped = 0;
+      for (const lid of lidsInBatch) {
+        const pn = lidPnCache.get(lid);
+        if (!pn) continue;
+        payload.contacts.push({ id: pn, name: null, notify: null, verifiedName: null, lid });
+        mapped++;
+      }
+
       console.log(
-        `[baileys:${this.userId}] history batch: syncType=${syncType} progress=${payload.progress ?? '-'} ` +
+        `[baileys:${this.userId}] history batch: lidPairs=${mapped}/${lidsInBatch.size} syncType=${syncType} progress=${payload.progress ?? '-'} ` +
         `chats=${payload.chats.length} contacts=${payload.contacts.length} messages=${normalisedMessages.length}/${messages.length}`,
       );
       this.emitHistorySet(payload);
     });
+  }
+
+  /**
+   * Replay the whole WhatsApp address book (saved names + LID pairings) by
+   * re-fetching the contacts app-state collection from its snapshot. Same as
+   * what happens right after a link; fires contacts.upsert for every entry.
+   */
+  async resyncContacts(): Promise<void> {
+    const sock = this.sock;
+    if (!sock) throw new Error('WhatsApp session is not connected');
+    await sock.authState.keys.set({ 'app-state-sync-version': { critical_unblock_low: null } });
+    await sock.resyncAppState(['critical_unblock_low'], true);
   }
 
   private async _normalise(msg: WAMessage): Promise<NormalisedMessage | null> {

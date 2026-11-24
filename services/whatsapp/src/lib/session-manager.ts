@@ -12,6 +12,7 @@ import type {
   TransportFactory,
   NormalisedMessage,
   HistorySetPayload,
+  HistoryContact,
   CatalogProductInput,
   TransportDisconnectReason,
 } from '../transport/types';
@@ -265,6 +266,9 @@ export class SessionManager {
     // import settles. See lib/history-sync-pipeline.ts.
     transport.on('history_set', (payload: HistorySetPayload) => {
       this.historyPipeline.ingest(userId, payload);
+    });
+    transport.on('contact_hints', (hints: HistoryContact[]) => {
+      this.historyPipeline.applyContactHints(userId, hints);
     });
 
     await transport.start();

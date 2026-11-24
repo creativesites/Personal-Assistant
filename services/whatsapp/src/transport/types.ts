@@ -87,6 +87,7 @@ export type TransportStatus = 'idle' | 'connecting' | 'connected';
  *   'disconnected'       (reason: TransportDisconnectReason) — session ended (terminal)
  *   'message'            (msg: NormalisedMessage)         — inbound message
  *   'historical_message' (msg: NormalisedMessage)         — historical message from initial sync
+ *   'contact_hints'      (contacts: HistoryContact[])     — address-book names / LID pairings
  */
 export abstract class WhatsAppTransport extends EventEmitter {
   abstract readonly userId: string;
@@ -153,6 +154,9 @@ export abstract class WhatsAppTransport extends EventEmitter {
 
   abstract getStatus(): TransportStatus;
 
+  /** Re-fetch the address book (saved names, LID pairings); emits 'contact_hints'. */
+  abstract resyncContacts(): Promise<void>;
+
   /** Fetch recent messages for a JID from WA servers (for gap detection / self-healing). */
   abstract fetchRecentMessages(jid: string, limit: number): Promise<NormalisedMessage[]>;
 
@@ -163,6 +167,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
   protected emitMessage(msg: NormalisedMessage): void { this.emit('message', msg); }
   protected emitHistoricalMessage(msg: NormalisedMessage): void { this.emit('historical_message', msg); }
   protected emitHistorySet(payload: HistorySetPayload): void { this.emit('history_set', payload); }
+  protected emitContactHints(contacts: HistoryContact[]): void { this.emit('contact_hints', contacts); }
   protected emitLinkCode(code: string): void { this.emit('link_code', code); }
 }
 

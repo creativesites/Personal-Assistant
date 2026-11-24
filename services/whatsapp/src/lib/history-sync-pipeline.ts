@@ -23,7 +23,7 @@
  */
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
-import type { HistoryChat, HistorySetPayload, NormalisedMessage } from '../transport/types';
+import type { HistoryChat, HistoryContact, HistorySetPayload, NormalisedMessage } from '../transport/types';
 
 const MESSAGE_CHUNK = 500;
 /** Quiet period after the last batch before the import is considered done. */
@@ -285,12 +285,194 @@ export class HistorySyncPipeline {
     const fresh = [...pairs].filter(([lid, pn]) => state.lidToPn.get(lid) !== pn);
     if (!fresh.length) return;
     for (const [lid, pn] of fresh) state.lidToPn.set(lid, pn);
+    await this.persistLidPairs(userId, fresh);
+  }
+
+  private async persistLidPairs(userId: string, pairs: [string, string][]): Promise<void> {
+    if (!pairs.length) return;
     await this.db.query(
       `INSERT INTO whatsapp_lid_map (user_id, lid_jid, pn_jid)
        SELECT $1, l, p FROM unnest($2::text[], $3::text[]) AS t(l, p)
        ON CONFLICT (user_id, lid_jid) DO UPDATE SET pn_jid = EXCLUDED.pn_jid, updated_at = NOW()`,
-      [userId, fresh.map(([l]) => l), fresh.map(([, p]) => p)],
+      [userId, pairs.map(([l]) => l), pairs.map(([, p]) => p)],
     );
+  }
+
+  // ── Address book (contacts.upsert / contacts.update) ──────────────────────
+
+  /**
+   * Saved names and LID pairings from WhatsApp's address book. Arrives right
+   * after a link (app-state sync), on resyncContacts(), and as push-name
+   * changes. Runs on the same per-user chain as history batches.
+   */
+  applyContactHints(userId: string, hints: HistoryContact[]): void {
+    this.enqueue(userId, async () => {
+      const pairs = new Map<string, string>();
+      for (const h of hints) {
+        if (h.lid?.endsWith('@lid') && h.id.endsWith('@s.whatsapp.net')) pairs.set(h.lid, h.id);
+      }
+      const state = this.states.get(userId);
+      if (state) for (const [lid, pn] of pairs) state.lidToPn.set(lid, pn);
+      await this.persistLidPairs(userId, [...pairs]);
+      const merged = pairs.size ? await this.reconcileLidContacts(userId) : 0;
+
+      // Names, keyed by the canonical (phone) JID when we know it.
+      const canonOf = (jid: string) => (jid.endsWith('@lid') ? pairs.get(jid) ?? jid : jid);
+      const saved = new Map<string, string>();
+      const push = new Map<string, string>();
+      for (const h of hints) {
+        const jid = canonOf(h.id);
+        if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) continue;
+        const savedName = h.name?.trim() || h.verifiedName?.trim();
+        if (savedName) saved.set(jid, savedName);
+        else if (h.notify?.trim()) push.set(jid, h.notify.trim());
+      }
+      let named = 0;
+      if (saved.size) {
+        const r = await this.db.query(
+          `UPDATE contacts SET display_name = x.n, updated_at = NOW()
+           FROM unnest($2::text[], $3::text[]) AS x(j, n)
+           WHERE contacts.user_id = $1 AND contacts.whatsapp_jid = x.j
+             AND contacts.display_name IS DISTINCT FROM x.n`,
+          [userId, [...saved.keys()], [...saved.values()]],
+        );
+        named += r.rowCount ?? 0;
+      }
+      if (push.size) {
+        const r = await this.db.query(
+          `UPDATE contacts SET display_name = x.n, updated_at = NOW()
+           FROM unnest($2::text[], $3::text[]) AS x(j, n)
+           WHERE contacts.user_id = $1 AND contacts.whatsapp_jid = x.j
+             AND COALESCE(contacts.display_name, '') = ''`,
+          [userId, [...push.keys()], [...push.values()]],
+        );
+        named += r.rowCount ?? 0;
+      }
+      if (pairs.size || named) {
+        console.log(`[history-sync] ${userId} contact hints: ${hints.length} in, pairs=${pairs.size} merged=${merged} named=${named}`);
+      }
+    });
+  }
+
+  /**
+   * Fold contacts/conversations stored under an @lid JID onto the phone-number
+   * JID whatsapp_lid_map now knows for them, so one person is one contact and
+   * one chat. Renames in place when only the LID row exists; otherwise moves
+   * the LID chat's messages into the phone chat, deletes the LID chat and marks
+   * the LID contact merged (contacts are never deleted — many tables point at
+   * them). Returns how many LID contacts were resolved.
+   */
+  async reconcileLidContacts(userId: string): Promise<number> {
+    const client = await this.db.connect();
+    let resolved = 0;
+    try {
+      await client.query('BEGIN');
+      // 1. Rename in place where the phone-number row doesn't exist yet.
+      const renamed = await client.query(
+        `WITH m AS (
+           SELECT DISTINCT ON (pn_jid) lid_jid, pn_jid FROM whatsapp_lid_map
+           WHERE user_id = $1 ORDER BY pn_jid, updated_at DESC
+         )
+         UPDATE contacts c
+            SET whatsapp_jid = m.pn_jid,
+                phone_number = split_part(split_part(m.pn_jid, '@', 1), ':', 1),
+                updated_at = NOW()
+           FROM m
+          WHERE c.user_id = $1 AND c.whatsapp_jid = m.lid_jid AND c.merged_into_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM contacts p WHERE p.user_id = $1 AND p.whatsapp_jid = m.pn_jid)`,
+        [userId],
+      );
+      resolved += renamed.rowCount ?? 0;
+      await client.query(
+        `WITH m AS (
+           SELECT DISTINCT ON (pn_jid) lid_jid, pn_jid FROM whatsapp_lid_map
+           WHERE user_id = $1 ORDER BY pn_jid, updated_at DESC
+         )
+         UPDATE conversations cv SET whatsapp_chat_id = m.pn_jid, updated_at = NOW()
+           FROM m
+          WHERE cv.user_id = $1 AND cv.whatsapp_chat_id = m.lid_jid
+            AND NOT EXISTS (SELECT 1 FROM conversations p WHERE p.user_id = $1 AND p.whatsapp_chat_id = m.pn_jid)`,
+        [userId],
+      );
+
+      // 2. Both rows exist: merge the LID one into the phone one.
+      const { rows: dupes } = await client.query<{
+        lid_id: string; pn_id: string; lid_jid: string; pn_jid: string;
+      }>(
+        `SELECT l.id AS lid_id, p.id AS pn_id, l.whatsapp_jid AS lid_jid, p.whatsapp_jid AS pn_jid
+           FROM whatsapp_lid_map m
+           JOIN contacts l ON l.user_id = m.user_id AND l.whatsapp_jid = m.lid_jid AND l.merged_into_id IS NULL
+           JOIN contacts p ON p.user_id = m.user_id AND p.whatsapp_jid = m.pn_jid
+          WHERE m.user_id = $1`,
+        [userId],
+      );
+      for (const d of dupes) {
+        const { rows: [pc] } = await client.query<{ id: string }>(
+          `SELECT id FROM conversations WHERE user_id = $1 AND whatsapp_chat_id = $2`, [userId, d.pn_jid],
+        );
+        const { rows: lcs } = await client.query<{ id: string }>(
+          `SELECT id FROM conversations WHERE user_id = $1 AND (contact_id = $2 OR whatsapp_chat_id = $3)
+             AND whatsapp_chat_id <> $4`,
+          [userId, d.lid_id, d.lid_jid, d.pn_jid],
+        );
+        for (const lc of lcs) {
+          if (!pc) {
+            await client.query(
+              `UPDATE conversations SET contact_id = $2, whatsapp_chat_id = $3, updated_at = NOW() WHERE id = $1`,
+              [lc.id, d.pn_id, d.pn_jid],
+            );
+            continue;
+          }
+          // Drop LID-side copies of messages the phone chat already has.
+          await client.query(
+            `UPDATE messages SET quoted_message_id = NULL
+              WHERE quoted_message_id IN (
+                SELECT l.id FROM messages l JOIN messages p
+                  ON p.conversation_id = $2 AND p.whatsapp_message_id = l.whatsapp_message_id
+                 WHERE l.conversation_id = $1)`,
+            [lc.id, pc.id],
+          );
+          await client.query(
+            `DELETE FROM messages l USING messages p
+              WHERE l.conversation_id = $1 AND p.conversation_id = $2
+                AND p.whatsapp_message_id = l.whatsapp_message_id`,
+            [lc.id, pc.id],
+          );
+          await client.query(`UPDATE messages SET conversation_id = $2 WHERE conversation_id = $1`, [lc.id, pc.id]);
+          await client.query(
+            `UPDATE conversations p SET
+               last_message_at = GREATEST(p.last_message_at, l.last_message_at),
+               last_message_preview = CASE WHEN l.last_message_at > p.last_message_at OR p.last_message_at IS NULL
+                                           THEN COALESCE(l.last_message_preview, p.last_message_preview)
+                                           ELSE p.last_message_preview END,
+               updated_at = NOW()
+               FROM conversations l WHERE p.id = $2 AND l.id = $1`,
+            [lc.id, pc.id],
+          );
+          await client.query(`DELETE FROM conversations WHERE id = $1`, [lc.id]);
+        }
+        await client.query(
+          `UPDATE contacts p SET
+             display_name = COALESCE(NULLIF(p.display_name, ''), l.display_name),
+             last_message_at = GREATEST(p.last_message_at, l.last_message_at),
+             updated_at = NOW()
+             FROM contacts l WHERE p.id = $2 AND l.id = $1`,
+          [d.lid_id, d.pn_id],
+        );
+        await client.query(
+          `UPDATE contacts SET merged_into_id = $2, updated_at = NOW() WHERE id = $1`,
+          [d.lid_id, d.pn_id],
+        );
+        resolved++;
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+    return resolved;
   }
 
   private async upsertContacts(
@@ -464,6 +646,15 @@ export class HistorySyncPipeline {
       [state.jobId],
     );
     await this.publish(userId, state, { status: 'running', phase: 'analysing' }, true);
+
+    // Pairs can arrive in a later batch than the chats they describe: fold any
+    // remaining @lid rows onto their phone-number rows before picking chats.
+    try {
+      const merged = await this.reconcileLidContacts(userId);
+      if (merged) console.log(`[history-sync] ${userId} reconciled ${merged} @lid contacts`);
+    } catch (err) {
+      console.error(`[history-sync] ${userId} LID reconcile failed:`, err);
+    }
 
     // Recent, real 1:1 conversations where the contact actually said something.
     const { rows: candidates } = await this.db.query<{ id: string; contact_id: string; name: string | null }>(
