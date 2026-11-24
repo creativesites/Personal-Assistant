@@ -654,12 +654,14 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
       };
     } else {
       // Membership Platform Phase 1 — consume credit when calling AI
-      const { rows: [creditRow] } = await db.query(
-        `UPDATE subscriptions SET documents_remaining_today = documents_remaining_today - 1
-         WHERE user_id = $1 AND status IN ('active', 'trialing') AND documents_remaining_today > 0
-         RETURNING id`,
-        [userId],
-      );
+      const { rows: [creditRow] } = config.FREE_TESTING_MODE
+        ? { rows: [{ id: 'unmetered' }] }
+        : await db.query(
+          `UPDATE subscriptions SET documents_remaining_today = documents_remaining_today - 1
+           WHERE user_id = $1 AND status IN ('active', 'trialing') AND documents_remaining_today > 0
+           RETURNING id`,
+          [userId],
+        );
       if (!creditRow) {
         return reply.code(402).send({ error: 'Daily document generation limit reached. Upgrade for unlimited documents.' });
       }

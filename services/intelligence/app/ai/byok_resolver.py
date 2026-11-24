@@ -14,6 +14,17 @@ from .encryption import decrypt_api_key
 
 log = structlog.get_logger()
 
+_PROVIDER_PREFIXES = {
+    'openai': ('openai/', 'gpt-'),
+    'anthropic': ('anthropic/', 'claude-'),
+    'google': ('gemini/', 'gemini-'),
+    'dashscope': ('dashscope/', 'qwen'),
+}
+
+
+def _model_matches_provider(model: str, provider: str) -> bool:
+    return model.lower().startswith(_PROVIDER_PREFIXES.get(provider, ()))
+
 
 class ResolvedAIContext(TypedDict):
     api_key: str | None
@@ -87,7 +98,7 @@ async def resolve_ai_context(
                 key_row = await conn.fetchrow(
                     """
                     SELECT encrypted_key, provider FROM user_ai_keys
-                    WHERE team_id = $1 AND provider = $2 AND is_active = true
+                    WHERE team_id = $1 AND provider = $2 AND is_active = true AND status <> 'invalid'
                     """,
                     team_row['team_id'], provider,
                 )
@@ -97,7 +108,7 @@ async def resolve_ai_context(
                 key_row = await conn.fetchrow(
                     """
                     SELECT encrypted_key, provider FROM user_ai_keys
-                    WHERE user_id = $1 AND team_id IS NULL AND provider = $2 AND is_active = true
+                    WHERE user_id = $1 AND team_id IS NULL AND provider = $2 AND is_active = true AND status <> 'invalid'
                     """,
                     user_id, provider,
                 )
@@ -108,7 +119,7 @@ async def resolve_ai_context(
                     key_row = await conn.fetchrow(
                         """
                         SELECT encrypted_key, provider FROM user_ai_keys
-                        WHERE team_id = $1 AND is_active = true
+                        WHERE team_id = $1 AND is_active = true AND status <> 'invalid'
                         ORDER BY created_at DESC LIMIT 1
                         """,
                         team_row['team_id'],
@@ -117,7 +128,7 @@ async def resolve_ai_context(
                     key_row = await conn.fetchrow(
                         """
                         SELECT encrypted_key, provider FROM user_ai_keys
-                        WHERE user_id = $1 AND team_id IS NULL AND is_active = true
+                        WHERE user_id = $1 AND team_id IS NULL AND is_active = true AND status <> 'invalid'
                         ORDER BY created_at DESC LIMIT 1
                         """,
                         user_id,
@@ -125,6 +136,11 @@ async def resolve_ai_context(
 
             if key_row and key_row['encrypted_key']:
                 provider = key_row['provider']
+                # A requested model from another provider (e.g. the 'haiku'
+                # alias, or 'dashscope/…') can't be served by this key —
+                # use the key's own default model instead.
+                if requested_model and not _model_matches_provider(requested_model, provider):
+                    requested_model = None
                 if not requested_model:
                     if provider == 'openai':
                         model = 'openai/gpt-4o-mini'

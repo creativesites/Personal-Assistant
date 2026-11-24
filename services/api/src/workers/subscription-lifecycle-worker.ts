@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify'
 import { db } from '../lib/db'
+import { config } from '../config'
 
 const POLL_INTERVAL_MS = 60_000
 
@@ -16,6 +17,9 @@ export function startSubscriptionLifecycleWorker(log: FastifyBaseLogger): { stop
 
   const tick = async () => {
     if (running || stopped) return
+    // Tiers off (personal use): no credit resets, expiry reminders, grace
+    // periods or read-only lockouts.
+    if (config.FREE_TESTING_MODE) return
     running = true
     try {
       await resetDueCredits(log)

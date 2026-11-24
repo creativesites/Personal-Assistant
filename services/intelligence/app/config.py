@@ -41,6 +41,10 @@ class Settings(BaseSettings):
 
     embedding_model: str = 'text-embedding-3-small'
 
+    # Tiers off (personal use): every metered action is allowed. Matches the
+    # API's FREE_TESTING_MODE; set FREE_TESTING_MODE=false to turn plans on.
+    free_testing_mode: bool = True
+
     tavily_api_key: str = ''
     serp_api_key: str = ''
 

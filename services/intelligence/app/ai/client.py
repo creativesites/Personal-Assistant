@@ -1,6 +1,7 @@
 import json
 import os
 import base64
+import time
 import litellm
 import structlog
 from ..config import settings
@@ -20,6 +21,10 @@ from .token_usage import (
 )
 
 log = structlog.get_logger()
+
+# (user_id, provider) → monotonic time until which a rate-limited BYOK key is skipped.
+_byok_cooldown: dict[tuple, float] = {}
+_BYOK_COOLDOWN_SEC = 15 * 60
 
 # 404 included: a model the endpoint doesn't serve ("Model not exist") is
 # as dead as a revoked key — keep failing over instead of aborting the chain.
@@ -262,7 +267,10 @@ class AIClient:
             nonlocal model
             # 1. Resolve BYOK context if user_id is provided
             byok_ctx = await resolve_ai_context(user_id, requested_model=model)
-            if byok_ctx and byok_ctx.get('is_byok') and byok_ctx.get('api_key'):
+            if (
+                byok_ctx and byok_ctx.get('is_byok') and byok_ctx.get('api_key')
+                and _byok_cooldown.get((user_id, byok_ctx['provider']), 0) <= time.monotonic()
+            ):
                 byok_key = byok_ctx['api_key']
                 provider = byok_ctx['provider']
                 byok_model = _normalize_model(byok_ctx['model'])
@@ -287,8 +295,13 @@ class AIClient:
                     log.error('byok_completion_failed', user_id=user_id, provider=provider, error=str(exc))
                     status = getattr(exc, 'status_code', None) or getattr(exc, 'code', None)
                     err_str = str(exc).lower()
-                    if status in (401, 403, 429) or any(
-                        k in err_str for k in ['invalid_api_key', 'unauthorized', 'forbidden', 'permission_denied', 'quota', 'exceeded', 'authentication']
+                    if status == 429 or any(k in err_str for k in ['quota', 'exceeded', 'rate limit']):
+                        # Quota/rate limits are temporary: skip the key for a
+                        # while instead of retrying it on every call (each
+                        # attempt costs seconds) or disabling it for good.
+                        _byok_cooldown[(user_id, provider)] = time.monotonic() + _BYOK_COOLDOWN_SEC
+                    elif status in (401, 403) or any(
+                        k in err_str for k in ['invalid_api_key', 'unauthorized', 'forbidden', 'permission_denied', 'authentication']
                     ):
                         await self._handle_byok_error(user_id, provider, exc)
                     log.info('falling_back_to_system_pool', user_id=user_id)

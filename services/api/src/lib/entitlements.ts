@@ -63,7 +63,8 @@ function isPlanFamily(value: string | null): value is PlanFamily {
 }
 
 export async function getEffectivePlanFamily(userId: string): Promise<PlanFamily> {
-  if (config.FREE_TESTING_MODE) return 'business'
+  // Tiers off (personal use): every feature area is unlocked.
+  if (config.FREE_TESTING_MODE) return 'enterprise'
 
   const { rows: [row] } = await db.query<{ status: string; plan_family: string | null }>(
     `SELECT s.status, p.plan_family
@@ -127,6 +128,7 @@ const READ_ONLY_ALLOWLIST_PREFIXES = [
 ]
 
 export async function readOnlyModeGuard(request: FastifyRequest, reply: FastifyReply) {
+  if (config.FREE_TESTING_MODE) return
   if (!MUTATION_METHODS.has(request.method)) return
   if (READ_ONLY_ALLOWLIST_PREFIXES.some((prefix) => request.url.startsWith(prefix))) return
 

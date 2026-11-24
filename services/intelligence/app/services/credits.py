@@ -9,6 +9,7 @@ from typing import Literal
 
 import structlog
 
+from ..config import settings
 from ..database import get_pool
 
 log = structlog.get_logger()
@@ -25,6 +26,8 @@ _COLUMN_BY_TYPE: dict[str, str] = {
 
 async def try_consume_credit(user_id: str, credit_type: CreditType) -> bool:
     column = _COLUMN_BY_TYPE[credit_type]
+    if settings.free_testing_mode:
+        return True
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(

@@ -11,6 +11,15 @@ import makeWASocket, {
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import P from 'pino';
+
+// Baileys reports app-state (address book, chat settings) sync failures only
+// at info level. Keep everything else silent but surface those lines.
+const APP_STATE_LINE = /resyncing |restored state of|synced .* to v|failed to sync state|has more patches|failed to find key/;
+const appStateLogger = P({ level: 'info' }, {
+  write(line: string) {
+    if (APP_STATE_LINE.test(line)) process.stdout.write(`[baileys:app-state] ${line.slice(0, 600)}\n`);
+  },
+});
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
@@ -408,7 +417,7 @@ export class BaileysTransport extends WhatsAppTransport {
       version,
       auth: state,
       printQRInTerminal: false,
-      logger: P({ level: 'silent' }),
+      logger: appStateLogger,
       browser: Browsers.ubuntu('Chrome'),
       syncFullHistory: true,
     });
@@ -680,8 +689,18 @@ export class BaileysTransport extends WhatsAppTransport {
   async resyncContacts(): Promise<void> {
     const sock = this.sock;
     if (!sock) throw new Error('WhatsApp session is not connected');
-    await sock.authState.keys.set({ 'app-state-sync-version': { critical_unblock_low: null } });
-    await sock.resyncAppState(['critical_unblock_low'], true);
+    let seen = 0;
+    const count = (list: unknown[]) => { seen += list.length; };
+    sock.ev.on('contacts.upsert', count);
+    try {
+      await sock.authState.keys.set({ 'app-state-sync-version': { critical_unblock_low: null } });
+      await sock.resyncAppState(['critical_unblock_low'], true);
+      // Buffered events flush right after the call resolves.
+      await new Promise((r) => setTimeout(r, 2000));
+    } finally {
+      sock.ev.off('contacts.upsert', count);
+    }
+    console.log(`[baileys] ${this.userId} address-book resync: ${seen} contact entries`);
   }
 
   private async _normalise(msg: WAMessage): Promise<NormalisedMessage | null> {
