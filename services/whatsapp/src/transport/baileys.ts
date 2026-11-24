@@ -17,6 +17,7 @@ import { MessageType } from '@zuri/types';
 import {
   WhatsAppTransport,
   type NormalisedMessage,
+  type HistorySetPayload,
   type CatalogProductInput,
   type TransportDisconnectReason,
   type TransportStatus,
@@ -516,29 +517,68 @@ export class BaileysTransport extends WhatsAppTransport {
       }
     });
 
-    // Historical messages delivered on first connect — normalise then emit as a single batch
-    // so the session manager can process them sequentially (avoid DB pool exhaustion).
-    sock.ev.on('messaging-history.set', async ({ chats, contacts, messages }) => {
+    // History sync — WhatsApp streams several batches right after a link (and
+    // on-demand batches later). Emit each one whole: chats, contacts (saved
+    // names, push names, LID pairings) and messages. Batches with zero
+    // messages matter — the PUSH_NAME batch carries every contact's name and
+    // was previously dropped. The session manager hands each batch to the
+    // HistorySyncPipeline, which serialises them per user.
+    sock.ev.on('messaging-history.set', async (event) => {
       if (sock !== this.sock) return;
+      const { chats = [], contacts = [], messages = [] } = event;
+      const syncType = (event as { syncType?: number }).syncType ?? null;
+      const progress = (event as { progress?: number | null }).progress ?? null;
+      const isLatest = (event as { isLatest?: boolean }).isLatest ?? null;
 
-      console.log(`[baileys:${this.userId}] historical sync: ${messages?.length ?? 0} messages, ${chats?.length ?? 0} chats`);
-
-      if (chats && chats.length > 0) {
-        this.emit('phone_chats', chats);
-      }
-
-      if (!messages || messages.length === 0) return;
-      const batch: import('./types').NormalisedMessage[] = [];
+      const normalisedMessages: NormalisedMessage[] = [];
       for (const msg of messages) {
         try {
           const normalised = await this._normaliseHistorical(msg);
-          if (normalised) batch.push(normalised);
+          if (normalised) normalisedMessages.push(normalised);
         } catch (err) {
           console.error(`[baileys:${this.userId}] historical normalise error:`, err);
         }
       }
-      console.log(`[baileys:${this.userId}] emitting historical batch: ${batch.length} messages`);
-      this.emitHistoricalBatch(batch);
+
+      const toMs = (ts: unknown): number | null => {
+        const n = Number(ts ?? 0);
+        return n > 0 ? n * 1000 : null;
+      };
+
+      const payload: HistorySetPayload = {
+        chats: chats.filter((c) => !!c.id).map((c) => {
+          const raw = c as typeof c & { lidJid?: string | null; pnJid?: string | null };
+          return {
+            id: c.id!,
+            name: c.name ?? null,
+            lidJid: raw.lidJid ?? null,
+            pnJid: raw.pnJid ?? null,
+            conversationTimestampMs: toMs(c.conversationTimestamp),
+            unreadCount: Number(c.unreadCount ?? 0) || 0,
+            archived: !!c.archived,
+          };
+        }),
+        contacts: contacts.filter((c) => !!c.id).map((c) => {
+          const raw = c as typeof c & { lid?: string | null };
+          return {
+            id: c.id,
+            name: c.name ?? null,
+            notify: c.notify ?? null,
+            verifiedName: c.verifiedName ?? null,
+            lid: raw.lid ?? null,
+          };
+        }),
+        messages: normalisedMessages,
+        syncType,
+        progress: typeof progress === 'number' ? progress : null,
+        isLatest,
+      };
+
+      console.log(
+        `[baileys:${this.userId}] history batch: syncType=${syncType} progress=${payload.progress ?? '-'} ` +
+        `chats=${payload.chats.length} contacts=${payload.contacts.length} messages=${normalisedMessages.length}/${messages.length}`,
+      );
+      this.emitHistorySet(payload);
     });
   }
 

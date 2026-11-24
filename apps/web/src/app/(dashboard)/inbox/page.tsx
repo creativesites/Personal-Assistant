@@ -306,6 +306,9 @@ export default function InboxPage() {
   const [syncState, setSyncState] = useState<SyncState>({ active: false, done: false, phase: 'idle' })
   const syncDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const syncDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // History import publishes progress continuously; reloading the whole
+  // conversation list on every event hammered the API. Throttle to ~3s.
+  const lastSyncReloadRef = useRef(0)
 
   const selectedIdRef = useRef<string | null>(null)
   const selectedMsgIdRef = useRef<string | null>(null)
@@ -629,7 +632,11 @@ export default function InboxPage() {
       }))
       setSyncing(!done)
       setSyncDone(done)
-      loadConversations()
+      const now = Date.now()
+      if (!done && now - lastSyncReloadRef.current > 3000) {
+        lastSyncReloadRef.current = now
+        loadConversations()
+      }
       if (syncDoneTimerRef.current) clearTimeout(syncDoneTimerRef.current)
       if (syncDismissTimerRef.current) clearTimeout(syncDismissTimerRef.current)
       if (done) {

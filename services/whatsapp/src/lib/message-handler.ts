@@ -51,6 +51,8 @@ function derivePriority(row: {
 
 export class MessageHandler {
   private readonly incomingQueue: Queue;
+  /** userId -> (lid JID -> phone JID), loaded lazily from whatsapp_lid_map. */
+  private readonly lidCache = new Map<string, { at: number; map: Map<string, string> }>();
 
   constructor(
     private readonly db: Pool,
@@ -62,7 +64,29 @@ export class MessageHandler {
     });
   }
 
-  async handleMessage(userId: string, msg: NormalisedMessage, isHistorical = false): Promise<void> {
+  /**
+   * Map an @lid JID onto the phone-number JID the history importer recorded
+   * for the same person (whatsapp_lid_map), so live messages land in the same
+   * contact/conversation instead of creating a duplicate. Cached for 5 min.
+   */
+  private async canonicalJid(userId: string, jid: string): Promise<string> {
+    if (!jid.endsWith('@lid')) return jid;
+    const cached = this.lidCache.get(userId);
+    let map = cached && Date.now() - cached.at < 5 * 60_000 ? cached.map : null;
+    if (!map) {
+      const { rows } = await this.db.query<{ lid_jid: string; pn_jid: string }>(
+        `SELECT lid_jid, pn_jid FROM whatsapp_lid_map WHERE user_id = $1`,
+        [userId],
+      );
+      map = new Map(rows.map((r) => [r.lid_jid, r.pn_jid]));
+      this.lidCache.set(userId, { at: Date.now(), map });
+    }
+    return map.get(jid) ?? jid;
+  }
+
+  async handleMessage(userId: string, rawMsg: NormalisedMessage, isHistorical = false): Promise<void> {
+    const msg = { ...rawMsg, jid: await this.canonicalJid(userId, rawMsg.jid) };
+    if (msg.jid.endsWith('@newsletter')) return; // channels aren't conversations
     if (msg.jid === 'status@broadcast' || msg.jid.endsWith('@broadcast')) {
       if (msg.jid === 'status@broadcast') {
         await this.handleStatusMessage(userId, msg);
@@ -142,72 +166,6 @@ export class MessageHandler {
           timestamp: timestamp.toISOString(),
         }),
       );
-    }
-  }
-
-  /**
-   * Write a historical message to the DB only — no queue push, no real-time pub/sub.
-   * Returns the conversation and contact IDs so the caller can batch-queue
-   * one analysis job per conversation after all messages are written.
-   * Returns null if the message was a duplicate (already in DB).
-   */
-  async writeHistoricalMessage(
-    userId: string,
-    msg: NormalisedMessage,
-  ): Promise<{ conversationId: string; contactId: string; isGroup: boolean } | null> {
-    if (msg.jid === 'status@broadcast' || msg.jid.endsWith('@broadcast')) {
-      return null;
-    }
-
-    const senderType = msg.fromMe ? MessageSenderType.USER : MessageSenderType.CONTACT;
-    const timestamp = new Date(msg.timestampMs);
-    const isGroup = msg.jid.endsWith('@g.us');
-
-    const contactId = await this.upsertContact(userId, msg.jid, msg.fromMe ? null : msg.displayName);
-
-    const previewText =
-      msg.body?.slice(0, 200) ??
-      MEDIA_PREVIEW[msg.messageType] ??
-      null;
-
-    const conversationId = await this.upsertConversation(
-      userId, contactId, msg.jid, previewText, timestamp,
-    );
-
-    const quotedMessageId = msg.quotedWaMessageId
-      ? await this.resolveQuotedMessageId(conversationId, msg.quotedWaMessageId)
-      : null;
-
-    const messageId = await this.insertMessage(
-      conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
-      timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
-      msg.groupSenderName ?? null, msg.groupSenderJid ?? null,
-    );
-
-    if (!messageId) return null; // duplicate
-
-    return { conversationId, contactId, isGroup };
-  }
-
-  /**
-   * Update group contact display names from WhatsApp chat metadata (the
-   * `chats` array delivered alongside `messaging-history.set`). Group
-   * messages are attributed to a single per-group contact row whose name
-   * would otherwise freeze on whoever happened to send the first message —
-   * this keeps it in sync with the real group subject instead.
-   */
-  async updateGroupNames(userId: string, chats: { id: string; name?: string | null }[]): Promise<void> {
-    for (const chat of chats) {
-      if (!chat.id?.endsWith('@g.us') || !chat.name) continue;
-      try {
-        await this.db.query(
-          `UPDATE contacts SET display_name = $1, updated_at = NOW()
-           WHERE user_id = $2 AND whatsapp_jid = $3 AND is_group = true`,
-          [chat.name, userId, chat.id],
-        );
-      } catch (err) {
-        console.error(`[message-handler] failed to update group name for ${chat.id}:`, err);
-      }
     }
   }
 
@@ -320,7 +278,8 @@ export class MessageHandler {
     displayName: string | null,
   ): Promise<string> {
     const isGroup = jid.endsWith('@g.us');
-    const phoneNumber = isGroup ? null : jid.split('@')[0];
+    // Only phone-number JIDs carry a phone number; an @lid id is opaque.
+    const phoneNumber = jid.endsWith('@s.whatsapp.net') ? jid.split('@')[0].split(':')[0] : null;
 
     const { rows: [existing] } = await this.db.query<{ id: string }>(
       `SELECT id FROM contacts WHERE user_id = $1 AND whatsapp_jid = $2`,

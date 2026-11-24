@@ -4,12 +4,14 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { config } from '../config';
 import { MessageHandler } from './message-handler';
+import { HistorySyncPipeline } from './history-sync-pipeline';
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES } from '@zuri/types';
 import type {
   WhatsAppTransport,
   TransportFactory,
   NormalisedMessage,
+  HistorySetPayload,
   CatalogProductInput,
   TransportDisconnectReason,
 } from '../transport/types';
@@ -24,9 +26,7 @@ interface SessionEntry {
 export class SessionManager {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly handler: MessageHandler;
-  // Prevent repeated sync triggers from rapid phone_chats events.
-  // Maps userId → timestamp of last trigger. Cleared on service restart.
-  private readonly syncTriggerCooldown = new Map<string, number>();
+  private readonly historyPipeline: HistorySyncPipeline;
   private readonly reconQueue: Queue;
 
   constructor(
@@ -36,6 +36,12 @@ export class SessionManager {
     private readonly createTransport: TransportFactory,
   ) {
     this.handler = new MessageHandler(db, redis, redisUrl);
+    this.historyPipeline = new HistorySyncPipeline(
+      db,
+      redis,
+      process.env['INTELLIGENCE_SERVICE_URL'] ?? 'http://localhost:8000',
+      process.env['INTERNAL_API_SECRET'] ?? '',
+    );
     this.reconQueue = new Queue(QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT, {
       connection: {
         host: new URL(redisUrl).hostname,
@@ -123,22 +129,6 @@ export class SessionManager {
           })
         ).catch(() => {});
 
-        // On reconnect (no phone_chats event): trigger sync if never done before.
-        // phone_chats-based triggers handle the normal first-connect case via checkAndTriggerSync.
-        const { rows: [anyJob] } = await this.db.query<{ id: string }>(
-          `SELECT id FROM sync_jobs WHERE user_id = $1 LIMIT 1`,
-          [userId],
-        );
-        if (!anyJob) {
-          const COOLDOWN_MS = 5 * 60 * 1000;
-          const lastTrigger = this.syncTriggerCooldown.get(userId) ?? 0;
-          if (Date.now() - lastTrigger >= COOLDOWN_MS) {
-            console.log(`[session-manager] no sync job found for ${userId} on connect — triggering`);
-            this.syncTriggerCooldown.set(userId, Date.now());
-            await this.redis.publish(`history:sync:trigger:${userId}`, JSON.stringify({ userId }));
-          }
-        }
-
         // On any reconnect, automatically verify the top 20 most recent chats to recover messages
         // that were missed while the worker or socket was offline.
         try {
@@ -162,18 +152,6 @@ export class SessionManager {
         }
       } catch (err) {
         console.error(`[session] connected DB update failed userId=${userId}:`, err);
-      }
-    });
-
-    transport.on('phone_chats', async (chats: any[]) => {
-      try {
-        console.log(`[session-manager] received phone_chats event for ${userId}: ${chats.length} chats`);
-        await this.checkAndTriggerSync(userId, chats);
-        // Keep group contact names in sync with the real group subject instead
-        // of freezing on whoever happened to send the first message.
-        await this.handler.updateGroupNames(userId, chats);
-      } catch (err) {
-        console.error(`[session-manager] error in phone_chats handler for ${userId}:`, err);
       }
     });
 
@@ -282,167 +260,11 @@ export class SessionManager {
       }
     });
 
-    transport.on('historical_batch', async (msgs: NormalisedMessage[]) => {
-      const PROGRESS_EVERY = 50;
-      const BATCH_YIELD_SIZE = 500;
-      const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-      const cutoffTimeMs = Date.now() - THIRTY_DAYS_MS;
-      // How many of the most-recent messages per conversation to queue for AI analysis.
-      const ANALYSE_RECENT_PER_CHAT = 30;
-
-      console.log(`[session] historical batch received: ${msgs.length} messages for ${userId}`);
-
-      // Check if user requested skip before starting
-      const isSkippedInitial = await this.redis.get(`history:skip:${userId}`).catch(() => null);
-      if (isSkippedInitial) {
-        console.log(`[session] historical sync skipped by user preference for ${userId}`);
-        await this.redis.publish(
-          `history:progress:${userId}`,
-          JSON.stringify({ status: 'cancelled', phase: 'skipped', message: 'Historical sync skipped by user' }),
-        ).catch(() => {});
-        return;
-      }
-
-      // ── Step 1: write all messages to DB in micro-batches with event-loop yielding ─
-      // Map<conversationId, contactId> — last write wins (newest message's contactId).
-      const convMap = new Map<string, string>();
-      const lastMessageTimeMap = new Map<string, number>();
-
-      let wasCancelled = false;
-
-      for (let i = 0; i < msgs.length; i++) {
-        // Every BATCH_YIELD_SIZE messages, yield to event loop and check skip signal
-        if (i > 0 && i % BATCH_YIELD_SIZE === 0) {
-          const skipCheck = await this.redis.get(`history:skip:${userId}`).catch(() => null);
-          if (skipCheck) {
-            console.log(`[session] historical sync cancelled during import at msg ${i}/${msgs.length} for ${userId}`);
-            wasCancelled = true;
-            break;
-          }
-          // Yield to event loop to keep server responsive
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        }
-
-        try {
-          const msg = msgs[i];
-          const result = await this.handler.writeHistoricalMessage(userId, msg);
-          if (result) {
-            if (!result.isGroup) {
-              convMap.set(result.conversationId, result.contactId);
-              const existingTs = lastMessageTimeMap.get(result.conversationId) || 0;
-              if (msg.timestampMs > existingTs) {
-                lastMessageTimeMap.set(result.conversationId, msg.timestampMs);
-              }
-            }
-            await this.handler.publishConversationUpsert(userId, result.conversationId);
-          }
-        } catch (err) {
-          console.error(`[session] historical write failed userId=${userId}:`, err);
-        }
-
-        if ((i + 1) % PROGRESS_EVERY === 0 || i === msgs.length - 1) {
-          await this.redis.publish(
-            `history:progress:${userId}`,
-            JSON.stringify({
-              status: 'running',
-              phase: 'importing',
-              processedMessages: i + 1,
-              totalMessages: msgs.length,
-              processed: i + 1,
-              total: msgs.length,
-              percentage: Math.round(((i + 1) / msgs.length) * 100),
-            }),
-          ).catch(() => { /* ignore */ });
-        }
-      }
-
-      if (wasCancelled) {
-        await this.redis.publish(
-          `history:progress:${userId}`,
-          JSON.stringify({ status: 'cancelled', phase: 'skipped', message: 'Historical sync cancelled' }),
-        ).catch(() => {});
-        return;
-      }
-
-      // ── Step 2: queue ONE analysis job per RECENT conversation (active within last 30 days) ─
-      const intelligenceUrl = process.env['INTELLIGENCE_SERVICE_URL'] ?? 'http://localhost:8000';
-      const internalSecret = process.env['INTERNAL_API_SECRET'] ?? '';
-
-      // Filter out stale conversations older than 30 days to avoid wasting AI tokens
-      const activeConvs: [string, string][] = [];
-      let skippedStale = 0;
-
-      for (const [conversationId, contactId] of convMap) {
-        const lastTs = lastMessageTimeMap.get(conversationId) || 0;
-        if (lastTs > 0 && lastTs < cutoffTimeMs) {
-          skippedStale++;
-        } else {
-          activeConvs.push([conversationId, contactId]);
-        }
-      }
-
-      console.log(`[session] AI analysis scope for ${userId}: ${activeConvs.length} active convs (<30 days), ${skippedStale} stale convs skipped`);
-
-      let analysed = 0;
-      for (const [conversationId, contactId] of activeConvs) {
-        // Check for cancel/skip signal between conversation analysis calls
-        const skipCheck = await this.redis.get(`history:skip:${userId}`).catch(() => null);
-        if (skipCheck) {
-          console.log(`[session] historical analysis cancelled mid-run for ${userId}`);
-          wasCancelled = true;
-          break;
-        }
-
-        try {
-          await this.redis.publish(
-            `history:progress:${userId}`,
-            JSON.stringify({
-              status: 'running',
-              phase: 'analysing',
-              conversationId,
-              processedConversations: analysed,
-              totalConversations: activeConvs.length,
-              processedMessages: msgs.length,
-              totalMessages: msgs.length,
-              percentage: activeConvs.length > 0 ? Math.round(((analysed + 1) / activeConvs.length) * 100) : 100,
-            }),
-          ).catch(() => { /* ignore */ });
-
-          await fetch(`${intelligenceUrl}/internal/conversations/${conversationId}/analyse-history`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Internal-Secret': internalSecret,
-            },
-            body: JSON.stringify({ userId, contactId, recentCount: ANALYSE_RECENT_PER_CHAT }),
-          });
-          analysed++;
-          await this.handler.publishConversationUpsert(userId, conversationId);
-        } catch (err) {
-          console.error(`[session] historical analyse failed conv=${conversationId}:`, err);
-        }
-      }
-
-      const finalStatus = wasCancelled ? 'cancelled' : 'completed';
-      const finalPhase = wasCancelled ? 'skipped' : 'complete';
-
-      await this.redis.publish(
-        `history:progress:${userId}`,
-        JSON.stringify({
-          status: finalStatus,
-          phase: finalPhase,
-          processedConversations: analysed,
-          totalConversations: activeConvs.length,
-          processedMessages: msgs.length,
-          totalMessages: msgs.length,
-          skippedStaleConversations: skippedStale,
-        }),
-      ).catch(() => { /* ignore */ });
-
-      console.log(
-        `[session] historical sync ${finalStatus} for ${userId}: ` +
-        `${msgs.length} messages written, ${analysed}/${activeConvs.length} conversations analyzed (${skippedStale} stale skipped)`,
-      );
+    // History sync: every batch goes to the per-user pipeline, which
+    // serialises batches, bulk-writes them and runs AI analysis once the
+    // import settles. See lib/history-sync-pipeline.ts.
+    transport.on('history_set', (payload: HistorySetPayload) => {
+      this.historyPipeline.ingest(userId, payload);
     });
 
     await transport.start();
@@ -699,60 +521,6 @@ export class SessionManager {
   async handleHistoricalMessage(userId: string, msg: NormalisedMessage): Promise<void> {
     await this.handler.handleMessage(userId, msg, true);
   }
-
-  async checkAndTriggerSync(userId: string, phoneChats: { id: string }[]): Promise<void> {
-    try {
-      // Debounce: don't trigger more than once per 5 minutes per user in this process.
-      // phone_chats fires many times as Baileys delivers multiple history batches.
-      const COOLDOWN_MS = 5 * 60 * 1000;
-      const lastTrigger = this.syncTriggerCooldown.get(userId) ?? 0;
-      if (Date.now() - lastTrigger < COOLDOWN_MS) {
-        console.log(`[session-manager] sync trigger debounced for ${userId} (last trigger <5m ago)`);
-        return;
-      }
-
-      const phoneChatCount = phoneChats.length;
-
-      // Get DB chats count
-      const { rows: [dbChats] } = await this.db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM conversations WHERE user_id = $1`,
-        [userId],
-      );
-      const dbChatCount = parseInt(dbChats.count, 10);
-
-      // Check for any active or running sync job (pending, running, etc. — not completed/failed)
-      const { rows: [activeJob] } = await this.db.query<{ id: string }>(
-        `SELECT id FROM sync_jobs WHERE user_id = $1 AND status NOT IN ('completed', 'failed') LIMIT 1`,
-        [userId],
-      );
-
-      // Check if they ever completed a sync job
-      const { rows: [completedJob] } = await this.db.query<{ status: string }>(
-        `SELECT status FROM sync_jobs WHERE user_id = $1 AND status = 'completed' LIMIT 1`,
-        [userId],
-      );
-
-      console.log(`[session-manager] sync check for ${userId}: phone=${phoneChatCount} db=${dbChatCount} activeJob=${!!activeJob} everCompleted=${!!completedJob}`);
-
-      if (activeJob) {
-        console.log(`[session-manager] sync already in progress for ${userId}, skipping trigger`);
-        return;
-      }
-
-      // Trigger if: never synced, OR DB has meaningfully fewer chats than phone
-      const needsSync = !completedJob || dbChatCount < phoneChatCount;
-
-      if (needsSync) {
-        console.log(`[session-manager] triggering history sync for ${userId}`);
-        this.syncTriggerCooldown.set(userId, Date.now());
-        await this.redis.publish(`history:sync:trigger:${userId}`, JSON.stringify({ userId }));
-      }
-    } catch (err) {
-      console.error(`[session-manager] checkAndTriggerSync failed for ${userId}:`, err);
-    }
-  }
-
-
 
   private async upsertInstance(userId: string, status: string): Promise<string> {
     const { rows: [existing] } = await this.db.query<{ id: string }>(

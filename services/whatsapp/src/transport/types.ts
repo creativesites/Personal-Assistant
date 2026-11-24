@@ -25,6 +25,40 @@ export interface NormalisedMessage {
   groupSenderJid: string | null;
 }
 
+/** One chat from a WhatsApp history-sync batch (subset of proto Conversation). */
+export interface HistoryChat {
+  id: string;
+  /** Saved address-book name for 1:1 chats, subject for groups. */
+  name: string | null;
+  /** The chat's @lid JID when `id` is the phone-number JID. */
+  lidJid: string | null;
+  /** The chat's phone-number JID when `id` is an @lid JID (newer protos). */
+  pnJid: string | null;
+  conversationTimestampMs: number | null;
+  unreadCount: number;
+  archived: boolean;
+}
+
+/** One contact hint from a history-sync batch (chat names, push names, business names). */
+export interface HistoryContact {
+  id: string;
+  name: string | null;     // saved address-book name
+  notify: string | null;   // the contact's own push name
+  verifiedName: string | null;
+  lid: string | null;
+}
+
+/** Everything one `messaging-history.set` event carried, normalised. */
+export interface HistorySetPayload {
+  chats: HistoryChat[];
+  contacts: HistoryContact[];
+  messages: NormalisedMessage[];
+  syncType: number | null;
+  /** WhatsApp's own 0-100 progress for the overall history transfer, when sent. */
+  progress: number | null;
+  isLatest: boolean | null;
+}
+
 export interface CatalogProductInput {
   name: string;
   description: string;
@@ -128,7 +162,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
   protected emitDisconnected(reason: TransportDisconnectReason): void { this.emit('disconnected', reason); }
   protected emitMessage(msg: NormalisedMessage): void { this.emit('message', msg); }
   protected emitHistoricalMessage(msg: NormalisedMessage): void { this.emit('historical_message', msg); }
-  protected emitHistoricalBatch(msgs: NormalisedMessage[]): void { this.emit('historical_batch', msgs); }
+  protected emitHistorySet(payload: HistorySetPayload): void { this.emit('history_set', payload); }
   protected emitLinkCode(code: string): void { this.emit('link_code', code); }
 }
 

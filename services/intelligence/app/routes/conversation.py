@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from bullmq import Queue
 from ..database import get_pool
 from ..ai.client import get_ai_client
@@ -142,9 +142,12 @@ async def ask_ai(conversation_id: str, body: AskRequest):
 
 
 class AnalyseHistoryRequest(BaseModel):
-    user_id: str
-    contact_id: str
-    recent_count: int = 30
+    # Accept camelCase too: the WhatsApp service sent userId/contactId/
+    # recentCount, which this snake_case-only model rejected with a 422 on
+    # every historical analysis call.
+    user_id: str = Field(validation_alias=AliasChoices('user_id', 'userId'))
+    contact_id: str = Field(validation_alias=AliasChoices('contact_id', 'contactId'))
+    recent_count: int = Field(default=30, validation_alias=AliasChoices('recent_count', 'recentCount'))
 
 
 @router.post('/{conversation_id}/analyse-history')

@@ -98,8 +98,9 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const { userId } = request.user as { userId: string };
 
     const { rows: [job] } = await db.query(
-      `SELECT id, status, total_conversations, processed_conversations,
+      `SELECT id, status, sync_phase, total_conversations, processed_conversations,
               total_messages, processed_messages, current_chat_name,
+              wa_progress, analysis_queued, contacts_created,
               error_message, started_at, completed_at, updated_at
        FROM sync_jobs
        WHERE user_id = $1
@@ -118,7 +119,14 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       sync: {
         jobId: job.id,
         status: job.status,
-        phase: job.status === 'completed' ? 'complete' : job.status === 'running' ? 'analysing' : job.status,
+        // sync_phase is written by the WhatsApp history pipeline
+        // (importing -> analysing -> complete); fall back for older rows.
+        phase: job.status === 'completed' ? 'complete'
+          : job.status === 'running' ? (job.sync_phase ?? 'importing')
+          : job.status,
+        percentage: job.wa_progress,
+        analysisQueued: job.analysis_queued,
+        contactsCreated: job.contacts_created,
         totalConversations: job.total_conversations,
         processedConversations: job.processed_conversations,
         totalMessages: job.total_messages,

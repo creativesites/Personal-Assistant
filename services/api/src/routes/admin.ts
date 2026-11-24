@@ -578,11 +578,13 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
         contacts_created: number; leads_generated: number; insights_extracted: number;
         current_chat_name: string | null; error_message: string | null;
         started_at: string | null; completed_at: string | null;
+        wa_progress: number | null; analysis_queued: number;
       }>(
         `SELECT id, status, COALESCE(sync_phase, 'indexing') AS sync_phase,
                 total_conversations, processed_conversations,
                 total_messages, processed_messages,
                 contacts_created, leads_generated, insights_extracted,
+                wa_progress, analysis_queued,
                 current_chat_name, error_message, started_at, completed_at
          FROM sync_jobs
          WHERE user_id = $1
@@ -593,9 +595,15 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (!job) return reply.send({ status: 'never_run' });
 
-      const pct = job.total_conversations > 0
-        ? Math.round((job.processed_conversations / job.total_conversations) * 100)
-        : 0;
+      // While importing, WhatsApp's own transfer progress is the honest
+      // percentage; afterwards it's conversations processed/total.
+      const pct = job.sync_phase === 'importing'
+        ? (job.wa_progress ?? 0)
+        : job.status === 'completed'
+          ? 100
+          : job.total_conversations > 0
+            ? Math.round((job.processed_conversations / job.total_conversations) * 100)
+            : 0;
 
       return reply.send({
         id: job.id,
@@ -607,6 +615,7 @@ export async function adminRoutes(fastify: FastifyInstance): Promise<void> {
           percent: pct,
         },
         stats: {
+          analysisQueued: job.analysis_queued,
           contactsCreated: job.contacts_created,
           leadsGenerated: job.leads_generated,
           insightsExtracted: job.insights_extracted,
