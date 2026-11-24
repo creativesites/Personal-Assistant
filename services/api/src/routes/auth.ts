@@ -6,6 +6,7 @@ import { config } from '../config';
 import { authenticate } from '../plugins/authenticate';
 import { MARKETING_ACCESS_OPEN_FOR_TESTING } from '../lib/marketing-access';
 import { getEffectivePlanFamily } from '../lib/entitlements';
+import { clerkIssuer, verifyClerkSessionToken } from '../lib/clerk-verify';
 
 // See lib/marketing-access.ts — testing-phase override, independent of the DB value.
 function resolveMarketingAccess(dbValue: string | null | undefined): string {
@@ -72,6 +73,25 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
     const { clerkUserId, email, name, clerkOrgId, orgRole, orgSlug } = body
 
+    // The shared secret alone must not mint a login (it has leaked before):
+    // when Clerk is configured, also require the caller's Clerk session token
+    // and that it belongs to the user being synced.
+    // CLERK_SYNC_ENFORCE=true rejects; otherwise the result is only logged
+    // (report-only rollout, so a verification bug can't lock users out).
+    if (clerkIssuer()) {
+      const enforce = process.env.CLERK_SYNC_ENFORCE === 'true'
+      const bearer = (request.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
+      let problem: string | null = null
+      try {
+        const verified = await verifyClerkSessionToken(bearer)
+        if (verified.userId !== clerkUserId) problem = 'Clerk session does not match user'
+      } catch (err) {
+        problem = `Invalid Clerk session: ${(err as Error).message}`
+      }
+      fastify.log.info({ clerkUserId, ok: !problem, problem, enforce }, 'clerk-sync: Clerk session check')
+      if (problem && enforce) return reply.code(401).send({ error: 'Invalid Clerk session' })
+    }
+
     try {
       let { rows: [user] } = await db.query<UserRow>(
         `SELECT id, email, full_name, COALESCE(mode, 'business') AS mode,
@@ -90,9 +110,22 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
                   is_admin, onboarding_completed,
                   COALESCE(is_company_managed, false) AS is_company_managed,
                   current_organization_id
-           FROM users WHERE email = $1`,
+           FROM users WHERE email = $1 AND clerk_user_id IS NULL`,
           [email],
         )
+        // Only adopt an account that has never been linked to a Clerk login;
+        // otherwise anyone able to call this with an arbitrary email could
+        // take over an existing account.
+        if (!existing) {
+          const { rows: [linked] } = await db.query<{ id: string }>(
+            `SELECT id FROM users WHERE email = $1 AND clerk_user_id IS NOT NULL`,
+            [email],
+          )
+          if (linked) {
+            fastify.log.warn({ clerkUserId }, 'clerk-sync: email belongs to an account linked to another Clerk user')
+            return reply.code(409).send({ error: 'This email is already linked to another sign-in. Contact support.' })
+          }
+        }
 
         if (existing) {
           await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])

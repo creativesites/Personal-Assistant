@@ -4,13 +4,37 @@ import crypto from 'crypto';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 
-function getDerivedKey(): Buffer {
-  const secret = process.env.INTERNAL_API_SECRET || process.env.JWT_SECRET || 'zuri_default_encryption_secret_key_32bytes';
-  return crypto.createHash('sha256').update(secret).digest();
+// BYOK keys are encrypted with BYOK_ENCRYPTION_KEY. Older rows were
+// encrypted with a key derived from INTERNAL_API_SECRET; decryption tries
+// every candidate so rotating either secret never strands a stored key.
+// Keep in sync with services/intelligence/app/ai/encryption.py.
+function candidateKeys(): Buffer[] {
+  const secrets = [
+    process.env.BYOK_ENCRYPTION_KEY,
+    process.env.BYOK_LEGACY_ENCRYPTION_SECRET,
+    process.env.INTERNAL_API_SECRET,
+    process.env.JWT_SECRET,
+    'zuri_default_encryption_secret_key_32bytes',
+  ].filter((s): s is string => !!s);
+  return [...new Set(secrets)].map((s) => crypto.createHash('sha256').update(s).digest());
 }
 
-function encryptApiKey(plainKey: string): string {
-  const key = getDerivedKey();
+export function decryptApiKey(stored: string): string {
+  const parts = stored.split(':');
+  if (parts.length !== 3) return stored;
+  const [iv, ciphertext, tag] = parts.map((p) => Buffer.from(p, 'hex'));
+  for (const key of candidateKeys()) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+    } catch { /* try the next key */ }
+  }
+  throw new Error('Failed to decrypt API key');
+}
+
+export function encryptApiKey(plainKey: string): string {
+  const key = candidateKeys()[0];
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(plainKey, 'utf8'), cipher.final()]);
@@ -376,17 +400,7 @@ export async function byokRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: `No API key saved for ${provider}. Please enter a key first.` });
       }
       try {
-        const parts = rows[0].encrypted_key.split(':');
-        if (parts.length === 3) {
-          const iv = Buffer.from(parts[0], 'hex');
-          const ciphertext = Buffer.from(parts[1], 'hex');
-          const tag = Buffer.from(parts[2], 'hex');
-          const decipher = crypto.createDecipheriv('aes-256-gcm', getDerivedKey(), iv);
-          decipher.setAuthTag(tag);
-          rawKey = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-        } else {
-          rawKey = rows[0].encrypted_key;
-        }
+        rawKey = decryptApiKey(rows[0].encrypted_key);
       } catch {
         return reply.code(500).send({ error: 'Failed to decrypt saved key for testing.' });
       }

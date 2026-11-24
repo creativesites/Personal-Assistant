@@ -2,7 +2,7 @@ import { auth, currentUser } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
-  const { userId, orgId, orgRole, orgSlug } = await auth()
+  const { userId, orgId, orgRole, orgSlug, getToken } = await auth()
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -31,13 +31,16 @@ export async function POST() {
     orgRole: orgRole || null,
     orgSlug: orgSlug || null,
   }
-  console.log('[clerk-sync] sending to API:', { apiUrl, email, orgId, orgRole, hasSecret: !!internalSecret, secretPrefix: internalSecret.slice(0, 8) })
+  // The API verifies this Clerk session token, so the shared secret alone
+  // can't mint a login.
+  const clerkToken = await getToken()
 
   const res = await fetch(`${apiUrl}/api/auth/clerk-sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Internal-Secret': internalSecret,
+      ...(clerkToken ? { Authorization: `Bearer ${clerkToken}` } : {}),
     },
     body: JSON.stringify(payload),
   })

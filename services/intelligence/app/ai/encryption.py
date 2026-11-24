@@ -13,14 +13,26 @@ from ..config import settings
 log = structlog.get_logger()
 
 
+def _candidate_keys() -> list[bytes]:
+    """BYOK_ENCRYPTION_KEY first (used to encrypt); older rows were encrypted
+    with a key derived from INTERNAL_API_SECRET, so decryption tries every
+    candidate. Keep in sync with services/api/src/routes/byok.ts."""
+    secrets = [
+        os.environ.get('BYOK_ENCRYPTION_KEY'),
+        os.environ.get('BYOK_LEGACY_ENCRYPTION_SECRET'),
+        getattr(settings, 'internal_api_secret', None),
+        os.environ.get('JWT_SECRET'),
+        'zuri_default_encryption_secret_key_32bytes',
+    ]
+    seen: list[str] = []
+    for s in secrets:
+        if s and s not in seen:
+            seen.append(s)
+    return [hashlib.sha256(s.encode('utf-8')).digest() for s in seen]
+
+
 def _get_derived_key() -> bytes:
-    """Derive 32-byte key from internal secret or fallback to JWT secret."""
-    secret = (
-        getattr(settings, 'internal_api_secret', None)
-        or getattr(settings, 'jwt_secret', None)
-        or 'zuri_default_encryption_secret_key_32bytes'
-    )
-    return hashlib.sha256(secret.encode('utf-8')).digest()
+    return _candidate_keys()[0]
 
 
 def encrypt_api_key(plain_key: str) -> str:
@@ -63,12 +75,13 @@ def decrypt_api_key(encrypted_str: str) -> str:
         ciphertext = bytes.fromhex(ciphertext_hex)
         tag = bytes.fromhex(tag_hex)
 
-        key = _get_derived_key()
-        aesgcm = AESGCM(key)
-        
-        # cryptography AESGCM expects ciphertext + tag combined
-        data = aesgcm.decrypt(iv, ciphertext + tag, None)
-        return data.decode('utf-8')
+        for key in _candidate_keys():
+            try:
+                # cryptography AESGCM expects ciphertext + tag combined
+                return AESGCM(key).decrypt(iv, ciphertext + tag, None).decode('utf-8')
+            except Exception:
+                continue
+        raise ValueError('no candidate key decrypts this value')
     except Exception as exc:
         log.error('decrypt_api_key_failed', error=str(exc))
         raise ValueError('Failed to decrypt API key')
