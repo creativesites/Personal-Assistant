@@ -246,11 +246,14 @@ Required keys in production `.env`:
 DATABASE_URL=      # Supabase connection string
 REDIS_PASSWORD=    # for the local Redis container
 JWT_SECRET=        # min 64 chars
-INTERNAL_API_SECRET=   # shared with Vercel — 98c2ba10361bc6678f860c7b53d953ff
+INTERNAL_API_SECRET=   # shared with Vercel (API_URL routes); value lives in Secret Manager + Vercel only
 CORS_ORIGIN=https://zuri-personal-assistant-delta.vercel.app
 GOOGLE_AI_API_KEY=     # Gemini API key
 DEFAULT_AI_MODEL=anthropic/claude-haiku-5-5
 DASHSCOPE_API_KEY=     # Alibaba Cloud DashScope key (Qwen models — currently default text pool)
+CLERK_PUBLISHABLE_KEY=     # same as Vercel's NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY; clerk-sync verifies Clerk session tokens against its JWKS
+CLERK_SYNC_ENFORCE=        # 'true' rejects clerk-sync calls without a valid Clerk session token (else report-only)
+BYOK_ENCRYPTION_KEY=       # AES key material for stored BYOK API keys (never reuse INTERNAL_API_SECRET)
 SUPABASE_URL=              # for incoming WhatsApp media storage (services/whatsapp only)
 SUPABASE_SERVICE_ROLE_KEY= # service-role key, NOT the anon key — see "Groups & Media" below
 ```
@@ -272,7 +275,7 @@ Model selection for Qwen calls is routed through `services/intelligence/app/ai/m
 ```
 NEXT_PUBLIC_API_URL=https://34-13-48-134.sslip.io
 API_URL=https://34-13-48-134.sslip.io
-INTERNAL_API_SECRET=98c2ba10361bc6678f860c7b53d953ff
+INTERNAL_API_SECRET=<same value as zuri-prod-env in Secret Manager>
 ```
 
 ### Deploy to production
@@ -856,8 +859,8 @@ Web app uses **Clerk** for SSO (no passwords). The flow:
 
 1. Browser signs in via Clerk → gets a Clerk session
 2. `useZuriSession` hook calls Next.js `/api/auth/clerk-sync` (server route)
-3. Next.js route calls backend `POST /api/auth/clerk-sync` with `X-Internal-Secret` header
-4. Backend finds-or-creates a `users` row by `clerk_user_id`, returns a Zuri JWT
+3. Next.js route calls backend `POST /api/auth/clerk-sync` with the `X-Internal-Secret` header **and** the user's Clerk session token (`Authorization: Bearer`)
+4. Backend verifies the Clerk token against the instance JWKS (`services/api/src/lib/clerk-verify.ts`, issuer derived from `CLERK_PUBLISHABLE_KEY`) and requires its `sub` to equal `clerkUserId` (enforced when `CLERK_SYNC_ENFORCE=true`), then finds-or-creates a `users` row by `clerk_user_id` and returns a Zuri JWT. An existing account is adopted by email only if it has never been linked to a Clerk user — the shared secret alone can never mint a login.
 5. All subsequent API calls use that Zuri JWT as `Authorization: Bearer <token>`
 
 The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. It must match on both ends.

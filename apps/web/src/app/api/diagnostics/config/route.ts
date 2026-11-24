@@ -1,11 +1,5 @@
 import { NextResponse } from 'next/server'
 
-function mask(val: string | undefined): string {
-  if (!val) return '(not set)'
-  if (val.length <= 8) return '***'
-  return `${val.slice(0, 8)}…${val.slice(-4)}`
-}
-
 export async function GET() {
   const secret = process.env.INTERNAL_API_SECRET
   const apiUrl = process.env.API_URL
@@ -15,7 +9,8 @@ export async function GET() {
     INTERNAL_API_SECRET: {
       set: !!secret,
       length: secret?.length ?? 0,
-      masked: mask(secret),
+      // Never echo any part of the secret: this route is public.
+      masked: secret ? 'set (hidden)' : '(not set)',
     },
     API_URL: {
       value: apiUrl || '(not set)',

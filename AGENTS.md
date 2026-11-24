@@ -172,7 +172,7 @@ Required keys in production `.env`:
 DATABASE_URL=      # Supabase connection string
 REDIS_PASSWORD=    # for the local Redis container
 JWT_SECRET=        # min 64 chars
-INTERNAL_API_SECRET=   # shared with Vercel — 98c2ba10361bc6678f860c7b53d953ff
+INTERNAL_API_SECRET=   # shared with Vercel (API_URL routes); value lives in Secret Manager + Vercel only
 CORS_ORIGIN=https://zuri-personal-assistant-delta.vercel.app
 GOOGLE_AI_API_KEY=     # Gemini API key
 DEFAULT_AI_MODEL=gemini/gemini-3.5-flash
