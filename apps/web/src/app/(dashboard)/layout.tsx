@@ -53,6 +53,10 @@ interface NavGroup {
 }
 
 // Nav IA — Restructured into 4 Primary Hubs: Inbox, Customers, Operations, Workspace
+// Plans/billing are switched off while Zuri is a personal tool; set
+// NEXT_PUBLIC_TIERS_ENABLED=true to bring the Billing pages back into the nav.
+const TIERS_ENABLED = process.env.NEXT_PUBLIC_TIERS_ENABLED === 'true'
+
 const NAV_GROUPS: NavGroup[] = [
   {
     key: 'inbox_hub',
@@ -102,7 +106,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Building2,
     items: [
       { href: '/organization',  label: 'Organization & Team',   icon: Building2, showForModes: ['business', 'hybrid'] },
-      { href: '/billing',       label: 'Billing & Plans',       icon: CreditCard },
+      ...(TIERS_ENABLED ? [{ href: '/billing', label: 'Billing & Plans', icon: CreditCard }] : []),
       { href: '/settings',      label: 'Settings & BYOK',       icon: Settings },
       { href: '/give-feedback', label: 'Give Feedback',         icon: MessageSquare },
       { href: '/diagnostics',   label: 'System Diagnostics',    icon: Wrench, muted: true },
@@ -111,7 +115,7 @@ const NAV_GROUPS: NavGroup[] = [
 ]
 
 const FOOTER_NAV: NavItem[] = [
-  { href: '/billing',     label: 'Billing',     icon: CreditCard },
+  ...(TIERS_ENABLED ? [{ href: '/billing', label: 'Billing', icon: CreditCard }] : []),
   { href: '/settings',    label: 'Settings',    icon: Settings },
   { href: '/profile',     label: 'Profile',     icon: User },
   { href: '/diagnostics', label: 'Diagnostics', icon: Wrench, muted: true },
