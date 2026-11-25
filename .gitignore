@@ -72,9 +72,9 @@ htmlcov/
 *.key
 *.mobileprovision
 *.orig.*
-android/
-# Zuri Android (native app) lives at apps/android and must be tracked
-!apps/android/
+# Expo prebuild output for the React Native app. Anchored on purpose: a bare `android/` also
+# matched the Kotlin package path `app/zuri/android/` and silently hid Zuri Android's sources.
+apps/mobile/android/
 ios/
 web-build/
 # Kotlin / Android build
