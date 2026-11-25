@@ -52,6 +52,17 @@ _temporal_queue = Queue('temporal.clock_check',     {'connection': redis_conn_op
 _user_msg_counter: dict[str, int] = {}
 
 
+async def _best_effort(step: str, message_id: str, coro) -> None:
+    """Enrichment steps (events, facts, emotions, bundles…) must never stop a
+    live message from reaching reply routing. A failure here used to crash
+    the job after analysis; the retry then saw "already analysed" and
+    skipped, so the contact silently never got a reply."""
+    try:
+        await coro
+    except Exception as exc:  # noqa: BLE001 — logged, deliberately non-fatal
+        log.error('message_enrichment_step_failed', step=step, message_id=message_id, error=str(exc)[:300])
+
+
 async def _process(job, token: str):
     data = job.data
     message_id    = data.get('messageId')
@@ -116,7 +127,7 @@ async def _process(job, token: str):
             generate_reply=(not is_historical),
         )
 
-        await _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis)
+        await _best_effort('_extractor.extract_from_analysis', message_id, _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis))
     finally:
         if locked and conversation_id:
             await release_conversation_lock(conversation_id)
@@ -125,39 +136,39 @@ async def _process(job, token: str):
     # this is durable knowledge, and a business's chat history is exactly
     # where its prices/policies were originally stated.
     if analysis.business_facts_mentioned:
-        await _business_facts.record_candidates(
+        await _best_effort('_business_facts.record_candidates', message_id, _business_facts.record_candidates(
             user_id, message_id, analysis.business_facts_mentioned,
-        )
+        ))
 
     # Opportunities and Business Graph connections — same "one more
     # structured field on the existing per-message pass" pattern as
     # business_facts_mentioned above (see docs/RELATIONSHIP_OS_PLAN.md §5.7/§5.8).
     if analysis.opportunities_mentioned:
-        await _opportunities.record_candidates(
+        await _best_effort('_opportunities.record_candidates', message_id, _opportunities.record_candidates(
             user_id, contact_id, message_id, analysis.opportunities_mentioned,
-        )
+        ))
     if analysis.connections_mentioned:
-        await _connections.record_candidates(
+        await _best_effort('_connections.record_candidates', message_id, _connections.record_candidates(
             user_id, contact_id, message_id, analysis.connections_mentioned,
-        )
+        ))
 
     # Products purchased/interested/quoted, and major personal life events —
     # same one-more-structured-field pattern (see docs/RELATIONSHIP_OS_PLAN.md §5.6/§6.6).
     if analysis.products_mentioned:
-        await _contact_products.record_mentions(
+        await _best_effort('_contact_products.record_mentions', message_id, _contact_products.record_mentions(
             user_id, contact_id, message_id, analysis.products_mentioned,
-        )
+        ))
     if analysis.life_events_mentioned:
-        await _life_events.record_mentions(
+        await _best_effort('_life_events.record_mentions', message_id, _life_events.record_mentions(
             user_id, contact_id, message_id, analysis.life_events_mentioned,
-        )
+        ))
 
     # Zuri Neural Layer Phase 1 (docs/NEURAL_LAYER_PLAN.md §4.2) — platform-wide
     # emotional signal, reusing this same analysis's already-computed
     # emotions/sentiment. No new LLM call. Historical messages get this too —
     # emotional history matters for state-dependent retrieval regardless of
     # when the message was first sent.
-    await _emotion_engine.record_from_message_analysis(user_id, contact_id, message_id, analysis)
+    await _best_effort('_emotion_engine.record_from_message_analysis', message_id, _emotion_engine.record_from_message_analysis(user_id, contact_id, message_id, analysis))
 
     # Historical messages: skip reply generation, agent routing, and conversation
     # memory entirely — that memory represents "current" state, not backfill.
@@ -168,9 +179,9 @@ async def _process(job, token: str):
         body = msg['body'] if msg else ''
 
         if body:
-            await update_conversation_memory(
+            await _best_effort('update_conversation_memory', message_id, update_conversation_memory(
                 conversation_id, sender_type=sender_type, body=body, analysis=analysis,
-            )
+            ))
 
         if body:
             # Business OS Phase E (docs/BUSINESS_OS_PLAN.md §15), generalized
@@ -186,11 +197,11 @@ async def _process(job, token: str):
             order_intent = analysis.order_intent_mentioned if sender_type == 'contact' else []
             if (order_intent or analysis.new_products_mentioned or analysis.suppliers_mentioned
                     or analysis.career_opportunities_mentioned):
-                await _action_bundles.detect_and_create(
+                await _best_effort('_action_bundles.detect_and_create', message_id, _action_bundles.detect_and_create(
                     user_id, contact_id, conversation_id, message_id, order_intent,
                     new_products=analysis.new_products_mentioned, suppliers=analysis.suppliers_mentioned,
                     career_opportunities=analysis.career_opportunities_mentioned,
-                )
+                ))
 
         if sender_type == 'user' and body:
             # Reality Engine Layer 1 (docs/REALITY_ENGINE_PLAN.md §7, Hook A)
@@ -198,9 +209,9 @@ async def _process(job, token: str):
             # reconnect nudge for this contact moot; resolve it immediately
             # rather than leaving it to sit until a human dismisses it or a
             # later sweep catches it.
-            await _reality_engine.resolve_relationship_nudges(
+            await _best_effort('_reality_engine.resolve_relationship_nudges', message_id, _reality_engine.resolve_relationship_nudges(
                 user_id, contact_id, reason='You messaged this contact',
-            )
+            ))
 
         if sender_type == 'contact' and body:
             # Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md
@@ -208,39 +219,42 @@ async def _process(job, token: str):
             # conversation from an Advisor session, narrate the reply and
             # suggest next responses instead of leaving them to notice it
             # in the Inbox on their own.
-            watch = await _advisor_companion.find_active_watch(conversation_id)
-            if watch:
-                await publish_event(f'advisor.reply_received:{user_id}', json.dumps({
-                    'conversationId': conversation_id, 'contactId': contact_id,
-                    'messagePreview': body[:200],
-                }))
-                narration = await _advisor_companion.generate_reply_narration(
-                    user_id, conversation_id, contact_id, body,
-                )
-                narration_pool = await get_pool()
-                async with narration_pool.acquire() as conn:
-                    narration_row = await conn.fetchrow(
-                        """INSERT INTO advisor_messages (session_id, role, content, metadata)
-                           VALUES ($1, 'assistant', $2, $3::jsonb)
-                           RETURNING id, created_at""",
-                        watch['session_id'], narration['narration'],
-                        {
-                            'type': 'narration', 'conversationId': conversation_id,
-                            'contactId': contact_id, 'contactName': narration['contactName'],
-                            'suggestedReplies': narration['suggestedReplies'],
-                        },
+            try:
+                watch = await _advisor_companion.find_active_watch(conversation_id)
+                if watch:
+                    await publish_event(f'advisor.reply_received:{user_id}', json.dumps({
+                        'conversationId': conversation_id, 'contactId': contact_id,
+                        'messagePreview': body[:200],
+                    }))
+                    narration = await _advisor_companion.generate_reply_narration(
+                        user_id, conversation_id, contact_id, body,
                     )
-                    await conn.execute(
-                        """UPDATE advisor_sessions SET message_count = message_count + 1, updated_at = NOW()
-                           WHERE id = $1""",
-                        watch['session_id'],
-                    )
-                await publish_event(f'advisor.narration_ready:{user_id}', json.dumps({
-                    'sessionId': str(watch['session_id']), 'conversationId': conversation_id,
-                    'contactId': contact_id, 'messageId': str(narration_row['id']),
-                    'narration': narration['narration'], 'suggestedReplies': narration['suggestedReplies'],
-                    'contactName': narration['contactName'], 'createdAt': narration_row['created_at'].isoformat(),
-                }))
+                    narration_pool = await get_pool()
+                    async with narration_pool.acquire() as conn:
+                        narration_row = await conn.fetchrow(
+                            """INSERT INTO advisor_messages (session_id, role, content, metadata)
+                               VALUES ($1, 'assistant', $2, $3::jsonb)
+                               RETURNING id, created_at""",
+                            watch['session_id'], narration['narration'],
+                            {
+                                'type': 'narration', 'conversationId': conversation_id,
+                                'contactId': contact_id, 'contactName': narration['contactName'],
+                                'suggestedReplies': narration['suggestedReplies'],
+                            },
+                        )
+                        await conn.execute(
+                            """UPDATE advisor_sessions SET message_count = message_count + 1, updated_at = NOW()
+                               WHERE id = $1""",
+                            watch['session_id'],
+                        )
+                    await publish_event(f'advisor.narration_ready:{user_id}', json.dumps({
+                        'sessionId': str(watch['session_id']), 'conversationId': conversation_id,
+                        'contactId': contact_id, 'messageId': str(narration_row['id']),
+                        'narration': narration['narration'], 'suggestedReplies': narration['suggestedReplies'],
+                        'contactName': narration['contactName'], 'createdAt': narration_row['created_at'].isoformat(),
+                    }))
+            except Exception as exc:  # noqa: BLE001 — never block reply routing
+                log.error('message_enrichment_step_failed', step='advisor_watch', message_id=message_id, error=str(exc)[:300])
 
             # Orchestrator decides: route to an agent OR generate a suggestion for the user
             decision, agent_id = await route_message(

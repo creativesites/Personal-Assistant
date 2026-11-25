@@ -1,3 +1,4 @@
+from datetime import date
 import structlog
 from ..database import get_pool
 from ..models import MessageAnalysis
@@ -42,13 +43,21 @@ class EventExtractor:
                 if existing:
                     continue
 
+                # The model returns dates as 'YYYY-MM-DD' strings; asyncpg needs a date.
+                event_date = None
+                if ev.date:
+                    try:
+                        event_date = date.fromisoformat(str(ev.date)[:10])
+                    except ValueError:
+                        event_date = None
+
                 await conn.execute(
                     """INSERT INTO events (
                            user_id, contact_id, event_type, title,
                            event_date, is_recurring, source, source_message_id, confidence_score
                        ) VALUES ($1, $2, $3::event_type, $4, $5, $6, 'message_extraction', $7, 0.7)""",
                     user_id, contact_id, event_type, ev.title,
-                    ev.date, ev.is_recurring, message_id,
+                    event_date, ev.is_recurring, message_id,
                 )
                 created += 1
 

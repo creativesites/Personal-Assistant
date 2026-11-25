@@ -83,7 +83,7 @@ export function NowTab({
   token,
   refreshKey,
   onUseDraft,
-  onFocusComposer,
+  onReplyTo,
   onSendSuggestion,
 }: {
   conversationId: string
@@ -94,7 +94,8 @@ export function NowTab({
   /** Changes whenever the chat gets a new message — refetches. */
   refreshKey: string | number
   onUseDraft: (text: string) => void
-  onFocusComposer: () => void
+  /** Quote this message in the composer and focus it. */
+  onReplyTo: (messageId: string) => void
   onSendSuggestion: (suggestionId: string) => Promise<void> | void
 }) {
   const { addToast } = useToast()
@@ -351,7 +352,7 @@ export function NowTab({
             {openLoops.questions.map(q => (
               <LoopRow key={q.key} icon={<HelpCircle size={13} />} tone="rose" label={`${firstName} asked`} text={q.text}
                 busy={busy === q.key} onDone={() => resolveLoop(q.key)}
-                action={{ label: 'Reply', onClick: onFocusComposer }} />
+                action={{ label: 'Reply', onClick: () => onReplyTo(q.messageId) }} />
             ))}
             {openLoops.promises.map(p => (
               <LoopRow key={p.key} icon={<Handshake size={13} />} tone="amber"

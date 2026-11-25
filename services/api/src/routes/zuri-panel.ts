@@ -583,4 +583,68 @@ export async function zuriPanelRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
+
+  // ════════════════════════════════ Media tab ═════════════════════════════════
+
+  // ── GET /api/conversations/:id/zuri/media?kind=media|docs|audio|links&before= ─
+  fastify.get('/api/conversations/:id/zuri/media', { preHandler: authenticate }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const q = request.query as { kind?: string; before?: string };
+    const kind = (['media', 'docs', 'audio', 'links'] as const).find(k => k === q.kind) ?? 'media';
+    const before = q.before && !Number.isNaN(Date.parse(q.before)) ? new Date(q.before).toISOString() : null;
+    const conv = await ownedConversation(request, id);
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
+    const PAGE = 60;
+
+    const { rows: [counts] } = await db.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE message_type IN ('image', 'video') AND media_url IS NOT NULL)::int AS media,
+         COUNT(*) FILTER (WHERE message_type = 'document' AND media_url IS NOT NULL)::int AS docs,
+         COUNT(*) FILTER (WHERE message_type = 'audio' AND media_url IS NOT NULL)::int AS audio,
+         COUNT(*) FILTER (WHERE body ~* 'https?://')::int AS links,
+         COUNT(*) FILTER (WHERE message_type IN ('image', 'video', 'document', 'audio') AND media_url IS NULL)::int AS unavailable
+       FROM messages WHERE conversation_id = $1 AND is_deleted = false`,
+      [id],
+    );
+
+    let items: unknown[] = [];
+    let nextBefore: string | null = null;
+    if (kind === 'links') {
+      const { rows } = await db.query(
+        `SELECT m.id, m.sender_type, m.whatsapp_timestamp, m.body
+         FROM messages m
+         WHERE m.conversation_id = $1 AND m.is_deleted = false AND m.body ~* 'https?://'
+           AND ($2::timestamptz IS NULL OR m.whatsapp_timestamp < $2::timestamptz)
+         ORDER BY m.whatsapp_timestamp DESC LIMIT $3`,
+        [id, before, PAGE],
+      );
+      if (rows.length >= PAGE) nextBefore = rows[rows.length - 1].whatsapp_timestamp;
+      for (const r of rows) {
+        for (const url of String(r.body).match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []) {
+          items.push({ messageId: r.id, url: url.replace(/[.,;!?]+$/, ''), fromMe: r.sender_type === 'user', at: r.whatsapp_timestamp });
+        }
+      }
+    } else {
+      const types = kind === 'media' ? ['image', 'video'] : kind === 'docs' ? ['document'] : ['audio'];
+      const { rows } = await db.query(
+        `SELECT m.id, m.message_type, m.body, m.media_url, m.media_mime_type, m.transcription,
+                m.sender_type, m.sender_display_name, m.whatsapp_timestamp
+         FROM messages m
+         WHERE m.conversation_id = $1 AND m.is_deleted = false AND m.media_url IS NOT NULL
+           AND m.message_type = ANY($2::text[])
+           AND ($3::timestamptz IS NULL OR m.whatsapp_timestamp < $3::timestamptz)
+         ORDER BY m.whatsapp_timestamp DESC LIMIT $4`,
+        [id, types, before, PAGE],
+      );
+      if (rows.length >= PAGE) nextBefore = rows[rows.length - 1].whatsapp_timestamp;
+      items = rows.map((r: any) => ({
+        messageId: r.id, type: r.message_type, caption: r.body, mediaUrl: r.media_url, mimeType: r.media_mime_type,
+        transcription: r.transcription && r.transcription !== '[Audio voice message]' ? r.transcription : null,
+        fromMe: r.sender_type === 'user', senderName: r.sender_display_name, at: r.whatsapp_timestamp,
+      }));
+    }
+
+    return reply.send({ kind, counts, items, nextBefore });
+  });
+
 }

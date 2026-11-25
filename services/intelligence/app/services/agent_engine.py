@@ -484,10 +484,13 @@ async def handle_agent_message(
                 await conn.execute(
                     """
                     UPDATE suggested_replies
-                    SET status = 'approved', updated_at = NOW()
+                    SET status = 'approved',
+                        scheduled_send_at = NOW() + make_interval(secs => $2::int),
+                        updated_at = NOW()
                     WHERE id = $1 AND status = 'pending'
                     """,
                     suggestion_id,
+                    int(decision.delay_seconds or 0),
                 )
             await _auto_response.enqueue_send(
                 user_id=user_id,

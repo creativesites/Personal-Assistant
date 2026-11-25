@@ -380,6 +380,7 @@ export function MessageThread({
               return (
                 <div
                   key={msg.id}
+                  data-message-id={msg.id}
                   ref={node => {
                     rowRefs.current[msg.id] = node
                   }}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class EmotionScores(BaseModel):
@@ -145,6 +145,19 @@ class CareerOpportunityMention(BaseModel):
 class MessageAnalysis(BaseModel):
     sentiment: str  # positive|negative|neutral|mixed
     sentiment_score: float = Field(ge=0.0, le=1.0)
+
+    @field_validator('sentiment_score', mode='before')
+    @classmethod
+    def _normalise_sentiment_score(cls, v):
+        """The model sometimes answers on a -1..1 scale; map that onto 0..1
+        instead of failing the whole message (which used to block replies)."""
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return 0.5
+        if x < 0:
+            x = (x + 1) / 2
+        return min(max(x, 0.0), 1.0)
     emotions: EmotionScores = Field(default_factory=EmotionScores)
     intent: IntentAnalysis
     topics: list[str] = Field(default_factory=list)

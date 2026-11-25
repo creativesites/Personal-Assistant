@@ -166,6 +166,8 @@ export default function InboxPage() {
   const [showQuickDocModal, setShowQuickDocModal] = useState(false)
   const [internalNoteInput, setInternalNoteInput] = useState('')
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  // Zuri panel Media tab can open media older than the loaded thread.
+  const [viewerOverride, setViewerOverride] = useState<LightboxItem[] | null>(null)
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [enlargedAvatar, setEnlargedAvatar] = useState<{ id?: string; name: string; avatarUrl?: string | null; phone?: string | null; isGroup?: boolean } | null>(null)
@@ -960,7 +962,7 @@ export default function InboxPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [token])
 
-  useEffect(() => { selectedIdRef.current = selectedId; setLightboxIndex(null) }, [selectedId])
+  useEffect(() => { selectedIdRef.current = selectedId; setLightboxIndex(null); setViewerOverride(null) }, [selectedId])
 
   // Phone back gesture/button: an open chat gets its own history entry, so
   // "back" returns to the chat list instead of leaving the Inbox.
@@ -1234,7 +1236,7 @@ export default function InboxPage() {
 
   const openMediaViewer = (messageId: string) => {
     const i = lightboxItems.findIndex(it => it.id === messageId)
-    if (i >= 0) setLightboxIndex(i)
+    if (i >= 0) { setViewerOverride(null); setLightboxIndex(i) }
   }
 
   const handleDeleteMessage = async (msg: any, deleteForEveryone: boolean) => {
@@ -1765,6 +1767,17 @@ export default function InboxPage() {
     onSendDirect: sendDirect,
   }
 
+  // Zuri panel "Reply": quote that message in the composer, like swiping a WhatsApp message.
+  const replyToMessageById = (messageId: string) => {
+    const msg = messages.find(m => m.id === messageId)
+    if (msg) setReplyingToMessage(msg as any)
+    setTimeout(() => {
+      draftRef.current?.focus()
+      const row = document.querySelector(`[data-message-id="${messageId}"]`)
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 80)
+  }
+
   const zuriPanelCommon = {
     conversationId: selectedId ?? '',
     contactId: contact?.id ?? null,
@@ -1774,6 +1787,11 @@ export default function InboxPage() {
     refreshKey: messages.length ? messages[messages.length - 1].id : 0,
     legacyProps: { ...intelPanelProps, onClose: () => setShowAIPanel(false) },
     onSendSuggestion: (id: string) => approveSuggestion(id),
+    onOpenViewer: (items: LightboxItem[], index: number) => {
+      if (index < 0 || !items.length) return
+      setViewerOverride(items)
+      setLightboxIndex(index)
+    },
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -2263,7 +2281,7 @@ export default function InboxPage() {
                     {...zuriPanelCommon}
                     onClose={() => setShowAIPanel(false)}
                     onUseDraft={text => { setDraft(text); setTimeout(() => draftRef.current?.focus(), 50) }}
-                    onFocusComposer={() => draftRef.current?.focus()}
+                    onReplyTo={replyToMessageById}
                   />
                 </div>
               )}
@@ -2313,7 +2331,7 @@ export default function InboxPage() {
             }}
             onClose={() => setMobileView('thread')}
             onUseDraft={text => { setDraft(text); setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
-            onFocusComposer={() => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
+            onReplyTo={id => { setMobileView('thread'); replyToMessageById(id) }}
           />
         </div>
       )}
@@ -2548,10 +2566,10 @@ export default function InboxPage() {
       )}
 
       <MediaLightbox
-        items={lightboxItems}
+        items={viewerOverride ?? lightboxItems}
         index={lightboxIndex}
         onIndexChange={setLightboxIndex}
-        onClose={() => setLightboxIndex(null)}
+        onClose={() => { setLightboxIndex(null); setViewerOverride(null) }}
       />
     </div>
   )

@@ -72,10 +72,12 @@ async def generate_followup(conversation_id: str, user_id: str):
         {
             'role': 'system',
             'content': (
-                f'You are a WhatsApp messaging assistant. Write a natural, friendly '
-                f'follow-up message to {contact_name} that picks up from where the '
-                f'conversation left off. Be concise (1-3 sentences). '
-                f'No formal salutations. No quotation marks. Return only the message text.'
+                f'You draft WhatsApp messages FOR the user. In the transcript, lines starting '
+                f'"You:" are the user; lines starting "{contact_name}:" are the other person. '
+                f'Write the user\'s next message TO {contact_name}, picking up where the '
+                f'conversation left off — in the user\'s own voice, never addressed to the user. '
+                f'Be concise (1-3 sentences). No formal salutations. No quotation marks. '
+                f'Return only the message text.'
             ),
         },
         {

@@ -6,6 +6,8 @@ import { ZuriMark } from '@/components/ui/zuri-mark'
 import { IntelPanel } from '../intel-panel'
 import { NowTab } from './now-tab'
 import { PersonTab } from './person-tab'
+import { MediaTab } from './media-tab'
+import type { LightboxItem } from '../media-lightbox'
 
 type ZuriTab = 'now' | 'person' | 'ask' | 'media'
 
@@ -16,11 +18,10 @@ const TABS: { id: ZuriTab; label: string }[] = [
   { id: 'media', label: 'Media' },
 ]
 
-// Until Ask / Media are rebuilt, they show the matching part of the
+// Until Ask is rebuilt, they show the matching part of the
 // older intelligence panel (without its own header and tabs).
-const LEGACY_TAB: Record<Exclude<ZuriTab, 'now' | 'person'>, ComponentProps<typeof IntelPanel>['aiTab']> = {
+const LEGACY_TAB: Record<Exclude<ZuriTab, 'now' | 'person' | 'media'>, ComponentProps<typeof IntelPanel>['aiTab']> = {
   ask: 'chat',
-  media: 'files',
 }
 
 /**
@@ -37,8 +38,9 @@ export function ZuriPanel({
   legacyProps,
   onClose,
   onUseDraft,
-  onFocusComposer,
+  onReplyTo,
   onSendSuggestion,
+  onOpenViewer,
 }: {
   conversationId: string
   contactId: string | null
@@ -49,8 +51,9 @@ export function ZuriPanel({
   legacyProps: Omit<ComponentProps<typeof IntelPanel>, 'aiTab' | 'onTabChange' | 'embedded'>
   onClose: () => void
   onUseDraft: (text: string) => void
-  onFocusComposer: () => void
+  onReplyTo: (messageId: string) => void
   onSendSuggestion: (suggestionId: string) => Promise<void> | void
+  onOpenViewer: (items: LightboxItem[], index: number) => void
 }) {
   const [tab, setTab] = useState<ZuriTab>('now')
   useEffect(() => { setTab('now') }, [conversationId])
@@ -100,9 +103,11 @@ export function ZuriPanel({
             token={token}
             refreshKey={refreshKey}
             onUseDraft={onUseDraft}
-            onFocusComposer={onFocusComposer}
+            onReplyTo={onReplyTo}
             onSendSuggestion={onSendSuggestion}
           />
+        ) : tab === 'media' ? (
+          <MediaTab conversationId={conversationId} token={token} contactName={contactName} onOpenViewer={onOpenViewer} />
         ) : tab === 'person' ? (
           contactId
             ? <PersonTab contactId={contactId} token={token} onUseDraft={onUseDraft} />
