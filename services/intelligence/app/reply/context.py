@@ -95,7 +95,8 @@ def _clip(text: str, n: int) -> str:
     return text if len(text) <= n else text[: n - 1] + '…'
 
 
-async def build_chat_context(user_id: str, conversation_id: str) -> ChatContext | None:
+async def build_chat_context(user_id: str, conversation_id: str, until: datetime | None = None) -> ChatContext | None:
+    """`until` rewinds the chat to that moment (evaluation: reply as of a past message)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         conv = await conn.fetchrow(
@@ -121,10 +122,10 @@ async def build_chat_context(user_id: str, conversation_id: str) -> ChatContext 
                       ma.requires_response
                FROM messages m
                LEFT JOIN message_analyses ma ON ma.message_id = m.id
-               WHERE m.conversation_id = $1
+               WHERE m.conversation_id = $1 AND ($3::timestamptz IS NULL OR m.whatsapp_timestamp <= $3)
                ORDER BY m.whatsapp_timestamp DESC
                LIMIT $2""",
-            conversation_id, TRANSCRIPT_MESSAGES,
+            conversation_id, TRANSCRIPT_MESSAGES, until,
         )
         rows = list(reversed(rows))
         quoted_ids = [r['quoted_message_id'] for r in rows if r['quoted_message_id']]
@@ -144,8 +145,9 @@ async def build_chat_context(user_id: str, conversation_id: str) -> ChatContext 
                    SELECT 1 FROM suggested_replies sr JOIN messages src ON src.id = sr.message_id
                    WHERE src.conversation_id = m.conversation_id AND sr.status IN ('sent', 'edited_and_sent', 'approved', 'used')
                      AND (sr.suggestion_text = m.body OR sr.edited_text = m.body))
+                 AND ($2::timestamptz IS NULL OR m.whatsapp_timestamp <= $2)
                ORDER BY m.whatsapp_timestamp DESC LIMIT 60""",
-            conversation_id,
+            conversation_id, until,
         )
         upcoming = await conn.fetch(
             """SELECT title, event_date, event_type::text AS event_type FROM events
@@ -156,7 +158,7 @@ async def build_chat_context(user_id: str, conversation_id: str) -> ChatContext 
         )
 
     tz = _tz(conv['timezone'])
-    now = datetime.now(timezone.utc)
+    now = (until + timedelta(minutes=2)) if until else datetime.now(timezone.utc)
     owner = (conv['owner_full_name'] or 'the user').split(' ')[0]
     contact_name = conv['contact_name']
     first_contact = contact_name.split(' ')[0]
@@ -262,6 +264,6 @@ async def build_chat_context(user_id: str, conversation_id: str) -> ChatContext 
         owner_examples=examples,
         owner_typical_chars=max(20, typical),
         about_contact='\n'.join(about),
-        chat_summary=conv['chat_summary'] or '',
+        chat_summary='' if until else (conv['chat_summary'] or ''),
         contact_recent_texts=contact_recent[-20:],
     )

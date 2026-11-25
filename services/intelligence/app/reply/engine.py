@@ -74,13 +74,21 @@ async def run_compose(
     *,
     trigger_message_id: str | None = None,
     mode: str = 'live',          # live | regenerate | dry_run
+    as_of_message_id: str | None = None,   # dry_run only: rewind the chat to this message
 ) -> dict:
     if mode == 'live' and trigger_message_id and await _superseded(conversation_id, trigger_message_id):
         return {'skipped': 'newer_message_will_handle_it'}
 
-    await ensure_chat_summary(user_id, conversation_id)
-    await _transcribe_unanswered_voice_notes(user_id, conversation_id)
-    ctx = await build_chat_context(user_id, conversation_id)
+    until = None
+    if mode == 'dry_run' and as_of_message_id:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            until = await conn.fetchval('SELECT whatsapp_timestamp FROM messages WHERE id = $1 AND conversation_id = $2',
+                                        as_of_message_id, conversation_id)
+    if until is None:
+        await ensure_chat_summary(user_id, conversation_id)
+        await _transcribe_unanswered_voice_notes(user_id, conversation_id)
+    ctx = await build_chat_context(user_id, conversation_id, until=until)
     if ctx is None:
         return {'skipped': 'conversation_not_found'}
     if ctx.is_group and mode == 'live':
