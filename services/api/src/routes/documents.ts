@@ -205,12 +205,22 @@ export async function sendDocumentViaWhatsApp(
     [id, userId],
   );
   if (!doc) return { error: 'Document not found or has no linked contact', status: 404 };
-  if (!doc.storage_path) return { error: 'Generate the PDF before sending', status: 400 };
+  if (!doc.whatsapp_jid) return { error: 'This contact has no WhatsApp number', status: 400 };
 
-  // Shareable link (plan §15 Phase 4) — sent alongside the file attachment
-  // so re-opening it is trackable as a real "view" (an attached file itself
-  // gives no such signal). See GET /api/documents/shared/:token below.
-  const shareUrl = `${config.PUBLIC_API_URL}/api/documents/shared/${doc.share_token}`;
+  // PDFs normally render in the browser on first preview; a document sent
+  // straight away (e.g. Inbox quick quote) has none yet, so render it here.
+  if (!doc.storage_path) {
+    try {
+      await renderAndSaveDocument(id, userId);
+    } catch (err) {
+      return { error: `Could not generate the PDF: ${(err as Error).message}`, status: 500 };
+    }
+    const { rows: [fresh] } = await db.query<{ storage_path: string | null }>(
+      'SELECT storage_path FROM documents WHERE id = $1', [id],
+    );
+    doc.storage_path = fresh?.storage_path ?? null;
+    if (!doc.storage_path) return { error: 'Could not generate the PDF', status: 500 };
+  }
 
   const { rows: [conv] } = await db.query(
     `INSERT INTO conversations (user_id, contact_id, whatsapp_chat_id, last_message_at, last_message_preview)
@@ -218,13 +228,14 @@ export async function sendDocumentViaWhatsApp(
      ON CONFLICT (user_id, whatsapp_chat_id) DO UPDATE SET
        last_message_at = NOW(), last_message_preview = $4, updated_at = NOW()
      RETURNING id`,
-    [userId, doc.contact_id, doc.whatsapp_jid, `${doc.title} (${doc.document_number})`],
+    [userId, doc.contact_id, doc.whatsapp_jid, `📄 ${doc.document_number}.pdf`],
   );
 
   const now = new Date();
   const tempWaId = `direct-${crypto.randomUUID()}`;
   const fileName = `${doc.document_number}.pdf`;
-  const messageCaption = `${caption ?? `${doc.title} — ${doc.document_number}`}\n${shareUrl}`;
+  // Sent as a real PDF attachment (WhatsApp shows file name + caption), not a link.
+  const messageCaption = caption ?? `${doc.title} — ${doc.document_number}`;
 
   const { rows: [msg] } = await db.query(
     `INSERT INTO messages
@@ -232,7 +243,7 @@ export async function sendDocumentViaWhatsApp(
         media_url, media_mime_type, whatsapp_timestamp)
      VALUES ($1, $2, 'user', 'document', $3, $4, 'application/pdf', $5)
      RETURNING id`,
-    [conv.id, tempWaId, messageCaption, `/api/documents/${id}/pdf`, now],
+    [conv.id, tempWaId, fileName, `/api/documents/${id}/pdf`, now],
   );
 
   await addToQueue(QUEUE_NAMES.SEND_REPLY, {
@@ -261,7 +272,7 @@ export async function sendDocumentViaWhatsApp(
   }
   await publishInboxEvent(userId, 'message:new', {
     messageId: msg.id, conversationId: conv.id, contactId: doc.contact_id,
-    senderType: 'user', messageType: 'document', body: messageCaption,
+    senderType: 'user', messageType: 'document', body: fileName,
     mediaUrl: `/api/documents/${id}/pdf`, mediaMimeType: 'application/pdf', transcription: null,
     timestamp: now.toISOString(),
   });
@@ -739,94 +750,14 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── POST /api/documents/:id/send-whatsapp — 1-click WhatsApp dispatch.
   // Renders PDF, creates or reuses public share token, and dispatches the link.
+  // Inbox document/quote suggestion cards. Same path as /send: the PDF goes
+  // out as a WhatsApp document (rendered first if needed), never as a link.
   fastify.post('/api/documents/:id/send-whatsapp', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
-
-    const { rows: [doc] } = await db.query(
-      `SELECT d.*, c.phone_number, c.custom_name, c.display_name, c.whatsapp_jid
-       FROM documents d
-       LEFT JOIN contacts c ON c.id = d.contact_id
-       WHERE d.id = $1 AND d.user_id = $2`,
-      [id, userId],
-    );
-
-    if (!doc) return reply.code(404).send({ error: 'Document not found' });
-
-    // 1. Render PDF if needed
-    try {
-      await renderAndSaveDocument(id, userId);
-    } catch (err) {
-      fastify.log.warn({ err }, 'send_whatsapp_render_warning');
-    }
-
-    // 2. Find or create public share token
-    let shareToken = '';
-    const { rows: [existingShare] } = await db.query(
-      `SELECT share_token FROM document_shares WHERE document_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
-      [id],
-    );
-
-    if (existingShare) {
-      shareToken = existingShare.share_token;
-    } else {
-      const { rows: [newShare] } = await db.query(
-        `INSERT INTO document_shares (document_id, created_by, is_active)
-         VALUES ($1, $2, true) RETURNING share_token`,
-        [id, userId],
-      );
-      shareToken = newShare?.share_token || '';
-    }
-
-    const baseUrl = process.env.CORS_ORIGIN || 'https://zuri-personal-assistant-delta.vercel.app';
-    const shareUrl = `${baseUrl}/shared/${shareToken}`;
-    const totalFmt = `${doc.currency || 'USD'} ${(Number(doc.total_cents || 0) / 100).toFixed(2)}`;
-    const docLabel = (doc.document_type || 'document').toUpperCase();
-
-    const recipientName = doc.custom_name || doc.display_name || 'there';
-    const messageText = `Hi ${recipientName},\n\nHere is your *${docLabel}* (${doc.document_number || ''}) for *${totalFmt}*:\n\n📄 View, accept, or download here:\n${shareUrl}\n\nPlease let us know if you have any questions!`;
-
-    // 3. Dispatch WhatsApp message
-    const waServiceUrl = process.env.WHATSAPP_SERVICE_URL || config.WHATSAPP_SERVICE_URL;
-    const recipient = doc.whatsapp_jid || doc.phone_number || '';
-
-    if (recipient) {
-      try {
-        await fetch(`${waServiceUrl}/api/whatsapp/send-message`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-internal-secret': config.INTERNAL_API_SECRET || '',
-          },
-          body: JSON.stringify({
-            userId,
-            recipient,
-            message: messageText,
-          }),
-        });
-      } catch (err) {
-        fastify.log.error({ err }, 'whatsapp_dispatch_error');
-      }
-    }
-
-    // 4. Update document status to 'sent'
-    await db.query(
-      `UPDATE documents SET status = 'sent', updated_at = NOW() WHERE id = $1`,
-      [id],
-    );
-
-    await db.query(
-      `INSERT INTO document_events (document_id, event_type, metadata) VALUES ($1, 'sent_whatsapp', $2)`,
-      [id, JSON.stringify({ recipient, shareToken, shareUrl })],
-    );
-
-    return reply.send({
-      ok: true,
-      documentId: id,
-      shareToken,
-      shareUrl,
-      messageText,
-    });
+    const result = await sendDocumentViaWhatsApp(userId, id);
+    if ('error' in result) return reply.code(result.status).send({ error: result.error });
+    return reply.send({ ok: true, documentId: id, conversationId: result.conversationId });
   });
 
   // ── POST /api/documents/:id/quality-check — advisory only, never blocks
@@ -862,7 +793,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
   // Accepts JWT via Authorization header OR ?token= query param so
   // window.open() (which can't set headers) can still open PDFs in a new tab.
   fastify.get('/api/documents/:id/pdf', async (request, reply) => {
-    const { token: queryToken } = request.query as { token?: string };
+    const { token: queryToken, download } = request.query as { token?: string; download?: string };
     const authHeader = request.headers.authorization;
     const jwtToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
     if (!jwtToken) return reply.code(401).send({ error: 'Unauthorized' });
@@ -884,7 +815,7 @@ export async function documentsRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       const buf = await fs.readFile(doc.storage_path);
       reply.header('Content-Type', 'application/pdf');
-      reply.header('Content-Disposition', `inline; filename="${doc.document_number}.pdf"`);
+      reply.header('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${doc.document_number}.pdf"`);
       return reply.send(buf);
     } catch {
       return reply.code(404).send({ error: 'PDF file missing on disk' });

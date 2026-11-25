@@ -1,285 +1,309 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  FileText, Zap, Send, ExternalLink, Plus, Trash2, Loader2, Sparkles, CheckCircle2
-} from 'lucide-react'
+import { ExternalLink, FileText, Loader2, Plus, Send, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/modal'
-import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { apiClient } from '@/lib/api'
 
 interface Props {
   open: boolean
   onClose: () => void
-  contact: {
-    id: string
-    name: string
-    phone?: string | null
-    email?: string | null
-  } | null
+  contact: { id: string; name: string; phone?: string | null } | null
   token: string | null
-  onDocumentCreatedAndSent?: (docNumber: string, shareUrl: string) => void
+  /** Called after the PDF was queued to WhatsApp (the chat shows it via the live socket). */
+  onSent?: () => void
 }
 
-const DOC_TYPES = [
-  { id: 'quotation', label: 'Quotation / Quote', emoji: '💬', color: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
-  { id: 'invoice', label: 'Invoice', emoji: '🧾', color: 'bg-emerald-50 border-emerald-200 text-emerald-700' },
-  { id: 'receipt', label: 'Payment Receipt', emoji: '💳', color: 'bg-amber-50 border-amber-200 text-amber-700' },
-  { id: 'nda', label: 'NDA / Confidentiality', emoji: '🔒', color: 'bg-purple-50 border-purple-200 text-purple-700' },
-  { id: 'delivery_note', label: 'Delivery Note', emoji: '📦', color: 'bg-cyan-50 border-cyan-200 text-cyan-700' },
-  { id: 'purchase_order', label: 'Purchase Order', emoji: '🛒', color: 'bg-blue-50 border-blue-200 text-blue-700' },
-  { id: 'contract', label: 'Contract / Agreement', emoji: '📜', color: 'bg-slate-50 border-slate-200 text-slate-700' },
-  { id: 'proposal', label: 'Business Proposal', emoji: '💡', color: 'bg-rose-50 border-rose-200 text-rose-700' },
+type QuickType = 'quotation' | 'invoice' | 'receipt'
+
+const TYPES: { id: QuickType; label: string; message: string }[] = [
+  { id: 'quotation', label: 'Quotation', message: 'Here is your quotation.' },
+  { id: 'invoice', label: 'Invoice', message: 'Here is your invoice.' },
+  { id: 'receipt', label: 'Receipt', message: 'Here is your receipt. Thank you!' },
 ]
 
-export function QuickDocModal({ open, onClose, contact, token, onDocumentCreatedAndSent }: Props) {
+const CURRENCIES = ['ZMW', 'USD', 'ZAR', 'KES', 'NGN', 'EUR', 'GBP']
+const CURRENCY_KEY = 'zuri.quickDoc.currency'
+
+interface Line { description: string; quantity: string; unitPrice: string }
+const emptyLine = (): Line => ({ description: '', quantity: '1', unitPrice: '' })
+
+function isoInDays(days: number): string {
+  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)
+}
+
+function money(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency, minimumFractionDigits: 2 }).format(amount)
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`
+  }
+}
+
+/**
+ * Quick quotation / invoice / receipt from a chat. "Send PDF" creates the
+ * document, renders the PDF on the server and sends it to the chat as a real
+ * WhatsApp document (not a link). Anything richer opens the full editor.
+ */
+export function QuickDocModal({ open, onClose, contact, token, onSent }: Props) {
   const router = useRouter()
   const { addToast } = useToast()
 
-  const [documentType, setDocumentType] = useState('quotation')
+  const [type, setType] = useState<QuickType>('quotation')
   const [currency, setCurrency] = useState('ZMW')
-  const [items, setItems] = useState([
-    { description: '', quantity: 1, unitPriceCents: 0 }
-  ])
+  const [lines, setLines] = useState<Line[]>([emptyLine()])
   const [notes, setNotes] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState(TYPES[0].message)
+  const [messageTouched, setMessageTouched] = useState(false)
+  const [dateValue, setDateValue] = useState(isoInDays(14))
+  const [busy, setBusy] = useState<'draft' | 'send' | null>(null)
+  const [savedDraft, setSavedDraft] = useState<{ id: string; number: string; error: string } | null>(null)
+
+  // Fresh form each time it opens; currency = last used, else the business default.
+  useEffect(() => {
+    if (!open) return
+    setType('quotation'); setLines([emptyLine()]); setNotes(''); setSavedDraft(null)
+    setMessage(TYPES[0].message); setMessageTouched(false); setDateValue(isoInDays(14))
+    const remembered = typeof window !== 'undefined' ? localStorage.getItem(CURRENCY_KEY) : null
+    if (remembered) { setCurrency(remembered); return }
+    if (token) {
+      apiClient<{ defaultCurrency?: string | null }>('/api/business-profile', { token })
+        .then(p => { if (p.defaultCurrency) setCurrency(p.defaultCurrency) })
+        .catch(() => {})
+    }
+  }, [open, token])
+
+  useEffect(() => {
+    if (!messageTouched) setMessage(TYPES.find(t => t.id === type)!.message)
+    setDateValue(type === 'invoice' ? isoInDays(7) : isoInDays(14))
+  }, [type]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const parsed = useMemo(() => lines.map(l => ({
+    description: l.description.trim(),
+    quantity: Number(l.quantity) || 0,
+    unitPriceCents: Math.round((Number(l.unitPrice) || 0) * 100),
+  })), [lines])
+  const valid = parsed.filter(l => l.description && l.quantity > 0)
+  const total = valid.reduce((sum, l) => sum + l.quantity * l.unitPriceCents, 0) / 100
 
   if (!open || !contact) return null
 
-  const addItem = () => {
-    setItems(prev => [...prev, { description: '', quantity: 1, unitPriceCents: 0 }])
-  }
+  const update = (i: number, patch: Partial<Line>) => setLines(prev => prev.map((l, j) => (j === i ? { ...l, ...patch } : l)))
 
-  const removeItem = (idx: number) => {
-    if (items.length <= 1) return
-    setItems(prev => prev.filter((_, i) => i !== idx))
-  }
-
-  const updateItem = (idx: number, field: string, val: any) => {
-    setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item))
-  }
-
-  const calculateTotal = () => {
-    return items.reduce((sum, item) => sum + (item.quantity * item.unitPriceCents), 0) / 100
-  }
-
-  const handleCreateDoc = async (andSendWhatsApp: boolean) => {
+  const submit = async (send: boolean) => {
     if (!token) return
-
-    // Filter valid items
-    const validItems = items.filter(i => i.description.trim().length > 0)
-    if (validItems.length === 0) {
-      addToast({ variant: 'error', title: 'Line item required', description: 'Please enter at least one item description.' })
+    if (valid.length === 0) {
+      addToast({ variant: 'error', title: 'Add at least one item' })
       return
     }
-
-    setLoading(true)
+    setBusy(send ? 'send' : 'draft')
+    localStorage.setItem(CURRENCY_KEY, currency)
+    let doc: { id: string; documentNumber: string } | null = savedDraft ? { id: savedDraft.id, documentNumber: savedDraft.number } : null
     try {
-      const payload = {
-        contactId: contact.id,
-        documentType,
-        currency,
-        items: validItems.map(i => ({
-          description: i.description,
-          quantity: Number(i.quantity) || 1,
-          unitPriceCents: Math.round((Number(i.unitPriceCents) || 0))
-        })),
-        notes,
+      if (!doc) {
+        const res = await apiClient<{ document: { id: string; documentNumber: string } }>('/api/documents', {
+          method: 'POST', token,
+          body: JSON.stringify({
+            contactId: contact.id,
+            documentType: type,
+            currency,
+            items: valid,
+            notes: notes.trim() || undefined,
+            ...(type === 'quotation' ? { validUntil: dateValue } : type === 'invoice' ? { dueDate: dateValue } : {}),
+          }),
+        })
+        doc = res.document
       }
-
-      const res = await apiClient<{ document: { id: string; documentNumber: string; shareToken?: string } }>('/api/documents', {
-        method: 'POST',
-        token,
-        body: JSON.stringify(payload)
+      if (!send) {
+        addToast({ variant: 'success', title: `${doc.documentNumber} saved as a draft` })
+        onClose()
+        return
+      }
+      await apiClient(`/api/documents/${doc.id}/send`, {
+        method: 'POST', token,
+        body: JSON.stringify({ caption: message.trim() || undefined }),
       })
-
-      const doc = res.document
-
-      if (andSendWhatsApp) {
-        try {
-          await apiClient(`/api/documents/${doc.id}/send`, { method: 'POST', token })
-          addToast({ variant: 'success', title: `${doc.documentNumber} Created & Sent via WhatsApp!` })
-        } catch {
-          addToast({ variant: 'success', title: `${doc.documentNumber} Created!`, description: 'Sending via WhatsApp queued.' })
-        }
-      } else {
-        addToast({ variant: 'success', title: `${doc.documentNumber} Created as Draft` })
-      }
-
+      addToast({ variant: 'success', title: `${doc.documentNumber} sent`, description: `PDF sent to ${contact.name} on WhatsApp` })
+      onSent?.()
       onClose()
-
-      if (onDocumentCreatedAndSent && doc.shareToken) {
-        const publicUrl = `${window.location.origin}/shared/${doc.shareToken}`
-        onDocumentCreatedAndSent(doc.documentNumber, publicUrl)
+    } catch (err) {
+      const reason = (err as { data?: { error?: string } })?.data?.error || (err as Error)?.message || 'Something went wrong'
+      if (doc) {
+        // Created but not sent: keep the form open so "Send PDF" retries the same document.
+        setSavedDraft({ id: doc.id, number: doc.documentNumber, error: reason })
+      } else {
+        addToast({ variant: 'error', title: 'Could not create the document', description: reason })
       }
-    } catch (err: any) {
-      addToast({ variant: 'error', title: 'Failed to create document', description: err?.message })
     } finally {
-      setLoading(false)
+      setBusy(null)
     }
   }
 
   const openFullEditor = () => {
     onClose()
-    router.push(`/documents/new?contactId=${contact.id}&docType=${documentType}`)
+    router.push(`/documents/new?contactId=${contact.id}&docType=${type}`)
   }
 
-  return (
-    <Modal open={open} onClose={onClose} title={`⚡ Quick Document for ${contact.name}`} size="lg">
-      <div className="space-y-4 p-1">
-        {/* Header summary */}
-        <div className="flex items-center justify-between p-3 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white shadow-md">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300">
-              <Zap size={18} />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-300">Fast Document Dispatch</p>
-              <p className="text-sm font-extrabold text-white">{contact.name} {contact.phone ? `(${contact.phone})` : ''}</p>
-            </div>
-          </div>
-          <button
-            onClick={openFullEditor}
-            className="flex items-center gap-1 text-xs font-bold text-indigo-300 hover:text-white bg-white/10 px-3 py-1.5 rounded-xl hover:bg-white/20 transition-all"
-          >
-            <ExternalLink size={13} /> Full Editor
-          </button>
-        </div>
+  const inputCls = 'w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-gray-50'
+  const locked = !!savedDraft
 
-        {/* Document Type Selector Grid */}
-        <div>
-          <label className="text-xs font-extrabold text-gray-700 block mb-1.5">Document Type</label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {DOC_TYPES.map(dt => (
+  return (
+    <Modal open={open} onClose={onClose} title={`New document for ${contact.name}`} size="lg">
+      <div className="space-y-4">
+        {/* Type */}
+        <div className="flex items-center gap-2">
+          <div className="grid flex-1 grid-cols-3 gap-1 rounded-2xl bg-gray-100 p-1">
+            {TYPES.map(t => (
               <button
-                key={dt.id}
+                key={t.id}
                 type="button"
-                onClick={() => setDocumentType(dt.id)}
-                className={`flex items-center gap-2 p-2.5 rounded-2xl border text-xs font-bold transition-all text-left ${
-                  documentType === dt.id
-                    ? `${dt.color} ring-2 ring-indigo-500/30 shadow-sm`
-                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                disabled={locked}
+                onClick={() => setType(t.id)}
+                className={`min-h-10 rounded-xl text-sm font-semibold transition-colors ${
+                  type === t.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <span className="text-base">{dt.emoji}</span>
-                <span className="truncate">{dt.label}</span>
+                {t.label}
               </button>
             ))}
           </div>
-        </div>
-
-        {/* Items Entry Table */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-extrabold text-gray-700">Line Items &amp; Pricing</label>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-gray-500">Currency:</span>
-              <select
-                value={currency}
-                onChange={e => setCurrency(e.target.value)}
-                className="text-xs font-bold bg-gray-100 border border-gray-200 rounded-lg px-2 py-1 text-gray-800"
-              >
-                <option value="ZMW">ZMW (K)</option>
-                <option value="USD">USD ($)</option>
-                <option value="KES">KES (KSh)</option>
-                <option value="ZAR">ZAR (R)</option>
-                <option value="NGN">NGN (₦)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-            {items.map((item, idx) => (
-              <div key={idx} className="flex items-center gap-2 p-2 rounded-2xl border border-gray-100 bg-gray-50/50">
-                <input
-                  type="text"
-                  placeholder="Item description (e.g. Website Design, Consultation, Invoice Item)"
-                  value={item.description}
-                  onChange={e => updateItem(idx, 'description', e.target.value)}
-                  className="flex-1 px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Qty"
-                  value={item.quantity}
-                  onChange={e => updateItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                  className="w-14 px-2 py-1.5 rounded-xl border border-gray-200 bg-white text-xs font-bold text-center focus:outline-none"
-                />
-                <div className="relative w-28">
-                  <span className="absolute left-2.5 top-1.5 text-xs text-gray-400 font-bold">$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Unit Price"
-                    value={item.unitPriceCents ? item.unitPriceCents / 100 : ''}
-                    onChange={e => updateItem(idx, 'unitPriceCents', Math.round((parseFloat(e.target.value) || 0) * 100))}
-                    className="w-full pl-6 pr-2 py-1.5 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-800 focus:outline-none"
-                  />
-                </div>
-                {items.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeItem(idx)}
-                    className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
           <button
             type="button"
-            onClick={addItem}
-            className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
+            onClick={openFullEditor}
+            className="inline-flex min-h-10 flex-shrink-0 items-center gap-1 rounded-xl px-2.5 text-xs font-semibold text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+            title="Contracts, proposals, NDAs, templates and more"
           >
-            <Plus size={13} /> Add Item
+            More <ExternalLink size={12} />
           </button>
         </div>
 
-        {/* Notes */}
+        {/* Items */}
         <div>
-          <input
-            type="text"
-            placeholder="Optional client notes or payment terms..."
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          />
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-700">Items</p>
+            <select
+              value={currency}
+              disabled={locked}
+              onChange={e => setCurrency(e.target.value)}
+              className="min-h-8 rounded-lg border border-gray-200 bg-white px-2 text-xs font-semibold text-gray-700"
+              aria-label="Currency"
+            >
+              {[...new Set([currency, ...CURRENCIES])].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            {lines.map((line, i) => (
+              <div key={i} className="grid grid-cols-[1fr_auto] gap-2 rounded-2xl border border-gray-100 bg-gray-50/60 p-2 sm:grid-cols-[1fr_4.5rem_7rem_auto]">
+                <input
+                  value={line.description}
+                  disabled={locked}
+                  onChange={e => update(i, { description: e.target.value })}
+                  placeholder="What is it? e.g. Logo design"
+                  className={`${inputCls} col-span-1`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setLines(prev => prev.length > 1 ? prev.filter((_, j) => j !== i) : [emptyLine()])}
+                  disabled={locked}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 hover:bg-white hover:text-rose-500 sm:order-last"
+                  aria-label="Remove item"
+                >
+                  <Trash2 size={15} />
+                </button>
+                <div className="col-span-2 grid grid-cols-2 gap-2 sm:col-span-2 sm:contents">
+                  <input
+                    value={line.quantity}
+                    disabled={locked}
+                    onChange={e => update(i, { quantity: e.target.value })}
+                    inputMode="decimal"
+                    placeholder="Qty"
+                    aria-label="Quantity"
+                    className={`${inputCls} text-center`}
+                  />
+                  <input
+                    value={line.unitPrice}
+                    disabled={locked}
+                    onChange={e => update(i, { unitPrice: e.target.value })}
+                    inputMode="decimal"
+                    placeholder={`Price (${currency})`}
+                    aria-label="Unit price"
+                    className={`${inputCls} text-right tabular-nums`}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          {!locked && (
+            <button
+              type="button"
+              onClick={() => setLines(prev => [...prev, emptyLine()])}
+              className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
+            >
+              <Plus size={14} /> Add item
+            </button>
+          )}
         </div>
 
-        {/* Total & Action Buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-gray-100">
-          <div className="text-left">
-            <span className="text-xs text-gray-500 font-semibold block">Estimated Total:</span>
-            <span className="text-lg font-black text-gray-900">{currency} {calculateTotal().toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-          </div>
+        {/* Details */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {type !== 'receipt' && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-gray-700">{type === 'quotation' ? 'Valid until' : 'Due date'}</span>
+              <input type="date" value={dateValue} disabled={locked} onChange={e => setDateValue(e.target.value)} className={inputCls} />
+            </label>
+          )}
+          <label className={`block ${type === 'receipt' ? 'sm:col-span-2' : ''}`}>
+            <span className="mb-1 block text-xs font-semibold text-gray-700">Notes on the document <span className="font-normal text-gray-400">(optional)</span></span>
+            <input value={notes} disabled={locked} onChange={e => setNotes(e.target.value)} placeholder="Payment terms, bank details…" className={inputCls} />
+          </label>
+        </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Button
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold text-gray-700">Message with the PDF</span>
+          <input
+            value={message}
+            onChange={e => { setMessage(e.target.value); setMessageTouched(true) }}
+            placeholder="Here is your quotation."
+            className={inputCls}
+          />
+        </label>
+
+        {savedDraft && (
+          <div className="rounded-2xl bg-rose-50 px-3 py-2.5 text-xs text-rose-700 ring-1 ring-rose-200">
+            <p className="font-semibold">{savedDraft.number} was saved, but sending failed.</p>
+            <p className="mt-0.5">{savedDraft.error}</p>
+            <p className="mt-1 text-rose-600/80">Tap Send PDF to try again, or close — it stays in your documents as a draft.</p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex flex-col gap-3 border-t border-gray-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-xl font-black tabular-nums tracking-tight text-gray-950">{money(total, currency)}</p>
+          </div>
+          <div className="flex gap-2">
+            {!locked && (
+              <button
+                type="button"
+                onClick={() => submit(false)}
+                disabled={!!busy}
+                className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl px-4 text-sm font-semibold text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50 disabled:opacity-50 sm:flex-none"
+              >
+                {busy === 'draft' ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />} Save draft
+              </button>
+            )}
+            <button
               type="button"
-              variant="secondary"
-              onClick={() => handleCreateDoc(false)}
-              disabled={loading}
-              className="flex-1 sm:flex-none text-xs font-bold py-2.5 rounded-xl border-gray-200 hover:bg-gray-100"
+              onClick={() => submit(true)}
+              disabled={!!busy}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-500 disabled:opacity-50 sm:flex-none"
             >
-              Save Draft
-            </Button>
-            <Button
-              type="button"
-              onClick={() => handleCreateDoc(true)}
-              disabled={loading}
-              className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 rounded-xl shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-1.5"
-            >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              Create &amp; Send WhatsApp
-            </Button>
+              {busy === 'send' ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+              {busy === 'send' ? 'Making PDF…' : 'Send PDF'}
+            </button>
           </div>
         </div>
       </div>

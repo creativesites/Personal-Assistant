@@ -36,7 +36,7 @@ export function mediaHref(path: string, token?: string | null): string {
 
 /** Same URL, but the API answers with Content-Disposition: attachment so the browser saves it. */
 export function mediaDownloadHref(url: string): string {
-  if (!/\/api\/messages\/[^/]+\/media/.test(url)) return url
+  if (!/\/api\/(messages\/[^/]+\/media|documents\/[^/]+\/pdf)/.test(url)) return url
   return `${url}${url.includes('?') ? '&' : '?'}download=1`
 }
 
@@ -253,17 +253,24 @@ export function MessageContent({
     if (!href) return <MediaUnavailable kind="Document" icon={<FileText size={20} />} caption={fileName} textClass={textClass} />
     const ext = (fileName.includes('.') ? fileName.split('.').pop() : msg.mediaMimeType?.split('/')[1])?.toUpperCase().slice(0, 4)
     const isPdf = msg.mediaMimeType === 'application/pdf' || /\.pdf$/i.test(fileName)
+    const canOpen = isPdf && !!onOpenMedia && !!msg.id
     return (
       <div className="flex w-64 max-w-full items-center gap-3 rounded-xl border border-gray-200 bg-white/80 p-2.5">
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-[10px] font-bold text-indigo-600">
-          {ext || <FileText size={16} />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-800" title={fileName}>{fileName}</p>
-          {isPdf && onOpenMedia && msg.id && (
-            <button onClick={() => onOpenMedia(msg.id!)} className="text-[11px] font-semibold text-indigo-600 hover:underline">Open</button>
-          )}
-        </div>
+        <button
+          type="button"
+          disabled={!canOpen}
+          onClick={e => { e.stopPropagation(); if (canOpen) onOpenMedia!(msg.id!) }}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left enabled:cursor-pointer"
+          title={canOpen ? 'Open PDF' : fileName}
+        >
+          <span className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${isPdf ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600'}`}>
+            {ext || <FileText size={16} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-gray-800">{fileName}</span>
+            {canOpen && <span className="block text-[11px] font-semibold text-indigo-600">Tap to open</span>}
+          </span>
+        </button>
         <a
           href={mediaDownloadHref(href)}
           className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-indigo-600"

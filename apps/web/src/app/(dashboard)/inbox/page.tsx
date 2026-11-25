@@ -2544,9 +2544,6 @@ export default function InboxPage() {
           onClose={() => setShowQuickDocModal(false)}
           contact={contact}
           token={token ?? null}
-          onDocumentCreatedAndSent={(docNum, shareUrl) => {
-            setDraft(`Hi ${contact.name}, here is your ${docNum}: ${shareUrl}`)
-          }}
         />
       )}
 
