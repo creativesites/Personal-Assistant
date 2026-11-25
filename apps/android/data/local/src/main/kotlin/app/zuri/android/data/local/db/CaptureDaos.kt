@@ -126,6 +126,10 @@ interface MessageDao {
     @Query("UPDATE message SET text = :text, placeholder_kind = :placeholder, placeholder_detail = :detail, fingerprint = :fingerprint, edited = :edited, edit_history = :history, updated_at = :now WHERE id = :id")
     suspend fun revise(id: String, text: String?, placeholder: String?, detail: String?, fingerprint: String, edited: Boolean, history: String?, now: Long)
 
+    /** A message with no timestamp of its own, from the very same notification (key and post time) already stored. */
+    @Query("SELECT * FROM message WHERE conversation_id = :conversationId AND sender_key = :senderKey AND notification_key = :key AND notification_posted_at = :postedAt AND exact_time = 0 LIMIT 1")
+    suspend fun findSameNotification(conversationId: String, senderKey: String, key: String, postedAt: Long): MessageEntity?
+
     @Query("UPDATE message SET text = :text, placeholder_kind = :placeholder, placeholder_detail = :detail, fingerprint = :fingerprint, adapter_version = :adapterVersion, updated_at = :now WHERE id = :id")
     suspend fun reparse(id: String, text: String?, placeholder: String?, detail: String?, fingerprint: String, adapterVersion: Int, now: Long)
 

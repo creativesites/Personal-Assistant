@@ -113,6 +113,18 @@ class IngestProcessorTest {
         assertThat(stats.duplicates).isEqualTo(1)
     }
 
+    @Test fun theSameNotificationReadAgainIsNeverStoredTwiceEvenIfItsCleanedTextChanged() = runTest {
+        val email = NotificationSnapshot("com.google.android.gm", "gm-1", 4_500_000, title = "Lydia", bigText = "What's new in version 1")
+        capture(email)
+        processor.processPending()
+        // Re-read after a restart; a newer cleanup produces different text for the same notification.
+        capture(email.copy(bigText = "What's new in version 1 (cleaned differently)"), adapterVersion = 2)
+        val stats = processor.processPending()
+        assertThat(stats.inserted).isEqualTo(0)
+        assertThat(stats.reparsed).isEqualTo(1)
+        assertThat(messages().single().text).isEqualTo("What's new in version 1 (cleaned differently)")
+    }
+
     @Test fun excludedConversationsLeaveNoTrace() = runTest {
         db.captureExclusionDao().insert(CaptureExclusionEntity("x", "com.whatsapp", "d:chanda", now))
         capture(wa(msg("Hi", 5_000_000)))

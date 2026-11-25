@@ -127,6 +127,16 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
             val existing = messages.findExact(conv.id, m.senderKey, m.sentAt)
             if (existing != null) return revise(existing, m, fingerprint, row.adapterVersion, now)
         }
+        if (!m.exactTime) {
+            // The same notification read again (after a restart, or by a newer adapter): one message,
+            // whatever its cleaned text now looks like. Update it quietly rather than storing it twice.
+            val same = messages.findSameNotification(conv.id, m.senderKey, s.key, s.postTime)
+            if (same != null) {
+                if (same.fingerprint == fingerprint) return Outcome.DUPLICATE
+                messages.reparse(same.id, m.text, m.placeholder?.name, m.placeholderDetail, fingerprint, row.adapterVersion, now)
+                return Outcome.REPARSED
+            }
+        }
         if (messages.anyFingerprint(conv.id, Fingerprints.withNeighbours(m))) return Outcome.DUPLICATE
         messages.insert(
             MessageEntity(
