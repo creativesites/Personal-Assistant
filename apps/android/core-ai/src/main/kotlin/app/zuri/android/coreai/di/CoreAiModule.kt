@@ -8,7 +8,7 @@ import app.zuri.android.coreai.install.AndroidModelLibrary
 import app.zuri.android.coreai.install.ModelDownloader
 import app.zuri.android.coreai.install.ModelInstaller
 import app.zuri.android.coreai.runtime.LiteRtBenchmarks
-import app.zuri.android.coreai.runtime.LiteRtEngineManager
+import app.zuri.android.coreai.ipc.LlmClient
 import app.zuri.android.coreai.runtime.LiteRtLanguageModel
 import app.zuri.android.coreai.storage.ModelStorage
 import app.zuri.android.core.common.Clock
@@ -43,16 +43,17 @@ object CoreAiModule {
     fun installer(@ApplicationContext context: Context, storage: ModelStorage, downloader: ModelDownloader, ledger: EgressLedger) =
         ModelInstaller(storage, downloader, ledger) { runCatching { StatFs(context.noBackupFilesDir.path).availableBytes }.getOrDefault(0L) }
 
+    /** The one connection to the `:llm` process, shared by generation and benchmarks. */
     @Provides @Singleton
-    fun engines(@ApplicationContext context: Context) = LiteRtEngineManager(File(context.cacheDir, "litertlm"))
+    fun llmClient(@ApplicationContext context: Context) = LlmClient(context)
 
     @Provides @Singleton
-    fun languageModel(catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, engines: LiteRtEngineManager): LocalLanguageModel =
-        LiteRtLanguageModel(catalog, storage, engines)
+    fun languageModel(catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, client: LlmClient): LocalLanguageModel =
+        LiteRtLanguageModel(catalog, storage, client)
 
     @Provides @Singleton
-    fun benchmarks(@ApplicationContext context: Context, catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, engines: LiteRtEngineManager, clock: Clock): ModelBenchmarks =
-        LiteRtBenchmarks(catalog, storage, engines, PreferenceDataStoreFactory.create { context.preferencesDataStoreFile("zuri_ai") }, clock)
+    fun benchmarks(@ApplicationContext context: Context, catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, client: LlmClient, clock: Clock): ModelBenchmarks =
+        LiteRtBenchmarks(catalog, storage, client, PreferenceDataStoreFactory.create { context.preferencesDataStoreFile("zuri_ai") }, clock)
 
     @Provides @Singleton
     fun library(

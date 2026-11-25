@@ -35,6 +35,8 @@ import app.zuri.android.core.ui.components.RootTopBar
 import app.zuri.android.domain.workspace.WorkspaceAccent
 import app.zuri.android.domain.workspace.WorkspaceId
 import app.zuri.android.feature.models.ModelsRoute
+import app.zuri.android.feature.memory.MemoryRoute
+import app.zuri.android.feature.ask.AskRoute
 import app.zuri.android.feature.settings.LedgerRoute
 import app.zuri.android.feature.settings.PrivacyCenterRoute
 import app.zuri.android.feature.settings.SecurityRoute
@@ -60,6 +62,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class ConversationDest(val id: String)
 @Serializable data object ModelsDest
 @Serializable data object LedgerDest
+@Serializable data object MemoryDest
 
 private data class Tab(val route: Any, val type: KClass<*>, val icon: ImageVector, val label: Int)
 
@@ -89,7 +92,7 @@ fun ZuriShell(
     NavHost(nav, startDestination = TodayDest) {
         composable<TodayDest> {
             RootFrame(nav, state, { switcherOpen = true }) {
-                TodayRoute(onOpenPrivacy = { nav.navigate(PrivacyDest) }, onOpenSources = { nav.navigate(SourcesDest) })
+                TodayRoute(onOpenPrivacy = { nav.navigate(PrivacyDest) }, onOpenSources = { nav.navigate(SourcesDest) }, onOpenMemory = { nav.navigate(MemoryDest) })
             }
         }
         composable<InboxDest> {
@@ -99,10 +102,10 @@ fun ZuriShell(
         }
         composable<ConversationDest> { Detail { ConversationRoute(onBack = { nav.popBackStack() }) } }
         composable<PeopleDest> { RootFrame(nav, state, { switcherOpen = true }) { PeopleTab() } }
-        composable<AskDest> { RootFrame(nav, state, { switcherOpen = true }) { AskTab() } }
+        composable<AskDest> { RootFrame(nav, state, { switcherOpen = true }) { AskRoute(onOpenSource = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<MoreDest> {
             RootFrame(nav, state, { switcherOpen = true }) {
-                MoreTab(onSettings = { nav.navigate(SettingsDest) }, onPrivacy = { nav.navigate(PrivacyDest) }, onSecurity = { nav.navigate(SecurityDest) }, onModels = { nav.navigate(ModelsDest) })
+                MoreTab(onSettings = { nav.navigate(SettingsDest) }, onPrivacy = { nav.navigate(PrivacyDest) }, onSecurity = { nav.navigate(SecurityDest) }, onModels = { nav.navigate(ModelsDest) }, onMemory = { nav.navigate(MemoryDest) })
             }
         }
         composable<SettingsDest> {
@@ -117,6 +120,7 @@ fun ZuriShell(
         composable<SecurityDest> { Detail { SecurityRoute(onBack = { nav.popBackStack() }) } }
         composable<PrivacyDest> { Detail { PrivacyCenterRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }) } }
         composable<ModelsDest> { Detail { ModelsRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }) } }
+        composable<MemoryDest> { Detail { MemoryRoute(onBack = { nav.popBackStack() }, onOpenSource = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<LedgerDest> { Detail { LedgerRoute(onBack = { nav.popBackStack() }) } }
         composable<SourcesDest> { Detail { SourcesRoute(onBack = { nav.popBackStack() }) } }
     }

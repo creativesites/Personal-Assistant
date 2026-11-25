@@ -37,4 +37,21 @@ class MigrationTest {
             db.query("SELECT COUNT(*) FROM egress_ledger").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
         }
     }
+
+    /** v4: messages already stored become searchable, and nothing about them is marked as read by perception. */
+    @Test fun v3ToV4IndexesExistingMessagesForSearch() {
+        helper.createDatabase("migration-test-4", 3).use { db ->
+            db.execSQL("INSERT INTO workspace VALUES ('ws','PERSONAL','Personal','TEAL',0,0,'DEVICE',NULL,'LOCAL_ONLY',NULL)")
+            db.execSQL("INSERT INTO conversation VALUES ('c1','ws','WHATSAPP','com.whatsapp','k','Chanda',0,1,0,0,0,0,'DEVICE',NULL,'LOCAL_ONLY',NULL)")
+            db.execSQL(
+                "INSERT INTO message VALUES ('m1','c1','ws','INCOMING','s','Chanda','Please send the drip line quotation',NULL,NULL,1,1,'f',0,NULL," +
+                    "'com.whatsapp','k',1,1,2,1,1,'DEVICE',NULL,'LOCAL_ONLY',NULL)",
+            )
+        }
+        helper.runMigrationsAndValidate("migration-test-4", 4, true).use { db ->
+            db.query("SELECT COUNT(*) FROM message_fts WHERE message_fts MATCH 'quotat*'").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(1) }
+            db.query("SELECT perceived_at FROM message WHERE id = 'm1'").use { c -> c.moveToFirst(); assertThat(c.isNull(0)).isTrue() }
+            db.query("SELECT COUNT(*) FROM memory_item").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+        }
+    }
 }

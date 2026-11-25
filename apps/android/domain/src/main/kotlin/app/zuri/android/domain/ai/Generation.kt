@@ -27,12 +27,26 @@ sealed interface GenerationResult {
     data class Success(val text: String, val modelId: String, val millis: Long) : GenerationResult
     /** No suitable model is installed. Callers degrade honestly (Essential tier), never call the cloud. */
     data object NoModelInstalled : GenerationResult
-    data class Failed(val message: String) : GenerationResult
+    /** [engineStopped]: the model's process ended mid-call (crash or memory reclaim); the app is unaffected. */
+    data class Failed(val message: String, val engineStopped: Boolean = false) : GenerationResult
 }
+
+/**
+ * What understanding this phone can do right now (ARCHITECTURE.md §7). ESSENTIAL works on every
+ * phone with rules only; STANDARD uses an installed on-device model.
+ */
+enum class AiTier { ESSENTIAL, STANDARD }
 
 /** The on-device language model. Everything runs locally; there is no network path here. */
 interface LocalLanguageModel {
     suspend fun generate(request: GenerationRequest): GenerationResult
+    /**
+     * An answer constrained to [schema] (JSON Schema). The runtime only lets the model produce
+     * tokens that keep the output valid JSON for the schema; callers still validate the content.
+     */
+    suspend fun generateJson(request: GenerationRequest, schema: String): GenerationResult
+    /** ESSENTIAL when no chat model is installed. */
+    fun tier(): AiTier
     /** Frees the model's memory; the next call loads it again. */
     suspend fun release()
 }

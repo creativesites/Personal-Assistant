@@ -30,6 +30,8 @@ include(
     ":core:security",
     ":data:local",
     ":engine:ingest",
+    ":engine:perception",
+    ":engine:retrieval",
     ":core-ai",
     ":core-ai:remote",
     ":feature:onboarding",
@@ -38,5 +40,7 @@ include(
     ":feature:sources",
     ":feature:inbox",
     ":feature:models",
+    ":feature:memory",
+    ":feature:ask",
     ":arch-tests",
 )

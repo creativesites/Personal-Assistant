@@ -13,6 +13,8 @@ import app.zuri.android.data.local.db.ZuriDatabase
 import app.zuri.android.data.local.inbox.RoomInboxRepository
 import app.zuri.android.domain.capture.SourceSettingsRepository
 import app.zuri.android.domain.inbox.InboxRepository
+import app.zuri.android.data.local.memory.RoomMemoryRepository
+import app.zuri.android.domain.memory.MemoryRepository
 import app.zuri.android.data.local.prefs.DataStoreAppPreferencesRepository
 import app.zuri.android.data.local.privacy.FileStorageInspector
 import app.zuri.android.data.local.privacy.RoomEgressLedger
@@ -72,4 +74,7 @@ object DataModule {
 
     @Provides @Singleton
     fun inbox(db: ZuriDatabase, clock: Clock): InboxRepository = RoomInboxRepository(db, clock)
+
+    @Provides @Singleton
+    fun memory(db: ZuriDatabase, clock: Clock): MemoryRepository = RoomMemoryRepository(db, clock)
 }

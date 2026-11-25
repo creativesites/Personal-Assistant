@@ -11,11 +11,10 @@
 
     <string name="people_empty_t">No people yet</string>
     <string name="people_empty_b">People appear as Zuri sees your conversations. Nothing has been captured on this phone.</string>
-    <string name="ask_empty_t">Ask needs an on-device model</string>
-    <string name="ask_empty_b">Zuri answers questions with a model that runs on this phone. Setting one up arrives in a later update.</string>
     <string name="more_title">More</string>
     <string name="more_privacy">Privacy Center</string>
     <string name="more_models">AI models</string>
+    <string name="more_memory">Memory: promises, requests, events</string>
     <string name="more_security">Security &amp; app lock</string>
 
     <string name="ctx_title">Switch context</string>

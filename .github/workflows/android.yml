@@ -37,7 +37,7 @@ jobs:
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --stacktrace
       - name: Unit and architecture tests
-        run: ./gradlew :domain:test :core:common:testDebugUnitTest :core:security:testDebugUnitTest :data:local:testDebugUnitTest :engine:ingest:testDebugUnitTest :app:testDebugUnitTest :arch-tests:test
+        run: ./gradlew :domain:test :core:common:testDebugUnitTest :core:security:testDebugUnitTest :data:local:testDebugUnitTest :engine:ingest:testDebugUnitTest :engine:perception:testDebugUnitTest :engine:retrieval:testDebugUnitTest :core-ai:testDebugUnitTest :core-ai:remote:testDebugUnitTest :app:testDebugUnitTest :arch-tests:test
       - name: Verify screenshots (light and dark)
         run: ./gradlew :core:ui:verifyRoborazziDebug :feature:onboarding:verifyRoborazziDebug :feature:today:verifyRoborazziDebug :feature:settings:verifyRoborazziDebug :feature:sources:verifyRoborazziDebug :feature:inbox:verifyRoborazziDebug
       - name: Upload reports on failure

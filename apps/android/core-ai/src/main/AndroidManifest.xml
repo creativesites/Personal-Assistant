@@ -6,6 +6,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application>
+        <!-- The on-device model runs in its own process: an engine crash or memory kill can't take the app down. -->
+        <service
+            android:name="app.zuri.android.coreai.ipc.LlmService"
+            android:exported="false"
+            android:process=":llm" />
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

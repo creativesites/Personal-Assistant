@@ -1,6 +1,12 @@
 package app.zuri.android.coreai.runtime
 
 import app.zuri.android.coreai.storage.ModelStorage
+import android.os.Bundle
+import app.zuri.android.coreai.ipc.EngineStoppedException
+import app.zuri.android.coreai.ipc.EngineUnstableException
+import app.zuri.android.coreai.ipc.LlmClient
+import app.zuri.android.coreai.ipc.LlmProtocol
+import app.zuri.android.domain.ai.AiTier
 import app.zuri.android.domain.ai.GenerationRequest
 import app.zuri.android.domain.ai.GenerationResult
 import app.zuri.android.domain.ai.LocalLanguageModel
@@ -96,26 +102,47 @@ internal fun Engine.answerJson(prompt: String, schema: String, system: String? =
 }
 
 /**
- * The local model: the best installed chat model, in catalog order (recommended first). There is
- * no cloud fallback here (D-13): without a model the caller gets [GenerationResult.NoModelInstalled].
+ * The local model: the best installed chat model, in catalog order (recommended first), run in the
+ * `:llm` process through [LlmClient]. There is no cloud fallback here (D-13): without a model the
+ * caller gets [GenerationResult.NoModelInstalled] and degrades to the Essential tier.
  */
 class LiteRtLanguageModel(
     private val catalog: List<ModelSpec>,
     private val storage: ModelStorage,
-    private val engines: LiteRtEngineManager,
+    private val client: LlmClient,
 ) : LocalLanguageModel {
     fun activeModel(): ModelSpec? = catalog.filter { it.role == ModelRole.CHAT }.firstOrNull { storage.isInstalled(it) }
 
-    override suspend fun generate(request: GenerationRequest): GenerationResult {
+    override fun tier(): AiTier = if (activeModel() != null) AiTier.STANDARD else AiTier.ESSENTIAL
+
+    override suspend fun generate(request: GenerationRequest): GenerationResult = run(request, null)
+
+    override suspend fun generateJson(request: GenerationRequest, schema: String): GenerationResult = run(request, schema)
+
+    private suspend fun run(request: GenerationRequest, schema: String?): GenerationResult {
         val spec = activeModel() ?: return GenerationResult.NoModelInstalled
         val path = storage.installedPath(spec) ?: return GenerationResult.NoModelInstalled
         val start = System.currentTimeMillis()
-        return runCatching { engines.withEngine(path) { it.answer(request) } }
-            .fold(
-                { (text, _) -> GenerationResult.Success(text.trim(), spec.id, System.currentTimeMillis() - start) },
-                { GenerationResult.Failed(it.message ?: it.javaClass.simpleName) },
-            )
+        val args = Bundle().apply {
+            putString(LlmProtocol.K_PATH, path)
+            putString(LlmProtocol.K_PROMPT, request.prompt)
+            request.system?.let { putString(LlmProtocol.K_SYSTEM, it) }
+            putInt(LlmProtocol.K_MAX_TOKENS, request.maxOutputTokens)
+            schema?.let { putString(LlmProtocol.K_SCHEMA, it) }
+        }
+        return try {
+            val out = client.call(LlmProtocol.OP_GENERATE, args)
+            out.getString(LlmProtocol.K_ERROR)?.let { GenerationResult.Failed(it) }
+                ?: GenerationResult.Success(out.getString(LlmProtocol.K_TEXT).orEmpty().trim(), spec.id, System.currentTimeMillis() - start)
+        } catch (e: EngineStoppedException) {
+            GenerationResult.Failed(e.message.orEmpty(), engineStopped = true)
+        } catch (e: EngineUnstableException) {
+            GenerationResult.Failed(e.message.orEmpty(), engineStopped = true)
+        }
     }
 
-    override suspend fun release() = engines.release()
+    override suspend fun release() {
+        runCatching { client.call(LlmProtocol.OP_RELEASE, Bundle()) }
+        client.unbind()
+    }
 }

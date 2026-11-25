@@ -5,6 +5,7 @@ import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.AutoMigrationSpec
 import androidx.sqlite.db.SupportSQLiteDatabase
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
@@ -18,10 +19,14 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SourceAppEntity::class, CaptureRawEntity::class, CaptureExclusionEntity::class,
         ConversationEntity::class, MessageEntity::class,
         EgressEntity::class,
+        MemoryEntity::class, MemoryFeedbackEntity::class, MessageFtsEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3),
+        AutoMigration(from = 3, to = 4, spec = Migration3To4::class),
+    ],
 )
 abstract class ZuriDatabase : RoomDatabase() {
     abstract fun workspaceDao(): WorkspaceDao
@@ -31,6 +36,8 @@ abstract class ZuriDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun egressDao(): EgressDao
+    abstract fun memoryDao(): MemoryDao
+    abstract fun perceptionDao(): PerceptionDao
 
     companion object {
         const val FILE_NAME = "zuri.db"
@@ -64,5 +71,12 @@ abstract class ZuriDatabase : RoomDatabase() {
 internal object SecureDeleteCallback : RoomDatabase.Callback() {
     override fun onOpen(db: SupportSQLiteDatabase) {
         db.query("PRAGMA secure_delete = ON").close()
+    }
+}
+
+/** v4 adds the message search index: fill it from the messages already stored. */
+internal class Migration3To4 : AutoMigrationSpec {
+    override fun onPostMigrate(db: SupportSQLiteDatabase) {
+        db.execSQL("INSERT INTO message_fts(message_fts) VALUES('rebuild')")
     }
 }

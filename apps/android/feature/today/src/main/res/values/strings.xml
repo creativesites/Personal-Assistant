@@ -4,8 +4,11 @@
     <string name="today_afternoon">Good afternoon</string>
     <string name="today_evening">Good evening</string>
     <string name="today_empty_title">Nothing to brief you on yet</string>
-    <string name="today_empty_body_listening">Zuri is collecting your messages on this phone. Your promises, people to reconnect with and what is coming up will appear here once on-device understanding arrives.</string>
+    <string name="today_empty_body_listening">Zuri is collecting your messages on this phone. Promises, requests and plans will appear here once Zuri has read them, on this phone.</string>
     <string name="today_empty_body">When you choose which apps Zuri may read, your promises, people to reconnect with and what is coming up will appear here every morning, worked out on this phone.</string>
+    <string name="today_promises">Your promises</string>
+    <string name="today_upcoming">Coming up</string>
+    <string name="today_all">All</string>
     <string name="today_what_now">Where things stand</string>
     <string name="today_privacy_t">Your data is encrypted on this phone</string>
     <string name="today_privacy_s">See exactly what is stored and what can leave</string>

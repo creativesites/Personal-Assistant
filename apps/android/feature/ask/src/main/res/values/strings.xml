@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ask_intro_title">Ask about your messages</string>
+    <string name="ask_intro_body">Zuri answers from what is stored on this phone and shows where each answer came from. Nothing you ask leaves your phone.</string>
+    <string name="ask_suggest_promises">What have I promised people?</string>
+    <string name="ask_suggest_owed">Who promised me something?</string>
+    <string name="ask_suggest_week">What\'s coming up this week?</string>
+    <string name="ask_hint">Ask Zuri</string>
+    <string name="ask_send">Ask</string>
+    <string name="ask_thinking">Reading your messages on this phone…</string>
+    <string name="ask_sources">Sources</string>
+    <string name="ask_closest">Closest matches</string>
+    <string name="ask_not_found_title">I couldn\'t find that</string>
+    <string name="ask_not_found_body">Nothing stored on this phone answers it. Zuri only knows the messages it has captured.</string>
+    <string name="ask_by_model">Answered on this phone by your AI model</string>
+    <string name="ask_by_rules">Found on this phone</string>
+</resources>

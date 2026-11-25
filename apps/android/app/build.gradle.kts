@@ -8,6 +8,8 @@ plugins {
 }
 
 android {
+    // The M4 extraction fixtures are shared with the on-device model eval.
+    sourceSets { getByName("androidTest").assets.directories.add("../engine/perception/src/test/resources") }
     namespace = "app.zuri.android"
     compileSdk { version = release(providers.gradleProperty("zuri.compileSdk").get().toInt()) { minorApiLevel = providers.gradleProperty("zuri.compileSdkMinor").get().toInt() } }
 
@@ -19,6 +21,7 @@ android {
         versionCode = 3
         versionName = "0.3.0-m3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // On-device evals run against the installed app and its downloaded model only when asked for.
         // arm64 only (DECISIONS.md D-15): on-device models need it, and it keeps the APK small.
         ndk { abiFilters += listOf("arm64-v8a") }
     }
@@ -59,6 +62,14 @@ dependencies {
     implementation(project(":feature:inbox"))
     implementation(project(":engine:ingest"))
     implementation(project(":feature:models"))
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.truth)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+    implementation(project(":feature:memory"))
+    implementation(project(":feature:ask"))
+    implementation(project(":engine:perception"))
+    implementation(project(":engine:retrieval"))
     implementation(project(":core-ai"))
     implementation(project(":core-ai:remote"))
 

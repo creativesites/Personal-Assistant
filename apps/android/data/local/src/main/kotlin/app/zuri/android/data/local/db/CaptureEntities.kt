@@ -110,6 +110,8 @@ data class MessageEntity(
     @ColumnInfo(name = "remote_id") val remoteId: String? = null,
     @ColumnInfo(name = "sync_state") val syncState: String = SyncState.LOCAL_ONLY.name,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
+    /** When perception last read this message; cleared when its text changes so it is read again. */
+    @ColumnInfo(name = "perceived_at") val perceivedAt: Long? = null,
 )
 
 /** A conversation row with its latest message, for the Inbox list. */

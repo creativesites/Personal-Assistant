@@ -119,7 +119,7 @@ fun ModelsContent(state: ModelsState, actions: ModelsActions, modifier: Modifier
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(stringResource(R.string.models_intro), style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
             TextButton(onClick = actions.onOpenLedger, modifier = Modifier.padding(horizontal = 8.dp)) { Text(stringResource(R.string.open_ledger)) }
-            state.device?.let { DeviceCard(it) }
+            state.device?.let { DeviceCard(it, standard = state.entries.any { e -> e.spec.role == ModelRole.CHAT && e.state is ModelState.Installed }) }
             val chat = state.entries.filter { it.spec.role == ModelRole.CHAT }
             val search = state.entries.filter { it.spec.role == ModelRole.EMBEDDING }
             if (chat.isNotEmpty()) {
@@ -144,7 +144,7 @@ fun ModelsContent(state: ModelsState, actions: ModelsActions, modifier: Modifier
 }
 
 @Composable
-private fun DeviceCard(d: DeviceProfile) {
+private fun DeviceCard(d: DeviceProfile, standard: Boolean) {
     ZuriCard(style = CardStyle.Tinted) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconChip(Icons.Rounded.Memory, size = 36.dp)
@@ -154,6 +154,10 @@ private fun DeviceCard(d: DeviceProfile) {
                 Text(stringResource(R.string.device_ram, bytes(d.totalRamBytes)), style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted)
                 Text(stringResource(R.string.device_storage, bytes(d.freeStorageBytes)), style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted)
                 d.socModel?.let { Text(stringResource(R.string.device_chip, it), style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted) }
+                Text(
+                    stringResource(if (standard) R.string.device_tier_standard else R.string.device_tier_essential),
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp),
+                )
             }
         }
     }

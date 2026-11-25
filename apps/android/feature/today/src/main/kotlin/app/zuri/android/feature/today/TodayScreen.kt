@@ -29,16 +29,19 @@ import app.zuri.android.core.ui.components.ZuriListGroup
 import app.zuri.android.core.ui.components.ZuriListRow
 import app.zuri.android.core.ui.theme.Zuri
 import app.zuri.android.domain.capture.CaptureHealth
+import app.zuri.android.domain.memory.MemoryItem
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.TaskAlt
 
 @Composable
-fun TodayRoute(onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, viewModel: TodayViewModel = hiltViewModel()) {
+fun TodayRoute(onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, onOpenMemory: () -> Unit = {}, viewModel: TodayViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    TodayContent(state, onOpenPrivacy, onOpenSources)
+    TodayContent(state, onOpenPrivacy, onOpenSources, onOpenMemory = onOpenMemory)
 }
 
 /** P01 in its first-day state: honest about having nothing yet, and about why. */
 @Composable
-fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, modifier: Modifier = Modifier) {
+fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, modifier: Modifier = Modifier, onOpenMemory: () -> Unit = {}) {
     val greeting = stringResource(
         when (state.dayPart) { DayPart.Morning -> R.string.today_morning; DayPart.Afternoon -> R.string.today_afternoon; DayPart.Evening -> R.string.today_evening },
     )
@@ -47,11 +50,21 @@ fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: ()
             Text(state.dateLabel, style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted)
             Text(greeting, style = MaterialTheme.typography.headlineLarge)
         }
-        EmptyState(
-            icon = Icons.Rounded.WbSunny,
-            title = stringResource(R.string.today_empty_title),
-            body = stringResource(if (state.capture == CaptureHealth.LISTENING) R.string.today_empty_body_listening else R.string.today_empty_body),
-        )
+        if (state.promises.isEmpty() && state.upcoming.isEmpty()) {
+            EmptyState(
+                icon = Icons.Rounded.WbSunny,
+                title = stringResource(R.string.today_empty_title),
+                body = stringResource(if (state.capture == CaptureHealth.LISTENING) R.string.today_empty_body_listening else R.string.today_empty_body),
+            )
+        }
+        if (state.promises.isNotEmpty()) {
+            SectionHeader(stringResource(R.string.today_promises), action = stringResource(R.string.today_all), onAction = onOpenMemory)
+            ZuriListGroup(rows = state.promises.map { item -> { MemoryRow(item, Icons.Rounded.TaskAlt, onOpenMemory) } })
+        }
+        if (state.upcoming.isNotEmpty()) {
+            SectionHeader(stringResource(R.string.today_upcoming), action = stringResource(R.string.today_all), onAction = onOpenMemory)
+            ZuriListGroup(rows = state.upcoming.map { item -> { MemoryRow(item, Icons.Rounded.Event, onOpenMemory) } })
+        }
         SectionHeader(stringResource(R.string.today_what_now))
         ZuriListGroup(rows = listOf(
             {
@@ -78,4 +91,18 @@ fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: ()
             },
         ))
     }
+}
+
+@Composable
+private fun MemoryRow(item: MemoryItem, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    val due = item.dueAtMillis?.let {
+        java.time.format.DateTimeFormatter.ofPattern(if (item.dueHasTime) "EEE d MMM, HH:mm" else "EEE d MMM", java.util.Locale.getDefault())
+            .format(java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()))
+    } ?: item.dueText
+    ZuriListRow(
+        title = item.text,
+        supporting = listOfNotNull(item.personName, due).joinToString(" · "),
+        leading = { IconChip(icon) },
+        onClick = onClick,
+    )
 }

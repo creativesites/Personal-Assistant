@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="memory_title">Memory</string>
+    <string name="memory_subtitle">What Zuri understood from your messages</string>
+    <string name="memory_tier_standard">Understanding on this phone with your AI model</string>
+    <string name="memory_tier_essential">Essential understanding: phrasing rules only. Install an AI model for more.</string>
+    <string name="memory_running">Reading your messages now…</string>
+    <plurals name="memory_waiting">
+        <item quantity="one">%d message waiting to be read</item>
+        <item quantity="other">%d messages waiting to be read</item>
+    </plurals>
+    <string name="memory_up_to_date">Up to date</string>
+    <string name="memory_last_run">last read %s</string>
+    <string name="memory_run_now">Read now</string>
+    <string name="memory_only_charging">Only while charging</string>
+    <string name="memory_tab_promises">Your promises</string>
+    <string name="memory_tab_owed">Owed to you</string>
+    <string name="memory_tab_events">Events</string>
+    <string name="memory_tab_people">About people</string>
+    <string name="memory_tab_done">Done</string>
+    <string name="memory_empty_title">Nothing here yet</string>
+    <string name="memory_empty_waiting">Zuri hasn\'t read your newest messages yet. Tap Read now, or it will read them within the hour.</string>
+    <string name="memory_empty_body">When a message holds a promise, a request or a plan, it will appear here with a link to where it was said.</string>
+    <string name="memory_suggested">Suggested</string>
+    <string name="memory_due">due %s</string>
+    <string name="memory_origin_model">Understood on this phone by your AI model · said %s</string>
+    <string name="memory_origin_rules">Found by phrasing rules on this phone · said %s</string>
+    <string name="memory_action_done">Done</string>
+    <string name="memory_action_confirm">Right</string>
+    <string name="memory_action_reopen">Reopen</string>
+    <string name="memory_action_edit">Edit</string>
+    <string name="memory_action_wrong">Not right</string>
+    <string name="memory_action_source">Source</string>
+    <string name="memory_edit_title">Edit</string>
+    <string name="memory_save">Save</string>
+    <string name="memory_delete">Delete</string>
+    <string name="memory_cancel">Cancel</string>
+    <string name="memory_kind_my_promise">You promised</string>
+    <string name="memory_kind_their_promise">They promised</string>
+    <string name="memory_kind_request">Asked of you</string>
+    <string name="memory_kind_event">Event</string>
+    <string name="memory_kind_fact">About them</string>
+</resources>

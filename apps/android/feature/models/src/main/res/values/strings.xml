@@ -8,6 +8,8 @@
     <string name="device_ram">Memory: %1$s</string>
     <string name="device_storage">Free storage: %1$s</string>
     <string name="device_chip">Chip: %1$s</string>
+    <string name="device_tier_standard">AI tier: Standard. Zuri understands messages with the model below.</string>
+    <string name="device_tier_essential">AI tier: Essential. Zuri finds promises by phrasing alone until you install a model.</string>
 
     <string name="section_chat">For understanding and writing</string>
     <string name="section_search">For search</string>

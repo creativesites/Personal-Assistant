@@ -5,7 +5,14 @@ import androidx.lifecycle.viewModelScope
 import app.zuri.android.core.common.Clock
 import app.zuri.android.domain.capture.CaptureHealth
 import app.zuri.android.domain.capture.CaptureStatusProvider
+import app.zuri.android.domain.memory.MemoryFilter
+import app.zuri.android.domain.memory.MemoryItem
+import app.zuri.android.domain.memory.MemoryKind
+import app.zuri.android.domain.memory.MemoryRepository
 import app.zuri.android.domain.settings.AppPreferencesRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import app.zuri.android.domain.workspace.WorkspaceRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.Instant
@@ -26,6 +33,10 @@ data class TodayState(
     val workspaceName: String,
     val capture: CaptureHealth = CaptureHealth.OFF,
     val capturedToday: Int = 0,
+    /** Open promises and requests, soonest due first (M4). */
+    val promises: List<MemoryItem> = emptyList(),
+    /** Events in the next seven days. */
+    val upcoming: List<MemoryItem> = emptyList(),
 )
 
 @HiltViewModel
@@ -33,11 +44,28 @@ class TodayViewModel @Inject constructor(
     preferences: AppPreferencesRepository,
     workspaces: WorkspaceRepository,
     capture: CaptureStatusProvider,
+    memory: MemoryRepository,
     private val clock: Clock,
 ) : ViewModel() {
-    val state: StateFlow<TodayState> = combine(preferences.preferences, workspaces.observeAll(), capture.status) { prefs, all, status ->
-        val ws = all.firstOrNull { it.id == prefs.activeWorkspaceId } ?: all.firstOrNull()
-        snapshot(ws?.name.orEmpty()).copy(capture = status.state, capturedToday = status.capturedToday)
+    private val active = combine(preferences.preferences, workspaces.observeAll()) { prefs, all ->
+        all.firstOrNull { it.id == prefs.activeWorkspaceId } ?: all.firstOrNull()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val items = active.flatMapLatest { ws ->
+        if (ws == null) flowOf(emptyList())
+        else memory.observe(ws.id, MemoryFilter(kinds = setOf(MemoryKind.MY_PROMISE, MemoryKind.REQUEST_TO_ME, MemoryKind.EVENT)))
+    }
+
+    val state: StateFlow<TodayState> = combine(active, capture.status, items) { ws, status, list ->
+        val now = clock.nowMillis()
+        val week = now + 7L * 24 * 60 * 60 * 1000
+        snapshot(ws?.name.orEmpty()).copy(
+            capture = status.state, capturedToday = status.capturedToday,
+            promises = list.filter { it.kind != MemoryKind.EVENT }.take(5),
+            // An event with no time is kept through the end of its day.
+            upcoming = list.filter { it.kind == MemoryKind.EVENT && it.dueAtMillis != null && it.dueAtMillis!! in (now - 24L * 60 * 60 * 1000)..week }.take(5),
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), snapshot(""))
 
     private fun snapshot(workspace: String): TodayState {

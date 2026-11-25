@@ -1,0 +1,92 @@
+{
+  "note": "Synthetic, labelled chats for the M4 extraction eval. Invented names and text; no real messages. Each expected item is (kind, 0-based line). Lines without a label must produce nothing of that kind.",
+  "anchor": "2026-11-24T14:05",
+  "chats": [
+    {"title": "Chanda", "group": false, "lines": [
+      {"me": false, "text": "Can you send me the quotation for 40 drip lines by Friday 10am?"},
+      {"me": true, "text": "Sure, I'll send it tomorrow morning."},
+      {"me": false, "text": "Thanks. I'll pay the deposit on Monday."}
+    ], "expected": [["REQUEST_TO_ME", 0], ["MY_PROMISE", 1], ["THEIR_PROMISE", 2]]},
+
+    {"title": "Mwila", "group": false, "lines": [
+      {"me": false, "text": "Hi, how are you?"},
+      {"me": true, "text": "I'm good thanks, and you?"},
+      {"me": false, "text": "Fine. Long day at work today"}
+    ], "expected": []},
+
+    {"title": "Bwalya", "group": false, "lines": [
+      {"me": false, "text": "Let's meet at Arcades on Saturday at 3pm for coffee"},
+      {"me": true, "text": "Perfect, see you then"}
+    ], "expected": [["EVENT", 0]]},
+
+    {"title": "Mum", "group": false, "lines": [
+      {"me": false, "text": "Please don't forget to buy mealie meal on your way home"},
+      {"me": true, "text": "Ok mum I will"},
+      {"me": false, "text": "Your aunt is coming next week"}
+    ], "expected": [["REQUEST_TO_ME", 0], ["MY_PROMISE", 1]]},
+
+    {"title": "Kasonde", "group": false, "lines": [
+      {"me": true, "text": "Let me check with the supplier and get back to you"},
+      {"me": false, "text": "No problem, take your time"}
+    ], "expected": [["MY_PROMISE", 0]]},
+
+    {"title": "Natasha", "group": false, "lines": [
+      {"me": false, "text": "Could you send me the photos from the wedding?"},
+      {"me": true, "text": "Yes"},
+      {"me": false, "text": "Thank you so much 🙏"}
+    ], "expected": [["REQUEST_TO_ME", 0]]},
+
+    {"title": "Peter", "group": false, "lines": [
+      {"me": false, "text": "I'll transfer the K2,500 by end of the month"},
+      {"me": true, "text": "Okay noted, thanks"}
+    ], "expected": [["THEIR_PROMISE", 0]]},
+
+    {"title": "Grace", "group": false, "lines": [
+      {"me": false, "text": "Did you watch the match last night?"},
+      {"me": true, "text": "Yes! What a goal"},
+      {"me": false, "text": "Haha I couldn't believe it"}
+    ], "expected": []},
+
+    {"title": "Dr Phiri's office", "group": false, "lines": [
+      {"me": false, "text": "Your appointment is confirmed for 12 Dec at 9:30am"},
+      {"me": true, "text": "Thank you"}
+    ], "expected": [["EVENT", 0]]},
+
+    {"title": "Joseph", "group": false, "lines": [
+      {"me": true, "text": "I will drop off the documents at your office on Thursday"},
+      {"me": false, "text": "Great, I'll be there after 2"}
+    ], "expected": [["MY_PROMISE", 0], ["THEIR_PROMISE", 1]]},
+
+    {"title": "Ruth", "group": false, "lines": [
+      {"me": false, "text": "Kindly remind me the account number"},
+      {"me": true, "text": "Will do"}
+    ], "expected": [["REQUEST_TO_ME", 0], ["MY_PROMISE", 1]]},
+
+    {"title": "Tembo", "group": false, "lines": [
+      {"me": false, "text": "Shall I bring the generator tomorrow?"},
+      {"me": true, "text": "Not needed, power is back"}
+    ], "expected": []},
+
+    {"title": "Esther", "group": false, "lines": [
+      {"me": false, "text": "The kids are doing well at school"},
+      {"me": true, "text": "Glad to hear that"},
+      {"me": false, "text": "Call me tonight when you are free"}
+    ], "expected": [["REQUEST_TO_ME", 2]]},
+
+    {"title": "Banda", "group": false, "lines": [
+      {"me": true, "text": "I'm going to pay the deposit for the plot next week"},
+      {"me": false, "text": "Good, the seller is waiting"}
+    ], "expected": [["MY_PROMISE", 0]]},
+
+    {"title": "Chileshe", "group": false, "lines": [
+      {"me": false, "text": "Happy birthday!! 🎉"},
+      {"me": true, "text": "Thank you so much!"}
+    ], "expected": []},
+
+    {"title": "Lungu", "group": false, "lines": [
+      {"me": false, "text": "Pls send the invoice"},
+      {"me": true, "text": "Sending it now"},
+      {"me": false, "text": "Received, will process payment on Friday"}
+    ], "expected": [["REQUEST_TO_ME", 0], ["THEIR_PROMISE", 2]]}
+  ]
+}
