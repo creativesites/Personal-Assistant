@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 
 import { VoiceRecorderDock } from './voice-recorder-dock'
+import { messagePreviewLabel } from './message-bubble'
 import { predictGhostText } from '../_lib/ghost-text'
 
 // Dynamic import to prevent SSR/hydration mismatch with emoji-picker-react
@@ -360,7 +361,7 @@ export function ReplyDock({
                 Replying to {replyingToMessage.senderDisplayName || (replyingToMessage.senderType === 'user' ? 'You' : 'Contact')}
               </p>
               <p className="text-xs text-slate-800 font-semibold truncate leading-snug">
-                {replyingToMessage.body || 'Attachment'}
+                {messagePreviewLabel(replyingToMessage) || 'Message'}
               </p>
             </div>
           </div>

@@ -327,7 +327,7 @@ export function MessageThread({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className={`flex-1 overflow-y-auto px-4 py-4 space-y-2 z-10 relative ${searchOpen ? 'pt-20' : ''}`}
+        className={`flex-1 overflow-y-auto px-1 sm:px-4 py-4 z-10 relative ${searchOpen ? 'pt-20' : ''}`}
       >
         {loading ? (
           <ThreadLoadingSkeleton />
@@ -370,6 +370,11 @@ export function MessageThread({
             {sortedMessages.map((msg, idx) => {
               const prev = sortedMessages[idx - 1]
               const showDate = !prev || dayKey(prev.timestamp) !== dayKey(msg.timestamp)
+              // Consecutive messages from the same sender within 5 minutes stack tightly.
+              const sameSender = !!prev && prev.senderType === msg.senderType &&
+                (prev.senderDisplayName ?? null) === (msg.senderDisplayName ?? null)
+              const firstInRun = showDate || !sameSender ||
+                new Date(msg.timestamp).getTime() - new Date(prev!.timestamp).getTime() > 5 * 60_000
               const msgCards = cardsByMessageId[msg.id] ?? []
 
               return (
@@ -396,6 +401,8 @@ export function MessageThread({
                     allMessages={messages}
                     highlighted={highlightedMsgId === msg.id}
                     onOpenMedia={onOpenMedia}
+                    firstInRun={firstInRun}
+                    showSenderName={firstInRun}
                     onQuoteClick={handleQuoteClick}
                     onReply={onReply}
                     onForward={onForward}

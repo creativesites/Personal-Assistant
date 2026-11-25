@@ -1,41 +1,29 @@
 'use client'
 
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { 
-  Zap, 
-  Check, 
-  CheckCheck, 
-  Clock, 
-  Copy, 
-  ThumbsUp, 
-  ThumbsDown, 
-  RotateCcw, 
-  Share, 
-  Bookmark, 
-  MoreHorizontal, 
-  Bot, 
-  User, 
-  Sparkles,
-  ChevronDown,
-  Wand2,
+import {
+  Zap,
+  Check,
+  CheckCheck,
+  Clock,
+  Copy,
+  ThumbsUp,
+  ThumbsDown,
+  RotateCcw,
+  Share,
+  Bookmark,
+  User,
   ShieldCheck,
   AlertCircle,
-  FileText,
-  Image as ImageIcon,
-  Music,
   Video,
-  Download,
-  ExternalLink,
-  Maximize2,
   CornerUpLeft,
   CornerUpRight,
   Smile,
   Star,
   Pin,
   PinOff,
-  Trash2
+  Trash2,
 } from 'lucide-react'
-import { Avatar } from '@/components/ui/avatar'
 import { MessageContent } from './message-content'
 
 /** Types rendered as plain text; anything else (media, location, contact card…) goes through MessageContent. */
@@ -134,6 +122,10 @@ export interface MessageBubbleProps {
   highlighted?: boolean
   /** Open this message's photo/video/PDF in the full-screen viewer. */
   onOpenMedia?: (messageId: string) => void
+  /** First message of a consecutive run from the same sender (gets the tail and spacing). */
+  firstInRun?: boolean
+  /** Group chats: show the sender's name (first message of a run only). */
+  showSenderName?: boolean
 }
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -144,15 +136,6 @@ const SENDER_NAME_COLORS = [
   'text-indigo-600', 'text-pink-600', 'text-lime-600', 'text-fuchsia-600',
 ]
 
-const GRADIENT_BGS = [
-  'from-emerald-50/90 to-teal-50/90',
-  'from-sky-50/90 to-blue-50/90', 
-  'from-violet-50/90 to-purple-50/90',
-  'from-amber-50/90 to-orange-50/90',
-  'from-rose-50/90 to-pink-50/90',
-  'from-cyan-50/90 to-sky-50/90',
-]
-
 // ─── Utilities ─────────────────────────────────────────────────────
 
 function senderNameColor(name: string): string {
@@ -161,44 +144,21 @@ function senderNameColor(name: string): string {
   return SENDER_NAME_COLORS[hash % SENDER_NAME_COLORS.length]
 }
 
-function senderGradient(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-  return GRADIENT_BGS[hash % GRADIENT_BGS.length]
-}
-
 function formatTime(ts: string | null): string {
   if (!ts) return ''
-  const d = new Date(ts)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
-  if (days === 0) {
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } else if (days === 1) {
-    return 'Yesterday ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } else if (days < 7) {
-    return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } else {
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-  }
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatRelativeTime(ts: string): string {
-  const d = new Date(ts)
-  const now = new Date()
-  const diff = now.getTime() - d.getTime()
-  const seconds = Math.floor(diff / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-
-  if (seconds < 60) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  if (hours < 24) return `${hours}h ago`
-  if (days < 7) return `${days}d ago`
-  return formatTime(ts)
+/** WhatsApp-style one-line label for a message (reply previews, quotes). */
+export function messagePreviewLabel(m: Pick<InboxMessage, 'body' | 'messageType'>): string {
+  const t = m.messageType as string | undefined
+  const label: Record<string, string> = {
+    image: '📷 Photo', video: '🎥 Video', audio: '🎤 Voice message', sticker: 'Sticker',
+    location: '📍 Location', contact_card: '👤 Contact', deleted: 'This message was deleted',
+  }
+  if (t === 'document') return `📄 ${m.body || 'Document'}`
+  if (t && label[t]) return m.body && t !== 'deleted' && t !== 'audio' ? `${label[t]} · ${m.body}` : label[t]
+  return m.body || ''
 }
 
 function highlightText(text: string, query: string): React.ReactNode {
@@ -245,173 +205,6 @@ function StatusIndicator({ status }: { status?: string }) {
     <span className={`${cfg.color} ${cfg.animate ? 'animate-pulse' : ''}`} title={status}>
       <Icon size={14} strokeWidth={2.5} />
     </span>
-  )
-}
-
-function ConfidenceBadge({ confidence, modelName }: { confidence?: number; modelName?: string }) {
-  if (!confidence && !modelName) return null
-
-  const getColor = (c: number) => {
-    if (c >= 0.9) return 'bg-emerald-100 text-emerald-700 border-emerald-200'
-    if (c >= 0.7) return 'bg-amber-100 text-amber-700 border-amber-200'
-    return 'bg-red-100 text-red-700 border-red-200'
-  }
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {modelName && (
-        <span className="text-[10px] font-medium text-gray-500 bg-gray-100/80 px-1.5 py-0.5 rounded-md border border-gray-200/60">
-          {modelName}
-        </span>
-      )}
-      {confidence !== undefined && (
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${getColor(confidence)}`}>
-          {Math.round(confidence * 100)}%
-        </span>
-      )}
-    </div>
-  )
-}
-
-function CitationPill({ citation, onClick }: { citation: Citation; onClick?: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 border border-gray-200/80 
-                 hover:bg-sky-50 hover:border-sky-200 transition-all duration-200 shadow-sm hover:shadow-md"
-    >
-      <span className="w-5 h-5 rounded-md bg-gradient-to-br from-sky-400 to-indigo-500 text-white text-[10px] font-bold 
-                       flex items-center justify-center shrink-0">
-        {citation.id}
-      </span>
-      <span className="text-xs text-gray-700 font-medium truncate max-w-[140px] group-hover:text-sky-700">
-        {citation.title}
-      </span>
-      {citation.url && <ExternalLink size={10} className="text-gray-400 group-hover:text-sky-500" />}
-    </button>
-  )
-}
-
-function AttachmentCard({ attachment, onClick }: { attachment: Attachment; onClick?: () => void }) {
-  const icons = {
-    image: ImageIcon,
-    video: Video,
-    audio: Music,
-    document: FileText,
-    link: ExternalLink,
-  }
-  const Icon = icons[attachment.type] || FileText
-
-  const typeColors = {
-    image: 'from-purple-50 to-pink-50 border-purple-200 text-purple-600',
-    video: 'from-red-50 to-orange-50 border-red-200 text-red-600',
-    audio: 'from-amber-50 to-yellow-50 border-amber-200 text-amber-600',
-    document: 'from-blue-50 to-sky-50 border-blue-200 text-blue-600',
-    link: 'from-emerald-50 to-teal-50 border-emerald-200 text-emerald-600',
-  }
-
-  return (
-    <button
-      onClick={onClick}
-      className={`group flex items-center gap-3 p-2.5 rounded-xl bg-gradient-to-r ${typeColors[attachment.type]} 
-                  border hover:shadow-md transition-all duration-200 w-full text-left`}
-    >
-      <div className="w-10 h-10 rounded-lg bg-white/70 flex items-center justify-center shadow-sm shrink-0">
-        <Icon size={18} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-gray-800 truncate">{attachment.name || 'Attachment'}</p>
-        {attachment.size && <p className="text-[10px] text-gray-500">{attachment.size}</p>}
-      </div>
-      <Download size={14} className="text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-    </button>
-  )
-}
-
-function ImagePreview({ url, alt, onClick }: { url: string; alt?: string; onClick?: () => void }) {
-  const [loaded, setLoaded] = useState(false)
-  const [error, setError] = useState(false)
-
-  if (error) {
-    return (
-      <div className="rounded-xl bg-gray-100 border border-gray-200 p-4 flex items-center gap-2 text-gray-500">
-        <ImageIcon size={16} />
-        <span className="text-xs">Failed to load image</span>
-      </div>
-    )
-  }
-
-  return (
-    <div className="relative group rounded-xl overflow-hidden bg-gray-100 border border-gray-200/80">
-      {!loaded && (
-        <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-gray-100 to-gray-200" />
-      )}
-      <img
-        src={url}
-        alt={alt || 'Image'}
-        className={`w-full max-w-[320px] object-cover rounded-xl transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-        onLoad={() => setLoaded(true)}
-        onError={() => setError(true)}
-      />
-      {loaded && (
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-          <button 
-            onClick={onClick}
-            className="p-2 rounded-full bg-white/90 text-gray-700 shadow-lg hover:bg-white transition-all"
-          >
-            <Maximize2 size={16} />
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function CodeBlock({ language, code }: { language: string; code: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }, [code])
-
-  return (
-    <div className="rounded-xl overflow-hidden border border-gray-200/80 bg-[#1e1e2e] my-2 shadow-sm">
-      <div className="flex items-center justify-between px-3 py-2 bg-[#181825] border-b border-gray-700/50">
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-            <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-          </div>
-          <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider ml-2">{language}</span>
-        </div>
-        <button
-          onClick={handleCopy}
-          className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-white transition-colors"
-        >
-          {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <pre className="p-3 overflow-x-auto text-[13px] leading-relaxed">
-        <code className="text-gray-300 font-mono">{code}</code>
-      </pre>
-    </div>
-  )
-}
-
-function ThinkingIndicator() {
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <div className="flex gap-1">
-        <div className="w-2 h-2 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-        <div className="w-2 h-2 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-        <div className="w-2 h-2 rounded-full bg-sky-500 animate-bounce" style={{ animationDelay: '300ms' }} />
-      </div>
-      <span className="text-xs text-gray-500 font-medium">Thinking...</span>
-    </div>
   )
 }
 
@@ -477,8 +270,10 @@ function ActionBar({
   onStar,
   onPin,
   onDelete,
+  forceVisible,
 }: { 
   msg: InboxMessage
+  forceVisible?: boolean
   onCopy?: (text: string) => void
   onRegenerate?: (msgId: string) => void
   onFeedback?: (msgId: string, type: 'positive' | 'negative') => void
@@ -508,7 +303,7 @@ function ActionBar({
   }, [msg.body, onCopy])
 
   return (
-    <div className="relative flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+    <div className={`relative flex items-center gap-0.5 ${forceVisible ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'} transition-opacity duration-150 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 shadow-xs`}>
       {/* Star button */}
       {onStar && (
         <button
@@ -702,8 +497,8 @@ function QuotedMessage({
     : 'Referenced Message'
 
   const bodyText = quotedMsg
-    ? (quotedMsg.body || (quotedMsg.attachments?.length ? `📎 ${quotedMsg.attachments[0].name || 'Attachment'}` : 'Click to view referenced message'))
-    : 'Click to view referenced message'
+    ? (messagePreviewLabel(quotedMsg) || 'Message')
+    : 'Earlier message'
 
   return (
     <button
@@ -763,6 +558,8 @@ export function MessageBubble({
   allMessages,
   highlighted,
   onOpenMedia,
+  firstInRun = true,
+  showSenderName = true,
 }: MessageBubbleProps) {
   const isUser = msg.senderType === 'user'
   const isAssistant = msg.senderType === 'assistant'
@@ -776,7 +573,6 @@ export function MessageBubble({
   const hasTextHighlight = !!searchQuery.trim() && 
     !['image', 'video', 'audio', 'document'].includes(msg.messageType || '')
 
-  const [isHovered, setIsHovered] = useState(false)
   const bubbleRef = useRef<HTMLDivElement>(null)
 
   // Scroll into view if active search match
@@ -788,8 +584,8 @@ export function MessageBubble({
 
   // Determine bubble styling
   const getBubbleClasses = () => {
-    const base = 'relative px-4 py-3 text-[15px] leading-relaxed border transition-all duration-300'
-    const radius = isUser ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm'
+    const base = 'relative px-3 pt-1.5 pb-1 text-sm leading-relaxed border transition-all duration-300'
+    const radius = !firstInRun ? 'rounded-2xl' : isUser ? 'rounded-2xl rounded-tr-sm' : 'rounded-2xl rounded-tl-sm'
 
     let classes = ''
     if (isError) {
@@ -807,53 +603,51 @@ export function MessageBubble({
     }
 
     if (highlighted) {
-      classes += ' ring-4 ring-indigo-500/50 scale-[1.02] shadow-lg border-indigo-400 bg-indigo-50/30'
+      classes += ' ring-4 ring-indigo-500/50 shadow-lg border-indigo-400'
     }
     return classes
   }
 
-  const getAvatar = () => {
-    if (msg.avatarUrl) {
-      return <Avatar name={msg.senderDisplayName ?? undefined} src={msg.avatarUrl} size="sm" />
+  // Touch: long-press (contextmenu) or tap the bubble's menu to show actions.
+  const [actionsOpen, setActionsOpen] = useState(false)
+  useEffect(() => {
+    if (!actionsOpen) return
+    const close = (e: Event) => {
+      if (bubbleRef.current && !bubbleRef.current.contains(e.target as Node)) setActionsOpen(false)
     }
-    if (isUser) {
-      return (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center text-white shadow-sm">
-          <User size={14} />
-        </div>
-      )
-    }
-    if (isAssistant) {
-      return (
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white shadow-sm">
-          <Bot size={14} />
-        </div>
-      )
-    }
-    return null
-  }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [actionsOpen])
 
   return (
-    <div 
+    <div
       ref={bubbleRef}
-      className={`mb-3 animate-message-entry group ${activeSearchMatch ? 'scroll-mt-32' : ''}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      className={`${firstInRun ? 'mt-2' : 'mt-0.5'} animate-message-entry group ${activeSearchMatch ? 'scroll-mt-32' : ''}`}
+      onContextMenu={e => {
+        if (window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); setActionsOpen(true) }
+      }}
     >
-      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} gap-2 px-3`}>
-        {/* Avatar - left side for non-user */}
-        {!isUser && (
-          <div className="flex flex-col items-center gap-1 pt-1">
-            {getAvatar()}
-          </div>
-        )}
-
-        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[85%] md:max-w-lg lg:max-w-xl`}>
-          {/* Sender name */}
-          {msg.senderDisplayName && !isUser && (
-            <p className={`text-xs font-bold mb-1 ml-1 ${senderNameColor(msg.senderDisplayName)}`}>
-              {msg.senderDisplayName}
-            </p>
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-3`}>
+        <div className={`relative flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[85%] md:max-w-lg lg:max-w-xl`}>
+          {/* Floating action menu (hover on desktop, long-press on touch) */}
+          {!isSystem && (
+            <div className={`absolute -top-4 z-20 ${isUser ? 'right-1' : 'left-1'}`}>
+              <ActionBar
+                msg={msg}
+                forceVisible={actionsOpen}
+                onCopy={onCopy}
+                onRegenerate={onRegenerate}
+                onFeedback={onFeedback}
+                onShare={onShare}
+                onBookmark={onBookmark}
+                onReply={onReply ? (m) => { setActionsOpen(false); onReply(m) } : undefined}
+                onForward={onForward ? (m) => { setActionsOpen(false); onForward(m) } : undefined}
+                onReact={onReact ? (id, e) => { setActionsOpen(false); onReact(id, e) } : undefined}
+                onStar={onStar}
+                onPin={onPin}
+                onDelete={onDelete}
+              />
+            </div>
           )}
 
           {/* Main bubble */}
@@ -868,19 +662,17 @@ export function MessageBubble({
                 activeSearchMatch ? 'ring-2 ring-amber-400 shadow-[0_0_0_4px_rgba(251,191,36,0.15)]' : ''
               }`}
             >
-              {/* AI Mode badges */}
+              {/* AI mode badges */}
               {(isAuto || isReviewing) && (
                 <div className="absolute -top-2.5 right-2 flex items-center gap-1">
                   {isAuto && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-emerald-200 
-                                     rounded-full text-[9px] font-bold text-emerald-700 shadow-sm">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-emerald-200 rounded-full text-[9px] font-bold text-emerald-700 shadow-sm">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       AUTO
                     </span>
                   )}
                   {isReviewing && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-amber-200 
-                                     rounded-full text-[9px] font-bold text-amber-700 shadow-sm">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-amber-200 rounded-full text-[9px] font-bold text-amber-700 shadow-sm">
                       <Clock size={8} className="animate-spin" />
                       REVIEWING
                     </span>
@@ -888,200 +680,79 @@ export function MessageBubble({
                 </div>
               )}
 
-              {/* Error indicator */}
+              {/* Group sender name (first message of a run) */}
+              {showSenderName && msg.senderDisplayName && !isUser && (
+                <p className={`text-xs font-bold mb-0.5 ${senderNameColor(msg.senderDisplayName)}`}>
+                  {msg.senderDisplayName}
+                </p>
+              )}
+
               {isError && (
-                <div className="flex items-center gap-2 mb-2 p-2 rounded-lg bg-red-100/50 border border-red-200/50">
+                <div className="flex items-center gap-2 mb-1 p-2 rounded-lg bg-red-100/50 border border-red-200/50">
                   <AlertCircle size={14} className="text-red-500 shrink-0" />
                   <span className="text-xs font-medium text-red-700">Something went wrong</span>
                 </div>
               )}
 
-              {/* Forwarded indicator */}
               {msg.isForwarded && (
-                <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">
+                <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 mb-0.5">
                   <CornerUpRight size={10} className="text-slate-400" />
-                  <span className="italic">Forwarded message</span>
+                  <span className="italic">Forwarded</span>
                 </div>
               )}
 
-              {/* Quoted message */}
               {msg.quotedMessageId && (() => {
                 const quotedMsg = allMessages?.find(m => m.id === msg.quotedMessageId)
                 return (
                   <div className="w-full max-w-full min-w-0 overflow-hidden">
-                    <QuotedMessage 
-                      quotedId={msg.quotedMessageId} 
+                    <QuotedMessage
+                      quotedId={msg.quotedMessageId}
                       quotedMsg={quotedMsg}
-                      onClick={() => onQuoteClick?.(msg.quotedMessageId!)} 
+                      onClick={() => onQuoteClick?.(msg.quotedMessageId!)}
                       isUserBubble={isUser}
                     />
                   </div>
                 )
               })()}
 
-              {/* Thinking indicator */}
-              {msg.isTyping && <ThinkingIndicator />}
-
-              {/* Media / rich message types (image, video, audio, document, sticker, location, contact card) */}
               {isRichMessage ? (
                 <MessageContent msg={msg} token={token} isUser={isUser} onOpenMedia={onOpenMedia} />
-              ) : hasTextHighlight && msg.body ? (
-                <p className="whitespace-pre-wrap text-sm text-gray-900 leading-relaxed">
-                  {highlightText(msg.body, searchQuery)}
-                </p>
               ) : msg.body ? (
-                <p className="whitespace-pre-wrap text-sm text-gray-900 leading-relaxed">{msg.body}</p>
+                <p className="whitespace-pre-wrap break-words text-sm text-gray-900 leading-relaxed">
+                  {hasTextHighlight ? highlightText(msg.body, searchQuery) : msg.body}
+                  {/* Spacer so the floating time never overlaps the last line */}
+                  <span className="inline-block w-[4.5rem]" aria-hidden />
+                </p>
               ) : null}
 
-              {/* Code blocks */}
-              {msg.codeBlocks?.map((block, i) => (
-                <CodeBlock key={i} language={block.language} code={block.code} />
-              ))}
-
-              {/* Attachments */}
-              {msg.attachments && msg.attachments.length > 0 && (
-                <div className="flex flex-col gap-2 mt-2">
-                  {msg.attachments.map((att) => (
-                    att.type === 'image' ? (
-                      <ImagePreview 
-                        key={att.id} 
-                        url={att.url} 
-                        alt={att.name}
-                        onClick={() => onAttachmentClick?.(att)}
-                      />
-                    ) : (
-                      <AttachmentCard 
-                        key={att.id} 
-                        attachment={att}
-                        onClick={() => onAttachmentClick?.(att)}
-                      />
-                    )
-                  ))}
-                </div>
-              )}
-
-              {/* Citations */}
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-gray-200/60">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Sources</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {msg.citations.map((citation) => (
-                      <CitationPill 
-                        key={citation.id} 
-                        citation={citation}
-                        onClick={() => onCitationClick?.(citation)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Footer row */}
-              <div className="flex items-center justify-between gap-3 mt-2 pt-1">
-                <div className="flex items-center gap-2">
-                  {/* Confidence & Model */}
-                  <ConfidenceBadge confidence={msg.confidence} modelName={msg.modelName} />
-
-                  {/* Approved badge */}
-                  {isApproved && (
-                    <span className="inline-flex items-center gap-1 text-[9px] font-bold text-sky-700 
-                                     bg-sky-50 px-1.5 py-0.5 rounded-md border border-sky-200/60 uppercase">
-                      <ShieldCheck size={9} />
-                      Approved
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 ml-auto">
-                  {/* Pinned indicator */}
-                  {msg.isPinned && (
-                    <span className="text-amber-600 dark:text-amber-400" title="Pinned message">
-                      <Pin size={10} className="rotate-45 fill-amber-400/30" />
-                    </span>
-                  )}
-
-                  {/* Starred indicator */}
-                  {msg.isStarred && (
-                    <span className="text-amber-500" title="Starred message">
-                      <Star size={10} className="fill-amber-400" />
-                    </span>
-                  )}
-
-                  {/* Timestamp */}
-                  <span className="text-[10px] text-gray-400 font-medium tabular-nums">
-                    {formatTime(msg.timestamp)}
-                  </span>
-
-                  {/* Edited indicator */}
-                  {msg.editedAt && (
-                    <span className="text-[9px] text-gray-400 italic">edited</span>
-                  )}
-
-                  {/* Delivery status */}
-                  {isUser && <StatusIndicator status={msg.deliveryStatus} />}
-                </div>
+              {/* Time + status, WhatsApp-style bottom-right */}
+              <div className={`flex items-center justify-end gap-1 ${isRichMessage || !msg.body ? 'mt-0.5' : '-mt-4'} float-right relative`}>
+                {isApproved && <ShieldCheck size={10} className="text-sky-600" aria-label="Approved suggestion" />}
+                {msg.isPinned && <Pin size={10} className="rotate-45 text-amber-600" aria-label="Pinned" />}
+                {msg.isStarred && <Star size={10} className="fill-amber-400 text-amber-500" aria-label="Starred" />}
+                {msg.editedAt && <span className="text-[9px] italic text-gray-400">edited</span>}
+                <span className="text-[10px] font-medium tabular-nums text-gray-500">{formatTime(msg.timestamp)}</span>
+                {isUser && <StatusIndicator status={msg.deliveryStatus} />}
               </div>
+              <div className="clear-both" />
             </div>
 
-            {/* Pending suggestions */}
             {msg.pendingSuggestions > 0 && (
-              <div className={`mt-1.5 flex items-center gap-1.5 ${!isUser ? 'justify-start' : 'justify-end'}`}>
-                <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${
-                  !isUser ? 'text-amber-600' : 'text-sky-500'
-                }`}>
+              <div className={`mt-1 flex items-center gap-1.5 ${!isUser ? 'justify-start' : 'justify-end'}`}>
+                <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${!isUser ? 'text-amber-600' : 'text-sky-500'}`}>
                   <Zap size={10} className={selected ? '' : 'animate-pulse'} />
                   {selected ? 'Suggestions ready' : `${msg.pendingSuggestions} AI suggestion${msg.pendingSuggestions !== 1 ? 's' : ''}`}
                 </span>
               </div>
             )}
 
-            {/* Thread indicator */}
-            {msg.threadCount && msg.threadCount > 0 && (
-              <button
-                onClick={() => onThreadClick?.(msg.id)}
-                className="mt-1.5 flex items-center gap-1 text-[11px] text-gray-500 hover:text-sky-600 
-                           transition-colors font-medium"
-              >
-                <span className="w-4 h-4 rounded-full bg-gray-100 flex items-center justify-center text-[9px]">
-                  {msg.threadCount}
-                </span>
-                {msg.threadCount === 1 ? 'reply' : 'replies'}
-              </button>
-            )}
-
-            {/* Reactions */}
             {msg.reactions && msg.reactions.length > 0 && (
-              <div className={`mt-1 ${isUser ? 'mr-1' : 'ml-1'}`}>
+              <div className={`-mt-1 relative z-10 ${isUser ? 'mr-2 flex justify-end' : 'ml-2'}`}>
                 <ReactionBar reactions={msg.reactions} onReact={(emoji) => onReact?.(msg.id, emoji)} />
               </div>
             )}
           </div>
-
-          {/* Action bar */}
-          <div className={`mt-1 ${isUser ? 'mr-1' : 'ml-1'}`}>
-            <ActionBar 
-              msg={msg}
-              onCopy={onCopy}
-              onRegenerate={onRegenerate}
-              onFeedback={onFeedback}
-              onShare={onShare}
-              onBookmark={onBookmark}
-              onReply={onReply}
-              onForward={onForward}
-              onReact={onReact}
-              onStar={onStar}
-              onPin={onPin}
-              onDelete={onDelete}
-            />
-          </div>
         </div>
-
-        {/* Avatar - right side for user */}
-        {isUser && (
-          <div className="flex flex-col items-center gap-1 pt-1">
-            {getAvatar()}
-          </div>
-        )}
       </div>
     </div>
   )
