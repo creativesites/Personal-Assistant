@@ -1,0 +1,16 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|4", "postTime": 1764065000000,
+    "title": "Bwalya", "isGroupConversation": false, "shortcutId": "260971000003@s.whatsapp.net",
+    "messages": [
+      { "text": "This message was deleted", "timestamp": 1764064900000, "senderName": "Bwalya", "senderKey": "b1" },
+      { "text": "📄 Invoice-0042.pdf", "timestamp": 1764065000000, "senderName": "Bwalya", "senderKey": "b1" },
+      { "text": "Missed voice call", "timestamp": 1764065001000, "senderName": "Bwalya", "senderKey": "b1" }
+    ]
+  },
+  "expected": [
+    "s:260971000003@s.whatsapp.net | Bwalya | false | k:b1 | Bwalya | false | - | DELETED | - | 1764064900000 | true",
+    "s:260971000003@s.whatsapp.net | Bwalya | false | k:b1 | Bwalya | false | - | DOCUMENT | Invoice-0042.pdf | 1764065000000 | true",
+    "s:260971000003@s.whatsapp.net | Bwalya | false | k:b1 | Bwalya | false | - | MISSED_CALL | - | 1764065001000 | true"
+  ]
+}

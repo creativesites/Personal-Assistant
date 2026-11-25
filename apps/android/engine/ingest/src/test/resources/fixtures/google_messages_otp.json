@@ -1,0 +1,12 @@
+{
+  "snapshot": {
+    "packageName": "com.google.android.apps.messaging", "key": "0|sms|1", "postTime": 1764067000000,
+    "title": "ZANACO", "isGroupConversation": false,
+    "messages": [
+      { "text": "Sensitive notification content hidden", "timestamp": 1764067000000, "senderName": "ZANACO" }
+    ]
+  },
+  "expected": [
+    "d:zanaco | ZANACO | false | n:zanaco | ZANACO | false | - | OTP_HIDDEN | - | 1764067000000 | true"
+  ]
+}

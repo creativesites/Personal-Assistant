@@ -1,0 +1,14 @@
+{
+  "snapshot": {
+    "packageName": "org.telegram.messenger", "key": "0|tg|1", "postTime": 1764069000000,
+    "title": "Lusaka Makers", "conversationTitle": "Lusaka Makers", "isGroupConversation": true, "shortcutId": "ndid_-100123",
+    "messages": [
+      { "text": "Meetup moved to Thursday", "timestamp": 1764069000000, "senderName": "Mutale", "senderKey": "tg-55" },
+      { "text": "Photo", "timestamp": 1764069010000, "senderName": "Mutale", "senderKey": "tg-55" }
+    ]
+  },
+  "expected": [
+    "s:ndid_-100123 | Lusaka Makers | true | k:tg-55 | Mutale | false | Meetup moved to Thursday | - | - | 1764069000000 | true",
+    "s:ndid_-100123 | Lusaka Makers | true | k:tg-55 | Mutale | false | - | PHOTO | - | 1764069010000 | true"
+  ]
+}

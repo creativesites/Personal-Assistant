@@ -214,3 +214,27 @@ A version catalog pins everything. No version is chosen here beyond these famili
 **Decision.**
 - Money (integer minor units), totals, tax, numbering, date resolution, health/cadence scores and validation are computed in Kotlin.
 - LLM output is proposals with provenance and confidence. It is never the stored value of a computed field.
+
+## D-21 — With sync on, conversations mirror WhatsApp
+**Decision** (product owner, 2026-11-25).
+- When the user opts into syncing conversations with their Zuri cloud account, a WhatsApp chat on the phone should look and feel like the chat in WhatsApp:
+  - the full thread the cloud holds, not only what notifications showed;
+  - media (photos, video, voice notes with playback, documents);
+  - replies and quotes, and reactions.
+- **Order is exact.** Messages show in WhatsApp's own sequence:
+  - The sort key is the WhatsApp message timestamp the cloud recorded, with the server's ingest sequence as tie-breaker, then the local id. Capture time and sync time are never used for ordering.
+  - Phone captures that only have an approximate time (notification post time) are replaced by the cloud copy when the reconciler matches them (DATA_OWNERSHIP_AND_SYNC §6).
+  - Unmatched phone captures keep their own time and show an "approximate time" marker. They are never silently moved.
+- **Consent and cost.**
+  - It is part of the sync consent (D-16), not a new silent behaviour.
+  - Media download has its own switch, with Wi-Fi only on by default, because it is large.
+- **Media at rest.**
+  - Downloaded media is encrypted on the phone (Tink streaming AEAD) in `noBackupFilesDir`.
+  - The cache has a size cap with least-recently-used eviction.
+  - Deleting a message or chat deletes its media files.
+- **Without sync**, conversations stay as M2 builds them: notification text with honest placeholders.
+
+**Consequences.**
+- **Backend (G3):** the change feed must carry the WhatsApp timestamp and a stable server sequence per message. It must also carry the quoted-message id, reactions and media metadata (type, size, duration, file name). Media comes from the existing authenticated `GET /api/messages/:id/media`.
+- **Android:** M9 adds `server_seq`, `quoted_message_id`, a `message_reaction` table and a `media_item` table (database migration with tests). The conversation screen gains media bubbles, a voice-note player and reply quotes.
+- **Testing:** real-device checks on the product owner's Galaxy S20 (wireless debugging), comparing the Zuri thread with the same WhatsApp chat side by side.

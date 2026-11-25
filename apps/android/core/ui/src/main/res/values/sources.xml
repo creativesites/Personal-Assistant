@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="source_whatsapp">WhatsApp</string>
+    <string name="source_whatsapp_business">WhatsApp Business</string>
+    <string name="source_telegram">Telegram</string>
+    <string name="source_signal">Signal</string>
+    <string name="source_messenger">Messenger</string>
+    <string name="source_slack">Slack</string>
+    <string name="source_gmail">Gmail</string>
+    <string name="source_google_messages">Google Messages</string>
+    <string name="source_samsung_messages">Samsung Messages</string>
+
+    <string name="placeholder_photo">Photo</string>
+    <string name="placeholder_video">Video</string>
+    <string name="placeholder_voice_note">Voice message</string>
+    <string name="placeholder_audio">Audio</string>
+    <string name="placeholder_document">Document</string>
+    <string name="placeholder_sticker">Sticker</string>
+    <string name="placeholder_gif">GIF</string>
+    <string name="placeholder_location">Location</string>
+    <string name="placeholder_contact_card">Contact card</string>
+    <string name="placeholder_poll">Poll</string>
+    <string name="placeholder_deleted">Message deleted by sender</string>
+    <string name="placeholder_otp_hidden">Hidden by Android (looked like a one-time code)</string>
+    <string name="placeholder_content_hidden">Preview hidden by the app</string>
+    <string name="placeholder_missed_call">Missed call</string>
+    <string name="placeholder_reaction">Reaction</string>
+
+    <string name="placeholder_note_media">Notifications show only this label. The file itself stays in the app.</string>
+    <string name="placeholder_note_otp">Android hides codes from apps like Zuri. Open the app to read it.</string>
+    <string name="placeholder_note_hidden">The app hides message text in its notifications. Change its notification preview setting to let Zuri see it.</string>
+</resources>

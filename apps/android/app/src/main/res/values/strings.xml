@@ -9,8 +9,6 @@
     <string name="settings">Settings</string>
     <string name="search">Search</string>
 
-    <string name="inbox_empty_t">No conversations yet</string>
-    <string name="inbox_empty_b">Zuri shows conversations from the apps you allow it to read. Choosing those apps arrives in the next update.</string>
     <string name="people_empty_t">No people yet</string>
     <string name="people_empty_b">People appear as Zuri sees your conversations. Nothing has been captured on this phone.</string>
     <string name="ask_empty_t">Ask needs an on-device model</string>
@@ -18,9 +16,6 @@
     <string name="more_title">More</string>
     <string name="more_privacy">Privacy Center</string>
     <string name="more_security">Security &amp; app lock</string>
-    <string name="sources_title">Sources</string>
-    <string name="sources_t">Zuri isn’t reading any app</string>
-    <string name="sources_b">In the next update you’ll choose which apps Zuri may read, such as WhatsApp. It will only ever see what those apps show in notifications, never old chats, and you can exclude any chat or person.</string>
 
     <string name="ctx_title">Switch context</string>
     <string name="ctx_sub">Each workspace keeps its own people, memories and documents.</string>

@@ -26,6 +26,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":domain"))
     api(platform(libs.androidx.compose.bom))
     api(libs.androidx.compose.ui)
     api(libs.androidx.compose.foundation)

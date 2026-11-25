@@ -1,0 +1,7 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp.w4b", "key": "0|com.whatsapp.w4b|7", "postTime": 1764063000000,
+    "title": "WhatsApp Business", "text": "12 new messages"
+  },
+  "expected": ["SKIPPED: summary"]
+}

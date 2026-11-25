@@ -9,5 +9,9 @@
     <string name="today_privacy_t">Your data is encrypted on this phone</string>
     <string name="today_privacy_s">See exactly what is stored and what can leave</string>
     <string name="today_sources_t">Sources are off</string>
-    <string name="today_sources_s">Zuri isn’t reading any app yet</string>
+    <string name="today_sources_s">Choose which apps Zuri may read</string>
+    <string name="today_sources_on_t">Listening on this phone</string>
+    <string name="today_sources_on_s">%1$d notifications captured today</string>
+    <string name="today_sources_warn_t">Capture needs attention</string>
+    <string name="today_sources_warn_s">New messages aren’t being captured</string>
 </resources>

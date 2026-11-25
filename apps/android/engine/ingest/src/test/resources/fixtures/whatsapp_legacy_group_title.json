@@ -1,0 +1,9 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|3", "postTime": 1764064000000,
+    "title": "Chanda @ Site team", "text": "Cement arrives Monday"
+  },
+  "expected": [
+    "g:site team | Site team | true | n:chanda | Chanda | false | Cement arrives Monday | - | - | 1764064000000 | false"
+  ]
+}

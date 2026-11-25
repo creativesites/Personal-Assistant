@@ -12,6 +12,9 @@
 | 2026-11-24 | Product owner approved the plan and design ("approved, you can get started"), and required light and dark modes for every screen. Proposed defaults in `DECISIONS.md` and `RISKS_AND_OPEN_QUESTIONS.md` are treated as accepted unless revised. |
 | 2026-11-24 | Backend session completed G2: `INTERNAL_API_SECRET` rotated and scrubbed. It built a Clerk JWT verifier (G1 groundwork) and agreed the `clerk-exchange`/logout contract with per-device revocation (`device_sessions`). Q-09 resolved: no billing UI on Android, only a global 402 handler. |
 | 2026-11-24 | **M1 started** in `apps/android` (see `apps/android/README.md`). |
+| 2026-11-25 | **M1 complete** (commit `32a8d17`): 51 tests, 14 light/dark screenshot baselines, APK verified to have no INTERNET permission. |
+| 2026-11-25 | Product owner decision D-21: with sync on, chats mirror WhatsApp (media, replies, reactions, exact order). Real-device testing on the owner's Galaxy S20 over wireless debugging is available on request. |
+| 2026-11-25 | **M2 built**: `:engine:ingest`, `:feature:sources`, `:feature:inbox`, database v2. Acceptance on real devices (M0 notification spike, 7-day dogfood, callback timing) is still owed. |
 
 **M0 note:** the M0 runtime, notification and render spikes need physical reference devices, which this environment doesn't have. They remain prerequisites for M2/M3/M11 and are scheduled before those milestones. M1 does not depend on them. The storage spike (SQLCipher + Room) is folded into M1.
 
@@ -19,6 +22,13 @@
 - None on SDK levels: compileSdk 37.2 (Compose 1.13 requires at least 37.1), targetSdk 36, minSdk 29, as planned.
 - M1 ships with **no INTERNET permission** (stronger than planned).
 - Workspaces and the context switcher landed early (they were M5); full scope enforcement remains M5.
+
+**M2 deviations:**
+- Ingest runs in-process: a single conflated consumer instead of WorkManager `OneTimeWork`. The bound listener keeps the process alive, and pending rows survive a kill and are processed on the next start.
+- No generic adapter: listing arbitrary apps needs `QUERY_ALL_PACKAGES` (Play-restricted). The nine supported apps are declared in `<queries>`.
+- Identity resolution is minimal: each message stores the sender's name and key. The `person` table arrives with M4/M6.
+- When a sender deletes a message, Zuri drops the text and its edit history instead of keeping it.
+- Golden fixtures are synthetic until the M0 spike supplies real, anonymised captures.
 
 ## 1. Sequencing principles
 
@@ -265,6 +275,7 @@ M0 Approvals & spikes
 - **Blockers.** G3 (full mode).
 
 ### M9 — Incremental sync, outbox, conflicts, push
+- **Added by D-21 (2026-11-25):** with sync on, chats mirror WhatsApp: full cloud thread, media (encrypted local cache, Wi-Fi-only download by default), replies, reactions, and exact WhatsApp ordering (WhatsApp timestamp, then server sequence). Phone captures are reconciled into cloud rows; unmatched ones are marked "approximate time". Needs the G3 change feed to carry ordering, quote, reaction and media metadata.
 - **Scope.**
   - Change-feed client; outbox with idempotency; conflict policies and resolver UI; tombstones.
   - Pause and resume; sync status and history.

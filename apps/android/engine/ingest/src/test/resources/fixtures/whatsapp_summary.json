@@ -1,0 +1,7 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|-1|summary", "postTime": 1764063000000,
+    "isGroupSummary": true, "title": "WhatsApp", "text": "5 messages from 2 chats"
+  },
+  "expected": ["SKIPPED: group summary"]
+}

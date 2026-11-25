@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sources_title">Sources</string>
+    <string name="sources_subtitle">Apps Zuri may read notifications from</string>
+
+    <string name="status_listening_t">Listening</string>
+    <string name="status_listening_b">%1$d notifications captured today. Last one at %2$s.</string>
+    <string name="status_listening_none">Waiting for the first message from a source you turned on.</string>
+    <string name="status_access_t">Notification access is off</string>
+    <string name="status_access_b">You turned on a source, but Android hasn\'t given Zuri notification access yet. Nothing is captured until you allow it.</string>
+    <string name="status_access_cta">Allow notification access</string>
+    <string name="status_greyed_t">Is the switch greyed out?</string>
+    <string name="status_greyed_b">Android blocks this setting for apps installed outside Google Play. Open App info, tap the ⋮ menu, choose \"Allow restricted settings\", then try again.</string>
+    <string name="status_greyed_cta">Open App info</string>
+    <string name="status_disconnected_t">Android disconnected Zuri</string>
+    <string name="status_disconnected_b">Access is allowed, but the listener isn\'t running. This can happen after an update or when the phone saves battery.</string>
+    <string name="status_reconnect">Reconnect</string>
+    <string name="status_battery_b">Battery optimisation is on for Zuri. On some phones this stops the listener; setting Zuri to \"Unrestricted\" helps.</string>
+    <string name="status_battery_cta">Battery settings</string>
+    <string name="status_off_t">Capture is off</string>
+    <string name="status_off_b">Turn on a source below to start. Zuri reads nothing until you do.</string>
+    <string name="status_paused_t">Capture is paused</string>
+    <string name="status_paused_b">Notifications are ignored until you resume. Nothing is stored while paused.</string>
+    <string name="status_resume">Resume</string>
+
+    <string name="pause_t">Pause capture</string>
+    <string name="pause_s">Stop reading notifications from every source</string>
+
+    <string name="section_sources">Message sources</string>
+    <string name="source_not_installed">Not installed on this phone</string>
+    <string name="source_off">Off</string>
+    <string name="source_count">%1$d messages stored</string>
+
+    <string name="cap_text">Message text</string>
+    <string name="cap_groups">Groups with sender names</string>
+    <string name="cap_media">Photos and files as labels only</string>
+    <string name="cap_hidden">Often hides message text</string>
+    <string name="cap_otp">Codes hidden by Android</string>
+    <string name="cap_partial">Only chats that notify</string>
+
+    <string name="opt_store_only_t">Store only</string>
+    <string name="opt_store_only_s">Keep and show messages, but never analyse them</string>
+    <string name="opt_retention_t">Keep messages</string>
+    <string name="opt_retention_30">30 days</string>
+    <string name="opt_retention_90">90 days</string>
+    <string name="opt_retention_365">1 year</string>
+    <string name="opt_retention_forever">Until I delete</string>
+    <string name="opt_delete_all">Delete all %1$s messages</string>
+    <string name="delete_all_title">Delete %1$d messages from %2$s?</string>
+    <string name="delete_all_body">They\'re removed from this phone and can\'t be recovered. The source stays on, so new messages will still be captured.</string>
+    <string name="delete">Delete</string>
+    <string name="cancel">Cancel</string>
+
+    <string name="limits_t">What notifications can\'t give Zuri</string>
+    <string name="limits_b">Zuri sees what your notifications show, nothing more: no history from before today, no photos or files, nothing from muted chats, and nothing an app hides from its notifications. Messages you read on a computer first may never notify.</string>
+
+    <string name="disclosure_title">Before you allow notification access</string>
+    <string name="disclosure_read_t">What Zuri reads</string>
+    <string name="disclosure_read_b">The text of notifications from the apps you turn on: who sent a message, the chat name and the message itself.</string>
+    <string name="disclosure_not_t">What it ignores</string>
+    <string name="disclosure_not_b">Every other app\'s notifications are dropped unread. Photos, voice notes and files never reach Zuri.</string>
+    <string name="disclosure_where_t">Where it goes</string>
+    <string name="disclosure_where_b">Into an encrypted database on this phone. This version of Zuri has no internet access, so nothing leaves the phone.</string>
+    <string name="disclosure_control_t">Your control</string>
+    <string name="disclosure_control_b">Pause or turn off any source, exclude a chat, or delete messages at any time. You can also withdraw access in Android settings.</string>
+    <string name="disclosure_next">Android will now open its Notification access screen. Turn on Zuri there, then come back.</string>
+    <string name="disclosure_continue">Continue to Android settings</string>
+    <string name="disclosure_not_now">Not now</string>
+</resources>

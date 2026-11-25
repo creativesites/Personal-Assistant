@@ -29,8 +29,11 @@ include(
     ":core:ui",
     ":core:security",
     ":data:local",
+    ":engine:ingest",
     ":feature:onboarding",
     ":feature:today",
     ":feature:settings",
+    ":feature:sources",
+    ":feature:inbox",
     ":arch-tests",
 )

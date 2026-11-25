@@ -1,0 +1,7 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|9", "postTime": 1764066000000,
+    "isOngoing": true, "category": "call", "title": "Chanda Mwila", "text": "Ongoing voice call"
+  },
+  "expected": ["SKIPPED: ongoing"]
+}

@@ -1,0 +1,19 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|1|family@g.us|10170", "postTime": 1764063000000,
+    "title": "Family (3 messages): Mum", "text": "Lunch at 1",
+    "conversationTitle": "Family (3 messages)", "isGroupConversation": true, "shortcutId": null,
+    "messages": [
+      { "text": "Who is bringing the cake?", "timestamp": 1764062800000, "senderName": "Natasha", "senderUri": "tel:+260971000002" },
+      { "text": "Me", "timestamp": 1764062900000, "fromSelf": true },
+      { "text": "Lunch at 1", "timestamp": 1764063000000, "senderName": "Mum" },
+      { "text": "Reacted 👍 to: Lunch at 1", "timestamp": 1764063010000, "senderName": "Natasha", "senderUri": "tel:+260971000002" }
+    ]
+  },
+  "expected": [
+    "g:family | Family | true | u:tel:+260971000002 | Natasha | false | Who is bringing the cake? | - | - | 1764062800000 | true",
+    "g:family | Family | true | me | - | true | Me | - | - | 1764062900000 | true",
+    "g:family | Family | true | n:mum | Mum | false | Lunch at 1 | - | - | 1764063000000 | true",
+    "g:family | Family | true | u:tel:+260971000002 | Natasha | false | - | REACTION | 👍 | 1764063010000 | true"
+  ]
+}

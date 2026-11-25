@@ -28,6 +28,9 @@ android {
 
 room { schemaDirectory("$projectDir/schemas") }
 
+// MigrationTestHelper reads the exported schemas as test assets.
+android.sourceSets.getByName("test").assets.srcDir("$projectDir/schemas")
+
 dependencies {
     api(project(":domain"))
     api(project(":core:common"))

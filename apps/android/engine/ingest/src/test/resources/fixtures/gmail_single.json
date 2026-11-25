@@ -1,0 +1,10 @@
+{
+  "snapshot": {
+    "packageName": "com.google.android.gm", "key": "0|gm|1", "postTime": 1764070000000,
+    "title": "Kalulu Irrigation", "text": "Quotation QUO-0042", "bigText": "Quotation QUO-0042\nPlease find the revised quotation attached.",
+    "subText": "me@example.com"
+  },
+  "expected": [
+    "d:kalulu irrigation | Kalulu Irrigation | false | n:kalulu irrigation | Kalulu Irrigation | false | Quotation QUO-0042\nPlease find the revised quotation attached. | - | - | 1764070000000 | false"
+  ]
+}

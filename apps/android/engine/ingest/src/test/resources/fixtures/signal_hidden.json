@@ -1,0 +1,9 @@
+{
+  "snapshot": {
+    "packageName": "org.thoughtcrime.securesms", "key": "0|signal|1", "postTime": 1764068000000,
+    "title": "Signal", "text": "New message"
+  },
+  "expected": [
+    "d:signal | Signal | false | n:signal | Signal | false | - | CONTENT_HIDDEN | - | 1764068000000 | false"
+  ]
+}

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="inbox_title">Inbox</string>
+    <string name="filter_all">All</string>
+    <string name="you">You</string>
+    <string name="group">Group</string>
+
+    <string name="empty_off_t">Your inbox fills from notifications</string>
+    <string name="empty_off_b">Turn on a source such as WhatsApp. New messages appear here as they arrive on this phone. Nothing from before today, and nothing leaves the phone.</string>
+    <string name="empty_off_cta">Choose sources</string>
+    <string name="empty_waiting_t">Waiting for your first message</string>
+    <string name="empty_waiting_b">Zuri is listening to %1$s. Messages appear here when they notify.</string>
+    <string name="empty_business_t">Phone messages go to Personal for now</string>
+    <string name="empty_business_b">Until workspace rules arrive, every captured conversation is stored in Personal. Switch to Personal to see them.</string>
+
+    <string name="banner_access">Notification access is off, so new messages aren\'t being captured.</string>
+    <string name="banner_disconnected">Android disconnected Zuri\'s listener. New messages may be missed.</string>
+    <string name="banner_paused">Capture is paused.</string>
+    <string name="banner_fix">Fix</string>
+
+    <string name="unread_count">%1$d new</string>
+
+    <string name="conv_coverage">From %1$s notifications on this phone · %2$d messages</string>
+    <string name="conv_menu">More options</string>
+    <string name="conv_exclude">Stop capturing this chat</string>
+    <string name="conv_delete">Delete conversation</string>
+    <string name="conv_excluded">Zuri no longer captures this chat.</string>
+    <string name="conv_gone">This conversation was deleted.</string>
+    <string name="exclude_title">Stop capturing \"%1$s\"?</string>
+    <string name="exclude_body">Zuri will ignore new notifications from this chat and delete the %1$d messages it stored. This can\'t be undone.</string>
+    <string name="exclude_confirm">Stop and delete</string>
+    <string name="delete_conv_title">Delete \"%1$s\"?</string>
+    <string name="delete_conv_body">The %1$d stored messages are removed from this phone. New messages from this chat will still be captured.</string>
+    <string name="delete_msg_title">Delete this message?</string>
+    <string name="delete_msg_body">It\'s removed from this phone. Nothing changes in %1$s.</string>
+    <string name="delete">Delete</string>
+    <string name="cancel">Cancel</string>
+    <string name="edited">edited</string>
+
+    <string name="msg_actions_title">Message</string>
+    <string name="msg_source">Where this came from</string>
+    <string name="prov_from">Captured from a %1$s notification</string>
+    <string name="prov_posted">Notification posted: %1$s</string>
+    <string name="prov_captured">Stored on this phone: %1$s</string>
+    <string name="prov_adapter">Read by Zuri\'s %1$s reader, version %2$d</string>
+    <string name="prov_left">Left this phone: No</string>
+    <string name="msg_delete">Delete message</string>
+    <string name="close">Close</string>
+    <string name="today">Today</string>
+    <string name="yesterday">Yesterday</string>
+</resources>

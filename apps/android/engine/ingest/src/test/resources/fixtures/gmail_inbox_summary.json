@@ -1,0 +1,8 @@
+{
+  "snapshot": {
+    "packageName": "com.google.android.gm", "key": "0|gm|2", "postTime": 1764070000000,
+    "title": "3 new messages", "text": "Kalulu Irrigation, Bank, Natasha",
+    "textLines": ["Kalulu Irrigation  Quotation QUO-0042", "Bank  Statement ready", "Natasha  Photos"]
+  },
+  "expected": ["SKIPPED: summary"]
+}

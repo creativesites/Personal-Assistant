@@ -1,0 +1,22 @@
+{
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|1|chanda@s.whatsapp.net|10170", "postTime": 1764060300000,
+    "title": "Chanda Mwila", "text": "Sending the quote tonight",
+    "conversationTitle": null, "isGroupConversation": false, "shortcutId": "260971000001@s.whatsapp.net", "selfName": "You",
+    "messages": [
+      { "text": "Are we still on for Saturday?", "timestamp": 1764060000000, "senderName": "Chanda Mwila", "senderKey": "c1" },
+      { "text": "Yes, 10am", "timestamp": 1764060060000, "fromSelf": true },
+      { "text": "📷 Photos from the site", "timestamp": 1764060120000, "senderName": "Chanda Mwila", "senderKey": "c1" },
+      { "text": "🎤 Voice message (0:12)", "timestamp": 1764060180000, "senderName": "Chanda Mwila", "senderKey": "c1" },
+      { "text": "Sending the quote tonight", "timestamp": 1764060300000, "senderName": "Chanda Mwila", "senderKey": "c1" }
+    ],
+    "hasReplyAction": true
+  },
+  "expected": [
+    "s:260971000001@s.whatsapp.net | Chanda Mwila | false | k:c1 | Chanda Mwila | false | Are we still on for Saturday? | - | - | 1764060000000 | true",
+    "s:260971000001@s.whatsapp.net | Chanda Mwila | false | me | - | true | Yes, 10am | - | - | 1764060060000 | true",
+    "s:260971000001@s.whatsapp.net | Chanda Mwila | false | k:c1 | Chanda Mwila | false | Photos from the site | PHOTO | - | 1764060120000 | true",
+    "s:260971000001@s.whatsapp.net | Chanda Mwila | false | k:c1 | Chanda Mwila | false | - | VOICE_NOTE | 0:12 | 1764060180000 | true",
+    "s:260971000001@s.whatsapp.net | Chanda Mwila | false | k:c1 | Chanda Mwila | false | Sending the quote tonight | - | - | 1764060300000 | true"
+  ]
+}
