@@ -1,6 +1,7 @@
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
+  makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
   normalizeMessageContent,
@@ -156,6 +157,27 @@ function mimeToExt(mime: string): string {
   return MIME_TO_EXT[mime] ?? MIME_TO_EXT[mime.split(';')[0].trim()] ?? 'bin';
 }
 
+
+/** Minimal in-memory CacheStore (Baileys' msgRetryCounterCache / key cache). */
+class MemoryCache {
+  private readonly map = new Map<string, { v: unknown; exp: number }>();
+  constructor(private readonly ttlMs: number) {}
+  get<T>(key: string): T | undefined {
+    const e = this.map.get(key);
+    if (!e) return undefined;
+    if (e.exp < Date.now()) { this.map.delete(key); return undefined; }
+    return e.v as T;
+  }
+  set<T>(key: string, value: T): void {
+    if (this.map.size > 5000) this.map.delete(this.map.keys().next().value as string);
+    this.map.set(key, { v: value, exp: Date.now() + this.ttlMs });
+  }
+  del(key: string): void { this.map.delete(key); }
+  flushAll(): void { this.map.clear(); }
+}
+
+const SENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 class WriteQueue {
   private promise: Promise<void> = Promise.resolve();
   private pendingCount = 0;
@@ -192,6 +214,8 @@ export class BaileysTransport extends WhatsAppTransport {
   private _reconnectCount = 0;
   private _badSessionCount = 0;
   private readonly writeQueue = new WriteQueue();
+  // Shared across reconnects: how many times a recipient asked us to resend.
+  private readonly msgRetryCounterCache = new MemoryCache(60 * 60 * 1000);
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _qrTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly authPath: string;
@@ -257,11 +281,50 @@ export class BaileysTransport extends WhatsAppTransport {
     this._status = 'idle';
   }
 
+  /** Where sent message payloads are kept (same volume as the auth state). */
+  private get sentDir(): string {
+    return `${this.authPath.replace(/\/+$/, '')}-sent`;
+  }
+
+  private async rememberSent(msg: WAMessage | undefined): Promise<string | undefined> {
+    const id = msg?.key?.id ?? undefined;
+    if (!id || !msg?.message) return id;
+    try {
+      await fs.mkdir(this.sentDir, { recursive: true });
+      await fs.writeFile(path.join(this.sentDir, id), proto.Message.encode(msg.message).finish());
+    } catch (err) {
+      console.warn(`[baileys:${this.userId}] could not store sent message ${id}:`, (err as Error).message);
+    }
+    return id;
+  }
+
+  private async loadSentMessage(id: string | null | undefined): Promise<proto.IMessage | undefined> {
+    if (!id || /[\/]/.test(id)) return undefined;
+    try {
+      const buf = await fs.readFile(path.join(this.sentDir, id));
+      console.log(`[baileys:${this.userId}] resending ${id} after a retry request`);
+      return proto.Message.decode(buf);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async pruneSentMessages(): Promise<void> {
+    try {
+      const now = Date.now();
+      for (const name of await fs.readdir(this.sentDir)) {
+        const file = path.join(this.sentDir, name);
+        const st = await fs.stat(file);
+        if (now - st.mtimeMs > SENT_RETENTION_MS) await fs.unlink(file);
+      }
+    } catch { /* nothing stored yet */ }
+  }
+
   async sendText(
     jid: string,
     text: string,
     options?: { quotedWaMessageId?: string; quotedBody?: string }
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
     if (options?.quotedWaMessageId) {
       const quoteObj = {
@@ -274,10 +337,9 @@ export class BaileysTransport extends WhatsAppTransport {
           conversation: options.quotedBody || '',
         },
       };
-      await this.sock.sendMessage(jid, { text }, { quoted: quoteObj as any });
-    } else {
-      await this.sock.sendMessage(jid, { text });
+      return this.rememberSent(await this.sock.sendMessage(jid, { text }, { quoted: quoteObj as any }));
     }
+    return this.rememberSent(await this.sock.sendMessage(jid, { text }));
   }
 
   async sendReaction(
@@ -373,10 +435,10 @@ export class BaileysTransport extends WhatsAppTransport {
     mimetype: string,
     fileName: string,
     caption?: string,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     if (!this.sock) throw new Error(`BaileysTransport: no active socket for user ${this.userId}`);
     const buffer = await fs.readFile(filePath);
-    await this.sock.sendMessage(jid, { document: buffer, mimetype, fileName, caption });
+    return this.rememberSent(await this.sock.sendMessage(jid, { document: buffer, mimetype, fileName, caption }));
   }
 
   async listCatalogProducts(limit = 20, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {
@@ -467,12 +529,22 @@ export class BaileysTransport extends WhatsAppTransport {
 
     const sock = makeWASocket({
       version,
-      auth: state,
+      auth: {
+        creds: state.creds,
+        // Cached key store: consistent signal-session reads/writes, so a
+        // restart mid-send can't leave a recipient with a broken session.
+        keys: makeCacheableSignalKeyStore(state.keys, appStateLogger),
+      },
       printQRInTerminal: false,
       logger: appStateLogger,
       browser: Browsers.ubuntu('Chrome'),
       syncFullHistory: true,
+      msgRetryCounterCache: this.msgRetryCounterCache,
+      // When a recipient's phone can't decrypt a message ("Waiting for this
+      // message"), it asks us to resend; Baileys needs the original content.
+      getMessage: async (key) => this.loadSentMessage(key.id),
     });
+    void this.pruneSentMessages();
 
     this.sock = sock;
 

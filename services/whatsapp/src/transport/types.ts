@@ -121,7 +121,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
     jid: string,
     text: string,
     options?: { quotedWaMessageId?: string; quotedBody?: string }
-  ): Promise<void>;
+  ): Promise<string | undefined>;  // WhatsApp message id
 
   /** Send a reaction emoji to a message. */
   abstract sendReaction(
@@ -155,7 +155,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
   ): Promise<void>;
 
   /** Send a document (e.g. a generated quotation/invoice PDF) to a JID. */
-  abstract sendDocument(jid: string, filePath: string, mimetype: string, fileName: string, caption?: string): Promise<void>;
+  abstract sendDocument(jid: string, filePath: string, mimetype: string, fileName: string, caption?: string): Promise<string | undefined>;
 
   /** List products in the connected WhatsApp Business catalog, if available. */
   abstract listCatalogProducts(limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }>;

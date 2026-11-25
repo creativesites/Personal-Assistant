@@ -13,6 +13,21 @@ gcloud secrets versions access latest --secret="$SECRET_NAME" > .env.tmp
 mv .env.tmp .env && chmod 600 .env
 export TAG
 
+# Keep the running WhatsApp container when its code hasn't changed. Every
+# restart re-establishes the Baileys connection and can disturb encryption
+# sessions with recipients ("Waiting for this message"), so API/AI-only
+# deploys shouldn't touch it.
+RUNNING_WA_TAG="$(docker inspect --format '{{.Config.Image}}' zuri-prod-whatsapp-1 2>/dev/null | sed 's/.*://' || true)"
+if [ -n "$RUNNING_WA_TAG" ] && [ "$RUNNING_WA_TAG" != "$TAG" ] \
+   && git cat-file -e "${RUNNING_WA_TAG}^{commit}" 2>/dev/null \
+   && git diff --quiet "$RUNNING_WA_TAG" "$TAG" -- services/whatsapp packages/shared-types package.json package-lock.json; then
+  WHATSAPP_TAG="$RUNNING_WA_TAG"
+  echo "whatsapp unchanged since ${RUNNING_WA_TAG} — leaving it running"
+else
+  WHATSAPP_TAG="$TAG"
+fi
+export WHATSAPP_TAG
+
 $COMPOSE pull api whatsapp intelligence
 
 # Migrations before new code starts (db/ isn't baked into images)

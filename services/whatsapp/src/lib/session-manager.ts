@@ -364,9 +364,9 @@ export class SessionManager {
     jid: string,
     text: string,
     options?: { quotedWaMessageId?: string; quotedBody?: string }
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const entry = await this.ensureActiveSession(userId);
-    await entry.transport.sendText(jid, text, options);
+    return entry.transport.sendText(jid, text, options);
   }
 
   async sendReaction(
@@ -422,9 +422,9 @@ export class SessionManager {
     mimetype: string,
     fileName: string,
     caption?: string,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const entry = await this.ensureActiveSession(userId);
-    await entry.transport.sendDocument(jid, filePath, mimetype, fileName, caption);
+    return entry.transport.sendDocument(jid, filePath, mimetype, fileName, caption);
   }
 
   async listCatalogProducts(userId: string, limit?: number, cursor?: string): Promise<{ products: unknown[]; nextPageCursor?: string }> {

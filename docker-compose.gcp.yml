@@ -20,7 +20,7 @@ services:
       PUBLIC_API_URL: https://${API_HOST}
 
   whatsapp:
-    image: ${REGISTRY}/whatsapp:${TAG:-latest}
+    image: ${REGISTRY}/whatsapp:${WHATSAPP_TAG:-${TAG:-latest}}
 
   intelligence:
     image: ${REGISTRY}/intelligence:${TAG:-latest}

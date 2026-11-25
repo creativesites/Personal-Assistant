@@ -99,11 +99,12 @@ export function startReplyConsumer(
       }
 
       // Multi-part reply (reply engine v2). An edit replaces it with one message.
+      let sentWaId: string | undefined;
       if (parts?.length && outgoingText === text) {
         for (let i = 0; i < parts.length; i++) {
           const part = parts[i];
           if (i > 0) await typingPause(part.text);
-          await sessionManager.sendMessage(
+          sentWaId = await sessionManager.sendMessage(
             userId,
             recipientJid,
             part.text,
@@ -115,14 +116,25 @@ export function startReplyConsumer(
       } else if (deleteWaMessageId) {
         await sessionManager.deleteMessage(userId, recipientJid, deleteWaMessageId, deleteFromMe ?? false);
       } else if (mediaPath && mediaMimeType && mediaFileName) {
-        await sessionManager.sendDocument(userId, recipientJid, mediaPath, mediaMimeType, mediaFileName, text || undefined);
+        sentWaId = await sessionManager.sendDocument(userId, recipientJid, mediaPath, mediaMimeType, mediaFileName, text || undefined);
       } else {
-        await sessionManager.sendMessage(
+        sentWaId = await sessionManager.sendMessage(
           userId,
           recipientJid,
           outgoingText,
           quotedWaMessageId ? { quotedWaMessageId, quotedBody } : undefined
         );
+      }
+
+      // A message the app inserted before sending carries a temporary id
+      // ("direct-…"); swap in WhatsApp's real id so delivered/read receipts
+      // (matched by id) update it instead of leaving it at "sent" forever.
+      if (sentWaId && job.data.messageId) {
+        await db.query(
+          `UPDATE messages SET whatsapp_message_id = $2
+           WHERE id = $1 AND sender_type = 'user' AND whatsapp_message_id LIKE 'direct-%'`,
+          [job.data.messageId, sentWaId],
+        ).catch((err) => console.warn('[reply-consumer] could not record sent id:', (err as Error).message));
       }
 
       if (suggestedReplyId) {
