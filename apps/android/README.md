@@ -41,8 +41,11 @@ cd apps/android
           :data:local:testDebugUnitTest :engine:ingest:testDebugUnitTest :engine:perception:testDebugUnitTest \
           :engine:retrieval:testDebugUnitTest :core-ai:testDebugUnitTest :core-ai:remote:testDebugUnitTest \
           :app:testDebugUnitTest :arch-tests:test
-# On a phone with a model installed: the Standard-tier extraction eval (prints ZURI_EVAL lines)
-./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.zuri.android.ModelEvalTest
+# On a phone with a model installed: the Standard-tier extraction eval (ZURI_EVAL lines in logcat).
+# Use adb, not connectedAndroidTest: that task uninstalls the app afterwards, deleting its data and model.
+./gradlew :app:assembleDebugAndroidTest
+adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w -e class app.zuri.android.ModelEvalTest app.zuri.android.test/androidx.test.runner.AndroidJUnitRunner
 ./gradlew recordRoborazziDebug               # re-record screenshot baselines (light and dark)
 ./gradlew verifyRoborazziDebug               # compare against src/test/screenshots
 ```

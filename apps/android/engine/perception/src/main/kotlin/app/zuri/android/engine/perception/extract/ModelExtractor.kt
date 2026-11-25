@@ -26,7 +26,7 @@ class ModelExtractor(private val model: LocalLanguageModel, private val zone: ()
     }
 
     suspend fun extract(batch: ChatBatch): Outcome {
-        val request = GenerationRequest(prompt = prompt(batch, zone()), system = SYSTEM, maxOutputTokens = 512)
+        val request = GenerationRequest(prompt = prompt(batch, zone()), system = SYSTEM, maxOutputTokens = 384)
         return when (val r = model.generateJson(request, SCHEMA)) {
             is GenerationResult.Success -> Outcome.Items(parse(r.text, batch), r.modelId)
             GenerationResult.NoModelInstalled -> Outcome.NoModel
@@ -63,7 +63,8 @@ class ModelExtractor(private val model: LocalLanguageModel, private val zone: ()
 For each item give the message number, the exact words copied from that message as quote, a short summary written for Me (for example "Send Chanda the quotation"), and the time words if any.
 Skip greetings, thanks, small talk and anything unclear. Never invent. If nothing qualifies, return an empty list."""
 
-        const val SCHEMA = """{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"kind":{"type":"string","enum":["my_promise","their_promise","request_to_me","event","fact"]},"message":{"type":"integer"},"quote":{"type":"string"},"summary":{"type":"string"},"when":{"type":"string"}},"required":["kind","message","quote","summary"]}}},"required":["items"]}"""
+        /** Bounded lengths and count: the decoder enforces them, so one batch can't run on for minutes. */
+        const val SCHEMA = """{"type":"object","properties":{"items":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"kind":{"type":"string","enum":["my_promise","their_promise","request_to_me","event","fact"]},"message":{"type":"integer","minimum":1,"maximum":12},"quote":{"type":"string","maxLength":160},"summary":{"type":"string","maxLength":120},"when":{"type":"string","maxLength":40}},"required":["kind","message","quote","summary"]}}},"required":["items"]}"""
 
         private val STAMP = DateTimeFormatter.ofPattern("EEE d MMM HH:mm", Locale.ENGLISH)
 

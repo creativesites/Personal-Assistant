@@ -116,4 +116,11 @@ class PerceptionRunnerTest {
         runner.run(Long.MAX_VALUE)
         assertThat(items().map { it.sourceMessageId.value }).containsExactly("m2")
     }
+
+    @Test fun aHotPhoneStopsTheRunBeforeTheNextBatch() = runTest {
+        val stats = runner.run(Long.MAX_VALUE, pause = { true })
+        assertThat(stats.stoppedEarly).isTrue()
+        assertThat(model.prompts).isEmpty()
+        assertThat(db.perceptionDao().observeWaiting("ws", 0).first()).isEqualTo(2)
+    }
 }

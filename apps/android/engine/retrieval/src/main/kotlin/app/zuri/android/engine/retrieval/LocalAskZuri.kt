@@ -139,6 +139,6 @@ class LocalAskZuri(
         const val SYSTEM = """You answer the owner's question using only the numbered sources, which come from their own messages on this phone. "You" in a source is the owner.
 Write a short, direct answer addressed to the owner and cite every source you rely on like [2].
 If the sources don't answer the question, set known to false. Never use outside knowledge and never guess."""
-        const val SCHEMA = """{"type":"object","properties":{"known":{"type":"boolean"},"answer":{"type":"string"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["known","answer","sources"]}"""
+        const val SCHEMA = """{"type":"object","properties":{"known":{"type":"boolean"},"answer":{"type":"string","maxLength":600},"sources":{"type":"array","maxItems":10,"items":{"type":"integer","minimum":1,"maximum":10}}},"required":["known","answer","sources"]}"""
     }
 }

@@ -1,6 +1,7 @@
 package app.zuri.android.engine.perception.pipeline
 
 import android.content.Context
+import android.os.PowerManager
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -44,11 +45,15 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
 
     override suspend fun doWork(): Result {
         val deps = EntryPointAccessors.fromApplication(applicationContext, Deps::class.java)
-        val stats = deps.runner().run(deadlineMillis = System.currentTimeMillis() + RUN_BUDGET_MILLIS)
-        ZuriLog.i("PERCEPTION", "run", "batches" to stats.batches, "messages" to stats.messages, "stored" to stats.stored, "early" to stats.stoppedEarly)
+        // A 2B model on the CPU heats the phone; stop between batches once Android reports severe heat.
+        val power = applicationContext.getSystemService(PowerManager::class.java)
+        val hot = { power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE }
+        if (hot()) return Result.retry()
+        val stats = deps.runner().run(deadlineMillis = System.currentTimeMillis() + RUN_BUDGET_MILLIS, pause = hot)
+        ZuriLog.i("PERCEPTION", "run", "batches" to stats.batches, "messages" to stats.messages, "stored" to stats.stored, "early" to stats.stoppedEarly, "hot" to hot())
         deps.controls().recordRun()
         // A run the owner asked for keeps going until the backlog is read (or the engine fails).
-        if (inputData.getBoolean(KEY_NOW, false) && stats.stoppedEarly && stats.failure == null) deps.controls().runNow()
+        if (inputData.getBoolean(KEY_NOW, false) && stats.stoppedEarly && stats.failure == null && !hot()) deps.controls().runNow()
         return Result.success()
     }
 

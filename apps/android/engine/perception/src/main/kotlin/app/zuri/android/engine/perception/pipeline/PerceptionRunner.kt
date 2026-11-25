@@ -38,14 +38,14 @@ class PerceptionRunner(
 
     data class Stats(val batches: Int, val messages: Int, val stored: Int, val stoppedEarly: Boolean, val failure: String? = null)
 
-    /** Runs until nothing waits, [deadlineMillis] passes, or the engine fails. */
-    suspend fun run(deadlineMillis: Long): Stats {
+    /** Runs until nothing waits, [deadlineMillis] passes, [pause] says stop (e.g. the phone is hot), or the engine fails. */
+    suspend fun run(deadlineMillis: Long, pause: () -> Boolean = { false }): Stats {
         memories.deleteWhereSourceTextGone()
         val since = clock.nowMillis() - WINDOW_MILLIS
         var batches = 0; var read = 0; var stored = 0
         for (conversation in perception.conversationsWaiting(since, 100)) {
             while (true) {
-                if (clock.nowMillis() > deadlineMillis) return Stats(batches, read, stored, stoppedEarly = true)
+                if (clock.nowMillis() > deadlineMillis || pause()) return Stats(batches, read, stored, stoppedEarly = true)
                 val rows = perception.waitingIn(conversation, since, BATCH)
                 if (rows.isEmpty()) break
                 val batch = batchOf(rows)
