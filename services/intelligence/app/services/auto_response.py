@@ -206,10 +206,13 @@ class AutoResponseService:
             'text': text,
         }
         delay_ms = max(0, delay_seconds) * 1000
+        opts: dict = {}
         if delay_ms:
-            await send_queue.add(job_name, payload, {'delay': delay_ms})
-        else:
-            await send_queue.add(job_name, payload)
+            opts['delay'] = delay_ms
+        if suggested_reply_id:
+            # Stable id so the API can send it early or cancel it (Zuri panel).
+            opts['jobId'] = f'auto-reply-{suggested_reply_id}'
+        await send_queue.add(job_name, payload, opts)
 
     @staticmethod
     def _is_inside_active_window(

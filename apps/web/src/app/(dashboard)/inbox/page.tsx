@@ -8,7 +8,7 @@ import {
   AlertCircle, Archive, StickyNote, ExternalLink,
   WifiOff, UserX, ChevronDown, Users,
   Pencil, HelpCircle, ShieldCheck, CheckCircle2, RefreshCw, Trash2,
-  MoreVertical, Settings, Sparkles, Clock,
+  MoreVertical, Settings, Clock,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useGuidedTour, INBOX_TOUR_STEPS } from '@/components/guided-tour'
@@ -22,6 +22,7 @@ import { MessageThread } from './_components/message-thread'
 import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
 import { MediaLightbox, type LightboxItem } from './_components/media-lightbox'
 import { Dropdown } from '@/components/ui/dropdown'
+import { ZuriMark } from '@/components/ui/zuri-mark'
 import { mediaHref } from './_components/message-content'
 import { ProfilePictureModal } from './_components/profile-picture-modal'
 import { StatusStoriesBar } from './_components/status-stories-bar'
@@ -33,7 +34,8 @@ import type { AIInsight } from './_components/inline-ai-card'
 import { ConvRow } from './_components/conversation-row'
 import { DailyBriefing } from './_components/daily-briefing'
 import { SyncBanner } from './_components/sync-banner'
-import { IntelPanel, type AITab } from './_components/intel-panel'
+import { type AITab } from './_components/intel-panel'
+import { ZuriPanel } from './_components/zuri-panel/zuri-panel'
 import type {
   Contact, ContactDetail, Conversation, Message, Suggestion,
   InternalNote, ContactPromise, ConvContext, BriefingData, BriefingInsight,
@@ -1763,6 +1765,17 @@ export default function InboxPage() {
     onSendDirect: sendDirect,
   }
 
+  const zuriPanelCommon = {
+    conversationId: selectedId ?? '',
+    contactId: contact?.id ?? null,
+    contactName: contact ? contactLabel(contact.name, contact.phone) : '',
+    isGroup: !!contact?.isGroup,
+    token: token ?? null,
+    refreshKey: messages.length ? messages[messages.length - 1].id : 0,
+    legacyProps: { ...intelPanelProps, onClose: () => setShowAIPanel(false) },
+    onSendSuggestion: (id: string) => approveSuggestion(id),
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -2095,7 +2108,9 @@ export default function InboxPage() {
                   }`}
                   title="Zuri insights for this chat"
                 >
-                  <Sparkles size={17} />
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${showAIPanel || mobileView === 'intel' ? 'bg-white' : ''}`}>
+                    <ZuriMark size={18} />
+                  </span>
                   <span className="hidden text-xs font-semibold sm:inline">Zuri</span>
                 </button>
                 {contact && (
@@ -2243,8 +2258,13 @@ export default function InboxPage() {
 
               {/* Right: Intelligence panel (desktop) */}
               {showAIPanel && contact && (
-                <div data-tour="inbox-lead-context" className="hidden md:flex w-[320px] xl:w-[340px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
-                  <IntelPanel {...intelPanelProps} onClose={() => setShowAIPanel(false)} />
+                <div data-tour="inbox-lead-context" className="hidden md:flex w-[340px] xl:w-[360px] border-l border-gray-200 flex-col flex-shrink-0 overflow-hidden">
+                  <ZuriPanel
+                    {...zuriPanelCommon}
+                    onClose={() => setShowAIPanel(false)}
+                    onUseDraft={text => { setDraft(text); setTimeout(() => draftRef.current?.focus(), 50) }}
+                    onFocusComposer={() => draftRef.current?.focus()}
+                  />
                 </div>
               )}
             </div>
@@ -2284,24 +2304,17 @@ export default function InboxPage() {
       {/* ── Mobile: Intel view ───────────────────────────────────────────── */}
       {mobileView === 'intel' && selectedId && contact && (
         <div className="md:hidden flex flex-col flex-1 min-w-0">
-          <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-200 bg-white flex-shrink-0">
-            <button onClick={() => setMobileView('thread')} className="p-2 -ml-2 text-gray-400 hover:text-gray-600 rounded-lg">
-              <ChevronLeft size={20} />
-            </button>
-            <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">{contact.name}</p>
-              <p className="text-xs text-indigo-500 font-medium">{contact.isGroup ? 'Group chat — not analysed' : 'AI Intelligence'}</p>
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <IntelPanel
-              {...intelPanelProps}
-              onSetDraft={text => { setDraft(text); setMobileView('thread') }}
-              onClose={() => setMobileView('thread')}
-              draftFocus={() => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
-            />
-          </div>
+          <ZuriPanel
+            {...zuriPanelCommon}
+            legacyProps={{
+              ...zuriPanelCommon.legacyProps,
+              onSetDraft: text => { setDraft(text); setMobileView('thread') },
+              draftFocus: () => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) },
+            }}
+            onClose={() => setMobileView('thread')}
+            onUseDraft={text => { setDraft(text); setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
+            onFocusComposer={() => { setMobileView('thread'); setTimeout(() => draftRef.current?.focus(), 100) }}
+          />
         </div>
       )}
 

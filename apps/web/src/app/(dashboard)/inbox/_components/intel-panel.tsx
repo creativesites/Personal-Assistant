@@ -195,6 +195,8 @@ export interface IntelPanelProps {
   onSnoozeProactive: (id: string) => void
   onAnalyseFull?: () => void
   onSendDirect?: (text: string) => Promise<void>
+  /** Rendered inside ZuriPanel: hide this component's own header and tab bar. */
+  embedded?: boolean
 }
 
 export function IntelPanel({
@@ -205,6 +207,7 @@ export function IntelPanel({
   onTabChange, onApprove, onDismiss, onRegenerate, onSetDraft,
   onAddNote, onNoteChange, onEditSugg, onEditedTextChange, onClose, draftFocus,
   promises, onApproveProactive, onSnoozeProactive, onAnalyseFull, onSendDirect,
+  embedded = false,
 }: IntelPanelProps) {
   const TABS: { id: AITab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
@@ -924,7 +927,7 @@ export function IntelPanel({
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+      {!embedded && <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-indigo-50 rounded-md flex items-center justify-center">
             <Brain size={13} className="text-indigo-600" />
@@ -936,10 +939,10 @@ export function IntelPanel({
         <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
           <X size={14} />
         </button>
-      </div>
+      </div>}
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-100 flex-shrink-0 px-1">
+      {!embedded && <div className="flex border-b border-gray-100 flex-shrink-0 px-1">
         {TABS.map(tab => (
           <button
             key={tab.id}
@@ -951,7 +954,7 @@ export function IntelPanel({
             {tab.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* Body */}
       <div className={`flex-1 overflow-y-auto ${aiTab === 'chat' ? 'flex flex-col overflow-y-hidden' : ''}`}>

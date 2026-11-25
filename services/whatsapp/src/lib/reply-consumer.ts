@@ -46,6 +46,21 @@ export function startReplyConsumer(
       // a newer message in the chat already has its own automatic reply
       // queued — that newer reply was drafted with this message in context,
       // and sending both would double-reply, possibly out of order.
+      // An automatic reply the user cancelled (or already handled) in the Zuri
+      // panel must not go out; an edited one sends the edited text.
+      let outgoingText = text;
+      if (AUTOMATIC_JOBS.has(job.name) && suggestedReplyId) {
+        const { rows: [sr] } = await db.query<{ status: string; edited_text: string | null }>(
+          `SELECT status::text AS status, edited_text FROM suggested_replies WHERE id = $1`,
+          [suggestedReplyId],
+        );
+        if (sr && sr.status !== 'approved') {
+          console.log(`[reply-consumer] skipped ${job.name}: suggestion ${suggestedReplyId} is ${sr.status}`);
+          return;
+        }
+        if (sr?.edited_text) outgoingText = sr.edited_text;
+      }
+
       if (AUTOMATIC_JOBS.has(job.name) && job.data.messageId) {
         const { rows: [row] } = await db.query<{ answered: boolean }>(
           `SELECT EXISTS (
@@ -86,7 +101,7 @@ export function startReplyConsumer(
         await sessionManager.sendMessage(
           userId,
           recipientJid,
-          text,
+          outgoingText,
           quotedWaMessageId ? { quotedWaMessageId, quotedBody } : undefined
         );
       }

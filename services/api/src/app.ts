@@ -7,6 +7,7 @@ import { healthRoutes } from './routes/health';
 import { authRoutes } from './routes/auth';
 import { whatsappRoutes } from './routes/whatsapp';
 import { conversationsRoutes } from './routes/conversations';
+import { zuriPanelRoutes } from './routes/zuri-panel';
 import { contactsRoutes } from './routes/contacts';
 import { proactiveRoutes } from './routes/proactive';
 import { suggestionsRoutes } from './routes/suggestions';
@@ -125,6 +126,7 @@ export async function buildApp() {
   await fastify.register(authRoutes);
   await fastify.register(whatsappRoutes);
   await fastify.register(conversationsRoutes);
+  await fastify.register(zuriPanelRoutes);
   await fastify.register(contactsRoutes);
   await fastify.register(proactiveRoutes);
   await fastify.register(suggestionsRoutes);

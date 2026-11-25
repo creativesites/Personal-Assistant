@@ -80,11 +80,16 @@ class ReplyGenerator:
                           WHEN id = $2::uuid THEN 'approved'::reply_status
                           ELSE 'dismissed'::reply_status
                         END,
+                        scheduled_send_at = CASE
+                          WHEN id = $2::uuid THEN NOW() + make_interval(secs => $3::int)
+                          ELSE scheduled_send_at
+                        END,
                         updated_at = NOW()
                     WHERE message_id = $1 AND status = 'pending'
                     """,
                     message_id,
                     selected['id'],
+                    int(eligibility.delay_seconds or 0),
                 )
 
             await self._auto_response.enqueue_send(
