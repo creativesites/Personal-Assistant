@@ -57,6 +57,18 @@ async function ownedScheduledReply(request: FastifyRequest, suggestionId: string
   return row ?? null;
 }
 
+const STOP = new Set(['a', 'an', 'the', 'to', 'will', 'of', 'for', 'and', 'if', 'in', 'on', 'be', 'is', 'can', 'within', 'no']);
+function words(text: string): Set<string> {
+  return new Set(text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 1 && !STOP.has(w)));
+}
+/** Same commitment re-detected across messages ("A rep will call" vs "Rep will call soon"). */
+function nearDuplicate(a: Set<string>, b: Set<string>): boolean {
+  if (!a.size || !b.size) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return shared / Math.min(a.size, b.size) >= 0.7;
+}
+
 function loopKey(kind: string, text: string): string {
   const norm = text.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
   return `${kind}:${crypto.createHash('sha1').update(norm).digest('hex').slice(0, 16)}`;
@@ -153,19 +165,28 @@ export async function zuriPanelRoutes(fastify: FastifyInstance): Promise<void> {
     // ── Open loops ──
     const resolved = new Set(resolvedRes.rows.map((r: { loop_key: string }) => r.loop_key));
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const promises = new Map<string, { key: string; text: string; byYou: boolean; at: string; messageId: string }>();
+    const promises = new Map<string, { key: string; text: string; at: string; messageId: string }>();
+    const promiseWords: Set<string>[] = [];
+    const dateWords: Set<string>[] = [];
     const dates = new Map<string, { key: string; title: string; date: string | null; at: string; messageId: string }>();
     for (const r of analysesRes.rows) {
       for (const p of (r.promises_detected ?? []) as Array<{ text?: string }>) {
         if (!p?.text) continue;
         const key = loopKey('promise', p.text);
+        const w = words(p.text);
+        // Newest first, so the kept wording is the latest; resolving it hides older near-copies too.
+        if (promiseWords.some(seen => nearDuplicate(seen, w))) continue;
+        promiseWords.push(w);
         if (resolved.has(key) || promises.has(key)) continue;
-        promises.set(key, { key, text: p.text, byYou: r.sender_type === 'user', at: r.whatsapp_timestamp, messageId: r.message_id });
+        promises.set(key, { key, text: p.text, at: r.whatsapp_timestamp, messageId: r.message_id });
       }
       for (const e of (r.events_detected ?? []) as Array<{ title?: string; date?: string | null }>) {
         if (!e?.title) continue;
         if (e.date && new Date(e.date) < today) continue; // past dates aren't open loops
         const key = loopKey('date', `${e.title}|${e.date ?? ''}`);
+        const w = words(`${e.title} ${e.date ?? ''}`);
+        if (dateWords.some(seen => nearDuplicate(seen, w))) continue;
+        dateWords.push(w);
         if (resolved.has(key) || dates.has(key)) continue;
         dates.set(key, { key, title: e.title, date: e.date ?? null, at: r.whatsapp_timestamp, messageId: r.message_id });
       }

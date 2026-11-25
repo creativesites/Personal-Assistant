@@ -22,7 +22,7 @@ interface NowData {
   suggestions: { id: string; text: string; tone: string | null; messageId: string }[]
   openLoops: {
     questions: { key: string; text: string; at: string; messageId: string }[]
-    promises: { key: string; text: string; byYou: boolean; at: string; messageId: string }[]
+    promises: { key: string; text: string; at: string; messageId: string }[]
     dates: { key: string; title: string; date: string | null; at: string; messageId: string }[]
   }
   lastViewedAt: string | null
@@ -354,10 +354,10 @@ export function NowTab({
                 action={{ label: 'Reply', onClick: onFocusComposer }} />
             ))}
             {openLoops.promises.map(p => (
-              <LoopRow key={p.key} icon={<Handshake size={13} />} tone={p.byYou ? 'amber' : 'sky'}
-                label={p.byYou ? 'You said' : `${firstName} said`} text={p.text}
+              <LoopRow key={p.key} icon={<Handshake size={13} />} tone="amber"
+                label="Commitment" text={p.text}
                 busy={busy === p.key || busy === `r-${p.key}`} onDone={() => resolveLoop(p.key)}
-                action={p.byYou && contactId ? { label: 'Remind me', icon: <Bell size={11} />, onClick: () => remind(p.key, p.text, null) } : undefined} />
+                action={contactId ? { label: 'Remind me', icon: <Bell size={11} />, onClick: () => remind(p.key, p.text, null) } : undefined} />
             ))}
             {openLoops.dates.map(d => (
               <LoopRow key={d.key} icon={<CalendarDays size={13} />} tone="violet"
