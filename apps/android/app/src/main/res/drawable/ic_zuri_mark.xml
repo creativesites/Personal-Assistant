@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zuri mark: a gradient orb with a highlight, on a 108dp adaptive canvas (66dp safe zone). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M54,30a24,24 0,1 1,-0.01 0z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="46" android:centerY="44" android:gradientRadius="34">
+                <item android:offset="0" android:color="#FFA5F3FC" />
+                <item android:offset="0.45" android:color="#FF06B6D4" />
+                <item android:offset="1" android:color="#FF4F46E5" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#8CFFFFFF" android:pathData="M47,40a5.5,5.5 0,1 1,-0.01 0z" />
+    <path android:strokeColor="#664F46E5" android:strokeWidth="1.6" android:fillColor="#00000000"
+        android:pathData="M22,30 Q40,44 54,54 M86,30 Q70,44 54,54 M24,80 Q40,66 54,54 M84,80 Q68,66 54,54" />
+</vector>

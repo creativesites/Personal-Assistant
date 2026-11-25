@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Zuri</string>
+    <string name="nav_today">Today</string>
+    <string name="nav_inbox">Inbox</string>
+    <string name="nav_people">People</string>
+    <string name="nav_ask">Ask</string>
+    <string name="nav_more">More</string>
+    <string name="settings">Settings</string>
+    <string name="search">Search</string>
+
+    <string name="inbox_empty_t">No conversations yet</string>
+    <string name="inbox_empty_b">Zuri shows conversations from the apps you allow it to read. Choosing those apps arrives in the next update.</string>
+    <string name="people_empty_t">No people yet</string>
+    <string name="people_empty_b">People appear as Zuri sees your conversations. Nothing has been captured on this phone.</string>
+    <string name="ask_empty_t">Ask needs an on-device model</string>
+    <string name="ask_empty_b">Zuri answers questions with a model that runs on this phone. Setting one up arrives in a later update.</string>
+    <string name="more_title">More</string>
+    <string name="more_privacy">Privacy Center</string>
+    <string name="more_security">Security &amp; app lock</string>
+    <string name="sources_title">Sources</string>
+    <string name="sources_t">Zuri isn’t reading any app</string>
+    <string name="sources_b">In the next update you’ll choose which apps Zuri may read, such as WhatsApp. It will only ever see what those apps show in notifications, never old chats, and you can exclude any chat or person.</string>
+
+    <string name="ctx_title">Switch context</string>
+    <string name="ctx_sub">Each workspace keeps its own people, memories and documents.</string>
+    <string name="ctx_personal_s">Family, friends, your life</string>
+    <string name="ctx_business_s">Business · on this phone only</string>
+    <string name="ctx_new">New business workspace</string>
+    <string name="ctx_new_title">New business workspace</string>
+    <string name="ctx_new_body">Business workspaces are kept fully separate from Personal and from each other.</string>
+    <string name="ctx_name">Business name</string>
+    <string name="ctx_colour">Colour</string>
+    <string name="ctx_create">Create</string>
+    <string name="cancel">Cancel</string>
+    <string name="ctx_selected">Selected</string>
+
+    <string name="lock_title">Zuri is locked</string>
+    <string name="lock_body">Unlock with your fingerprint, face or screen lock.</string>
+    <string name="lock_unlock">Unlock</string>
+    <string name="lock_prompt_title">Unlock Zuri</string>
+    <string name="lock_prompt_sub">Your conversations and memories are protected</string>
+
+    <string name="fatal_title">Zuri can’t open its data</string>
+    <string name="fatal_body">The key that protects Zuri’s encrypted data on this phone is no longer available. This can happen after restoring the phone. Your data hasn’t been sent anywhere.</string>
+</resources>

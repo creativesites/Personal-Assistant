@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="zuri_bg">#0D1118</color>
+    <color name="launcher_bg">#1A1F33</color>
+
+    <style name="Theme.Zuri" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/zuri_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

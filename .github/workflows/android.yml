@@ -1,0 +1,50 @@
+# Zuri Android CI. Path-filtered: runs only when the Android app changes, and never deploys anything.
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, unit, architecture and screenshot tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/android
+    env:
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.workers.max=4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble debug
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Unit and architecture tests
+        run: ./gradlew :domain:test :core:common:testDebugUnitTest :core:security:testDebugUnitTest :data:local:testDebugUnitTest :app:testDebugUnitTest :arch-tests:test
+      - name: Verify screenshots (light and dark)
+        run: ./gradlew :core:ui:verifyRoborazziDebug :feature:onboarding:verifyRoborazziDebug :feature:today:verifyRoborazziDebug :feature:settings:verifyRoborazziDebug
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: |
+            apps/android/**/build/reports/**
+            apps/android/**/build/outputs/roborazzi/**

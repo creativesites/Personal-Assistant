@@ -73,6 +73,8 @@ htmlcov/
 *.mobileprovision
 *.orig.*
 android/
+# Zuri Android (native app) lives at apps/android and must be tracked
+!apps/android/
 ios/
 web-build/
 # Kotlin / Android build

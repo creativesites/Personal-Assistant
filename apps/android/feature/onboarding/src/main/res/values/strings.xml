@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onb_welcome_title">Your conversations, remembered. Your promises, kept.</string>
+    <string name="onb_welcome_body">Zuri understands the messages you choose to share with it, remembers what matters, and helps you run your personal life and your business, privately on this phone.</string>
+    <string name="onb_get_started">Get started</string>
+    <string name="onb_have_account">I already use Zuri on the web</string>
+    <string name="onb_privacy_title">Private by design</string>
+    <string name="onb_privacy_sub">Here is exactly how Zuri treats what it sees.</string>
+    <string name="onb_p1_t">Understood on this phone</string>
+    <string name="onb_p1_s">Zuri keeps what it learns in an encrypted database on this phone.</string>
+    <string name="onb_p2_t">You choose every source</string>
+    <string name="onb_p2_s">Zuri ignores every app until you switch it on, and you can exclude any chat or person.</string>
+    <string name="onb_p3_t">Nothing leaves without asking</string>
+    <string name="onb_p3_s">Cloud AI, sync and uploads are separate switches, all off until you turn them on.</string>
+    <string name="onb_p4_t">Every insight shows its source</string>
+    <string name="onb_p4_s">Tap anything Zuri remembers to see where it came from, then correct or delete it.</string>
+    <string name="onb_privacy_hint">Zuri can only see what other apps show in notifications. It can’t read old chats or open apps on your behalf.</string>
+    <string name="onb_continue">Continue</string>
+    <string name="onb_choice_title">How would you like to start?</string>
+    <string name="onb_local_t">Start on this phone</string>
+    <string name="onb_local_s">No account. Everything stays here. You can connect a Zuri account later.</string>
+    <string name="onb_recommended">Recommended</string>
+    <string name="onb_cloud_t">Connect my Zuri account</string>
+    <string name="onb_cloud_s">Not available in this version yet. Start on this phone; you can connect your account from Settings once it is.</string>
+    <string name="onb_not_yet">Not yet available</string>
+    <string name="onb_choice_hint">Connecting will never upload anything from this phone or turn on cloud AI by itself. Those are separate choices.</string>
+    <string name="onb_starting">Setting up…</string>
+    <string name="onb_error">Zuri couldn’t finish setting up. Try again.</string>
+    <string name="back">Back</string>
+</resources>
