@@ -140,7 +140,7 @@ export interface Message {
   quotedMessageId?: string | null
   isStarred?: boolean
   isPinned?: boolean
-  deliveryStatus?: 'sent' | 'delivered' | 'read'
+  deliveryStatus?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
   approvalMode?: 'manual' | 'approved' | 'autonomous'
   /** Group chats only: the participant who sent this message. Null for 1:1 chats. */
   senderDisplayName?: string | null

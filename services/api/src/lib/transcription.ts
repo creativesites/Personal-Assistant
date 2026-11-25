@@ -4,6 +4,8 @@ import type { Pool } from 'pg'
 import { ensureMessageMedia } from './message-media'
 
 const MEDIA_DIR = process.env.MEDIA_DIR ?? '/app/media'
+/** Older code stored this when transcription failed; treat it as "not transcribed". */
+const FAILED_PLACEHOLDER = '[Audio voice message]'
 
 export async function transcribeAudioMessage(
   db: Pool,
@@ -20,7 +22,7 @@ export async function transcribeAudioMessage(
   }
 
   const msg = rows[0]
-  if (msg.transcription && msg.transcription.trim().length > 0) {
+  if (msg.transcription && msg.transcription.trim().length > 0 && msg.transcription !== FAILED_PLACEHOLDER) {
     return msg.transcription
   }
 
@@ -63,6 +65,7 @@ export async function transcribeAudioMessage(
   }
 
   let transcript = ''
+  const failures: string[] = []
 
   // 3. Try Gemini Multimodal Audio Transcription
   const googleKey = process.env.GOOGLE_AI_API_KEY
@@ -103,6 +106,9 @@ export async function transcribeAudioMessage(
       if (response.ok) {
         const data = (await response.json()) as any
         transcript = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+      } else {
+        failures.push(`Gemini ${response.status}`)
+        console.warn('Gemini audio transcription failed:', response.status, (await response.text()).slice(0, 300))
       }
     } catch (err) {
       console.warn('Gemini audio transcription failed:', err)
@@ -128,6 +134,8 @@ export async function transcribeAudioMessage(
       if (response.ok) {
         const data = (await response.json()) as any
         transcript = data.text?.trim() || ''
+      } else {
+        failures.push(`Whisper ${response.status}`)
       }
     } catch (err) {
       console.warn('OpenAI Whisper audio transcription failed:', err)
@@ -135,7 +143,9 @@ export async function transcribeAudioMessage(
   }
 
   if (!transcript) {
-    transcript = '[Audio voice message]'
+    // Don't cache a failure — a later retry (e.g. after a key fix) should work.
+    if (!googleKey && !openaiKey) throw new Error('Transcription is not configured (no Gemini or OpenAI key)')
+    throw new Error(`Transcription failed${failures.length ? ` (${failures.join(', ')})` : ''}`)
   }
 
   // 5. Update DB

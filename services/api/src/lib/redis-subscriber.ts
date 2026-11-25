@@ -23,6 +23,14 @@ export function startRedisSubscriber(io: Server): void {
     'presence:update:*',
     'message:status:update:*',
     'notification:new:*',
+    // Inbox: server-corrected list previews/unread counts, cross-tab read
+    // state, live reactions and team lock/assign changes.
+    'conversation:upsert:*',
+    'conversation:read:*',
+    'conversation:locked:*',
+    'conversation:unlocked:*',
+    'conversation:assigned:*',
+    'message:reaction:*',
     // docs/AUTO_REPLY_AGENTS_PLAN.md §5 — Settings, the Inbox widget, and the
     // agent detail page all edit the same Default Assistant row; this keeps
     // them in sync without a manual refresh.

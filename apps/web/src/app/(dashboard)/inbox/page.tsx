@@ -20,6 +20,7 @@ import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
 import { MediaLightbox, type LightboxItem } from './_components/media-lightbox'
+import { mediaHref } from './_components/message-content'
 import { ProfilePictureModal } from './_components/profile-picture-modal'
 import { StatusStoriesBar } from './_components/status-stories-bar'
 import { StatusViewerModal } from './_components/status-viewer-modal'
@@ -155,7 +156,9 @@ export default function InboxPage() {
   const [showInternalNoteModal, setShowInternalNoteModal] = useState(false)
   const [showQuickDocModal, setShowQuickDocModal] = useState(false)
   const [internalNoteInput, setInternalNoteInput] = useState('')
-  const [lightboxItem, setLightboxItem] = useState<LightboxItem | null>(null)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+  const [hasMoreMsgs, setHasMoreMsgs] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const [enlargedAvatar, setEnlargedAvatar] = useState<{ id?: string; name: string; avatarUrl?: string | null; phone?: string | null; isGroup?: boolean } | null>(null)
 
   // Shared Inbox Team & Locking states
@@ -621,7 +624,8 @@ export default function InboxPage() {
           target.lastMessagePreview = data.body || MEDIA_PREVIEW[data.messageType] || 'New message'
 
           if (!isCurrentActive && data.senderType === 'contact') {
-            target.unreadCount = target.lastMessageAt === data.timestamp
+            // Same timestamp as before this event = a duplicate delivery of the same message.
+            target.unreadCount = prev[index].lastMessageAt === data.timestamp
               ? Math.max(target.unreadCount, 1)
               : target.unreadCount + 1
           } else {
@@ -873,7 +877,11 @@ export default function InboxPage() {
         apiClient<{ messages: Message[]; contact: Contact }>(`/api/conversations/${active}/messages`, { token })
           .then(data => {
             if (selectedIdRef.current !== active) return
-            setMessages(data.messages)
+            // Keep older pages the user already scrolled back through.
+            const oldest = data.messages[0]?.timestamp
+            setMessages(prev => oldest
+              ? [...prev.filter(m => !m.id.startsWith('temp-') && m.timestamp < oldest), ...data.messages]
+              : data.messages)
             setContact(data.contact)
             setConversations(prev => prev.map(c => c.id === active ? { ...c, unreadCount: 0 } : c))
           })
@@ -943,9 +951,27 @@ export default function InboxPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [token])
 
-  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
+  useEffect(() => { selectedIdRef.current = selectedId; setLightboxIndex(null) }, [selectedId])
+
+  // Phone back gesture/button: an open chat gets its own history entry, so
+  // "back" returns to the chat list instead of leaving the Inbox.
+  const mobileViewRef = useRef(mobileView)
+  useEffect(() => {
+    mobileViewRef.current = mobileView
+    if (typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches) return
+    const pushed = (window.history.state as { zuriInboxChat?: boolean } | null)?.zuriInboxChat
+    if (mobileView !== 'list' && !pushed) {
+      window.history.pushState({ ...(window.history.state ?? {}), zuriInboxChat: true }, '')
+    } else if (mobileView === 'list' && pushed) {
+      window.history.back() // in-app back button: drop the entry we pushed
+    }
+  }, [mobileView])
+  useEffect(() => {
+    const onPop = () => { if (mobileViewRef.current !== 'list') setMobileView('list') }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   useEffect(() => { selectedMsgIdRef.current = selectedMsgId }, [selectedMsgId])
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -984,11 +1010,11 @@ export default function InboxPage() {
       })
 
     try {
-      const data = await apiClient<{ messages: Message[]; contact: Contact }>(
+      const data = await apiClient<{ messages: Message[]; contact: Contact; hasMore?: boolean }>(
         `/api/conversations/${convId}/messages`, { token }
       )
       if (selectedIdRef.current !== convId) return
-      setMessages(data.messages); setContact(data.contact); setLoadingMsgs(false)
+      setMessages(data.messages); setContact(data.contact); setHasMoreMsgs(!!data.hasMore); setLoadingMsgs(false)
       if (data.contact?.id) {
         const contactId = data.contact.id
         if (!data.contact.avatarUrl && !data.contact.isGroup) {
@@ -1140,6 +1166,68 @@ export default function InboxPage() {
     }
   }
 
+  const loadOlderMessages = async () => {
+    const convId = selectedId
+    const oldest = messages.find(m => !m.id.startsWith('temp-'))?.timestamp
+    if (!convId || !token || !oldest || loadingOlder || !hasMoreMsgs) return
+    setLoadingOlder(true)
+    try {
+      const data = await apiClient<{ messages: Message[]; hasMore?: boolean }>(
+        `/api/conversations/${convId}/messages?before=${encodeURIComponent(oldest)}`, { token }
+      )
+      if (selectedIdRef.current !== convId) return
+      setMessages(prev => {
+        const seen = new Set(prev.map(m => m.id))
+        return [...data.messages.filter(m => !seen.has(m.id)), ...prev]
+      })
+      setHasMoreMsgs(!!data.hasMore)
+    } catch {
+      addToast({ variant: 'error', title: 'Could not load earlier messages' })
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
+  const toggleMessageFlag = async (msgId: string, flag: 'star' | 'pin') => {
+    if (!token) return
+    const key = flag === 'star' ? 'isStarred' : 'isPinned'
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, [key]: !(m as any)[key] } : m))
+    try {
+      const res = await apiClient<{ isStarred?: boolean; isPinned?: boolean }>(
+        `/api/conversations/messages/${msgId}/${flag}`, { method: 'PATCH', token }
+      )
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, [key]: Boolean(res[key]) } : m))
+    } catch {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, [key]: !(m as any)[key] } : m))
+      addToast({ variant: 'error', title: flag === 'star' ? 'Could not star message' : 'Could not pin message' })
+    }
+  }
+
+  // Photos, videos and PDFs in this chat, in order, for the full-screen viewer.
+  const lightboxItems = useMemo<LightboxItem[]>(() => {
+    const items: LightboxItem[] = []
+    for (const m of [...messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp))) {
+      if (!m.mediaUrl || !m.id) continue
+      const isPdf = m.messageType === 'document' && (m.mediaMimeType === 'application/pdf' || /\.pdf$/i.test(m.body ?? ''))
+      const type = m.messageType === 'image' ? 'image' : m.messageType === 'video' ? 'video' : isPdf ? 'document' : null
+      if (!type) continue
+      items.push({
+        id: m.id,
+        type,
+        url: mediaHref(m.mediaUrl, token),
+        title: type === 'document' ? (m.body ?? 'Document') : (m.senderType === 'user' ? 'You' : (m.senderDisplayName || contact?.name || undefined)),
+        mimeType: m.mediaMimeType ?? undefined,
+        timestamp: m.timestamp,
+      })
+    }
+    return items
+  }, [messages, token, contact?.name])
+
+  const openMediaViewer = (messageId: string) => {
+    const i = lightboxItems.findIndex(it => it.id === messageId)
+    if (i >= 0) setLightboxIndex(i)
+  }
+
   const handleDeleteMessage = async (msg: any, deleteForEveryone: boolean) => {
     if (!selectedId || !token || !msg?.id) return
     try {
@@ -1197,9 +1285,11 @@ export default function InboxPage() {
       id: tempId,
       senderType: 'user',
       messageType: msgType,
-      body: text || file?.name || '',
+      // Matches what the server stores: only a real caption is text; documents keep their filename.
+      body: text || (msgType === 'document' ? file?.name ?? null : null),
       timestamp: new Date().toISOString(),
       pendingSuggestions: 0,
+      deliveryStatus: 'sending',
       quotedMessageId: currentReply?.id || null,
       mediaUrl: file ? URL.createObjectURL(file) : undefined,
       mediaMimeType: file ? file.type : undefined
@@ -1233,8 +1323,17 @@ export default function InboxPage() {
         })
       }
       setMessages(prev => prev.map(m => m.id === tempId ? data.message : m))
+      if (tempMsg.mediaUrl?.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(tempMsg.mediaUrl!), 30_000)
       if (data.conversation) setConversations(prev => upsertConversation(prev, data.conversation!))
-    } catch {}
+    } catch (err) {
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, deliveryStatus: 'failed' } as Message : m))
+      addToast({
+        variant: 'error',
+        title: 'Message not sent',
+        description: (err as { data?: { error?: string } })?.data?.error || 'Check your connection and try again.',
+      })
+      if (text && !file) setDraft(prev => prev || text)
+    }
   }
 
   const selectSuggestionAsDraft = async (s: Suggestion) => {
@@ -2188,6 +2287,14 @@ export default function InboxPage() {
                     }}
                     onForward={(msg) => setForwardingMessage(msg)}
                     onReact={handleReact}
+                    onStar={(id) => toggleMessageFlag(id, 'star')}
+                    onPin={(id) => toggleMessageFlag(id, 'pin')}
+                    onDelete={handleDeleteMessage}
+                    conversationId={selectedId}
+                    hasMore={hasMoreMsgs}
+                    loadingOlder={loadingOlder}
+                    onLoadOlder={loadOlderMessages}
+                    onOpenMedia={openMediaViewer}
                   />
                 )}
                 {selectedConvLock && selectedConvLock.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
@@ -2528,6 +2635,13 @@ export default function InboxPage() {
           }}
         />
       )}
+
+      <MediaLightbox
+        items={lightboxItems}
+        index={lightboxIndex}
+        onIndexChange={setLightboxIndex}
+        onClose={() => setLightboxIndex(null)}
+      />
     </div>
   )
 }

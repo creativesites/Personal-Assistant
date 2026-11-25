@@ -15,6 +15,13 @@ import { parseAiErrorResponse } from '../lib/ai-error-parser';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+/** [$2 userId, $3 ownerUserId, $4 organizationId] for message-ownership checks. */
+async function ownerParams(request: { user: unknown }): Promise<[string, string, string | null]> {
+  const { userId } = request.user as { userId: string };
+  const scope = await getEffectiveScope(userId);
+  return [userId, scope.ownerUserId, scope.organizationId];
+}
+
 export async function conversationsRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── GET /api/conversations ──────────────────────────────────────────────────
@@ -225,6 +232,10 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   fastify.get('/api/conversations/:id/messages', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
+    const q = request.query as { before?: string; limit?: string };
+    // Cursor pagination: ?before=<ISO timestamp of the oldest loaded message>.
+    const before = q.before && !Number.isNaN(Date.parse(q.before)) ? new Date(q.before).toISOString() : null;
+    const pageSize = Math.min(Math.max(parseInt(q.limit ?? '', 10) || 100, 1), 300);
     const scope = await getEffectiveScope(userId);
 
     const { rows: [conv] } = await db.query(
@@ -235,7 +246,6 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
        )`,
       [id, scope.organizationId, scope.ownerUserId, userId],
     );
-    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
 
     const [messagesResult, contactResult] = await Promise.all([
@@ -289,11 +299,12 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           FROM messages m
           LEFT JOIN message_analyses ma ON ma.message_id = m.id
           WHERE m.conversation_id = $1 AND m.is_deleted = false
+            AND ($3::timestamptz IS NULL OR m.whatsapp_timestamp < $3::timestamptz)
           ORDER BY m.whatsapp_timestamp DESC
-          LIMIT 150
+          LIMIT $4
         ) sub
         ORDER BY whatsapp_timestamp ASC`,
-        [id, userId],
+        [id, userId, before, pageSize + 1],
       ),
       db.query(
         `SELECT
@@ -315,15 +326,20 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     await db.query('UPDATE conversations SET unread_count = 0, updated_at = NOW() WHERE id = $1', [id]);
     await publishInboxEvent(userId, 'conversation:read', { conversationId: id, unreadCount: 0 });
 
+    // Fetched pageSize + 1 rows (oldest first): the extra one only signals more history.
+    const hasMore = messagesResult.rows.length > pageSize;
+    const pageRows = hasMore ? messagesResult.rows.slice(1) : messagesResult.rows;
+
     // Trigger background chat verification and repair loop (debounced by Job ID)
-    await addToQueue(
+    if (!before) await addToQueue(
       QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT,
       { userId, conversationId: id, contactId: conv.contact_id },
       { jobId: `recon-${id}`, removeOnComplete: true, removeOnFail: false }
     );
 
     return reply.send({
-      messages: messagesResult.rows.map((m: any) => ({
+      hasMore,
+      messages: pageRows.map((m: any) => ({
         id: m.id,
         senderType: m.sender_type,
         messageType: m.message_type,
@@ -1446,12 +1462,16 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const tempWaId = `direct-media-${crypto.randomUUID()}`;
     const mediaUrl = `/api/media/${safeName}`;
 
+    // Only a real caption is message text; a document keeps its filename as its label.
+    const body = caption || (msgType === 'document' ? filename : null);
+    const preview = caption || ({ image: '📷 Photo', video: '🎥 Video', audio: '🎤 Voice message' } as Record<string, string>)[msgType] || `📄 ${filename}`;
+
     const { rows: [msg] } = await db.query(
       `INSERT INTO messages
          (conversation_id, whatsapp_message_id, sender_type, message_type, body, whatsapp_timestamp, media_url, media_mime_type)
        VALUES ($1, $2, 'user', $3, $4, $5, $6, $7)
        RETURNING id`,
-      [conversationId, tempWaId, msgType, caption || filename, now, mediaUrl, mimetype],
+      [conversationId, tempWaId, msgType, body, now, mediaUrl, mimetype],
     );
 
     // Update conversation state
@@ -1459,7 +1479,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       `UPDATE conversations
        SET last_message_at = $1, last_message_preview = $2, updated_at = NOW()
        WHERE id = $3`,
-      [now, `[Attachment] ${filename}`, conversationId],
+      [now, preview, conversationId],
     );
 
     // Enqueue sending via Baileys SEND_REPLY
@@ -1479,7 +1499,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       id: msg.id,
       senderType: 'user',
       messageType: msgType,
-      body: caption || filename,
+      body,
       timestamp: now.toISOString(),
       pendingSuggestions: 0,
       mediaUrl,
@@ -1497,7 +1517,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       contactId: conv.contact_id,
       senderType: 'user',
       messageType: msgType,
-      body: caption || filename,
+      body,
       mediaUrl,
       mediaMimeType: mimetype,
       transcription: null,
@@ -1619,6 +1639,14 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   // ── POST /api/conversations/messages/:id/transcribe ─────────────────────────────
   fastify.post('/api/conversations/messages/:id/transcribe', { preHandler: authenticate }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const { rows: [owned] } = await db.query(
+      `SELECT 1 FROM messages WHERE id = $1 AND conversation_id IN (
+         SELECT c.id FROM conversations c
+         WHERE c.user_id = $2::uuid OR c.user_id = $3::uuid
+            OR ($4::uuid IS NOT NULL AND c.organization_id = $4::uuid))`,
+      [id, ...(await ownerParams(request))],
+    );
+    if (!owned) return reply.code(404).send({ error: 'Message not found' });
     try {
       const transcription = await transcribeAudioMessage(db, id);
       return reply.send({ transcription });
@@ -1631,8 +1659,13 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   fastify.patch('/api/conversations/messages/:id/star', { preHandler: authenticate }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { rows } = await db.query(
-      `UPDATE messages SET is_starred = NOT COALESCE(is_starred, false) WHERE id = $1 RETURNING id, is_starred, conversation_id`,
-      [id]
+      `UPDATE messages SET is_starred = NOT COALESCE(is_starred, false)
+       WHERE id = $1 AND conversation_id IN (
+         SELECT c.id FROM conversations c
+         WHERE c.user_id = $2::uuid OR c.user_id = $3::uuid
+            OR ($4::uuid IS NOT NULL AND c.organization_id = $4::uuid))
+       RETURNING id, is_starred, conversation_id`,
+      [id, ...(await ownerParams(request))]
     );
     if (rows.length === 0) return reply.code(404).send({ error: 'Message not found' });
     return reply.send({ id: rows[0].id, isStarred: rows[0].is_starred, conversationId: rows[0].conversation_id });
@@ -1645,9 +1678,12 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       `UPDATE messages 
        SET is_pinned = NOT COALESCE(is_pinned, false), 
            pinned_at = CASE WHEN COALESCE(is_pinned, false) THEN NULL ELSE NOW() END 
-       WHERE id = $1 
+       WHERE id = $1 AND conversation_id IN (
+         SELECT c.id FROM conversations c
+         WHERE c.user_id = $2::uuid OR c.user_id = $3::uuid
+            OR ($4::uuid IS NOT NULL AND c.organization_id = $4::uuid))
        RETURNING id, is_pinned, pinned_at, conversation_id`,
-      [id]
+      [id, ...(await ownerParams(request))]
     );
     if (rows.length === 0) return reply.code(404).send({ error: 'Message not found' });
     return reply.send({

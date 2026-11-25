@@ -16,10 +16,6 @@ import {
   Sparkles,
   Wand2,
   X,
-  FileSpreadsheet,
-  Calendar,
-  CreditCard,
-  Zap,
   Maximize2,
 } from 'lucide-react'
 
@@ -71,6 +67,10 @@ interface ReplyDockProps {
   contactName?: string
 }
 
+function isTouchDevice(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
+}
+
 export function ReplyDock({
   suggestions,
   draft,
@@ -106,7 +106,6 @@ export function ReplyDock({
   const [suggestionsCollapsed, setSuggestionsCollapsed] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isRecordingVoiceNote, setIsRecordingVoiceNote] = useState(false)
-  const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [isExpandedModalOpen, setIsExpandedModalOpen] = useState(false)
 
   // Calculate line & character metrics
@@ -137,15 +136,6 @@ export function ReplyDock({
   const ghostCompletion = useMemo(() => {
     return predictGhostText(draft, { contactName, isGroup })
   }, [draft, contactName, isGroup])
-
-  // Slash commands
-  useEffect(() => {
-    if (draft.startsWith('/') || draft.includes(' /')) {
-      setShowSlashMenu(true)
-    } else {
-      setShowSlashMenu(false)
-    }
-  }, [draft])
 
   // Presence sync for typing/composing
   useEffect(() => {
@@ -213,21 +203,6 @@ export function ReplyDock({
     onDraftChange('')
     onSendDraft(textToSend, selectedFile)
     setSelectedFile(null)
-    setShowSlashMenu(false)
-  }
-
-  const handleApplySlashCommand = (cmd: 'quote' | 'invoice' | 'schedule') => {
-    let inserted = ''
-    if (cmd === 'quote') {
-      inserted = `Hi ${contactName || 'there'}, here is the draft quotation summary for your review:\n\n📄 Quotation #QUO-${Math.floor(1000 + Math.random() * 9000)}\n• Item: Service Package\n• Total: $150.00\n\nPlease let me know if you would like to accept this quote!`
-    } else if (cmd === 'invoice') {
-      inserted = `Hi ${contactName || 'there'}, please find your invoice payment link below:\n\n💳 Invoice Payment Link: https://zuri.app/pay/inv-${Math.floor(1000 + Math.random() * 9000)}\n\nThank you for your business!`
-    } else if (cmd === 'schedule') {
-      inserted = `Hi ${contactName || 'there'}, I would love to connect. Please pick a time that works best for you here:\n\n📅 Schedule a Call: https://zuri.app/cal/meet-30min`
-    }
-    onDraftChange(inserted)
-    setShowSlashMenu(false)
-    setTimeout(() => draftRef.current?.focus(), 50)
   }
 
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false)
@@ -257,47 +232,6 @@ export function ReplyDock({
   return (
     <div className="border-t border-gray-200/60 bg-white/95 backdrop-blur-md flex-shrink-0 relative z-20 shadow-[0_-4px_24px_-8px_rgba(0,0,0,0.06)]">
       
-      {/* Slash Command Autocomplete Popup */}
-      {showSlashMenu && (
-        <div className="absolute bottom-full left-4 mb-2 w-72 bg-slate-900 text-white rounded-2xl p-2 shadow-2xl border border-slate-800 animate-in slide-in-from-bottom-2 duration-200 z-50">
-          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800 flex items-center gap-1.5">
-            <Zap size={12} className="text-amber-400" />
-            Quick Action Slash Commands
-          </p>
-          <div className="mt-1 space-y-1">
-            <button
-              onClick={() => handleApplySlashCommand('quote')}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 rounded-xl transition-colors text-left"
-            >
-              <FileSpreadsheet size={15} className="text-emerald-400" />
-              <div>
-                <p className="text-white font-bold">/quote</p>
-                <p className="text-[10px] text-slate-400 font-normal">Attach draft quotation proposal</p>
-              </div>
-            </button>
-            <button
-              onClick={() => handleApplySlashCommand('invoice')}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 rounded-xl transition-colors text-left"
-            >
-              <CreditCard size={15} className="text-blue-400" />
-              <div>
-                <p className="text-white font-bold">/invoice</p>
-                <p className="text-[10px] text-slate-400 font-normal">Send payment invoice link</p>
-              </div>
-            </button>
-            <button
-              onClick={() => handleApplySlashCommand('schedule')}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 rounded-xl transition-colors text-left"
-            >
-              <Calendar size={15} className="text-purple-400" />
-              <div>
-                <p className="text-white font-bold">/schedule</p>
-                <p className="text-[10px] text-slate-400 font-normal">Share calendar scheduling link</p>
-              </div>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* AI Actions Popup */}
       {showAIActions && (
@@ -488,6 +422,7 @@ export function ReplyDock({
                 onChange={(e) => {
                   const file = e.target.files?.[0]
                   if (file) setSelectedFile(file)
+                  e.target.value = '' // allow picking the same file again
                 }}
               />
               
@@ -543,7 +478,8 @@ export function ReplyDock({
                     if (e.key === 'Tab' && ghostCompletion) {
                       e.preventDefault()
                       onDraftChange(draft + ghostCompletion)
-                    } else if (e.key === 'Enter' && !e.shiftKey) {
+                    } else if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !isTouchDevice()) {
+                      // On phones Enter inserts a newline; the send button sends.
                       e.preventDefault()
                       handleSend()
                     } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -551,7 +487,7 @@ export function ReplyDock({
                       handleSend()
                     }
                   }}
-                  placeholder={selectedFile ? "Add a caption..." : "Type a message or '/' for shortcuts..."}
+                  placeholder={selectedFile ? "Add a caption..." : "Type a message"}
                   className="w-full resize-none bg-transparent px-1 text-[14px] md:text-sm text-neutral-800 placeholder-neutral-400 focus:outline-none leading-relaxed align-middle transition-[height] duration-100 ease-out"
                   style={{ minHeight: '28px', maxHeight: '220px' }}
                 />

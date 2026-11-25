@@ -1,6 +1,6 @@
 'use client'
 
-import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Search, X, StickyNote } from 'lucide-react'
 import { InlineAICard, type AIInsight } from './inline-ai-card'
 import { MessageBubble, type InboxMessage } from './message-bubble'
@@ -87,6 +87,11 @@ export function MessageThread({
   onDelete,
   internalNotes,
   onMediaClick,
+  conversationId,
+  hasMore,
+  loadingOlder,
+  onLoadOlder,
+  onOpenMedia,
 }: {
   messages: InboxMessage[]
   loading: boolean
@@ -114,6 +119,12 @@ export function MessageThread({
   onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
   internalNotes?: Array<{ id: string; text: string; author: string; createdAt: string }>
   onMediaClick?: (item: { type: 'image' | 'video' | 'document'; url: string; title?: string }) => void
+  /** Scroll position resets to the latest message only when this changes. */
+  conversationId?: string | null
+  hasMore?: boolean
+  loadingOlder?: boolean
+  onLoadOlder?: () => void
+  onOpenMedia?: (messageId: string) => void
 }) {
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -132,22 +143,79 @@ export function MessageThread({
     }
   }
 
-  // Scroll to bottom when messages finish loading or new messages arrive
-  useEffect(() => {
-    if (!loading && messages.length > 0) {
-      const timer = setTimeout(() => {
-        scrollToBottom('auto')
-      }, 50)
-      return () => clearTimeout(timer)
+  const sortedMessages = useMemo(() => {
+    return [...messages].sort((a, b) => {
+      const t1 = new Date(a.timestamp).getTime()
+      const t2 = new Date(b.timestamp).getTime()
+      if (t1 !== t2) return t1 - t2
+      return a.id.localeCompare(b.id)
+    })
+  }, [messages])
+  const sortedMessagesRef = useRef(sortedMessages)
+  sortedMessagesRef.current = sortedMessages
+
+  // Scroll behaviour, WhatsApp-style:
+  //  - opening a conversation jumps to the latest message;
+  //  - a new message scrolls into view only if you're already at the bottom
+  //    or you sent it; otherwise the Bottom button counts it;
+  //  - loading older history keeps your place.
+  const nearBottomRef = useRef(true)
+  const initialScrollFor = useRef<string | null>(null)
+  const edgeIds = useRef<{ first: string | null; last: string | null }>({ first: null, last: null })
+  const heightBeforePrepend = useRef<number | null>(null)
+  const [unseenCount, setUnseenCount] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (loading || !el || messages.length === 0) return
+    const sorted = sortedMessagesRef.current
+    const first = sorted[0]?.id ?? null
+    const last = sorted[sorted.length - 1]
+    const prevEdges = edgeIds.current
+    edgeIds.current = { first, last: last?.id ?? null }
+
+    if (initialScrollFor.current !== (conversationId ?? '')) {
+      initialScrollFor.current = conversationId ?? ''
+      el.scrollTop = el.scrollHeight
+      nearBottomRef.current = true
+      setUnseenCount(0)
+      return
     }
-  }, [loading, messages.length])
+    if (heightBeforePrepend.current !== null && prevEdges.first !== first) {
+      el.scrollTop += el.scrollHeight - heightBeforePrepend.current
+      heightBeforePrepend.current = null
+      return
+    }
+    if (last && prevEdges.last !== last.id) {
+      if (nearBottomRef.current || last.senderType === 'user') {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      } else {
+        setUnseenCount(n => n + 1)
+      }
+    }
+  }, [loading, messages, conversationId])
 
   const handleScroll = () => {
-    if (!scrollContainerRef.current) return
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current
-    const isScrolledUp = scrollHeight - scrollTop - clientHeight > 120
-    setShowScrollBottom(isScrolledUp)
+    const el = scrollContainerRef.current
+    if (!el) return
+    const { scrollTop, scrollHeight, clientHeight } = el
+    const distance = scrollHeight - scrollTop - clientHeight
+    nearBottomRef.current = distance < 120
+    setShowScrollBottom(distance > 120)
+    if (distance < 120) setUnseenCount(0)
+    if (scrollTop < 300 && hasMore && !loadingOlder && onLoadOlder && heightBeforePrepend.current === null) {
+      heightBeforePrepend.current = scrollHeight
+      onLoadOlder()
+    }
   }
+
+  // If a load-older request finishes without prepending anything, stop waiting for it.
+  useEffect(() => {
+    if (!loadingOlder && heightBeforePrepend.current !== null && edgeIds.current.first === sortedMessagesRef.current[0]?.id) {
+      const t = setTimeout(() => { heightBeforePrepend.current = null }, 100)
+      return () => clearTimeout(t)
+    }
+  }, [loadingOlder])
 
   useEffect(() => {
     if (!activeMatchId) return
@@ -165,14 +233,7 @@ export function MessageThread({
     }
   }
 
-  const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => {
-      const t1 = new Date(a.timestamp).getTime()
-      const t2 = new Date(b.timestamp).getTime()
-      if (t1 !== t2) return t1 - t2
-      return a.id.localeCompare(b.id)
-    })
-  }, [messages])
+
 
   const pinnedMessages: PinnedMessage[] = useMemo(() => {
     return sortedMessages
@@ -272,6 +333,20 @@ export function MessageThread({
           <ThreadLoadingSkeleton />
         ) : (
           <>
+            {hasMore && (
+              <div className="flex justify-center py-2">
+                <button
+                  onClick={() => {
+                    if (loadingOlder || !onLoadOlder) return
+                    heightBeforePrepend.current = scrollContainerRef.current?.scrollHeight ?? null
+                    onLoadOlder()
+                  }}
+                  className="min-h-9 rounded-full bg-white/85 px-4 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-gray-200/70 hover:text-indigo-600"
+                >
+                  {loadingOlder ? 'Loading earlier messages…' : 'Load earlier messages'}
+                </button>
+              </div>
+            )}
             {/* Internal Team Yellow Sticky Notes */}
             {internalNotes && internalNotes.length > 0 && (
               <div className="my-3 space-y-2">
@@ -320,6 +395,7 @@ export function MessageThread({
                     onSelect={() => onSelectMessage(msg.id)}
                     allMessages={messages}
                     highlighted={highlightedMsgId === msg.id}
+                    onOpenMedia={onOpenMedia}
                     onQuoteClick={handleQuoteClick}
                     onReply={onReply}
                     onForward={onForward}
@@ -365,7 +441,9 @@ export function MessageThread({
           title="Scroll to bottom"
         >
           <ChevronDown size={18} strokeWidth={2.5} />
-          <span className="hidden sm:inline">Bottom</span>
+          {unseenCount > 0
+            ? <span>{unseenCount} new</span>
+            : <span className="hidden sm:inline">Bottom</span>}
         </button>
       )}
     </div>

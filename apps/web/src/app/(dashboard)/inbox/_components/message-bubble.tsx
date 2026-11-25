@@ -132,6 +132,8 @@ export interface MessageBubbleProps {
   onDelete?: (msg: InboxMessage, deleteForEveryone: boolean) => void
   allMessages?: InboxMessage[]
   highlighted?: boolean
+  /** Open this message's photo/video/PDF in the full-screen viewer. */
+  onOpenMedia?: (messageId: string) => void
 }
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -760,6 +762,7 @@ export function MessageBubble({
   onDelete,
   allMessages,
   highlighted,
+  onOpenMedia,
 }: MessageBubbleProps) {
   const isUser = msg.senderType === 'user'
   const isAssistant = msg.senderType === 'assistant'
@@ -921,7 +924,7 @@ export function MessageBubble({
 
               {/* Media / rich message types (image, video, audio, document, sticker, location, contact card) */}
               {isRichMessage ? (
-                <MessageContent msg={msg} token={token} isUser={isUser} />
+                <MessageContent msg={msg} token={token} isUser={isUser} onOpenMedia={onOpenMedia} />
               ) : hasTextHighlight && msg.body ? (
                 <p className="whitespace-pre-wrap text-sm text-gray-900 leading-relaxed">
                   {highlightText(msg.body, searchQuery)}
