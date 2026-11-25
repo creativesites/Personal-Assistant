@@ -125,6 +125,14 @@ Settings → Cloud → Connect Zuri account
 
 ## 5. Ongoing sync (P3) (G3, G4)
 
+> **Update 2026-11-25:** G3's messaging slice is live. The authoritative contract is `docs/SYNC_FEED.md`:
+> - `GET /api/sync/state`, `/api/sync/changes?cursor=` (gap-free, idempotent whole-row upserts with tombstones) and `/api/sync/conversations/:id/messages?before=` (exact keyset history).
+> - Display order is `(timestamp, order)` and never `seq`, which satisfies D-21. Quotes are self-contained; media carries metadata, a thumbnail and a Range-capable `path`; reactions are one per person; delete-for-everyone is an upsert with `deleted: true`.
+> - Socket.io events are tickles only.
+> - Still to come: G4 (idempotent sends), G5 (reconciling phone captures), G7 (FCM), avatar bytes.
+>
+> The RFC below is kept for the entities the feed doesn't cover yet.
+
 ### 5.1 Proposed server surface (RFC)
 
 ```
