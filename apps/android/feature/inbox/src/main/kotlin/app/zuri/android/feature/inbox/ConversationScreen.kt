@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +57,7 @@ import app.zuri.android.domain.inbox.ConversationDetail
 import app.zuri.android.domain.inbox.Direction
 import app.zuri.android.domain.inbox.InboxMessage
 import app.zuri.android.domain.inbox.MessageId
+import app.zuri.android.domain.inbox.PlaceholderKind
 
 /** P03 Conversation detail (read-only in M2): bubbles, honest placeholders, per-message provenance. */
 @Composable
@@ -96,7 +98,7 @@ fun ConversationContent(
         DetailTopBar(
             title = s.title,
             onBack = onBack,
-            subtitle = stringResource(R.string.conv_coverage, sourceName, s.messageCount),
+            subtitle = pluralStringResource(R.plurals.conv_coverage, s.messageCount, sourceName, s.messageCount),
             actions = {
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conv_menu)) }
@@ -179,7 +181,9 @@ private fun Bubble(m: InboxMessage, showSender: Boolean, time: TimeContext, onLo
         ) {
             if (showSender && m.senderName != null) Text(m.senderName!!, style = MaterialTheme.typography.labelLarge, color = c.ctx)
             val ph = m.placeholder
-            if (ph != null) {
+            if (ph == PlaceholderKind.REACTION) {
+                Text(stringResource(R.string.reacted, m.placeholderDetail.orEmpty()), style = MaterialTheme.typography.bodyLarge, color = c.muted)
+            } else if (ph != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(ph.icon(), null, tint = c.muted, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))

@@ -50,7 +50,7 @@ fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: ()
         EmptyState(
             icon = Icons.Rounded.WbSunny,
             title = stringResource(R.string.today_empty_title),
-            body = stringResource(R.string.today_empty_body),
+            body = stringResource(if (state.capture == CaptureHealth.LISTENING) R.string.today_empty_body_listening else R.string.today_empty_body),
         )
         SectionHeader(stringResource(R.string.today_what_now))
         ZuriListGroup(rows = listOf(

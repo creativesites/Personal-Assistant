@@ -20,6 +20,9 @@ class ZuriNotificationListener : NotificationListenerService() {
         connection.set(true)
         pipeline.start()
         pipeline.kick()
+        // Messages already waiting in the shade are today's unread ones: take them too (the gate
+        // still drops sources that aren't on, and fingerprint dedup makes this safe to repeat).
+        runCatching { activeNotifications }.getOrNull()?.forEach { if (it.packageName != packageName) pipeline.onPosted(it) }
     }
 
     override fun onListenerDisconnected() {

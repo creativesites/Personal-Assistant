@@ -19,13 +19,17 @@ object Normaliser {
     private val hidden = Regex("^(new message|new messages|\\d+ new messages?|message|you have a new message)$", RegexOption.IGNORE_CASE)
     private val missedCall = Regex("^missed (voice |video )?call$", RegexOption.IGNORE_CASE)
     private val reaction = Regex("^reacted (.+?) to[: ]", RegexOption.IGNORE_CASE)
-    private val voiceDuration = Regex("\\((\\d{1,2}:\\d{2})\\)")
+    private val voiceDuration = Regex("\\((\\d{1,2}:\\d{2}(?::\\d{2})?)\\)")
+    /** A trailing "(0:20)" on video and audio lines is the clip length, not part of the caption. */
+    private val trailingDuration = Regex("\\s*\\((\\d{1,2}:\\d{2}(?::\\d{2})?)\\)$")
+    /** WhatsApp's own wording for media without a caption ("📷 Sent a photo"), seen on a Galaxy S20, 2026-11. */
+    private val sentLabel = Regex("^(sent|shared) an? (photo|image|video|sticker|gif|voice message|audio|document|file|location|contact|poll)$", RegexOption.IGNORE_CASE)
 
     private data class MediaRule(val emojis: List<String>, val words: List<String>, val kind: PlaceholderKind)
 
     private val media = listOf(
         MediaRule(listOf("📷", "🖼", "🖼️"), listOf("photo", "image"), PlaceholderKind.PHOTO),
-        MediaRule(listOf("📹", "🎥"), listOf("video"), PlaceholderKind.VIDEO),
+        MediaRule(listOf("📹", "🎥", "🎬"), listOf("video"), PlaceholderKind.VIDEO),
         MediaRule(listOf("🎤", "🎙", "🎙️"), listOf("voice message", "voice note", "audio message"), PlaceholderKind.VOICE_NOTE),
         MediaRule(listOf("🎵", "🎶", "🎧"), listOf("audio"), PlaceholderKind.AUDIO),
         MediaRule(listOf("🌠", "💟"), listOf("sticker"), PlaceholderKind.STICKER),
@@ -61,7 +65,12 @@ object Normaliser {
                     rule.kind == PlaceholderKind.VOICE_NOTE -> Classified(null, rule.kind, voiceDuration.find(rest)?.groupValues?.get(1))
                     rule.kind == PlaceholderKind.CONTACT_CARD -> Classified(null, rule.kind, rest.substringAfter(':', "").trim().take(MAX_DETAIL).ifEmpty { null })
                     rule.kind == PlaceholderKind.POLL -> Classified(null, rule.kind, rest.substringAfter(':', "").trim().take(MAX_DETAIL).ifEmpty { null })
-                    bareLabel -> Classified(null, rule.kind)
+                    bareLabel || sentLabel.matches(rest) -> Classified(null, rule.kind)
+                    rule.kind == PlaceholderKind.VIDEO || rule.kind == PlaceholderKind.AUDIO -> {
+                        val length = trailingDuration.find(rest)?.groupValues?.get(1)
+                        val caption = rest.replace(trailingDuration, "").trim()
+                        Classified(caption.takeUnless { it.isEmpty() || rule.words.any { w -> it.equals(w, ignoreCase = true) } }, rule.kind, length)
+                    }
                     else -> Classified(rest.ifEmpty { null }, rule.kind)
                 }
             }
@@ -73,7 +82,9 @@ object Normaliser {
     /** Trims, drops invisible direction marks, and collapses runs of blank lines. */
     fun clean(raw: String?): String? {
         if (raw == null) return null
-        val s = raw.replace(Regex("[‎‏‪-‮⁦-⁩]"), "")
+        // Direction marks, plus the invisible padding marketing emails put in previews.
+        val s = raw.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069\\u034F\\u200B-\\u200D\\u00AD\\uFEFF]"), "")
+            .replace(Regex("[ \\t\\u00A0]{2,}"), " ")
             .replace(Regex("[ \\t]+\\n"), "\n")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()

@@ -12,6 +12,7 @@ class NormaliserTest {
     @Test fun plainTextStaysText() {
         assertThat(c("  Hello‎ there  ")).isEqualTo(Classified("Hello there", null))
         assertThat(c("Photo of the house is ready")).isEqualTo(Classified("Photo of the house is ready", null))
+        assertThat(c("Plus: side panel tabs\n\u034F \u034F \u034F \u200B\nHey!")).isEqualTo(Classified("Plus: side panel tabs\n\nHey!", null))
         assertThat(c("")).isNull()
         assertThat(c(null)).isNull()
     }

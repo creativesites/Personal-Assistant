@@ -40,11 +40,11 @@ class IngestProcessorTest {
 
     @After fun close() = db.close()
 
-    private suspend fun capture(s: NotificationSnapshot, capturedAt: Long = now) {
+    private suspend fun capture(s: NotificationSnapshot, capturedAt: Long = now, adapterVersion: Int = 1) {
         db.captureRawDao().insert(
             CaptureRawEntity(
                 id = "raw-${seq++}", packageName = s.packageName, notificationKey = s.key, postedAt = s.postTime, capturedAt = capturedAt,
-                payload = IngestProcessor.json.encodeToString(NotificationSnapshot.serializer(), s), adapterVersion = 1, state = "PENDING",
+                payload = IngestProcessor.json.encodeToString(NotificationSnapshot.serializer(), s), adapterVersion = adapterVersion, state = "PENDING",
             ),
         )
     }
@@ -78,6 +78,19 @@ class IngestProcessorTest {
         assertThat(m.text).isEqualTo("See you at 11")
         assertThat(m.edited).isTrue()
         assertThat(m.editHistory).isEqualTo("[\"See you at 10\"]")
+    }
+
+    @Test fun aNewerReaderUpdatesQuietlyInsteadOfMarkingAnEdit() = runTest {
+        capture(wa(msg("🎥 Nice (0:20)", 2_500_000)), adapterVersion = 1)
+        processor.processPending()
+        db.messageDao().observeFor(db.conversationDao().find("ws-personal", "com.whatsapp", "d:chanda")!!.id).first()
+        // Same notification read again by a newer adapter that parses it differently.
+        capture(wa(msg("🎥 Nice (0:20)", 2_500_000).copy(text = "🎥 Nice"), ), adapterVersion = 2)
+        val stats = processor.processPending()
+        assertThat(stats.reparsed).isEqualTo(1)
+        val m = messages().single()
+        assertThat(m.edited).isFalse()
+        assertThat(m.adapterVersion).isEqualTo(2)
     }
 
     @Test fun senderDeletionMarksTheMessageDeleted() = runTest {

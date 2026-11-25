@@ -20,17 +20,21 @@
 
     <string name="unread_count">%1$d new</string>
 
-    <string name="conv_coverage">From %1$s notifications on this phone · %2$d messages</string>
+    <plurals name="conv_coverage">
+        <item quantity="one">From %1$s notifications on this phone · %2$d message</item>
+        <item quantity="other">From %1$s notifications on this phone · %2$d messages</item>
+    </plurals>
+    <string name="reacted">reacted %1$s</string>
     <string name="conv_menu">More options</string>
     <string name="conv_exclude">Stop capturing this chat</string>
     <string name="conv_delete">Delete conversation</string>
     <string name="conv_excluded">Zuri no longer captures this chat.</string>
     <string name="conv_gone">This conversation was deleted.</string>
     <string name="exclude_title">Stop capturing \"%1$s\"?</string>
-    <string name="exclude_body">Zuri will ignore new notifications from this chat and delete the %1$d messages it stored. This can\'t be undone.</string>
+    <string name="exclude_body">Zuri will ignore new notifications from this chat and delete what it stored (%1$d). This can\'t be undone.</string>
     <string name="exclude_confirm">Stop and delete</string>
     <string name="delete_conv_title">Delete \"%1$s\"?</string>
-    <string name="delete_conv_body">The %1$d stored messages are removed from this phone. New messages from this chat will still be captured.</string>
+    <string name="delete_conv_body">Everything stored from this chat (%1$d) is removed from this phone. New messages from this chat will still be captured.</string>
     <string name="delete_msg_title">Delete this message?</string>
     <string name="delete_msg_body">It\'s removed from this phone. Nothing changes in %1$s.</string>
     <string name="delete">Delete</string>

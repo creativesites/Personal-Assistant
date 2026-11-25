@@ -29,7 +29,10 @@
     <string name="section_sources">Message sources</string>
     <string name="source_not_installed">Not installed on this phone</string>
     <string name="source_off">Off</string>
-    <string name="source_count">%1$d messages stored</string>
+    <plurals name="source_count">
+        <item quantity="one">%1$d message stored</item>
+        <item quantity="other">%1$d messages stored</item>
+    </plurals>
 
     <string name="cap_text">Message text</string>
     <string name="cap_groups">Groups with sender names</string>
@@ -52,7 +55,7 @@
     <string name="cancel">Cancel</string>
 
     <string name="limits_t">What notifications can\'t give Zuri</string>
-    <string name="limits_b">Zuri sees what your notifications show, nothing more: no history from before today, no photos or files, nothing from muted chats, and nothing an app hides from its notifications. Messages you read on a computer first may never notify.</string>
+    <string name="limits_b">Zuri sees what your notifications show, nothing more: no history from before Zuri started listening (apart from what was still in your notification shade), no photos or files, nothing from muted chats, and nothing an app hides from its notifications. Messages you read on a computer first may never notify.</string>
 
     <string name="disclosure_title">Before you allow notification access</string>
     <string name="disclosure_read_t">What Zuri reads</string>

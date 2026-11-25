@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -230,7 +231,7 @@ private fun SourceRowView(row: SourceRow, expanded: Boolean, onExpand: () -> Uni
     val kind = row.setting.kind
     val supporting = when {
         !row.installed -> stringResource(R.string.source_not_installed)
-        row.setting.enabled && row.messageCount > 0 -> stringResource(R.string.source_count, row.messageCount)
+        row.setting.enabled && row.messageCount > 0 -> pluralStringResource(R.plurals.source_count, row.messageCount, row.messageCount)
         else -> capabilityLine(kind.capabilities)
     }
     Column {

@@ -126,6 +126,9 @@ interface MessageDao {
     @Query("UPDATE message SET text = :text, placeholder_kind = :placeholder, placeholder_detail = :detail, fingerprint = :fingerprint, edited = :edited, edit_history = :history, updated_at = :now WHERE id = :id")
     suspend fun revise(id: String, text: String?, placeholder: String?, detail: String?, fingerprint: String, edited: Boolean, history: String?, now: Long)
 
+    @Query("UPDATE message SET text = :text, placeholder_kind = :placeholder, placeholder_detail = :detail, fingerprint = :fingerprint, adapter_version = :adapterVersion, updated_at = :now WHERE id = :id")
+    suspend fun reparse(id: String, text: String?, placeholder: String?, detail: String?, fingerprint: String, adapterVersion: Int, now: Long)
+
     @Query("SELECT * FROM message WHERE conversation_id = :conversationId ORDER BY sent_at, id")
     fun observeFor(conversationId: String): Flow<List<MessageEntity>>
 

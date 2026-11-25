@@ -1,0 +1,22 @@
+{
+  "comment": "Structure recorded from a real WhatsApp notification on a Galaxy S20 (Android 13), 2026-11-25. Names and text are invented.",
+  "snapshot": {
+    "packageName": "com.whatsapp", "key": "0|com.whatsapp|1|<lid>|10170", "postTime": 1764043740000,
+    "title": "Mutale", "isGroupConversation": false, "shortcutId": "100000000000001@lid", "selfName": "You",
+    "messages": [
+      { "text": "🎥 Look at this (0:15)", "timestamp": 1764023580000, "senderName": "Mutale", "senderKey": "m1", "dataMimeType": "image/jpeg" },
+      { "text": "📷 Sent a photo", "timestamp": 1764023640000, "senderName": "Mutale", "senderKey": "m1", "dataMimeType": "image/jpeg" },
+      { "text": "🎥 Well done (0:20)", "timestamp": 1764038820000, "senderName": "Mutale", "senderKey": "m1", "dataMimeType": "image/jpeg" },
+      { "text": "🎤 Voice message (0:19)", "timestamp": 1764038940000, "senderName": "Mutale", "senderKey": "m1", "dataMimeType": "audio/ogg; codecs=opus" },
+      { "text": "Can you resend the quote by 11am?", "timestamp": 1764043740000, "senderName": "Mutale", "senderKey": "m1" }
+    ],
+    "hasReplyAction": true
+  },
+  "expected": [
+    "s:100000000000001@lid | Mutale | false | k:m1 | Mutale | false | Look at this | VIDEO | 0:15 | 1764023580000 | true",
+    "s:100000000000001@lid | Mutale | false | k:m1 | Mutale | false | - | PHOTO | - | 1764023640000 | true",
+    "s:100000000000001@lid | Mutale | false | k:m1 | Mutale | false | Well done | VIDEO | 0:20 | 1764038820000 | true",
+    "s:100000000000001@lid | Mutale | false | k:m1 | Mutale | false | - | VOICE_NOTE | 0:19 | 1764038940000 | true",
+    "s:100000000000001@lid | Mutale | false | k:m1 | Mutale | false | Can you resend the quote by 11am? | - | - | 1764043740000 | true"
+  ]
+}

@@ -24,6 +24,7 @@ data class IngestStats(
     var edited: Int = 0,
     var deletedBySender: Int = 0,
     var excluded: Int = 0,
+    var reparsed: Int = 0,
     var skipped: Int = 0,
     var failed: Int = 0,
 )
@@ -88,6 +89,7 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
                             Outcome.EDITED -> stats.edited++
                             Outcome.DELETED_BY_SENDER -> stats.deletedBySender++
                             Outcome.DUPLICATE -> stats.duplicates++
+                            Outcome.REPARSED -> stats.reparsed++
                         }
                         lastAt = maxOf(lastAt, m.sentAt)
                     }
@@ -103,7 +105,7 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
         }
     }
 
-    private enum class Outcome { INSERTED, DUPLICATE, EDITED, DELETED_BY_SENDER }
+    private enum class Outcome { INSERTED, DUPLICATE, EDITED, DELETED_BY_SENDER, REPARSED }
 
     private suspend fun conversationFor(
         workspaceId: String, kind: SourceKind, pkg: String, m: ParsedMessage, storeOnly: Boolean, now: Long,
@@ -123,7 +125,7 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
         val fingerprint = Fingerprints.of(m)
         if (m.exactTime) {
             val existing = messages.findExact(conv.id, m.senderKey, m.sentAt)
-            if (existing != null) return revise(existing, m, fingerprint, now)
+            if (existing != null) return revise(existing, m, fingerprint, row.adapterVersion, now)
         }
         if (messages.anyFingerprint(conv.id, Fingerprints.withNeighbours(m))) return Outcome.DUPLICATE
         messages.insert(
@@ -145,8 +147,13 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
      * edit, which keeps the earlier text in the history), or "This message was deleted" (which
      * removes the text and its history: the sender withdrew it).
      */
-    private suspend fun revise(existing: MessageEntity, m: ParsedMessage, fingerprint: String, now: Long): Outcome {
+    private suspend fun revise(existing: MessageEntity, m: ParsedMessage, fingerprint: String, adapterVersion: Int, now: Long): Outcome {
         if (existing.fingerprint == fingerprint) return Outcome.DUPLICATE
+        if (adapterVersion > existing.adapterVersion && m.placeholder != PlaceholderKind.DELETED) {
+            // A newer reader re-parsed the same notification: an improvement, not a sender edit.
+            messages.reparse(existing.id, m.text, m.placeholder?.name, m.placeholderDetail, fingerprint, adapterVersion, now)
+            return Outcome.REPARSED
+        }
         val history = (existing.editHistory?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() } ?: emptyList()) +
             listOfNotNull(existing.text)
         val historyJson = if (history.isEmpty()) null else json.encodeToString(history)

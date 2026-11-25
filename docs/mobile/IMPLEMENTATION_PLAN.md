@@ -14,6 +14,7 @@
 | 2026-11-24 | **M1 started** in `apps/android` (see `apps/android/README.md`). |
 | 2026-11-25 | **M1 complete** (commit `32a8d17`): 51 tests, 14 light/dark screenshot baselines, APK verified to have no INTERNET permission. |
 | 2026-11-25 | Product owner decision D-21: with sync on, chats mirror WhatsApp (media, replies, reactions, exact order). Real-device testing on the owner's Galaxy S20 over wireless debugging is available on request. |
+| 2026-11-25 | **M0 notification spike, first result** (Galaxy S20, Android 13, WhatsApp): the WhatsApp notification `shortcutId` **is the chat JID**: `<digits>@g.us` for groups, `<digits>@lid` (WhatsApp's privacy id, not `@s.whatsapp.net`) for one-to-one chats. Zuri's `chat_key` is therefore the JID. Cloud reconciliation (DATA_OWNERSHIP_AND_SYNC §6) needs the server's `@lid` ↔ phone mapping. |
 | 2026-11-25 | **M2 built**: `:engine:ingest`, `:feature:sources`, `:feature:inbox`, database v2. Acceptance on real devices (M0 notification spike, 7-day dogfood, callback timing) is still owed. |
 
 **M0 note:** the M0 runtime, notification and render spikes need physical reference devices, which this environment doesn't have. They remain prerequisites for M2/M3/M11 and are scheduled before those milestones. M1 does not depend on them. The storage spike (SQLCipher + Room) is folded into M1.

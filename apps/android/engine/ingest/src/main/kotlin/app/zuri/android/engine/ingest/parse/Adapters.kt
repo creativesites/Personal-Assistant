@@ -13,7 +13,8 @@ class MessagingAdapter(
     /** Legacy WhatsApp group titles look like "Sender @ Group". */
     private val atGroupTitles: Boolean = false,
 ) : SourceAdapter {
-    override val version = 1
+    /** v2 (2026-11-25): real WhatsApp media formats from a Galaxy S20 ("📷 Sent a photo", "🎥 caption (0:20)"). */
+    override val version = 2
 
     override fun parse(snapshot: NotificationSnapshot): ParseResult {
         if (snapshot.isGroupSummary) return ParseResult.Skipped("group summary")
