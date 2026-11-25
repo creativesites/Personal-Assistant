@@ -7,7 +7,15 @@ import app.zuri.android.coreai.device.AndroidDeviceProfiler
 import app.zuri.android.coreai.install.AndroidModelLibrary
 import app.zuri.android.coreai.install.ModelDownloader
 import app.zuri.android.coreai.install.ModelInstaller
+import app.zuri.android.coreai.runtime.LiteRtBenchmarks
+import app.zuri.android.coreai.runtime.LiteRtEngineManager
+import app.zuri.android.coreai.runtime.LiteRtLanguageModel
 import app.zuri.android.coreai.storage.ModelStorage
+import app.zuri.android.core.common.Clock
+import app.zuri.android.domain.ai.LocalLanguageModel
+import app.zuri.android.domain.ai.ModelBenchmarks
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.preferencesDataStoreFile
 import app.zuri.android.domain.ai.ModelLibrary
 import app.zuri.android.domain.ai.ModelSpec
 import app.zuri.android.domain.privacy.EgressLedger
@@ -34,6 +42,17 @@ object CoreAiModule {
     @Provides @Singleton
     fun installer(@ApplicationContext context: Context, storage: ModelStorage, downloader: ModelDownloader, ledger: EgressLedger) =
         ModelInstaller(storage, downloader, ledger) { runCatching { StatFs(context.noBackupFilesDir.path).availableBytes }.getOrDefault(0L) }
+
+    @Provides @Singleton
+    fun engines(@ApplicationContext context: Context) = LiteRtEngineManager(File(context.cacheDir, "litertlm"))
+
+    @Provides @Singleton
+    fun languageModel(catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, engines: LiteRtEngineManager): LocalLanguageModel =
+        LiteRtLanguageModel(catalog, storage, engines)
+
+    @Provides @Singleton
+    fun benchmarks(@ApplicationContext context: Context, catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, engines: LiteRtEngineManager, clock: Clock): ModelBenchmarks =
+        LiteRtBenchmarks(catalog, storage, engines, PreferenceDataStoreFactory.create { context.preferencesDataStoreFile("zuri_ai") }, clock)
 
     @Provides @Singleton
     fun library(

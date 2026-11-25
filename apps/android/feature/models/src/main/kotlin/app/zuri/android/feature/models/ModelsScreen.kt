@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -65,9 +67,12 @@ import app.zuri.android.domain.ai.ModelTier
 data class ModelsActions(
     val onBack: () -> Unit = {},
     val onDownload: (ModelSpec) -> Unit = {},
+    /** Continue a download the person already agreed to (paused or interrupted): no second confirmation. */
+    val onResume: (ModelSpec) -> Unit = {},
     val onPause: (ModelSpec) -> Unit = {},
     val onDelete: (ModelSpec) -> Unit = {},
     val onOpenLedger: () -> Unit = {},
+    val onTest: (ModelSpec) -> Unit = {},
 )
 
 /** A01 Model library, with the A03 compatibility verdict per model and the A02 download sheet. */
@@ -86,7 +91,7 @@ fun ModelsRoute(onBack: () -> Unit, onOpenLedger: () -> Unit, viewModel: ModelsV
         confirm?.let { viewModel.download(it, pendingMobile) }
         confirm = null
     }
-    ModelsContent(state, ModelsActions(onBack, onDownload = { confirm = it.id }, onPause = { viewModel.pause(it.id) }, onDelete = { viewModel.delete(it.id) }, onOpenLedger = onOpenLedger))
+    ModelsContent(state, ModelsActions(onBack, onDownload = { confirm = it.id }, onResume = { viewModel.download(it.id, allowMobileData = false) }, onPause = { viewModel.pause(it.id) }, onDelete = { viewModel.delete(it.id) }, onOpenLedger = onOpenLedger, onTest = { viewModel.test(it.id) }))
     val spec = state.entries.firstOrNull { it.spec.id == confirm }?.spec
     if (spec != null) {
         ModalBottomSheet(onDismissRequest = { confirm = null }) {
@@ -119,11 +124,11 @@ fun ModelsContent(state: ModelsState, actions: ModelsActions, modifier: Modifier
             val search = state.entries.filter { it.spec.role == ModelRole.EMBEDDING }
             if (chat.isNotEmpty()) {
                 SectionHeader(stringResource(R.string.section_chat))
-                chat.forEach { ModelCard(it, state.device, actions) { deleting = it.spec.id } }
+                chat.forEach { ModelCard(it, state, actions) { deleting = it.spec.id } }
             }
             if (search.isNotEmpty()) {
                 SectionHeader(stringResource(R.string.section_search))
-                search.forEach { ModelCard(it, state.device, actions) { deleting = it.spec.id } }
+                search.forEach { ModelCard(it, state, actions) { deleting = it.spec.id } }
             }
         }
     }
@@ -155,7 +160,8 @@ private fun DeviceCard(d: DeviceProfile) {
 }
 
 @Composable
-private fun ModelCard(e: ModelEntry, device: DeviceProfile?, actions: ModelsActions, onDelete: () -> Unit) {
+private fun ModelCard(e: ModelEntry, state: ModelsState, actions: ModelsActions, onDelete: () -> Unit) {
+    val device = state.device
     val s = e.spec
     val installed = e.state is ModelState.Installed
     ZuriCard {
@@ -188,6 +194,7 @@ private fun ModelCard(e: ModelEntry, device: DeviceProfile?, actions: ModelsActi
             Spacer(Modifier.height(10.dp))
         }
         StateRow(e, device, actions, onDelete)
+        if (installed && s.role == ModelRole.CHAT) TestSection(s, state, actions)
     }
 }
 
@@ -210,7 +217,7 @@ private fun StateRow(e: ModelEntry, device: DeviceProfile?, actions: ModelsActio
         }
         is ModelState.Paused -> Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.state_paused, bytes(st.bytesDone), bytes(st.bytesTotal)), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted, modifier = Modifier.weight(1f))
-            OutlinedButton(onClick = { actions.onDownload(s) }, enabled = canDownload) { Text(stringResource(R.string.action_resume)) }
+            OutlinedButton(onClick = { actions.onResume(s) }, enabled = canDownload) { Text(stringResource(R.string.action_resume)) }
         }
         is ModelState.Queued -> Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(if (st.waitingForWifi) R.string.state_queued_wifi else R.string.state_queued), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted, modifier = Modifier.weight(1f))
@@ -222,9 +229,36 @@ private fun StateRow(e: ModelEntry, device: DeviceProfile?, actions: ModelsActio
                 stringResource(when (st.reason) { FailureReason.NETWORK -> R.string.failed_network; FailureReason.CHECKSUM_MISMATCH -> R.string.failed_checksum; FailureReason.NOT_ENOUGH_STORAGE -> R.string.failed_storage; FailureReason.UNKNOWN -> R.string.failed_unknown }),
                 style = MaterialTheme.typography.bodySmall, color = Zuri.colors.bad,
             )
-            OutlinedButton(onClick = { actions.onDownload(s) }, enabled = canDownload) { Text(stringResource(R.string.action_retry)) }
+            OutlinedButton(onClick = { if (st.reason == FailureReason.NETWORK) actions.onResume(s) else actions.onDownload(s) }, enabled = canDownload) { Text(stringResource(R.string.action_retry)) }
         }
         ModelState.NotInstalled -> Button(onClick = { actions.onDownload(s) }, enabled = canDownload) { Text(stringResource(R.string.action_download)) }
+    }
+}
+
+/** A03 benchmark: real timings from this phone, with the answer it produced. */
+@Composable
+private fun TestSection(s: ModelSpec, state: ModelsState, actions: ModelsActions) {
+    Spacer(Modifier.height(8.dp))
+    val b = state.benchmarks[s.id]
+    when {
+        state.testing == s.id -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(10.dp))
+            Text(stringResource(R.string.test_running), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted)
+        }
+        else -> {
+            if (state.testFailed == s.id) Text(stringResource(R.string.test_failed), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.bad)
+            if (b != null) {
+                Text(
+                    stringResource(R.string.test_result, "%.1f".format(b.loadSeconds), "%.1f".format(b.timeToFirstTokenSeconds), "%.0f".format(b.decodeTokensPerSecond * 0.75)),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text("“" + b.sampleAnswer + "”", style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted, modifier = Modifier.padding(top = 4.dp))
+            }
+            OutlinedButton(onClick = { actions.onTest(s) }, enabled = state.testing == null) {
+                Text(stringResource(if (b == null) R.string.test_run else R.string.test_again))
+            }
+        }
     }
 }
 
