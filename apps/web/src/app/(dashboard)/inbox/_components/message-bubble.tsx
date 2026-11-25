@@ -36,6 +36,10 @@ import {
   Trash2
 } from 'lucide-react'
 import { Avatar } from '@/components/ui/avatar'
+import { MessageContent } from './message-content'
+
+/** Types rendered as plain text; anything else (media, location, contact card…) goes through MessageContent. */
+const TEXT_LIKE_TYPES = new Set(['text', 'mixed', 'thinking', 'error'])
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -61,7 +65,7 @@ export interface Citation {
 export interface InboxMessage {
   id: string
   senderType: 'user' | 'contact' | 'assistant' | 'system'
-  messageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'mixed' | 'thinking' | 'error'
+  messageType?: 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact_card' | 'deleted' | 'mixed' | 'thinking' | 'error'
   body: string | null
   timestamp: string
   editedAt?: string | null
@@ -764,6 +768,7 @@ export function MessageBubble({
   const isAuto = msg.approvalMode === 'autonomous'
   const isReviewing = msg.approvalMode === 'reviewing'
   const isError = msg.messageType === 'error'
+  const isRichMessage = !!msg.messageType && !TEXT_LIKE_TYPES.has(msg.messageType as string)
 
   const hasTextHighlight = !!searchQuery.trim() && 
     !['image', 'video', 'audio', 'document'].includes(msg.messageType || '')
@@ -914,8 +919,10 @@ export function MessageBubble({
               {/* Thinking indicator */}
               {msg.isTyping && <ThinkingIndicator />}
 
-              {/* Message body with search highlight */}
-              {hasTextHighlight && msg.body ? (
+              {/* Media / rich message types (image, video, audio, document, sticker, location, contact card) */}
+              {isRichMessage ? (
+                <MessageContent msg={msg} token={token} isUser={isUser} />
+              ) : hasTextHighlight && msg.body ? (
                 <p className="whitespace-pre-wrap text-sm text-gray-900 leading-relaxed">
                   {highlightText(msg.body, searchQuery)}
                 </p>
