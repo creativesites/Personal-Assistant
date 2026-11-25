@@ -11,6 +11,8 @@ import app.zuri.android.domain.inbox.ConversationId
 import app.zuri.android.domain.inbox.ConversationSummary
 import app.zuri.android.domain.inbox.InboxRepository
 import app.zuri.android.domain.inbox.MessageId
+import app.zuri.android.domain.inbox.ReplyResult
+import app.zuri.android.domain.inbox.ReplySender
 import app.zuri.android.domain.settings.AppPreferencesRepository
 import app.zuri.android.domain.workspace.Workspace
 import app.zuri.android.domain.workspace.WorkspaceKind
@@ -72,18 +74,35 @@ class InboxViewModel @Inject constructor(
     fun refresh() = capture.refresh()
 }
 
-data class ConversationState(val loading: Boolean = true, val detail: ConversationDetail? = null)
+data class ConversationState(
+    val loading: Boolean = true,
+    val detail: ConversationDetail? = null,
+    /** A live notification's reply button exists for this chat. */
+    val canReply: Boolean = false,
+    val sending: Boolean = false,
+    val lastResult: ReplyResult? = null,
+)
 
 @HiltViewModel
 class ConversationViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val inbox: InboxRepository,
+    private val replies: ReplySender,
 ) : ViewModel() {
     private val id = ConversationId(checkNotNull(savedState.get<String>("id")) { "conversation id missing" })
+    private val sendState = MutableStateFlow<Pair<Boolean, ReplyResult?>>(false to null)
 
-    val state: StateFlow<ConversationState> = inbox.observeConversation(id)
-        .map { ConversationState(loading = false, detail = it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConversationState())
+    val state: StateFlow<ConversationState> = combine(inbox.observeConversation(id), replies.observeCanReply(id), sendState) { detail, can, (sending, result) ->
+        ConversationState(loading = false, detail = detail, canReply = can, sending = sending, lastResult = result)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConversationState())
+
+    /** Sends only on the owner's tap; returns true when the text should be cleared. */
+    fun reply(text: String, onSent: () -> Unit) = viewModelScope.launch {
+        sendState.value = true to null
+        val result = replies.reply(id, text)
+        sendState.value = false to result
+        if (result == ReplyResult.Sent) onSent()
+    }
 
     fun markRead() = viewModelScope.launch { inbox.markRead(id) }
     fun deleteMessage(message: MessageId) = viewModelScope.launch { inbox.deleteMessage(message) }

@@ -1,0 +1,59 @@
+{
+  "note": "Held-out synthetic chats, written after the grounding rules were tuned on fixtures.json and never used for tuning. Invented names and text.",
+  "anchor": "2026-11-24T14:05",
+  "chats": [
+    {"title": "Mutale", "group": false, "lines": [
+      {"me": false, "text": "Are you still coming to the farm on Sunday?"},
+      {"me": true, "text": "Yes, I'll be there by 10"},
+      {"me": false, "text": "Great, bring the seed catalogue please"}
+    ], "expected": [["MY_PROMISE", 1], ["REQUEST_TO_ME", 2]]},
+
+    {"title": "Hope", "group": false, "lines": [
+      {"me": false, "text": "Traffic is terrible on Great East Road today"},
+      {"me": true, "text": "Avoid it, use Kalingalinga"},
+      {"me": false, "text": "Good idea"}
+    ], "expected": []},
+
+    {"title": "Sipho", "group": false, "lines": [
+      {"me": false, "text": "I will send you the contract by tomorrow evening"},
+      {"me": true, "text": "Thanks, I'll review it over the weekend"}
+    ], "expected": [["THEIR_PROMISE", 0], ["MY_PROMISE", 1]]},
+
+    {"title": "Agnes", "group": false, "lines": [
+      {"me": false, "text": "Can you lend me K500 until month end?"},
+      {"me": true, "text": "Let me see what I have"},
+      {"me": false, "text": "Ok no stress"}
+    ], "expected": [["REQUEST_TO_ME", 0], ["MY_PROMISE", 1]]},
+
+    {"title": "Moses", "group": false, "lines": [
+      {"me": false, "text": "The church meeting has moved to Wednesday at 6pm"},
+      {"me": true, "text": "Noted, thanks for letting me know"}
+    ], "expected": [["EVENT", 0]]},
+
+    {"title": "Thandiwe", "group": false, "lines": [
+      {"me": false, "text": "Lol that video was hilarious 😂"},
+      {"me": true, "text": "I know right"},
+      {"me": false, "text": "Anyway sleep well"}
+    ], "expected": []},
+
+    {"title": "Kelvin", "group": false, "lines": [
+      {"me": true, "text": "Please confirm the delivery address for the tiles"},
+      {"me": false, "text": "Plot 14, Ibex Hill. I'll be home after 4"}
+    ], "expected": [["THEIR_PROMISE", 1]]},
+
+    {"title": "Precious", "group": false, "lines": [
+      {"me": false, "text": "Remember to pay the school fees before Friday"},
+      {"me": true, "text": "I will do it tomorrow morning"}
+    ], "expected": [["REQUEST_TO_ME", 0], ["MY_PROMISE", 1]]},
+
+    {"title": "Victor", "group": false, "lines": [
+      {"me": false, "text": "Should I call the plumber or will you?"},
+      {"me": true, "text": "I'll call him now"}
+    ], "expected": [["MY_PROMISE", 1]]},
+
+    {"title": "Ireen", "group": false, "lines": [
+      {"me": false, "text": "My sister just had a baby girl!"},
+      {"me": true, "text": "Congratulations! Please send my love"}
+    ], "expected": []}
+  ]
+}

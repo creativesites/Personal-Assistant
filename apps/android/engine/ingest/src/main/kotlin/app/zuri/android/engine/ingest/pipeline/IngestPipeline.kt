@@ -80,6 +80,10 @@ class IngestPipeline internal constructor(
     }
 
     /** Called for every posted notification. Cheap by design: no I/O on this thread. */
+    /** Whether the capture gate currently lets [packageName] through (false until it is known). */
+    fun allowsNow(packageName: String): Boolean =
+        SourceKind.forPackage(packageName) != null && _gate.value?.allows(packageName) == true
+
     fun onPosted(sbn: StatusBarNotification) {
         val g = _gate.value
         if (g != null && !g.allows(sbn.packageName)) return

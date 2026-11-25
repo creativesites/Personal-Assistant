@@ -52,4 +52,10 @@
     <string name="close">Close</string>
     <string name="today">Today</string>
     <string name="yesterday">Yesterday</string>
+    <string name="reply_hint">Reply</string>
+    <string name="reply_send">Send</string>
+    <string name="reply_unavailable">Reply here while this chat\'s notification is showing. Otherwise reply in the app.</string>
+    <string name="reply_open_app">Open app</string>
+    <string name="reply_expired">That notification was cleared, so the reply wasn\'t sent. Open the app to reply.</string>
+    <string name="reply_failed">The reply couldn\'t be sent.</string>
 </resources>

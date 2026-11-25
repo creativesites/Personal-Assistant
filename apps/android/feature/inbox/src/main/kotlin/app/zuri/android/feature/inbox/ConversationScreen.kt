@@ -58,6 +58,9 @@ import app.zuri.android.domain.inbox.Direction
 import app.zuri.android.domain.inbox.InboxMessage
 import app.zuri.android.domain.inbox.MessageId
 import app.zuri.android.domain.inbox.PlaceholderKind
+import app.zuri.android.domain.inbox.ReplyResult
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.foundation.layout.imePadding
 
 /** P03 Conversation detail (read-only in M2): bubbles, honest placeholders, per-message provenance. */
 @Composable
@@ -67,11 +70,22 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
     LaunchedEffect(detail?.summary?.unreadCount) { if ((detail?.summary?.unreadCount ?: 0) > 0) viewModel.markRead() }
     LaunchedEffect(state.loading, detail == null) { if (!state.loading && detail == null) onBack() }
     if (detail == null) return
+    val context = androidx.compose.ui.platform.LocalContext.current
     ConversationContent(
         detail, TimeContext.system(), onBack,
         onDeleteMessage = viewModel::deleteMessage,
         onDeleteConversation = viewModel::deleteConversation,
         onExclude = viewModel::exclude,
+        composer = {
+            ReplyComposer(
+                state = state,
+                onSend = { text, clear -> viewModel.reply(text, clear) },
+                onOpenApp = {
+                    detail.summary.source.packages.firstNotNullOfOrNull { context.packageManager.getLaunchIntentForPackage(it) }
+                        ?.let { runCatching { context.startActivity(it) } }
+                },
+            )
+        },
     )
 }
 
@@ -86,6 +100,7 @@ fun ConversationContent(
     onExclude: () -> Unit,
     modifier: Modifier = Modifier,
     initiallySelected: MessageId? = null,
+    composer: @Composable () -> Unit = {},
 ) {
     val s = detail.summary
     val sourceName = stringResource(s.source.label())
@@ -110,7 +125,8 @@ fun ConversationContent(
             },
         )
         val list = rememberLazyListState(initialFirstVisibleItemIndex = (detail.messages.size - 1).coerceAtLeast(0))
-        LazyColumn(Modifier.fillMaxSize().navigationBarsPadding(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+        LaunchedEffect(detail.messages.size) { if (detail.messages.isNotEmpty()) list.animateScrollToItem(detail.messages.size - 1) }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
             items(detail.messages.indices.toList(), key = { detail.messages[it].id.value }) { i ->
                 val m = detail.messages[i]
                 val prev = detail.messages.getOrNull(i - 1)
@@ -119,6 +135,7 @@ fun ConversationContent(
                 Bubble(m, showSender, time) { selected = m }
             }
         }
+        Box(Modifier.navigationBarsPadding().imePadding()) { composer() }
     }
 
     when (confirm) {
@@ -232,5 +249,34 @@ fun MessageInfoContent(m: InboxMessage, sourceName: String, time: TimeContext, o
             TextButton(onClick = onClose) { Text(stringResource(R.string.close)) }
         }
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+/** Reply bar: sends through the source app's live notification; otherwise offers to open the app. */
+@Composable
+private fun ReplyComposer(state: ConversationState, onSend: (String, () -> Unit) -> Unit, onOpenApp: () -> Unit) {
+    var text by rememberSaveable { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+        when (state.lastResult) {
+            ReplyResult.NotAvailable -> Text(stringResource(R.string.reply_expired), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.warn, modifier = Modifier.padding(horizontal = 8.dp))
+            is ReplyResult.Failed -> Text(stringResource(R.string.reply_failed), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.bad, modifier = Modifier.padding(horizontal = 8.dp))
+            else -> Unit
+        }
+        if (state.canReply) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = text, onValueChange = { text = it }, modifier = Modifier.weight(1f),
+                    placeholder = { Text(stringResource(R.string.reply_hint)) }, maxLines = 5, shape = MaterialTheme.shapes.large,
+                )
+                IconButton(onClick = { onSend(text) { text = "" } }, enabled = text.isNotBlank() && !state.sending) {
+                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.reply_send))
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text(stringResource(R.string.reply_unavailable), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted, modifier = Modifier.weight(1f))
+                androidx.compose.material3.TextButton(onClick = onOpenApp) { Text(stringResource(R.string.reply_open_app)) }
+            }
+        }
     }
 }

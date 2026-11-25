@@ -151,6 +151,13 @@ interface MessageDao {
     @Query("SELECT COUNT(*) FROM message")
     suspend fun count(): Int
 
+    /** The notifications this chat's messages came from, newest first (for replying through one). */
+    @Query("SELECT notification_key FROM message WHERE conversation_id = :conversationId GROUP BY notification_key ORDER BY MAX(notification_posted_at) DESC LIMIT 20")
+    suspend fun notificationKeys(conversationId: String): List<String>
+
+    @Query("SELECT notification_key FROM message WHERE conversation_id = :conversationId GROUP BY notification_key ORDER BY MAX(notification_posted_at) DESC LIMIT 20")
+    fun observeNotificationKeys(conversationId: String): Flow<List<String>>
+
     @Query("SELECT conversation_id FROM message WHERE id = :id")
     suspend fun conversationOf(id: String): String?
 }
