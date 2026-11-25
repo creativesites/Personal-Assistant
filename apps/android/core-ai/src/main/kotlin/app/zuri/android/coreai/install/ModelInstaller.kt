@@ -17,7 +17,7 @@ interface ModelDownloader {
      * Downloads [url] into [destination], resuming from the bytes already there. Throws
      * [IOException] on failure; partial bytes stay for the next attempt.
      */
-    suspend fun download(url: String, destination: File, expectedSize: Long, onProgress: (done: Long, total: Long) -> Unit): DownloadOutcome
+    suspend fun download(url: String, destination: File, expectedSize: Long, onProgress: (done: Long, total: Long) -> Unit, onConnected: (host: String) -> Unit = {}): DownloadOutcome
 }
 
 data class DownloadOutcome(val host: String, val bytesReceived: Long)
@@ -45,14 +45,15 @@ class ModelInstaller(
         val part = storage.partial(spec)
         part.parentFile?.mkdirs()
         val before = storage.partialBytes(spec)
+        var host = HOST
         try {
-            val outcome = downloader.download(spec.url, part, spec.sizeBytes, onProgress)
+            val outcome = downloader.download(spec.url, part, spec.sizeBytes, onProgress) { host = it }
             ledger.record(EgressPurpose.MODEL_DOWNLOAD, outcome.host, spec.fileName, bytesSent = 0, bytesReceived = outcome.bytesReceived)
         } catch (e: CancellationException) {
-            log(spec, storage.partialBytes(spec) - before)
+            log(spec, host, storage.partialBytes(spec) - before)
             throw e
         } catch (e: IOException) {
-            log(spec, storage.partialBytes(spec) - before)
+            log(spec, host, storage.partialBytes(spec) - before)
             return InstallResult.Failed(FailureReason.NETWORK)
         }
         if (part.length() != spec.sizeBytes) return InstallResult.Failed(FailureReason.NETWORK)
@@ -67,8 +68,8 @@ class ModelInstaller(
         return InstallResult.Installed
     }
 
-    private suspend fun log(spec: ModelSpec, received: Long) {
-        runCatching { ledger.record(EgressPurpose.MODEL_DOWNLOAD, HOST, "${spec.fileName} (interrupted)", 0, received.coerceAtLeast(0)) }
+    private suspend fun log(spec: ModelSpec, host: String, received: Long) {
+        runCatching { ledger.record(EgressPurpose.MODEL_DOWNLOAD, host, "${spec.fileName} (interrupted)", 0, received.coerceAtLeast(0)) }
     }
 
     companion object {

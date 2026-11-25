@@ -15,6 +15,7 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.ResponseFormat
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -75,6 +76,22 @@ internal fun Engine.answer(request: GenerationRequest): Pair<String, BenchmarkIn
     createConversation(config).use { conversation ->
         val reply = conversation.sendMessage(request.prompt)
         return reply.text() to runCatching<BenchmarkInfo?> { conversation.getBenchmarkInfo() }.getOrNull()
+    }
+}
+
+/**
+ * One answer constrained to [schema] (JSON Schema): the runtime only lets the model produce tokens
+ * that keep the output valid. This is how extraction gets dependable structure from a 2B model.
+ */
+@OptIn(ExperimentalApi::class)
+internal fun Engine.answerJson(prompt: String, schema: String, system: String? = null, maxOutputTokens: Int = 256): String {
+    val config = ConversationConfig(
+        systemInstruction = system?.let { Contents.of(it) },
+        maxOutputToken = maxOutputTokens,
+        enableResponseFormat = true,
+    )
+    createConversation(config).use { conversation ->
+        return conversation.sendMessage(prompt, emptyMap(), null, null, null, null, null, ResponseFormat.json(schema)).text()
     }
 }
 

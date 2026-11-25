@@ -40,6 +40,18 @@ class ArchitectureRulesTest {
             .assertFalse { file -> file.imports.any { imp -> forbidden.any { imp.name.startsWith(it) } } }
     }
 
+    /**
+     * Remote AI is gated (D-13): any function in a remote module that could send content must
+     * demand a GateToken, which only PrivacyGate can issue. Model downloads carry no content
+     * and are the one documented exception.
+     */
+    @Test fun remoteAiCallsRequireAGateToken() {
+        production.files.filter { it.path.contains("/core-ai/remote/") }
+            .flatMap { it.functions() }
+            .filter { f -> f.hasPublicOrDefaultModifier && f.name !in setOf("download", "downloader", "defaultClient") }
+            .assertFalse { f -> f.parameters.none { it.type.name == "GateToken" } }
+    }
+
     /** All logging goes through the redacting ZuriLog. */
     @Test fun androidLogIsOnlyUsedByZuriLog() {
         production.files.filter { !it.path.endsWith("/ZuriLog.kt") }

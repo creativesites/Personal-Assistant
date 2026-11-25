@@ -253,6 +253,12 @@ private fun TestSection(s: ModelSpec, state: ModelsState, actions: ModelsActions
                     stringResource(R.string.test_result, "%.1f".format(b.loadSeconds), "%.1f".format(b.timeToFirstTokenSeconds), "%.0f".format(b.decodeTokensPerSecond * 0.75)),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                b.structuredOutputWorks?.let { ok ->
+                    Text(
+                        if (ok) stringResource(R.string.test_structured_ok, "%.1f".format(b.structuredSeconds ?: 0.0)) else stringResource(R.string.test_structured_bad),
+                        style = MaterialTheme.typography.bodySmall, color = if (ok) Zuri.colors.ok else Zuri.colors.warn,
+                    )
+                }
                 Text("“" + b.sampleAnswer + "”", style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted, modifier = Modifier.padding(top = 4.dp))
             }
             OutlinedButton(onClick = { actions.onTest(s) }, enabled = state.testing == null) {

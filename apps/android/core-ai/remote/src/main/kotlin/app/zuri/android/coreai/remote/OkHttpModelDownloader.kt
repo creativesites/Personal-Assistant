@@ -22,7 +22,7 @@ class OkHttpModelDownloader(
     private val client: OkHttpClient = defaultClient(),
 ) : ModelDownloader {
 
-    override suspend fun download(url: String, destination: File, expectedSize: Long, onProgress: (Long, Long) -> Unit): DownloadOutcome =
+    override suspend fun download(url: String, destination: File, expectedSize: Long, onProgress: (Long, Long) -> Unit, onConnected: (String) -> Unit): DownloadOutcome =
         withContext(Dispatchers.IO) {
             val existing = if (destination.isFile) destination.length() else 0L
             if (existing >= expectedSize) return@withContext DownloadOutcome(hostOf(url), 0)
@@ -30,6 +30,7 @@ class OkHttpModelDownloader(
             val call = client.newCall(request)
             try {
                 call.execute().use { resp ->
+                    onConnected(resp.request.url.host) // the server that actually answered, after redirects
                     if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
                     val resumed = resp.code == 206
                     var written = if (resumed) existing else 0L

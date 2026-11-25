@@ -27,7 +27,7 @@ class OkHttpModelDownloaderTest {
     @Test fun downloadsTheWholeFile() = runTest {
         server.enqueue(MockResponse.Builder().code(200).body(Buffer().write(body)).build())
         val dest = File(tmp.root, "m.part")
-        val outcome = OkHttpModelDownloader().download(url(), dest, body.size.toLong()) { _, _ -> }
+        val outcome = OkHttpModelDownloader().download(url(), dest, body.size.toLong(), { _, _ -> })
         assertThat(dest.readBytes()).isEqualTo(body)
         assertThat(outcome.bytesReceived).isEqualTo(body.size.toLong())
     }
@@ -35,7 +35,7 @@ class OkHttpModelDownloaderTest {
     @Test fun resumesFromAPartialFileWithRange() = runTest {
         val dest = File(tmp.root, "m.part").apply { writeBytes(body.copyOfRange(0, 50_000)) }
         server.enqueue(MockResponse.Builder().code(206).body(Buffer().write(body.copyOfRange(50_000, body.size))).build())
-        val outcome = OkHttpModelDownloader().download(url(), dest, body.size.toLong()) { _, _ -> }
+        val outcome = OkHttpModelDownloader().download(url(), dest, body.size.toLong(), { _, _ -> })
         assertThat(server.takeRequest().headers["Range"]).isEqualTo("bytes=50000-")
         assertThat(dest.readBytes()).isEqualTo(body)
         assertThat(outcome.bytesReceived).isEqualTo(150_000L)
@@ -44,14 +44,14 @@ class OkHttpModelDownloaderTest {
     @Test fun aServerThatIgnoresRangeRestartsCleanly() = runTest {
         val dest = File(tmp.root, "m.part").apply { writeBytes(ByteArray(50_000) { 7 }) }
         server.enqueue(MockResponse.Builder().code(200).body(Buffer().write(body)).build())
-        OkHttpModelDownloader().download(url(), dest, body.size.toLong()) { _, _ -> }
+        OkHttpModelDownloader().download(url(), dest, body.size.toLong(), { _, _ -> })
         assertThat(dest.readBytes()).isEqualTo(body)
     }
 
     @Test fun httpErrorsThrowAndKeepPartialBytes() = runTest {
         val dest = File(tmp.root, "m.part").apply { writeBytes(ByteArray(10)) }
         server.enqueue(MockResponse.Builder().code(503).build())
-        assertThrows(IOException::class.java) { kotlinx.coroutines.runBlocking { OkHttpModelDownloader().download(url(), dest, body.size.toLong()) { _, _ -> } } }
+        assertThrows(IOException::class.java) { kotlinx.coroutines.runBlocking { OkHttpModelDownloader().download(url(), dest, body.size.toLong(), { _, _ -> }) } }
         assertThat(dest.length()).isEqualTo(10)
     }
 }

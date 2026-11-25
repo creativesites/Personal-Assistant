@@ -18,6 +18,9 @@ data class Benchmark(
     val decodeTokensPerSecond: Double,
     val sampleAnswer: String,
     val atMillis: Long,
+    /** Whether a schema-constrained answer parsed as the requested JSON; null when not checked. */
+    val structuredOutputWorks: Boolean? = null,
+    val structuredSeconds: Double? = null,
 )
 
 sealed interface GenerationResult {

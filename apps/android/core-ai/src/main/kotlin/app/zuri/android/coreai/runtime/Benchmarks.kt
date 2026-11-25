@@ -33,11 +33,14 @@ class LiteRtBenchmarks(
     private data class Stored(val items: Map<String, Item> = emptyMap())
 
     @Serializable
-    private data class Item(val backend: String, val load: Double, val ttft: Double, val prefill: Double, val decode: Double, val sample: String, val at: Long)
+    private data class Item(
+        val backend: String, val load: Double, val ttft: Double, val prefill: Double, val decode: Double, val sample: String, val at: Long,
+        val structured: Boolean? = null, val structuredSeconds: Double? = null,
+    )
 
     override val results: Flow<Map<String, Benchmark>> = store.data.map { p ->
         val stored = p[key]?.let { runCatching { json.decodeFromString<Stored>(it) }.getOrNull() } ?: Stored()
-        stored.items.mapValues { (id, i) -> Benchmark(id, i.backend, i.load, i.ttft, i.prefill, i.decode, i.sample, i.at) }
+        stored.items.mapValues { (id, i) -> Benchmark(id, i.backend, i.load, i.ttft, i.prefill, i.decode, i.sample, i.at, i.structured, i.structuredSeconds) }
     }
 
     override suspend fun run(modelId: String): Result<Benchmark> = runCatching { measure(modelId) }
@@ -55,8 +58,17 @@ class LiteRtBenchmarks(
         // engine is released afterwards so everyday use doesn't run in benchmark mode.
         @OptIn(ExperimentalApi::class)
         ExperimentalFlags.enableBenchmark = true
+        var structured: Pair<Boolean, Double>? = null
         val (answer, info) = try {
-            engines.withEngine(path) { it.answer(GenerationRequest(prompt = PROMPT, maxOutputTokens = 96)) }
+            engines.withEngine(path) { engine ->
+                val prose = engine.answer(GenerationRequest(prompt = PROMPT, maxOutputTokens = 96))
+                structured = runCatching {
+                    val start = System.nanoTime()
+                    val raw = engine.answerJson(EXTRACTION_PROMPT, EXTRACTION_SCHEMA)
+                    StructuredCheck.isValid(raw) to (System.nanoTime() - start) / 1e9
+                }.getOrElse { false to 0.0 }
+                prose
+            }
         } finally {
             @OptIn(ExperimentalApi::class)
             ExperimentalFlags.enableBenchmark = false
@@ -68,16 +80,21 @@ class LiteRtBenchmarks(
             prefillTokensPerSecond = info?.lastPrefillTokensPerSecond ?: 0.0,
             decodeTokensPerSecond = info?.lastDecodeTokensPerSecond ?: 0.0,
             sampleAnswer = answer.trim().take(400), atMillis = clock.nowMillis(),
+            structuredOutputWorks = structured?.first, structuredSeconds = structured?.second,
         )
         store.edit { p ->
             val stored = p[key]?.let { runCatching { json.decodeFromString<Stored>(it) }.getOrNull() } ?: Stored()
-            p[key] = json.encodeToString(Stored.serializer(), Stored(stored.items + (modelId to Item(b.backend, b.loadSeconds, b.timeToFirstTokenSeconds, b.prefillTokensPerSecond, b.decodeTokensPerSecond, b.sampleAnswer, b.atMillis))))
+            p[key] = json.encodeToString(Stored.serializer(), Stored(stored.items + (modelId to Item(b.backend, b.loadSeconds, b.timeToFirstTokenSeconds, b.prefillTokensPerSecond, b.decodeTokensPerSecond, b.sampleAnswer, b.atMillis, b.structuredOutputWorks, b.structuredSeconds))))
         }
         b
     }
 
     companion object {
         /** Fixed, so results compare across models and phones. Contains nothing personal. */
+        /** A made-up message: checks that constrained JSON comes back well-formed and on-schema. */
+        const val EXTRACTION_PROMPT = "Extract every commitment from this message as JSON.\n\nMessage from Chanda: \"Can you send me the quotation for 40 drip lines by Friday 10am? I'll pay the deposit on Monday.\""
+        const val EXTRACTION_SCHEMA = """{"type":"object","properties":{"commitments":{"type":"array","items":{"type":"object","properties":{"who":{"type":"string"},"what":{"type":"string"},"when":{"type":"string"}},"required":["who","what"]}}},"required":["commitments"]}"""
+
         const val PROMPT = "In two short sentences, explain what a personal assistant that runs entirely on a phone can help someone with."
     }
 }

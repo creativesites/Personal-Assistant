@@ -30,12 +30,14 @@ class ModelInstallerTest {
 
     private class Ledger : EgressLedger {
         val logged = mutableListOf<Pair<String, Long>>()
+        val hosts = mutableListOf<String>()
         override val records = MutableStateFlow(emptyList<EgressRecord>())
-        override suspend fun record(purpose: EgressPurpose, host: String, detail: String, bytesSent: Long, bytesReceived: Long) { logged += detail to bytesReceived }
+        override suspend fun record(purpose: EgressPurpose, host: String, detail: String, bytesSent: Long, bytesReceived: Long) { logged += detail to bytesReceived; hosts += host }
     }
 
     private class Writes(private val bytes: ByteArray, private val failAfter: Int? = null) : ModelDownloader {
-        override suspend fun download(url: String, destination: File, expectedSize: Long, onProgress: (Long, Long) -> Unit): DownloadOutcome {
+        override suspend fun download(url: String, destination: File, expectedSize: Long, onProgress: (Long, Long) -> Unit, onConnected: (String) -> Unit): DownloadOutcome {
+            onConnected("cdn.example")
             val start = destination.takeIf { it.isFile }?.length()?.toInt() ?: 0
             val end = failAfter?.coerceAtLeast(start) ?: bytes.size
             destination.appendBytes(bytes.copyOfRange(start, end))
@@ -70,6 +72,7 @@ class ModelInstallerTest {
         val second = ModelInstaller(storage, Writes(content), ledger) { Long.MAX_VALUE }.install(spec(), { _, _ -> })
         assertThat(second).isEqualTo(InstallResult.Installed)
         assertThat(ledger.logged).containsExactly("m.litertlm (interrupted)" to 1000L, "m.litertlm" to 3096L).inOrder()
+        assertThat(ledger.hosts).containsExactly("cdn.example", "cdn.example") // the real server, interrupted or not
     }
 
     @Test fun notEnoughStorageStopsBeforeDownloading() = runTest {
