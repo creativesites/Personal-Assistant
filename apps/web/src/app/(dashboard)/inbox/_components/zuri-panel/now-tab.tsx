@@ -19,7 +19,7 @@ interface NowData {
     delayRange: { minSeconds: number; maxSeconds: number } | null
   }
   scheduled: { id: string; text: string; sendAt: string | null; messageId: string; replyingTo: string | null }[]
-  suggestions: { id: string; text: string; tone: string | null; messageId: string }[]
+  suggestions: { id: string; text: string; tone: string | null; messageId: string; needsOwner?: boolean; needsOwnerReason?: string | null }[]
   openLoops: {
     questions: { key: string; text: string; at: string; messageId: string }[]
     promises: { key: string; text: string; at: string; messageId: string }[]
@@ -321,6 +321,12 @@ export function NowTab({
       {suggestions.length > 0 && scheduled.length === 0 && (
         <Section title="Suggested replies" icon={<Send size={11} />}>
           <div className="space-y-2">
+            {suggestions[0]?.needsOwner && (
+              <div className="rounded-xl bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-800 ring-1 ring-amber-200">
+                <span className="font-semibold">Needs you — not sent automatically.</span>{' '}
+                {suggestions[0].needsOwnerReason}
+              </div>
+            )}
             {suggestions.map(s => (
               <div key={s.id} className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm shadow-gray-100">
                 {s.tone && <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{s.tone}</p>}

@@ -146,7 +146,7 @@ export async function zuriPanelRoutes(fastify: FastifyInstance): Promise<void> {
            WHERE conversation_id = $1 AND sender_type = 'contact' AND is_deleted = false
            ORDER BY whatsapp_timestamp DESC LIMIT 1
          )
-         SELECT sr.id, sr.suggestion_text AS text, sr.tone, sr.message_id
+         SELECT sr.id, sr.suggestion_text AS text, sr.tone, sr.message_id, sr.needs_owner, sr.needs_owner_reason
          FROM last_in JOIN suggested_replies sr ON sr.message_id = last_in.id
          WHERE sr.status = 'pending'
            AND NOT EXISTS (
@@ -240,7 +240,10 @@ export async function zuriPanelRoutes(fastify: FastifyInstance): Promise<void> {
       scheduled: scheduledRes.rows.map((s: any) => ({
         id: s.id, text: s.text, sendAt: s.scheduled_send_at, messageId: s.message_id, replyingTo: s.replying_to,
       })),
-      suggestions: suggestionsRes.rows.map((s: any) => ({ id: s.id, text: s.text, tone: s.tone, messageId: s.message_id })),
+      suggestions: suggestionsRes.rows.map((s: any) => ({
+        id: s.id, text: s.text, tone: s.tone, messageId: s.message_id,
+        needsOwner: Boolean(s.needs_owner), needsOwnerReason: s.needs_owner_reason ?? null,
+      })),
       openLoops: {
         questions,
         promises: [...promises.values()].slice(0, 6),

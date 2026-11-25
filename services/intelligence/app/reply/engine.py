@@ -114,7 +114,34 @@ async def run_compose(
     }))
     if mode == 'live' and not result.needs_owner:
         out['autoSend'] = await _maybe_auto_send(ctx, result, suggestion_ids[0])
+    elif mode == 'live' and result.needs_owner:
+        await _notify_needs_owner(ctx, result)
     return out
+
+
+async def _notify_needs_owner(ctx: ChatContext, result: ComposeResult) -> None:
+    """On an auto-reply chat, a draft that needs the owner is held back —
+    tell them instead of going quiet."""
+    eligibility = await _auto_response.check_eligibility(
+        user_id=ctx.user_id, conversation_id=ctx.conversation_id,
+        contact_id=ctx.contact_id, message_body='\n'.join(i.text for i in ctx.unanswered),
+    )
+    if not (eligibility.should_send and eligibility.approval_mode == 'auto'):
+        return
+    first = ctx.contact_name.split(' ')[0]
+    title = f'{first} needs you'
+    body = result.needs_owner_reason or 'Zuri drafted a reply but needs you to check it.'
+    data = {'conversationId': ctx.conversation_id, 'messageId': ctx.unanswered[-1].message_id, 'kind': 'reply_needs_owner'}
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO notifications (user_id, type, title, body, data)
+               VALUES ($1, 'reply_suggestion', $2, $3, $4)""",
+            ctx.user_id, title, body[:400], json.dumps(data),
+        )
+    await publish_event(f'notification:new:{ctx.user_id}', json.dumps({
+        'type': 'reply_suggestion', 'title': title, 'body': body[:400], 'data': data,
+    }))
 
 
 async def _superseded(conversation_id: str, message_id: str) -> bool:
