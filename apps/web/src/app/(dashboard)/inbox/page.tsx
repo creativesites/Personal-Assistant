@@ -6,8 +6,9 @@ import { useSearchParams } from 'next/navigation'
 import {
   Search, ChevronLeft, Zap, X, MessageSquare,
   AlertCircle, Archive, StickyNote, ExternalLink,
-  Flame, Activity, Brain, WifiOff, UserX, ChevronDown, Users,
-  Pencil, HelpCircle, ShieldCheck, CheckCircle2, RefreshCw, Trash2
+  WifiOff, UserX, ChevronDown, Users,
+  Pencil, HelpCircle, ShieldCheck, CheckCircle2, RefreshCw, Trash2,
+  MoreVertical, Settings, Sparkles, Clock,
 } from 'lucide-react'
 import { useZuriSession } from '@/hooks/use-zuri-session'
 import { useGuidedTour, INBOX_TOUR_STEPS } from '@/components/guided-tour'
@@ -20,6 +21,7 @@ import { ReplyDock } from './_components/reply-dock'
 import { MessageThread } from './_components/message-thread'
 import { GroupParticipantsDrawer } from './_components/group-participants-drawer'
 import { MediaLightbox, type LightboxItem } from './_components/media-lightbox'
+import { Dropdown } from '@/components/ui/dropdown'
 import { mediaHref } from './_components/message-content'
 import { ProfilePictureModal } from './_components/profile-picture-modal'
 import { StatusStoriesBar } from './_components/status-stories-bar'
@@ -134,10 +136,15 @@ export default function InboxPage() {
   const [mobileView, setMobileView] = useState<MobileView>('list')
   const [showAIPanel, setShowAIPanel] = useState(true)
   const [search, setSearch] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
+  const chatSearchRef = useRef<HTMLInputElement>(null)
   const [filter, setFilter] = useState<FilterId>('all')
   const [aiTab, setAiTab] = useState<AITab>('overview')
-  const [briefingDismissed, setBriefingDismissed] = useState(false)
+  const [briefingDismissed, setBriefingDismissed] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('zuri.inbox.briefingHiddenOn') === new Date().toDateString())
+  const dismissBriefingForToday = () => {
+    localStorage.setItem('zuri.inbox.briefingHiddenOn', new Date().toDateString())
+    setBriefingDismissed(true)
+  }
   const [draft, setDraft] = useState('')
   const [newNote, setNewNote] = useState('')
   const [notes, setNotes] = useState<InternalNote[]>([])
@@ -931,8 +938,8 @@ export default function InboxPage() {
     const handler = (e: KeyboardEvent) => {
       const tag = (document.activeElement as HTMLElement)?.tagName
       const inField = tag === 'INPUT' || tag === 'TEXTAREA'
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setShowSearch(v => !v) }
-      if (e.key === 'Escape') { setShowSearch(false); setThreadSearchOpen(false) }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); chatSearchRef.current?.focus() }
+      if (e.key === 'Escape') { setThreadSearchOpen(false) }
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         if (selectedIdRef.current) {
           e.preventDefault()
@@ -1582,10 +1589,6 @@ export default function InboxPage() {
     return true
   })
 
-  const hotLeads = conversations.filter(c => c.aiPriority === 'hot_lead' || c.aiPriority === 'ready_to_buy').length
-  const avgHealth = conversations.length > 0
-    ? Math.round(conversations.reduce((s, c) => s + c.healthScore, 0) / conversations.length)
-    : 0
   const selectedConv = conversations.find(c => c.id === selectedId) ?? null
   const currentPriority = selectedConv?.aiPriority ? AI_PRIORITY[selectedConv.aiPriority] : null
   const CurrentPIcon = currentPriority?.icon ?? null
@@ -1787,91 +1790,89 @@ export default function InboxPage() {
       <div className={`${mobileView !== 'list' ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[272px] border-r border-gray-200 flex-shrink-0 bg-white`}>
 
         {/* Header */}
-        <div data-tour="inbox-header" className="flex items-center justify-between px-3 py-3 border-b border-gray-100 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold text-gray-900">Inbox</h1>
-            {totalUnread > 0 && (
-              <span className="bg-indigo-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
-                {totalUnread > 99 ? '99+' : totalUnread}
-              </span>
-            )}
+        <div data-tour="inbox-header" className="flex-shrink-0 px-3 pt-3 pb-2 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-lg font-bold tracking-tight text-gray-950">Chats</h1>
+              {totalUnread > 0 && (
+                <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white tabular-nums">
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {defaultAgent && (
+                <button
+                  onClick={() => setShowAgentPanel(v => !v)}
+                  className={`inline-flex min-h-9 items-center gap-1.5 rounded-xl px-2.5 text-[11px] font-semibold transition-colors ${
+                    defaultAgent.isActive && currentAgentMode !== 'off'
+                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  }`}
+                  title={`${defaultAgent.name} — auto-reply mode`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${defaultAgent.isActive && currentAgentMode !== 'off' ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                  {AUTO_REPLY_MODES.find(m => m.key === currentAgentMode)?.label ?? 'Off'}
+                  <ChevronDown size={12} className={`transition-transform ${showAgentPanel ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+              <Dropdown
+                align="right"
+                trigger={
+                  <button className="flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-800" title="More">
+                    <MoreVertical size={17} />
+                  </button>
+                }
+                items={[
+                  { label: 'Reply queue', icon: <Zap size={14} />, href: '/inbox/queue' },
+                  ...(conversations.length > 0 ? [{ label: selectMode ? 'Cancel selection' : 'Select chats', icon: <CheckCircle2 size={14} />, onClick: () => (selectMode ? exitSelectMode() : setSelectMode(true)) }] : []),
+                  { label: 'Auto-reply settings', icon: <Settings size={14} />, href: '/settings?tab=auto_responses' },
+                  { label: 'Take the tour', icon: <HelpCircle size={14} />, onClick: () => startCustomTour(INBOX_TOUR_STEPS), dividerBefore: true },
+                ]}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setShowSearch(v => !v)}
-              className={`p-1.5 rounded-lg transition-colors ${showSearch ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-            >
-              <Search size={15} />
-            </button>
-            <a
-              href="/inbox/queue"
-              className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-1.5 rounded-lg transition-colors"
-            >
-              <Zap size={12} />
-              Queue
-            </a>
-            <button
-              onClick={() => startCustomTour(INBOX_TOUR_STEPS)}
-              title="Interactive Tour of Shared Inbox"
-              className="flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 px-2 py-1.5 rounded-lg transition-all shadow-2xs"
-            >
-              <Zap size={12} className="text-amber-500 fill-amber-400 shrink-0" />
-              <span>Tour</span>
-            </button>
+
+          {/* Search (always visible, WhatsApp-style) */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              ref={chatSearchRef}
+              type="search" value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search chats"
+              className="w-full rounded-xl border border-transparent bg-gray-100 py-2 pl-8 pr-8 text-sm placeholder:text-gray-400 focus:border-indigo-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600">
+                <X size={13} />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Default Assistant widget (docs/AUTO_REPLY_AGENTS_PLAN.md §7) —
-            always visible here regardless of which conversation is open,
-            unlike the old per-conversation-only toggle this replaces. */}
-        {defaultAgent && (
-          <div className="border-b border-gray-100 flex-shrink-0">
-            <button
-              onClick={() => setShowAgentPanel(v => !v)}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors"
-            >
-              <span className="text-base leading-none">{defaultAgent.avatarEmoji}</span>
-              <span className="text-xs font-medium text-gray-700 flex-1 text-left truncate">{defaultAgent.name}</span>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                defaultAgent.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'
-              }`}>
-                {AUTO_REPLY_MODES.find(m => m.key === currentAgentMode)?.label ?? 'Off'}
-              </span>
-              <ChevronDown size={13} className={`text-gray-400 transition-transform ${showAgentPanel ? 'rotate-180' : ''}`} />
-            </button>
-            {showAgentPanel && (
-              <div className="px-3 pb-2.5 space-y-1">
-                {AUTO_REPLY_MODES.map(mode => (
-                  <button
-                    key={mode.key}
-                    onClick={() => setAgentMode(mode.key)}
-                    className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
-                      currentAgentMode === mode.key ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-                <a href="/settings?tab=auto_responses" className="block text-[11px] text-indigo-600 hover:text-indigo-700 px-2.5 pt-1">
-                  Manage in Settings →
-                </a>
-              </div>
-            )}
+        {defaultAgent && showAgentPanel && (
+          <div className="mx-3 mb-2 flex-shrink-0 rounded-2xl border border-gray-100 bg-white p-1.5 shadow-sm">
+            <p className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{defaultAgent.avatarEmoji} {defaultAgent.name}</p>
+            {AUTO_REPLY_MODES.map(mode => (
+              <button
+                key={mode.key}
+                onClick={() => { setAgentMode(mode.key); setShowAgentPanel(false) }}
+                className={`w-full rounded-xl px-2.5 py-2 text-left text-xs transition-colors ${
+                  currentAgentMode === mode.key ? 'bg-indigo-50 font-semibold text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
           </div>
         )}
 
         {/* AI Processing Delayed Banner */}
         {queueHealth.aiDelayed && (
-          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2.5 flex items-center justify-between text-amber-200 text-xs">
-            <div className="flex items-center gap-2 font-medium">
-              <span className="text-amber-400 font-bold">⚡ AI Intelligence Processing Delayed:</span>
-              <span>
-                There are currently <strong className="text-amber-300 font-mono">{queueHealth.queueDepth}</strong> messages in the queue. Incoming AI reply drafts may take a moment to appear.
-              </span>
-            </div>
-            <span className="text-[10px] text-amber-400/70 font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-              Queue Depth &gt; 10
-            </span>
+          <div className="mx-3 mb-2 flex flex-shrink-0 items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800 ring-1 ring-amber-200/70">
+            <Clock size={13} className="flex-shrink-0 text-amber-500" />
+            <span className="min-w-0">Zuri is catching up on <strong className="tabular-nums">{queueHealth.queueDepth}</strong> messages — reply drafts may be slow.</span>
           </div>
         )}
 
@@ -1892,49 +1893,19 @@ export default function InboxPage() {
           onSkip={cancelSync}
         />
 
-        {/* Search */}
-        {showSearch && (
-          <div className="px-3 py-2 border-b border-gray-50 flex-shrink-0">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                autoFocus type="search" value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search conversations…"
-                className="w-full pl-8 pr-8 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  <X size={13} />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Filter chips */}
-        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-50 overflow-x-auto flex-shrink-0 no-scrollbar">
+        <div className="flex items-center gap-1.5 px-3 pb-2 border-b border-gray-100 overflow-x-auto flex-shrink-0 no-scrollbar">
           {FILTERS.map(f => (
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
-              className={`flex-shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full transition-colors ${
-                filter === f.id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              className={`flex-shrink-0 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+                filter === f.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               {f.label}
             </button>
           ))}
-          {conversations.length > 0 && (
-            <button
-              onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-              className={`ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-colors ${
-                selectMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-100'
-              }`}
-            >
-              {selectMode ? <><X size={11} /> Cancel</> : <><CheckCircle2 size={11} /> Select</>}
-            </button>
-          )}
         </div>
 
         {/* Bulk action bar */}
@@ -1950,6 +1921,7 @@ export default function InboxPage() {
               {filtered.length > 0 && filtered.every(c => selectedIds.has(c.id)) ? 'Clear all' : `Select all (${filtered.length})`}
             </button>
             <span className="text-xs text-gray-500 tabular-nums">{selectedIds.size} selected</span>
+            <button onClick={exitSelectMode} className="min-h-9 rounded-xl px-2.5 text-xs font-semibold text-gray-600 hover:bg-white">Cancel</button>
             <button
               disabled={selectedIds.size === 0}
               onClick={() => setConfirmBulkDelete(true)}
@@ -1960,38 +1932,9 @@ export default function InboxPage() {
           </div>
         )}
 
-        {/* Stats bar */}
-        {!loading && conversations.length > 0 && (
-          <div className="flex items-center divide-x divide-gray-100 border-b border-gray-100 flex-shrink-0 px-3 py-2">
-            <div className="flex items-center gap-1.5 flex-1 pr-3">
-              <MessageSquare size={11} className="text-indigo-400" />
-              <div>
-                <p className="text-[9px] text-gray-400 leading-none">Unread</p>
-                <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{totalUnread}</p>
-              </div>
-            </div>
-            {mode !== 'personal' && (
-              <div className="flex items-center gap-1.5 flex-1 px-3">
-                <Flame size={11} className="text-red-400" />
-                <div>
-                  <p className="text-[9px] text-gray-400 leading-none">Hot leads</p>
-                  <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{hotLeads}</p>
-                </div>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5 flex-1 pl-3">
-              <Activity size={11} className="text-emerald-400" />
-              <div>
-                <p className="text-[9px] text-gray-400 leading-none">Avg health</p>
-                <p className="text-xs font-bold text-gray-900 leading-none mt-0.5">{avgHealth}%</p>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Daily briefing */}
         {!briefingDismissed && mode !== 'personal' && (
-          <DailyBriefing name={userName} insights={briefingInsights} items={briefingItems} loading={briefingLoading} onDismiss={() => setBriefingDismissed(true)} onOpenConversation={selectConversation} />
+          <DailyBriefing name={userName} insights={briefingInsights} items={briefingItems} loading={briefingLoading} onDismiss={dismissBriefingForToday} onOpenConversation={selectConversation} />
         )}
 
         {/* WhatsApp Status Stories Bar */}
@@ -2073,155 +2016,113 @@ export default function InboxPage() {
             {/* Sticky header — contact is null for a beat after selecting a
                 conversation (and stays null on a load failure), so it
                 renders a skeleton instead of the header simply vanishing. */}
-            {/* Dark Mobile-First Sticky Header */}
-            <div data-tour="inbox-locking-status" className="sticky top-0 z-50 flex items-center justify-between gap-3 px-4 h-16 border-b border-slate-800/80 bg-gradient-to-r from-slate-950 via-slate-900/95 to-indigo-950/90 backdrop-blur-xl text-white shadow-2xl shadow-slate-950/50 transition-all duration-300 relative overflow-hidden">
-              <div className="flex items-center gap-3 min-w-0 z-10">
+            {/* Chat header */}
+            <div data-tour="inbox-locking-status" className="sticky top-0 z-30 flex h-16 flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200/80 bg-white/90 px-2 backdrop-blur-xl sm:px-4">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <button
                   onClick={() => setMobileView('list')}
-                  className="md:hidden p-2 -ml-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/80 transition-all"
+                  className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 md:hidden"
+                  aria-label="Back to chats"
                 >
-                  <ChevronLeft size={20} />
+                  <ChevronLeft size={22} />
                 </button>
                 {contact ? (
                   <>
-                    <div
-                      className="relative group cursor-pointer flex-shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEnlargedAvatar({ id: contact.id, name: contact.name, avatarUrl: contact.avatarUrl, phone: contact.phone, isGroup: contact.isGroup })
-                      }}
-                      title="Click to enlarge profile picture"
+                    <button
+                      className="relative flex-shrink-0 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      onClick={() => setEnlargedAvatar({ id: contact.id, name: contact.name, avatarUrl: contact.avatarUrl, phone: contact.phone, isGroup: contact.isGroup })}
+                      title="View profile picture"
                     >
-                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="rounded-full ring-2 ring-indigo-400/50 group-hover:ring-indigo-400/90 transition-all duration-300 shadow-md" />
-                      {!contact.isGroup && (
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full ring-2 ring-slate-950 transition-colors duration-300 ${
-                          contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
-                            ? 'bg-emerald-400 animate-pulse'
-                            : 'bg-slate-500'
-                        }`} />
+                      <Avatar name={contact.name} src={contact.avatarUrl ?? undefined} size="sm" className="rounded-full" />
+                      {!contact.isGroup && (contactPresence?.status === 'available' || contactPresence?.status === 'composing' || contactPresence?.status === 'recording') && (
+                        <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
                       )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                        {contact.isGroup && <Users size={13} className="text-slate-400 flex-shrink-0" />}
-                        <div className="flex items-center gap-1 group/name cursor-pointer" onClick={openEditContactModal}>
-                          <p className="text-sm font-extrabold text-white tracking-tight truncate max-w-[140px] sm:max-w-[200px]">{contactLabel(contact.name, contact.phone)}</p>
-                          <Pencil size={10} className="text-slate-400 opacity-0 group-hover/name:opacity-100 transition-opacity" />
-                        </div>
-
-                        {/* Real-Time Sentiment Indicator Pill (Desktop Only to keep Mobile Header Clean) */}
-                        {(() => {
-                          const score = selectedConv?.healthScore ?? 70
-                          const label = score >= 80 ? 'Warm & Engaged' : score >= 50 ? 'Pending Action' : 'Strained / Urgent'
-                          const style = score >= 80 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : score >= 50 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                          return (
-                            <span className={`hidden sm:inline-flex items-center gap-1 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border tracking-wide transition-all ${style}`}>
-                              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                              {label}
-                            </span>
-                          )
-                        })()}
-
-                        {/* Collision Warning Avatar Badge */}
-                        {selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full animate-pulse" title={`${selectedConvLock.lockedByName || 'Team Member'} is viewing this chat`}>
-                            🔒 {selectedConvLock.lockedByName || 'Team Member'} active
-                          </span>
+                    </button>
+                    <button
+                      onClick={() => { if (window.matchMedia('(min-width: 768px)').matches) setShowAIPanel(true); else setMobileView('intel') }}
+                      className="min-w-0 flex-1 rounded-xl px-1.5 py-1 text-left hover:bg-gray-50"
+                      title="Contact info"
+                    >
+                      <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold leading-tight text-gray-950">
+                        {contact.isGroup && <Users size={13} className="flex-shrink-0 text-gray-400" />}
+                        <span className="truncate">{contactLabel(contact.name, contact.phone)}</span>
+                      </p>
+                      <p className={`truncate text-xs leading-tight ${
+                        contactPresence?.status === 'composing' || contactPresence?.status === 'recording'
+                          ? 'font-medium text-emerald-600'
+                          : 'text-gray-500'
+                      }`}>
+                        {getPresenceText()}
+                        {!contact.isGroup && contact.phone && !isPhoneLikeName(contact.name) && contactPresence?.status !== 'composing' && contactPresence?.status !== 'recording' && (
+                          <span className="hidden sm:inline tabular-nums text-gray-400"> · {formatPhone(contact.phone)}</span>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap mt-0.5 text-xs text-slate-400 font-medium">
-                        <p className={`truncate ${
-                          contactPresence?.status === 'composing' || contactPresence?.status === 'recording' || contactPresence?.status === 'available'
-                            ? 'text-emerald-400 font-bold animate-pulse'
-                            : 'text-slate-400'
-                        }`}>
-                          {getPresenceText()}
-                        </p>
-                        {!contact.isGroup && contact.phone && !isPhoneLikeName(contact.name) && (
-                          <span className="hidden sm:inline truncate text-slate-500 tabular-nums">· {formatPhone(contact.phone)}</span>
-                        )}
-                      </div>
-                    </div>
+                      </p>
+                    </button>
+                    {selectedConvLock?.lockedBy && selectedConvLock.lockedBy !== session.data?.user?.id && (
+                      <span className="hidden flex-shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200 sm:inline-flex" title={`${selectedConvLock.lockedByName || 'A team member'} is viewing this chat`}>
+                        🔒 {selectedConvLock.lockedByName || 'Teammate'}
+                      </span>
+                    )}
                   </>
                 ) : (
                   <div className="flex flex-1 items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-slate-800 animate-pulse flex-shrink-0" />
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="h-3 w-32 rounded-full bg-slate-800 animate-pulse" />
-                      <div className="h-2.5 w-20 rounded-full bg-slate-800 animate-pulse" />
+                    <div className="h-9 w-9 flex-shrink-0 animate-pulse rounded-full bg-gray-100" />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="h-3 w-32 animate-pulse rounded-full bg-gray-100" />
+                      <div className="h-2.5 w-20 animate-pulse rounded-full bg-gray-100" />
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Header Actions */}
-              <div className="flex items-center gap-1.5 flex-shrink-0 z-10">
-                {/* ⚡ Quick Doc Action Trigger */}
-                {contact && (
-                  <button
-                    data-tour="inbox-quick-actions"
-                    onClick={() => setShowQuickDocModal(true)}
-                    className="flex items-center gap-1 text-xs font-bold text-indigo-200 hover:text-white bg-indigo-600/50 hover:bg-indigo-600/80 border border-indigo-500/50 px-2.5 py-1.5 rounded-xl transition-all shadow-sm"
-                    title="⚡ Create Quick Quote/Invoice for Contact"
-                  >
-                    <Zap size={14} className="text-amber-300 fill-amber-300/30" />
-                    <span className="hidden sm:inline">Quick Doc</span>
-                  </button>
-                )}
-
-                {/* Internal Team Sticky Note Trigger */}
-                <button
-                  onClick={() => setShowInternalNoteModal(true)}
-                  className="p-2 text-amber-400 hover:text-amber-300 hover:bg-slate-800/80 rounded-xl transition-all"
-                  title="Add Internal Team Note"
-                >
-                  <StickyNote size={17} className="fill-amber-400/20" />
-                </button>
-
-                {/* Team Assign Dropdown */}
-                {mode !== 'personal' && teamMembers.length > 0 && selectedId && (
-                  <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800/90 border border-slate-700/80 text-xs text-slate-300">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assign:</span>
-                    <select
-                      value={selectedConv?.assignedTo || ''}
-                      onChange={(e) => assignConversation(selectedId, e.target.value || null)}
-                      className="bg-transparent font-semibold text-slate-200 focus:outline-none cursor-pointer text-xs"
-                    >
-                      <option value="" className="bg-slate-900 text-white">Unassigned</option>
-                      {teamMembers.map(m => (
-                        <option key={m.userId} value={m.userId} className="bg-slate-900 text-white">
-                          👤 {m.fullName || m.email.split('@')[0]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* In-chat Search */}
+              <div className="flex flex-shrink-0 items-center gap-0.5">
                 <button
                   onClick={() => setThreadSearchOpen(v => !v)}
-                  className={`p-2 rounded-xl transition-all ${threadSearchOpen ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-slate-800/80'}`}
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${threadSearchOpen ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'}`}
                   title="Search in this chat (Cmd+F)"
                 >
-                  <Search size={17} strokeWidth={2} />
+                  <Search size={18} />
                 </button>
-
-                {/* AI Intelligence Panel Toggle */}
                 <button
                   onClick={() => {
                     setShowAIPanel(v => !v)
                     setMobileView(v => v === 'intel' ? 'thread' : 'intel')
                   }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all duration-200 ${
+                  className={`inline-flex h-10 items-center gap-1.5 rounded-xl px-2.5 transition-colors ${
                     showAIPanel || mobileView === 'intel'
-                      ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/25 ring-1 ring-indigo-400/30'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                   }`}
-                  title="AI Intelligence Panel"
+                  title="Zuri insights for this chat"
                 >
-                  <Brain size={18} strokeWidth={2} />
-                  <span className="hidden sm:inline text-xs font-bold tracking-tight">AI Intel</span>
+                  <Sparkles size={17} />
+                  <span className="hidden text-xs font-semibold sm:inline">Zuri</span>
                 </button>
+                {contact && (
+                  <Dropdown
+                    align="right"
+                    trigger={
+                      <button data-tour="inbox-quick-actions" className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900" title="More">
+                        <MoreVertical size={18} />
+                      </button>
+                    }
+                    items={[
+                      { label: 'Edit contact', icon: <Pencil size={14} />, onClick: openEditContactModal },
+                      { label: 'Quick quote / invoice', icon: <Zap size={14} />, onClick: () => setShowQuickDocModal(true) },
+                      { label: 'Team note', icon: <StickyNote size={14} />, onClick: () => setShowInternalNoteModal(true) },
+                      ...(mode !== 'personal' && teamMembers.length > 0 && selectedId
+                        ? [
+                            { label: selectedConv?.assignedTo ? 'Unassign' : 'Assign to me', icon: <Users size={14} />, dividerBefore: true,
+                              onClick: () => assignConversation(selectedId, selectedConv?.assignedTo ? null : (session.data?.user?.id ?? null)) },
+                            ...teamMembers.filter(m => m.userId !== session.data?.user?.id).map(m => ({
+                              label: `Assign to ${m.fullName || m.email.split('@')[0]}`, icon: <Users size={14} />,
+                              onClick: () => assignConversation(selectedId, m.userId),
+                            })),
+                          ]
+                        : []),
+                    ]}
+                  />
+                )}
               </div>
             </div>
 

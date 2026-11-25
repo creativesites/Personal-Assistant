@@ -1,210 +1,109 @@
 'use client'
 
+import { useState } from 'react'
 import {
   X, Sparkles, Clock, TrendingUp, Calendar, UserMinus,
-  TrendingDown, Frown, Zap, CheckCircle,
+  TrendingDown, Frown, Zap, ChevronDown, ChevronRight,
 } from 'lucide-react'
-import { getGreeting } from '../_lib/utils'
 import type { BriefingInsight } from '../_types/inbox'
-
-// ── Icon + colour map ──────────────────────────────────────────────────────────
 
 const INSIGHT_META: Record<BriefingInsight['type'], {
   Icon: React.FC<{ size?: number; className?: string }>
-  bg: string
-  ring: string
-  text: string
-  dot: string
+  chip: string
 }> = {
-  longest_wait: {
-    Icon: Clock,
-    bg: 'bg-red-500/10',
-    ring: 'ring-red-500/20',
-    text: 'text-red-400',
-    dot: 'bg-red-500',
-  },
-  hot_lead: {
-    Icon: TrendingUp,
-    bg: 'bg-amber-500/10',
-    ring: 'ring-amber-500/20',
-    text: 'text-amber-400',
-    dot: 'bg-amber-400',
-  },
-  upcoming_event: {
-    Icon: Calendar,
-    bg: 'bg-violet-500/10',
-    ring: 'ring-violet-500/20',
-    text: 'text-violet-400',
-    dot: 'bg-violet-400',
-  },
-  dormant_vip: {
-    Icon: UserMinus,
-    bg: 'bg-sky-500/10',
-    ring: 'ring-sky-500/20',
-    text: 'text-sky-400',
-    dot: 'bg-sky-400',
-  },
-  health_drop: {
-    Icon: TrendingDown,
-    bg: 'bg-orange-500/10',
-    ring: 'ring-orange-500/20',
-    text: 'text-orange-400',
-    dot: 'bg-orange-400',
-  },
-  frustrated_contact: {
-    Icon: Frown,
-    bg: 'bg-rose-500/10',
-    ring: 'ring-rose-500/20',
-    text: 'text-rose-400',
-    dot: 'bg-rose-500',
-  },
-  proactive_queue: {
-    Icon: Zap,
-    bg: 'bg-emerald-500/10',
-    ring: 'ring-emerald-500/20',
-    text: 'text-emerald-400',
-    dot: 'bg-emerald-400',
-  },
+  longest_wait: { Icon: Clock, chip: 'bg-rose-50 text-rose-600' },
+  hot_lead: { Icon: TrendingUp, chip: 'bg-amber-50 text-amber-600' },
+  upcoming_event: { Icon: Calendar, chip: 'bg-violet-50 text-violet-600' },
+  dormant_vip: { Icon: UserMinus, chip: 'bg-sky-50 text-sky-600' },
+  health_drop: { Icon: TrendingDown, chip: 'bg-orange-50 text-orange-600' },
+  frustrated_contact: { Icon: Frown, chip: 'bg-rose-50 text-rose-600' },
+  proactive_queue: { Icon: Zap, chip: 'bg-emerald-50 text-emerald-600' },
 }
 
-const URGENCY_BADGE: Record<BriefingInsight['urgency'], string> = {
-  critical: 'bg-red-500/20 text-red-300 border-red-500/30',
-  high: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-  medium: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
-  low: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-}
+const URGENCY_RANK: Record<BriefingInsight['urgency'], number> = { critical: 0, high: 1, medium: 2, low: 3 }
+const MAX_ROWS = 4
 
-// ── InsightCard ────────────────────────────────────────────────────────────────
-
-function InsightCard({
-  insight,
-  onClick,
-}: {
-  insight: BriefingInsight
-  onClick?: () => void
-}) {
-  const meta = INSIGHT_META[insight.type]
-  const { Icon } = meta
-  const isClickable = !!(insight.conversationId || insight.contactId) && !!onClick
-
-  return (
-    <button
-      onClick={isClickable ? onClick : undefined}
-      className={`flex-shrink-0 w-[200px] flex flex-col gap-2 p-3 rounded-xl ring-1 transition-all text-left
-        ${meta.bg} ${meta.ring}
-        ${isClickable ? 'hover:brightness-110 active:scale-95 cursor-pointer' : 'cursor-default'}
-      `}
-    >
-      {/* Header row */}
-      <div className="flex items-center justify-between gap-2">
-        <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${meta.bg} ring-1 ${meta.ring}`}>
-          <Icon size={13} className={meta.text} />
-        </div>
-        <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded-full border ${URGENCY_BADGE[insight.urgency]}`}>
-          {insight.urgency}
-        </span>
-      </div>
-
-      {/* Content */}
-      <div className="min-w-0">
-        <p className="text-[12px] font-semibold text-white leading-tight truncate">
-          {insight.label}
-        </p>
-        <p className="text-[11px] text-white/60 leading-snug mt-0.5 line-clamp-2">
-          {insight.detail}
-        </p>
-      </div>
-
-      {/* CTA hint */}
-      {isClickable && (
-        <p className={`text-[10px] font-semibold ${meta.text} mt-auto`}>
-          Open conversation →
-        </p>
-      )}
-    </button>
-  )
-}
-
-// ── DailyBriefing ─────────────────────────────────────────────────────────────
-
+/**
+ * A single quiet line ("Zuri · 3 things need you") that expands into a short
+ * list. Renders nothing while loading or when there's nothing to act on.
+ */
 export function DailyBriefing({
-  name,
   insights,
-  items,
   loading,
   onDismiss,
   onOpenConversation,
 }: {
-  name: string
+  name?: string
   insights: BriefingInsight[]
-  items: string[]
+  items?: string[]
   loading: boolean
   onDismiss: () => void
   onOpenConversation?: (conversationId: string) => void
 }) {
-  const allClear = !loading && insights.length === 0
+  const [open, setOpen] = useState(false)
+  if (loading || insights.length === 0) return null
+
+  const sorted = [...insights].sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency])
+  const top = sorted[0]
+  const urgent = sorted.some(i => i.urgency === 'critical' || i.urgency === 'high')
 
   return (
-    <div className="mx-3 mt-3 mb-1 rounded-xl bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-700 p-3.5 relative shadow-lg overflow-hidden">
-      {/* Subtle texture overlay */}
-      <div className="absolute inset-0 opacity-10 pointer-events-none"
-        style={{ backgroundImage: 'radial-gradient(circle at 80% 20%, white 0%, transparent 50%)' }}
-      />
-
-      {/* Dismiss */}
-      <button
-        onClick={onDismiss}
-        className="absolute top-2.5 right-2.5 text-white/40 hover:text-white/80 transition-colors z-10"
-      >
-        <X size={13} />
-      </button>
-
-      {/* Header */}
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <Sparkles size={11} className="text-indigo-300" />
-        <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest">
-          AI Daily Briefing
-        </p>
+    <div className="flex-shrink-0 border-b border-gray-100">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <button
+          onClick={() => setOpen(v => !v)}
+          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-xl px-1 text-left hover:bg-gray-50"
+          aria-expanded={open}
+        >
+          <span className="relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-cyan-500 text-white">
+            <Sparkles size={13} />
+            {urgent && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-semibold text-gray-900">
+              {insights.length === 1 ? '1 thing needs you' : `${insights.length} things need you`}
+            </span>
+            {!open && <span className="block truncate text-[11px] text-gray-500">{top.label}</span>}
+          </span>
+          <ChevronDown size={14} className={`flex-shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        <button
+          onClick={onDismiss}
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-gray-300 hover:bg-gray-50 hover:text-gray-500"
+          title="Hide for today"
+        >
+          <X size={14} />
+        </button>
       </div>
-      <p className="text-sm font-semibold text-white mb-3">
-        {getGreeting()}, {name}.
-      </p>
 
-      {/* Cards */}
-      {loading ? (
-        /* Skeleton cards */
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {[1, 2, 3].map(i => (
-            <div
-              key={i}
-              className="flex-shrink-0 w-[200px] h-[100px] rounded-xl bg-white/10 animate-pulse"
-            />
-          ))}
-        </div>
-      ) : allClear ? (
-        /* All clear state */
-        <div className="flex items-center gap-2 bg-white/10 rounded-xl px-3 py-2.5">
-          <CheckCircle size={16} className="text-emerald-400 flex-shrink-0" />
-          <div>
-            <p className="text-xs font-semibold text-white">You're all caught up</p>
-            <p className="text-[11px] text-white/60">No urgent conversations right now.</p>
-          </div>
-        </div>
-      ) : (
-        /* Scrollable insight cards */
-        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-0.5 px-0.5">
-          {insights.map((insight, i) => (
-            <InsightCard
-              key={`${insight.type}-${i}`}
-              insight={insight}
-              onClick={
-                insight.conversationId && onOpenConversation
-                  ? () => onOpenConversation(insight.conversationId!)
-                  : undefined
-              }
-            />
-          ))}
-        </div>
+      {open && (
+        <ul className="pb-2">
+          {sorted.slice(0, MAX_ROWS).map((insight, i) => {
+            const { Icon, chip } = INSIGHT_META[insight.type]
+            const clickable = !!insight.conversationId && !!onOpenConversation
+            return (
+              <li key={`${insight.type}-${i}`}>
+                <button
+                  disabled={!clickable}
+                  onClick={() => clickable && onOpenConversation!(insight.conversationId!)}
+                  className="flex w-full items-center gap-2.5 px-4 py-2 text-left enabled:hover:bg-gray-50"
+                >
+                  <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${chip}`}>
+                    <Icon size={13} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium text-gray-800">{insight.label}</span>
+                    <span className="block truncate text-[11px] text-gray-500">{insight.detail}</span>
+                  </span>
+                  {clickable && <ChevronRight size={13} className="flex-shrink-0 text-gray-300" />}
+                </button>
+              </li>
+            )
+          })}
+          {sorted.length > MAX_ROWS && (
+            <li className="px-4 pt-1 text-[11px] text-gray-400">+{sorted.length - MAX_ROWS} more on your dashboard</li>
+          )}
+        </ul>
       )}
     </div>
   )
