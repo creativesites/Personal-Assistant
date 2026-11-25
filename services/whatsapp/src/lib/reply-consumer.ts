@@ -14,7 +14,13 @@ function parseRedisUrl(url: string) {
   };
 }
 
-const AUTOMATIC_JOBS = new Set(['auto_send', 'agent_send', 'agent_auto_send']);
+const AUTOMATIC_JOBS = new Set(['auto_send', 'agent_send', 'agent_auto_send', 'compose_auto_send']);
+
+/** A human pause between consecutive messages of one reply (typing time). */
+function typingPause(text: string): Promise<void> {
+  const ms = Math.min(6000, 1200 + text.length * 35 + Math.random() * 800);
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 export function startReplyConsumer(
   sessionManager: SessionManager,
@@ -39,6 +45,7 @@ export function startReplyConsumer(
         reactionFromMe,
         deleteWaMessageId,
         deleteFromMe,
+        parts,
       } = job.data;
 
       // Automatic replies wait (seconds to minutes) before sending. Drop one
@@ -91,7 +98,19 @@ export function startReplyConsumer(
         }
       }
 
-      if (reactionEmoji !== undefined && reactionTargetWaMessageId) {
+      // Multi-part reply (reply engine v2). An edit replaces it with one message.
+      if (parts?.length && outgoingText === text) {
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          if (i > 0) await typingPause(part.text);
+          await sessionManager.sendMessage(
+            userId,
+            recipientJid,
+            part.text,
+            part.quotedWaMessageId ? { quotedWaMessageId: part.quotedWaMessageId, quotedBody: part.quotedBody } : undefined,
+          );
+        }
+      } else if (reactionEmoji !== undefined && reactionTargetWaMessageId) {
         await sessionManager.sendReaction(userId, recipientJid, reactionEmoji, reactionTargetWaMessageId, reactionFromMe ?? false);
       } else if (deleteWaMessageId) {
         await sessionManager.deleteMessage(userId, recipientJid, deleteWaMessageId, deleteFromMe ?? false);

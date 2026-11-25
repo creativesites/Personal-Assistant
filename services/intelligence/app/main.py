@@ -50,6 +50,8 @@ from .workers.voice_worker import create_voice_worker
 from .workers.temporal_worker import create_temporal_worker
 from .workers.world_knowledge_worker import create_world_knowledge_worker
 from .workers.agent_worker import create_agent_worker, create_kb_worker
+from .workers.compose_worker import create_compose_worker
+from .routes.replies import router as replies_router
 from .workers.consolidation_worker import create_consolidation_worker
 
 logger = structlog.get_logger()
@@ -67,6 +69,7 @@ async def lifespan(app: FastAPI):
     temporal_worker = create_temporal_worker()
     world_knowledge_worker = create_world_knowledge_worker()
     agent_worker = create_agent_worker()
+    compose_worker = create_compose_worker()
     kb_worker = create_kb_worker()
     consolidation_worker = create_consolidation_worker()
     document_followup_worker = create_document_followup_worker()
@@ -143,6 +146,7 @@ async def lifespan(app: FastAPI):
     await temporal_worker.close()
     await world_knowledge_worker.close()
     await agent_worker.close()
+    await compose_worker.close()
     await kb_worker.close()
     await consolidation_worker.close()
     await document_followup_worker.close()
@@ -183,6 +187,7 @@ app.include_router(health_router)
 app.include_router(knowledge_router)
 app.include_router(conversation_router)
 app.include_router(zuri_panel_router)
+app.include_router(replies_router)
 app.include_router(advisor_router)
 app.include_router(studio_router)
 app.include_router(content_router)

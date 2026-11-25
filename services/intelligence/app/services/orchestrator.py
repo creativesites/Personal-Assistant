@@ -92,11 +92,11 @@ async def route_message(
             f"Contact {'directly' if agent['is_direct'] else 'via tag'} assigned to "
             f"agent '{agent['name']}' (trust={agent['trust_level']})"
         )
-    elif default_agent:
-        decision = 'route_to_agent'
-        agent_id = str(default_agent['id'])
-        reasoning = f"No explicit assignment — routed to Default Assistant '{default_agent['name']}' (trust={default_agent['trust_level']})"
     else:
+        # The catch-all Default Assistant no longer intercepts every chat: its
+        # generic assistant persona wrote as a support bot (and sometimes as
+        # the contact). Unassigned chats go to the reply engine, which writes
+        # as the owner with the whole chat in view.
         decision = 'generate_suggestion'
         agent_id = None
         reasoning = 'No active agent assigned — generating reply suggestions'

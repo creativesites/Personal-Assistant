@@ -21,6 +21,7 @@ from ..services.lead_score import LeadScoreService
 from ..services.career_signals import CareerSignalsService
 from ..services.advisor_companion import get_advisor_companion_service
 from ..services.credits import try_consume_credit
+from ..reply.engine import schedule_compose
 from ..memory.conversation_memory import update_conversation_memory
 from ..neural.emotion import get_emotion_engine
 
@@ -124,7 +125,7 @@ async def _process(job, token: str):
             user_id=user_id,
             conversation_id=conversation_id,
             contact_id=contact_id,
-            generate_reply=(not is_historical),
+            generate_reply=False,  # replies come from the reply engine (app/reply/)
         )
 
         await _best_effort('_extractor.extract_from_analysis', message_id, _extractor.extract_from_analysis(message_id, contact_id, user_id, analysis))
@@ -213,14 +214,14 @@ async def _process(job, token: str):
                 user_id, contact_id, reason='You messaged this contact',
             ))
 
-        if sender_type == 'contact' and body:
+        if sender_type == 'contact':  # media (voice notes, photos) needs replies too
             # Advisor Companion Plan Phase 4 (docs/ADVISOR_COMPANION_PLAN.md
             # §3.5/§5.4/§9) — if the user is actively watching this
             # conversation from an Advisor session, narrate the reply and
             # suggest next responses instead of leaving them to notice it
             # in the Inbox on their own.
             try:
-                watch = await _advisor_companion.find_active_watch(conversation_id)
+                watch = await _advisor_companion.find_active_watch(conversation_id) if body else None
                 if watch:
                     await publish_event(f'advisor.reply_received:{user_id}', json.dumps({
                         'conversationId': conversation_id, 'contactId': contact_id,
@@ -277,32 +278,12 @@ async def _process(job, token: str):
                 )
                 log.info('message_routed_to_agent', agent_id=agent_id, message_id=message_id)
 
-            elif decision == 'generate_suggestion':
-                # A message that fails this check still keeps its analysis
-                # (already paid for above) — it just doesn't get an
-                # AI-drafted reply; the raw message still surfaces in the
-                # Inbox for the user to answer manually.
-                if await try_consume_credit(user_id, 'ai_reply'):
-                    if suggestions:
-                        await _reply_gen.save_and_process_suggestions(
-                            message_id=message_id,
-                            user_id=user_id,
-                            contact_id=contact_id,
-                            conversation_id=conversation_id,
-                            body=body,
-                            suggestions=suggestions,
-                        )
-                    else:
-                        await _reply_gen.generate(
-                            message_id=message_id,
-                            user_id=user_id,
-                            contact_id=contact_id,
-                            conversation_id=conversation_id,
-                            body=body,
-                            analysis=analysis,
-                        )
-                else:
-                    log.info('reply_generation_skipped_no_credits', message_id=message_id, user_id=user_id)
+            elif sender_type == 'contact':
+                # Reply engine v2 (app/reply/): every live contact message
+                # schedules a debounced compose — even "ok" after an earlier
+                # question — and the compose job decides, over the whole
+                # unanswered burst, whether and how to reply.
+                await schedule_compose(user_id, conversation_id, message_id)
 
     # ── Relationship maintenance (batched for historical) ───────────────────
 

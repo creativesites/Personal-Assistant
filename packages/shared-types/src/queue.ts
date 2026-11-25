@@ -50,6 +50,15 @@ export interface SendReplyJob {
   mediaPath?: string;
   mediaMimeType?: string;
   mediaFileName?: string;
+  // Reply engine v2: a reply sent as 1-3 WhatsApp messages, each optionally
+  // quoting the message it answers. When set, `text` is ignored.
+  parts?: SendReplyPart[];
+}
+
+export interface SendReplyPart {
+  text: string;
+  quotedWaMessageId?: string;
+  quotedBody?: string;
 }
 
 export interface GenerateContextSnapshotJob {

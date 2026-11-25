@@ -196,6 +196,7 @@ class AutoResponseService:
         suggested_reply_id: str | None = None,
         delay_seconds: int = 0,
         job_name: str = 'auto_send',
+        parts: list[dict] | None = None,
     ) -> None:
         send_queue = get_queue('send.reply')
         payload = {
@@ -205,6 +206,8 @@ class AutoResponseService:
             'recipientJid': recipient_jid,
             'text': text,
         }
+        if parts:
+            payload['parts'] = parts
         delay_ms = max(0, delay_seconds) * 1000
         opts: dict = {}
         if delay_ms:

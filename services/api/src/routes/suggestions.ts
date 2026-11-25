@@ -74,7 +74,7 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
       if (!msg) return reply.code(404).send({ error: 'Message not found' });
 
       const { rows } = await db.query(
-        `SELECT id, suggestion_text, tone, reasoning, status, created_at
+        `SELECT id, suggestion_text, tone, reasoning, status, created_at, parts, needs_owner, needs_owner_reason
          FROM suggested_replies
          WHERE message_id = $1 AND status IN ('pending', 'available')
          ORDER BY created_at ASC`,
@@ -88,6 +88,9 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
           tone: r.tone,
           reasoning: r.reasoning,
           status: r.status === 'pending' ? 'available' : r.status,
+          parts: r.parts ?? null,
+          needsOwner: Boolean(r.needs_owner),
+          needsOwnerReason: r.needs_owner_reason ?? null,
         })),
       });
     },
@@ -105,7 +108,7 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
       const { clause, params } = buildScopeWhere(scope, 'c', 2);
 
       const { rows: [suggestion] } = await db.query(
-        `SELECT sr.id, sr.suggestion_text, sr.message_id, m.conversation_id,
+        `SELECT sr.id, sr.suggestion_text, sr.parts, sr.message_id, m.conversation_id,
                 co.whatsapp_jid AS recipient_jid, c.user_id AS conversation_owner_id
          FROM suggested_replies sr
          JOIN messages m ON m.id = sr.message_id
@@ -120,12 +123,34 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
       const finalText = wasEdited ? editedText!.trim() : suggestion.suggestion_text;
       const targetUserId = suggestion.conversation_owner_id || scope.ownerUserId || userId;
 
+      // Reply engine v2: an unedited multi-part reply goes out as separate
+      // WhatsApp messages, each quoting the message it answers.
+      let parts: { text: string; quotedWaMessageId?: string; quotedBody?: string }[] | undefined;
+      const storedParts = (suggestion.parts ?? null) as { text: string; quoteMessageId: string | null }[] | null;
+      if (!wasEdited && storedParts?.length) {
+        const quoteIds = storedParts.map(p => p.quoteMessageId).filter(Boolean);
+        const { rows: quoted } = quoteIds.length
+          ? await db.query(
+              `SELECT id, whatsapp_message_id, COALESCE(body, transcription, '') AS body FROM messages WHERE id = ANY($1::uuid[])`,
+              [quoteIds],
+            )
+          : { rows: [] as any[] };
+        const byId = new Map(quoted.map((q: any) => [q.id, q]));
+        parts = storedParts.map(p => {
+          const q: any = p.quoteMessageId ? byId.get(p.quoteMessageId) : null;
+          return q?.whatsapp_message_id
+            ? { text: p.text, quotedWaMessageId: q.whatsapp_message_id, quotedBody: String(q.body).slice(0, 200) }
+            : { text: p.text };
+        });
+      }
+
       await addToQueue(QUEUE_NAMES.SEND_REPLY, {
         userId: targetUserId,
         messageId: suggestion.message_id,
         suggestedReplyId: id,
         recipientJid: suggestion.recipient_jid,
         text: finalText,
+        ...(parts ? { parts } : {}),
       });
 
       await db.query(
@@ -158,25 +183,26 @@ export async function suggestionsRoutes(fastify: FastifyInstance): Promise<void>
       );
       if (!msg) return reply.code(404).send({ error: 'Message not found' });
 
-      await db.query(
-        "UPDATE suggested_replies SET status = 'dismissed', updated_at = NOW() WHERE message_id = $1 AND status = 'pending'",
-        [messageId],
-      );
-
       const targetUserId = msg.conversation_owner_id || scope.ownerUserId || userId;
-
-      await addToQueue(QUEUE_NAMES.MESSAGES_INCOMING, {
-        messageId,
-        userId: targetUserId,
-        contactId: msg.contact_id,
-        conversationId: msg.conversation_id,
-        senderType: msg.sender_type,
-        messageType: msg.message_type,
-        body: msg.body,
-        whatsappTimestamp: msg.whatsapp_timestamp,
-      });
-
-      return reply.send({ ok: true });
+      // Reply engine v2 composes over the whole unanswered stretch of the
+      // chat (not just this message) and replaces its stale drafts itself.
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL ?? 'http://localhost:8000';
+      try {
+        const res = await fetch(`${intelligenceUrl}/internal/replies/${msg.conversation_id}/compose`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: targetUserId }),
+          signal: AbortSignal.timeout(90_000),
+        });
+        if (!res.ok) return reply.code(502).send({ error: 'Could not draft a reply right now' });
+        const result = await res.json() as { skipped?: string; noReplyNeeded?: boolean; suggestionIds?: string[] };
+        if (result.skipped === 'nothing_unanswered') {
+          return reply.send({ ok: true, info: 'You have already replied to everything in this chat' });
+        }
+        return reply.send({ ok: true, noReplyNeeded: !!result.noReplyNeeded, count: result.suggestionIds?.length ?? 0 });
+      } catch {
+        return reply.code(502).send({ error: 'Could not draft a reply right now' });
+      }
     },
   );
 

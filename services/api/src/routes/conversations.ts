@@ -1655,6 +1655,29 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     }
   });
 
+  // ── POST /api/internal/messages/:id/transcribe — the reply engine
+  // (services/intelligence) transcribes unanswered voice notes before it
+  // drafts a reply. Internal secret only; never permissive.
+  fastify.post('/api/internal/messages/:id/transcribe', async (request, reply) => {
+    const secret = (request.headers['x-internal-secret'] as string) ?? '';
+    if (!config.INTERNAL_API_SECRET || secret !== config.INTERNAL_API_SECRET) {
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+    const { id } = request.params as { id: string };
+    const { userId } = z.object({ userId: z.string().uuid() }).parse(request.body);
+    const { rows: [owned] } = await db.query(
+      `SELECT 1 FROM messages m JOIN conversations c ON c.id = m.conversation_id
+       WHERE m.id = $1 AND c.user_id = $2 AND m.message_type = 'audio'`,
+      [id, userId],
+    );
+    if (!owned) return reply.code(404).send({ error: 'Voice note not found' });
+    try {
+      return reply.send({ transcription: await transcribeAudioMessage(db, id) });
+    } catch (err) {
+      return reply.code(502).send({ error: (err as Error).message });
+    }
+  });
+
   // ── PATCH /api/conversations/messages/:id/star ───────────────────────────────
   fastify.patch('/api/conversations/messages/:id/star', { preHandler: authenticate }, async (request, reply) => {
     const { id } = request.params as { id: string };
