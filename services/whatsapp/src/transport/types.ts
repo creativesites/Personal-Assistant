@@ -25,7 +25,49 @@ export interface NormalisedMessage {
   groupSenderJid: string | null;
   /** What's needed to download this message's media later (media messages only). */
   mediaMeta?: MediaMeta | null;
+  /** Device-safe media facts incl. a small thumbnail (media messages only). */
+  mediaInfo?: MediaInfo | null;
+  /** What the quoted message looked like, so a reply renders even if it isn't stored. */
+  quoted?: QuotedSnapshot | null;
 }
+
+/** Media facts safe to send to clients: never the media key or URL. */
+export interface MediaInfo {
+  kind: 'image' | 'video' | 'audio' | 'document' | 'sticker';
+  mime: string | null;
+  size: number | null;
+  width: number | null;
+  height: number | null;
+  seconds: number | null;
+  /** Voice note (push-to-talk) rather than an audio file. */
+  ptt: boolean;
+  /** Round video note. */
+  ptv: boolean;
+  gif: boolean;
+  animated: boolean;
+  fileName: string | null;
+  pageCount: number | null;
+  /** base64 JPEG thumbnail WhatsApp ships inline (a few KB), when present. */
+  thumb: string | null;
+}
+
+export interface QuotedSnapshot {
+  waMessageId: string;
+  /** null when we can't tell (e.g. groups without our own JID). */
+  fromMe: boolean | null;
+  participantJid: string | null;
+  type: string;
+  text: string | null;
+}
+
+/**
+ * A change to an existing message: a reaction (emoji '' = removed),
+ * a delete-for-everyone, or an edit.
+ */
+export type MessageMutation =
+  | { kind: 'reaction'; jid: string; targetWaMessageId: string; emoji: string; fromMe: boolean; reactorJid: string | null; timestampMs: number }
+  | { kind: 'revoke'; jid: string; targetWaMessageId: string; timestampMs: number }
+  | { kind: 'edit'; jid: string; targetWaMessageId: string; body: string; timestampMs: number };
 
 /**
  * Everything needed to download (and decrypt) a message's media at any later
@@ -75,6 +117,8 @@ export interface HistorySetPayload {
   /** WhatsApp's own 0-100 progress for the overall history transfer, when sent. */
   progress: number | null;
   isLatest: boolean | null;
+  /** Reactions / deletes / edits carried by the batch, applied after its messages. */
+  mutations?: MessageMutation[];
 }
 
 export interface CatalogProductInput {
@@ -190,6 +234,7 @@ export abstract class WhatsAppTransport extends EventEmitter {
   protected emitHistorySet(payload: HistorySetPayload): void { this.emit('history_set', payload); }
   protected emitContactHints(contacts: HistoryContact[]): void { this.emit('contact_hints', contacts); }
   protected emitLinkCode(code: string): void { this.emit('link_code', code); }
+  protected emitMutation(m: MessageMutation): void { this.emit('message_mutation', m); }
 }
 
 export type TransportFactory = (userId: string, phoneNumber?: string, forceNewQR?: boolean) => WhatsAppTransport;

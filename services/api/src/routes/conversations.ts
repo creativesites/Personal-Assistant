@@ -269,6 +269,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
             COALESCE(m.is_starred, false) AS is_starred,
             COALESCE(m.is_pinned, false) AS is_pinned,
             m.pinned_at,
+            m.ingest_seq,
             ma.sentiment,
             ma.sentiment_score,
             ma.requires_response,
@@ -290,7 +291,7 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
                 SELECT
                   mr.emoji,
                   COUNT(*)::int AS cnt,
-                  BOOL_OR(mr.user_id = $2) AS has_user
+                  BOOL_OR(mr.from_me) AS has_user
                 FROM message_reactions mr
                 WHERE mr.message_id = m.id
                 GROUP BY mr.emoji
@@ -299,12 +300,12 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
           FROM messages m
           LEFT JOIN message_analyses ma ON ma.message_id = m.id
           WHERE m.conversation_id = $1 AND m.is_deleted = false
-            AND ($3::timestamptz IS NULL OR m.whatsapp_timestamp < $3::timestamptz)
-          ORDER BY m.whatsapp_timestamp DESC
-          LIMIT $4
+            AND ($2::timestamptz IS NULL OR m.whatsapp_timestamp < $2::timestamptz)
+          ORDER BY m.whatsapp_timestamp DESC, m.ingest_seq DESC
+          LIMIT $3
         ) sub
-        ORDER BY whatsapp_timestamp ASC`,
-        [id, userId, before, pageSize + 1],
+        ORDER BY whatsapp_timestamp ASC, ingest_seq ASC`,
+        [id, before, pageSize + 1],
       ),
       db.query(
         `SELECT
@@ -429,18 +430,18 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     );
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
 
+    // WhatsApp allows one reaction per person: same emoji again removes it,
+    // a different emoji replaces it.
     const { rows: [existing] } = await db.query(
-      `SELECT id FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
-      [messageId, userId, emoji],
+      `SELECT id FROM message_reactions WHERE message_id = $1 AND from_me AND emoji = $2`,
+      [messageId, emoji],
     );
 
-    if (existing) {
-      await db.query(`DELETE FROM message_reactions WHERE id = $1`, [existing.id]);
-    } else {
+    await db.query(`DELETE FROM message_reactions WHERE message_id = $1 AND from_me`, [messageId]);
+    if (!existing) {
       await db.query(
-        `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)
-         ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
-        [messageId, userId, emoji],
+        `INSERT INTO message_reactions (message_id, user_id, emoji, from_me, reacted_at) VALUES ($1, $2, $3, TRUE, NOW())`,
+        [messageId, scope.ownerUserId, emoji],
       );
     }
 
@@ -448,11 +449,11 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
       `SELECT
          mr.emoji,
          COUNT(*)::int AS count,
-         BOOL_OR(mr.user_id = $2) AS "userReacted"
+         BOOL_OR(mr.from_me) AS "userReacted"
        FROM message_reactions mr
        WHERE mr.message_id = $1
        GROUP BY mr.emoji`,
-      [messageId, userId],
+      [messageId],
     );
 
     // Queue reaction dispatch to WhatsApp

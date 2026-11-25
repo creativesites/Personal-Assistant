@@ -31,6 +31,8 @@ export function startRedisSubscriber(io: Server): void {
     'conversation:unlocked:*',
     'conversation:assigned:*',
     'message:reaction:*',
+    // A WhatsApp delete-for-everyone or edit of a stored message.
+    'message:changed:*',
     // docs/AUTO_REPLY_AGENTS_PLAN.md §5 — Settings, the Inbox widget, and the
     // agent detail page all edit the same Default Assistant row; this keeps
     // them in sync without a manual refresh.

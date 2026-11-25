@@ -14,6 +14,7 @@ import type {
   NormalisedMessage,
   HistorySetPayload,
   HistoryContact,
+  MessageMutation,
   CatalogProductInput,
   TransportDisconnectReason,
 } from '../transport/types';
@@ -46,6 +47,7 @@ export class SessionManager {
       process.env['INTELLIGENCE_SERVICE_URL'] ?? 'http://localhost:8000',
       process.env['INTERNAL_API_SECRET'] ?? '',
     );
+    this.historyPipeline.setMutationApplier((userId, m) => this.handler.applyMutation(userId, m, false));
     this.reconQueue = new Queue(QUEUE_NAMES.RECONCILIATION_VERIFY_CHAT, {
       connection: {
         host: new URL(redisUrl).hostname,
@@ -200,6 +202,15 @@ export class SessionManager {
         await this.handler.handleMessage(userId, msg);
       } catch (err) {
         console.error(`[session] handleMessage failed userId=${userId}:`, err);
+      }
+    });
+
+    // Reactions, deletes-for-everyone and edits of earlier messages.
+    transport.on('message_mutation', async (m: MessageMutation) => {
+      try {
+        await this.handler.applyMutation(userId, m);
+      } catch (err) {
+        console.error(`[session] applyMutation failed userId=${userId} kind=${m.kind}:`, err);
       }
     });
 

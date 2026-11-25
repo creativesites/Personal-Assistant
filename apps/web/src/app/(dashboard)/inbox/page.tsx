@@ -665,6 +665,17 @@ export default function InboxPage() {
       } catch {}
     })
 
+    // A WhatsApp delete-for-everyone or edit of a message already shown.
+    socket.on('message:changed', (payload: string) => {
+      try {
+        const data = parseSocketPayload<{ conversationId: string; messageId: string; kind: 'revoke' | 'edit'; body?: string }>(payload)
+        if (selectedIdRef.current !== data.conversationId) return
+        setMessages(prev => data.kind === 'revoke'
+          ? prev.filter(m => m.id !== data.messageId)
+          : prev.map(m => (m.id === data.messageId && data.body !== undefined ? { ...m, body: data.body } : m)))
+      } catch {}
+    })
+
     const handleConversationUpsert = (payload: string | { conversation: Conversation }) => {
       try {
         const data = parseSocketPayload<{ conversation: Conversation }>(payload)
@@ -911,6 +922,8 @@ export default function InboxPage() {
 
     return () => {
       socket.off('message:new', handleNewMessage)
+      socket.off('message:reaction')
+      socket.off('message:changed')
       socket.off('conversation:upsert', handleConversationUpsert)
       socket.off('conversation:read', handleConversationRead)
       socket.off('conversation:assigned', handleConversationAssigned)

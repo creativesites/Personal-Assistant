@@ -2,7 +2,7 @@ import type { Pool } from 'pg';
 import type Redis from 'ioredis';
 import { Queue } from 'bullmq';
 import { QUEUE_NAMES, MessageSenderType, MessageType } from '@zuri/types';
-import type { NormalisedMessage } from '../transport/types';
+import type { NormalisedMessage, MessageMutation } from '../transport/types';
 import type { MediaStore } from './media-store';
 
 function parseRedisUrl(url: string) {
@@ -118,6 +118,7 @@ export class MessageHandler {
       conversationId, msg.waMessageId, senderType, msg.messageType, msg.body,
       timestamp, msg.mediaUrl ?? null, msg.mediaMimeType ?? null, quotedMessageId,
       msg.groupSenderName ?? null, msg.groupSenderJid ?? null, msg.mediaMeta ?? null,
+      { quotedWaMessageId: msg.quotedWaMessageId ?? null, quoted: msg.quoted ?? null, mediaInfo: msg.mediaInfo ?? null },
     );
 
     if (!messageId) return;
@@ -272,6 +273,68 @@ export class MessageHandler {
     };
   }
 
+  /**
+   * A reaction, delete-for-everyone or edit from WhatsApp. Applied to the
+   * stored message; the DB triggers put the change on the sync feed.
+   * Returns false when the target message isn't stored (yet).
+   */
+  async applyMutation(userId: string, raw: MessageMutation, publish = true): Promise<boolean> {
+    const jid = await this.canonicalJid(userId, raw.jid);
+    const { rows: [target] } = await this.db.query<{ id: string; conversation_id: string }>(
+      `SELECT m.id, m.conversation_id
+       FROM conversations c JOIN messages m ON m.conversation_id = c.id
+       WHERE c.user_id = $1 AND c.whatsapp_chat_id = $2 AND m.whatsapp_message_id = $3
+       LIMIT 1`,
+      [userId, jid, raw.targetWaMessageId],
+    );
+    if (!target) return false;
+
+    if (raw.kind === 'reaction') {
+      const reactor = raw.fromMe ? null : raw.reactorJid ? await this.canonicalJid(userId, raw.reactorJid) : null;
+      await this.db.query(
+        `DELETE FROM message_reactions
+         WHERE message_id = $1 AND from_me = $2 AND COALESCE(reactor_jid, '') = COALESCE($3, '')`,
+        [target.id, raw.fromMe, reactor],
+      );
+      if (raw.emoji) {
+        await this.db.query(
+          `INSERT INTO message_reactions (message_id, user_id, emoji, from_me, reactor_jid, reacted_at)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT DO NOTHING`,
+          [target.id, userId, raw.emoji.slice(0, 32), raw.fromMe, reactor,
+           raw.timestampMs ? new Date(raw.timestampMs) : new Date()],
+        );
+      }
+      if (publish) {
+        const { rows: reactions } = await this.db.query(
+          `SELECT emoji, COUNT(*)::int AS count, BOOL_OR(from_me) AS "userReacted"
+           FROM message_reactions WHERE message_id = $1 GROUP BY emoji`,
+          [target.id],
+        );
+        await this.redis.publish(`message:reaction:${userId}`, JSON.stringify({
+          conversationId: target.conversation_id, messageId: target.id, reactions,
+        })).catch(() => { /* ignore */ });
+      }
+      return true;
+    }
+
+    if (raw.kind === 'revoke') {
+      await this.db.query(`UPDATE messages SET is_deleted = TRUE WHERE id = $1`, [target.id]);
+    } else {
+      await this.db.query(
+        `UPDATE messages SET body = $2, edited_at = $3 WHERE id = $1`,
+        [target.id, raw.body, raw.timestampMs ? new Date(raw.timestampMs) : new Date()],
+      );
+    }
+    if (publish) {
+      await this.redis.publish(`message:changed:${userId}`, JSON.stringify({
+        conversationId: target.conversation_id, messageId: target.id, kind: raw.kind,
+        ...(raw.kind === 'edit' ? { body: raw.body } : {}),
+      })).catch(() => { /* ignore */ });
+    }
+    return true;
+  }
+
   private async resolveQuotedMessageId(
     conversationId: string,
     quotedWaMessageId: string,
@@ -366,18 +429,26 @@ export class MessageHandler {
     senderDisplayName: string | null,
     senderJid: string | null,
     mediaMeta: NormalisedMessage['mediaMeta'] = null,
+    extra: {
+      quotedWaMessageId: string | null;
+      quoted: NormalisedMessage['quoted'];
+      mediaInfo: NormalisedMessage['mediaInfo'];
+    } = { quotedWaMessageId: null, quoted: null, mediaInfo: null },
   ): Promise<string | null> {
     const { rows: [row] } = await this.db.query<{ id: string }>(
       `INSERT INTO messages
          (conversation_id, whatsapp_message_id, sender_type, message_type, body,
           media_url, media_mime_type, quoted_message_id, whatsapp_timestamp,
-          sender_display_name, sender_jid, media_meta)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          sender_display_name, sender_jid, media_meta,
+          quoted_wa_message_id, quoted_snapshot, media_info)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (conversation_id, whatsapp_message_id) DO NOTHING
        RETURNING id`,
       [conversationId, waMessageId, senderType, messageType, body,
        mediaUrl, mediaMimeType, quotedMessageId, timestamp,
-       senderDisplayName, senderJid, mediaMeta ? JSON.stringify(mediaMeta) : null],
+       senderDisplayName, senderJid, mediaMeta ? JSON.stringify(mediaMeta) : null,
+       extra.quotedWaMessageId, extra.quoted ? JSON.stringify(extra.quoted) : null,
+       extra.mediaInfo ? JSON.stringify(extra.mediaInfo) : null],
     );
     return row?.id ?? null;
   }

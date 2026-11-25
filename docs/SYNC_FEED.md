@@ -1,0 +1,165 @@
+# Sync feed — server contract for device sync
+
+The messaging slice of mobile backend item **G3** (`docs/mobile/IMPLEMENTATION_PLAN.md`), built to satisfy decision **D-21**. With sync on, a chat on the phone mirrors WhatsApp: the full thread, media, replies, reactions, deletes, edits and exact order.
+
+- **Implementation:** `services/api/src/routes/sync.ts`
+- **Schema:** `db/migrations/0137_sync_change_feed.sql`
+
+All endpoints need `Authorization: Bearer <Zuri JWT>`. None of them has side effects. In particular, none marks a chat as read, unlike the web inbox's message GET.
+
+## Model
+
+Every insert or update of a **contact**, **conversation** or **message** takes the next number from one global sequence (`change_seq`). A reaction change re-publishes its message, because reactions travel inside the message. A hard delete writes a **tombstone** with its own number.
+
+A device stores one opaque cursor and asks for everything after it.
+
+**Writes commit in number order.** A statement-level advisory lock is taken before any synced row is written. So the changes a device sees always form a gap-free prefix, and advancing the cursor can never skip a change.
+
+Changes are **whole-row upserts**, not diffs. Applying the same change twice is harmless. A device should ignore a change whose `seq` is lower than the `seq` it already stored for that id.
+
+## Display order
+
+```
+ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
+```
+
+- `timestamp` is WhatsApp's own message time, in ms. WhatsApp sends whole seconds, so ties are common.
+- `order` is the server arrival number (`ingest_seq`), set once on insert and never changed. History batches are inserted oldest-first, so it follows WhatsApp's order within a second.
+- Never order by sync time, capture time or `seq`. `seq` changes on every edit, tick or reaction.
+
+## Endpoints
+
+### `GET /api/sync/state`
+```json
+{ "head": "c1.48211", "serverTime": 1764000000000,
+  "counts": { "conversations": 649, "messages": 44403, "contacts": 3120 } }
+```
+`head` is the cursor at "now" for this account.
+
+### `GET /api/sync/changes?cursor=c1.48211&limit=500`
+`limit` is 1–1000, default 500. With no cursor, the feed starts from the beginning.
+```json
+{
+  "changes": [
+    { "seq": "48212", "entity": "message", "op": "upsert", "id": "…", "data": { …Message } },
+    { "seq": "48213", "entity": "conversation", "op": "upsert", "id": "…", "data": { …Conversation } },
+    { "seq": "48214", "entity": "message", "op": "delete", "id": "…" },
+    { "seq": "48215", "entity": "contact", "op": "delete", "id": "…", "data": { "mergedInto": "…" } }
+  ],
+  "cursor": "c1.48215",
+  "hasMore": false
+}
+```
+- Changes are sorted by `seq`. Store `cursor` once the page is applied.
+- Keep calling while `hasMore` is true.
+- `entity` is `contact`, `conversation` or `message`.
+- `op: "delete"` covers three cases:
+  - a hard delete (tombstone);
+  - "delete for me" on a message;
+  - a contact merged into another (`data.mergedInto`).
+- A WhatsApp **delete-for-everyone** is *not* a delete. It is an upsert with `deleted: true`, so the bubble can show "This message was deleted".
+
+### `GET /api/sync/conversations/:id/messages?before=<b1…>&limit=50`
+`limit` is 1–200. This returns older history for one chat, one page at a time.
+- The response is `{ messages: Message[], before, hasMore }`.
+- `messages` are in display order, oldest first.
+- Pass `before` back to get the next older page.
+- With no `before`, you get the newest page.
+- Ordering is exact: `(timestamp, order)` keyset paging, with no ties lost at page edges.
+
+## Recommended device flow
+
+1. **First sync.**
+   - Call `/sync/state` and save `head` **before** importing anything.
+   - Import contacts and conversations:
+     - Full mode: page `/sync/changes` from no cursor until `hasMore` is false.
+     - Light mode: take the newest page of each chat from the history endpoint.
+   - Set the cursor to the saved `head`.
+   - The overlap is safe, because changes are idempotent whole-row upserts.
+2. **Ongoing.** Pull `/sync/changes?cursor=` when any of these happens:
+   - the app comes to the foreground;
+   - connectivity returns;
+   - a Socket.io event arrives for the account (`message:new`, `message:status:update`, `message:reaction`, `message:changed`, `conversation:upsert`, `conversation:read`);
+   - a periodic worker fires.
+
+   FCM tickles come later (G7). Treat the socket payloads as **tickles only**. The feed is the source of truth.
+3. **Scrolling up** past what's stored locally: use the history endpoint with the oldest local message's `before`. History doesn't need to come through the feed.
+4. **Quotes whose original isn't stored locally.** Render from `quoted`, which is always self-contained. When a message whose `waMessageId` equals `quoted.waMessageId` arrives later, link them locally.
+
+## Shapes
+
+### Message
+```ts
+{
+  id: string; conversationId: string; waMessageId: string;
+  fromMe: boolean;
+  sender: { jid: string | null; name: string | null } | null;   // groups
+  type: 'text'|'image'|'video'|'audio'|'document'|'sticker'|'location'|'contact_card'|…;
+  text: string | null;          // body / caption / contact-card name; null when deleted
+  transcription: string | null; // voice notes, once transcribed
+  timestamp: number;            // ms, WhatsApp time
+  order: string;                // arrival tie-breaker (int64 as string)
+  seq: string;                  // version: the change_seq of this row's latest change
+  status: 'sending'|'sent'|'delivered'|'read'|'failed' | null;   // fromMe only
+  deleted: boolean;             // WhatsApp delete-for-everyone
+  editedAt: number | null;
+  forwarded: boolean; starred: boolean; pinned: boolean; aiGenerated: boolean;
+  quoted: {
+    messageId: string | null;   // our id when the quoted message is stored
+    waMessageId: string;
+    fromMe: boolean | null;     // null when unknown
+    senderName: string | null;
+    type: string; text: string | null; deleted: boolean;
+  } | null;
+  media: {
+    kind: 'image'|'video'|'audio'|'document'|'sticker';
+    mime: string | null; size: number | null;
+    width: number | null; height: number | null; seconds: number | null;
+    voiceNote: boolean; roundVideo: boolean; gif: boolean; animated: boolean;
+    fileName: string | null; pageCount: number | null;
+    thumbnail: string | null;   // base64 JPEG, a few KB: show instantly, blur it
+    available: boolean;         // false → show "media unavailable"
+    path: string;               // GET with the Bearer header; supports Range
+  } | null;
+  location: { lat: number; lng: number; name: string | null; address: string | null } | null;
+  reactions: { emoji: string; fromMe: boolean; reactorJid: string | null; at: number }[];  // one per person
+}
+```
+
+### Conversation
+```ts
+{ id; contactId; chatJid; lastMessageAt: number | null; preview: string | null;
+  unreadCount: number; archived: boolean; muted: boolean; pinned: boolean; pinnedAt: number | null }
+```
+
+### Contact
+```ts
+{ id; jid; phone: string | null; name: string | null; savedName: string | null; pushName: string | null;
+  isGroup: boolean; isBusiness: boolean; hasAvatar: boolean; lastSeenAt: number | null }
+```
+
+## Media
+
+- Download from `media.path` (`/api/messages/:id/media`) with the Bearer header.
+- Range requests work, for streaming voice notes and video. Add `?download=1` for an attachment response.
+- The first request for an older item can take a few seconds: the server fetches it from WhatsApp and asks the phone to re-upload it if WhatsApp's copy has expired.
+- Thumbnails exist for media received after migration 0137. Older media has `thumbnail: null` until the item is downloaded.
+
+## What the server captures now (as of 0137)
+
+- **Reactions from contacts and from your own phone.** Previously only reactions made in Zuri were stored. History reactions are included.
+- **Delete-for-everyone and edits.** Edits set `editedAt` and update `text`.
+- **Quotes on every message type, history included.** Each quote stores the quoted WhatsApp id and a snapshot.
+- **Media details:** dimensions, duration, voice-note flag, page count and the inline thumbnail.
+
+## Not yet (later phases)
+
+- **G4:** idempotent sends from the phone.
+- **G5:** reconciling notification-captured messages with these rows.
+- **G7:** FCM tickles.
+- **Avatars:** there is no avatar bytes endpoint in this contract yet.
+- **Statuses and calls** are not synced.
+
+## Scaling note
+
+The write lock makes every write to `messages`, `conversations`, `contacts` and `message_reactions` run one transaction at a time across all accounts. These writes are milliseconds each, and a 500-row history chunk takes about a second. If write volume grows, move to per-account ordering or a logical-replication-based feed.

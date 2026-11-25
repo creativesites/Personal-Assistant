@@ -23,7 +23,7 @@
  */
 import type { Pool } from 'pg';
 import type Redis from 'ioredis';
-import type { HistoryChat, HistoryContact, HistorySetPayload, NormalisedMessage } from '../transport/types';
+import type { HistoryChat, HistoryContact, HistorySetPayload, MessageMutation, NormalisedMessage } from '../transport/types';
 
 const MESSAGE_CHUNK = 500;
 /** Quiet period after the last batch before the import is considered done. */
@@ -103,6 +103,13 @@ export class HistorySyncPipeline {
     private readonly intelligenceUrl: string,
     private readonly internalSecret: string,
   ) {}
+
+  private mutationApplier: ((userId: string, m: MessageMutation) => Promise<boolean>) | null = null;
+
+  /** Reactions/deletes/edits in a history batch are applied through the message handler. */
+  setMutationApplier(fn: (userId: string, m: MessageMutation) => Promise<boolean>): void {
+    this.mutationApplier = fn;
+  }
 
   /** Queue one history batch. Batches for the same user run strictly in order. */
   ingest(userId: string, payload: HistorySetPayload): void {
@@ -251,6 +258,19 @@ export class HistorySyncPipeline {
         return;
       }
       inserted += await this.insertMessages(convIds, canon, messages.slice(i, i + MESSAGE_CHUNK));
+    }
+
+    // 3b. Reactions, deletes and edits — after the messages they target.
+    let applied = 0;
+    if (this.mutationApplier && payload.mutations?.length) {
+      for (const m of payload.mutations) {
+        try {
+          if (await this.mutationApplier(userId, m)) applied++;
+        } catch (err) {
+          console.warn(`[history-sync] ${userId} mutation ${m.kind} failed:`, err);
+        }
+      }
+      console.log(`[history-sync] ${userId} mutations applied=${applied}/${payload.mutations.length}`);
     }
 
     // 4. Job counters + progress.
@@ -583,20 +603,31 @@ export class HistorySyncPipeline {
     });
     if (!rows.length) return 0;
 
+    // Oldest first, so arrival numbers (ingest_seq) follow WhatsApp's order
+    // for messages that share a timestamp second.
+    rows.sort((a, b) => a.m.timestampMs - b.m.timestampMs);
+    const json = (v: unknown) => (v ? JSON.stringify(v) : null);
     const { rowCount } = await this.db.query(
       `INSERT INTO messages
          (conversation_id, whatsapp_message_id, sender_type, message_type, body,
-          media_url, media_mime_type, whatsapp_timestamp, sender_display_name, sender_jid, media_meta)
-       SELECT c, w, s::message_sender, t::message_type, b, mu, mm, ts, sn, sj, md::jsonb
+          media_url, media_mime_type, whatsapp_timestamp, sender_display_name, sender_jid, media_meta,
+          quoted_wa_message_id, quoted_snapshot, media_info)
+       SELECT c, w, s::message_sender, t::message_type, b, mu, mm, ts, sn, sj, md::jsonb, qw, qs::jsonb, mi::jsonb
        FROM unnest($1::uuid[], $2::text[], $3::text[], $4::text[], $5::text[],
-                   $6::text[], $7::text[], $8::timestamptz[], $9::text[], $10::text[], $11::text[])
-            AS x(c, w, s, t, b, mu, mm, ts, sn, sj, md)
+                   $6::text[], $7::text[], $8::timestamptz[], $9::text[], $10::text[], $11::text[],
+                   $12::text[], $13::text[], $14::text[])
+            WITH ORDINALITY AS x(c, w, s, t, b, mu, mm, ts, sn, sj, md, qw, qs, mi, ord)
+       ORDER BY ord
        ON CONFLICT (conversation_id, whatsapp_message_id) DO UPDATE
-         -- A re-link re-delivers history: backfill media keys on rows
-         -- imported before they were captured.
-         SET media_meta = EXCLUDED.media_meta,
-             media_mime_type = COALESCE(messages.media_mime_type, EXCLUDED.media_mime_type)
-         WHERE messages.media_meta IS NULL AND EXCLUDED.media_meta IS NOT NULL`,
+         -- A re-link re-delivers history: fill in what rows imported earlier lack.
+         SET media_meta = COALESCE(messages.media_meta, EXCLUDED.media_meta),
+             media_mime_type = COALESCE(messages.media_mime_type, EXCLUDED.media_mime_type),
+             media_info = COALESCE(messages.media_info, EXCLUDED.media_info),
+             quoted_wa_message_id = COALESCE(messages.quoted_wa_message_id, EXCLUDED.quoted_wa_message_id),
+             quoted_snapshot = COALESCE(messages.quoted_snapshot, EXCLUDED.quoted_snapshot)
+         WHERE (messages.media_meta IS NULL AND EXCLUDED.media_meta IS NOT NULL)
+            OR (messages.media_info IS NULL AND EXCLUDED.media_info IS NOT NULL)
+            OR (messages.quoted_wa_message_id IS NULL AND EXCLUDED.quoted_wa_message_id IS NOT NULL)`,
       [
         rows.map((r) => r.convId),
         rows.map((r) => r.m.waMessageId),
@@ -608,7 +639,10 @@ export class HistorySyncPipeline {
         rows.map((r) => new Date(r.m.timestampMs)),
         rows.map((r) => r.m.groupSenderName),
         rows.map((r) => r.m.groupSenderJid),
-        rows.map((r) => (r.m.mediaMeta ? JSON.stringify(r.m.mediaMeta) : null)),
+        rows.map((r) => json(r.m.mediaMeta)),
+        rows.map((r) => r.m.quotedWaMessageId ?? null),
+        rows.map((r) => json(r.m.quoted)),
+        rows.map((r) => json(r.m.mediaInfo)),
       ],
     );
     await this.db.query(
@@ -633,6 +667,15 @@ export class HistorySyncPipeline {
         ],
       );
     }
+    // ...and replies stored earlier whose quoted message only arrived now.
+    await this.db.query(
+      `UPDATE messages m SET quoted_message_id = q.id
+       FROM unnest($1::uuid[], $2::text[]) AS t(conv_id, wa_id)
+       JOIN messages q ON q.conversation_id = t.conv_id AND q.whatsapp_message_id = t.wa_id
+       WHERE m.conversation_id = t.conv_id AND m.quoted_wa_message_id = t.wa_id
+         AND m.quoted_message_id IS NULL`,
+      [rows.map((r) => r.convId), rows.map((r) => r.m.waMessageId)],
+    );
     return rowCount ?? 0;
   }
 

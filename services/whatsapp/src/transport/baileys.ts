@@ -6,6 +6,7 @@ import makeWASocket, {
   downloadMediaMessage,
   normalizeMessageContent,
   getContentType,
+  jidNormalizedUser,
   Browsers,
   proto,
   type WASocket,
@@ -36,6 +37,9 @@ import {
   type TransportDisconnectReason,
   type TransportStatus,
   type MediaMeta,
+  type MediaInfo,
+  type QuotedSnapshot,
+  type MessageMutation,
 } from './types';
 
 const MEDIA_TYPES = new Set(['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage', 'ptvMessage']);
@@ -63,6 +67,131 @@ function buildMediaMeta(msg: WAMessage, content: proto.IMessage | undefined): Me
     },
     size: Number.isFinite(size) && size > 0 ? size : null,
   };
+}
+
+const MEDIA_KIND: Record<string, MediaInfo['kind']> = {
+  imageMessage: 'image', videoMessage: 'video', ptvMessage: 'video', audioMessage: 'audio',
+  documentMessage: 'document', stickerMessage: 'sticker',
+};
+const MAX_THUMB_BYTES = 16_000;
+
+const num = (v: unknown): number | null => {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+/** Device-safe media facts (no key, no URL), including WhatsApp's inline thumbnail. */
+export function buildMediaInfo(content: proto.IMessage | undefined): MediaInfo | null {
+  if (!content) return null;
+  const type = getContentType(content);
+  if (!type || !MEDIA_KIND[type]) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sub = (content as any)[type];
+  if (!sub) return null;
+  const thumbBytes: Uint8Array | null = sub.jpegThumbnail?.length ? sub.jpegThumbnail : null;
+  return {
+    kind: MEDIA_KIND[type],
+    mime: sub.mimetype ?? null,
+    size: num(sub.fileLength),
+    width: num(sub.width),
+    height: num(sub.height),
+    seconds: num(sub.seconds),
+    ptt: Boolean(sub.ptt),
+    ptv: type === 'ptvMessage',
+    gif: Boolean(sub.gifPlayback),
+    animated: Boolean(sub.isAnimated),
+    fileName: sub.fileName ?? null,
+    pageCount: num(sub.pageCount),
+    thumb: thumbBytes && thumbBytes.length <= MAX_THUMB_BYTES ? Buffer.from(thumbBytes).toString('base64') : null,
+  };
+}
+
+/** The contextInfo of whichever sub-message carries one (text or any media). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function contextInfoOf(content: proto.IMessage): proto.IContextInfo | null {
+  for (const v of Object.values(content)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ci = (v as any)?.contextInfo;
+    if (ci) return ci as proto.IContextInfo;
+  }
+  return null;
+}
+
+const QUOTE_LABEL: Record<string, string> = {
+  imageMessage: 'image', videoMessage: 'video', ptvMessage: 'video', audioMessage: 'audio',
+  documentMessage: 'document', stickerMessage: 'sticker', locationMessage: 'location',
+  contactMessage: 'contact_card', contactsArrayMessage: 'contact_card',
+};
+
+/**
+ * What a reply quotes. ownJids are this account's JIDs (phone + LID) so we can
+ * tell "replying to me" from "replying to them".
+ */
+function buildQuoted(content: proto.IMessage, ownJids: string[]): QuotedSnapshot | null {
+  const ci = contextInfoOf(content);
+  if (!ci?.stanzaId) return null;
+  const qm = normalizeMessageContent(ci.quotedMessage ?? undefined);
+  const qType = qm ? getContentType(qm) : undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sub: any = qm && qType ? (qm as any)[qType] : null;
+  const text: string | null =
+    qm?.conversation ?? qm?.extendedTextMessage?.text ?? sub?.caption ?? sub?.fileName ?? null;
+  const participant = ci.participant ? jidNormalizedUser(ci.participant) : null;
+  const fromMe = participant ? ownJids.includes(participant) : null;
+  return {
+    waMessageId: ci.stanzaId,
+    fromMe,
+    participantJid: participant,
+    type: (qType && QUOTE_LABEL[qType]) || 'text',
+    text: text ? String(text).slice(0, 300) : null,
+  };
+}
+
+/** A reaction, delete-for-everyone or edit, which changes an earlier message. */
+function mutationFrom(msg: WAMessage, content: proto.IMessage | undefined): MessageMutation | null {
+  const jid = msg.key.remoteJid;
+  if (!jid || !content) return null;
+  const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
+  const fromMe = msg.key.fromMe ?? false;
+  const reaction = content.reactionMessage;
+  if (reaction?.key?.id) {
+    return {
+      kind: 'reaction', jid, targetWaMessageId: reaction.key.id,
+      emoji: reaction.text ?? '', fromMe,
+      reactorJid: fromMe ? null : jidNormalizedUser(msg.key.participant || jid),
+      timestampMs: Number(reaction.senderTimestampMs ?? 0) || timestampMs,
+    };
+  }
+  const pm = content.protocolMessage;
+  if (pm?.key?.id) {
+    if (pm.type === proto.Message.ProtocolMessage.Type.REVOKE) {
+      return { kind: 'revoke', jid, targetWaMessageId: pm.key.id, timestampMs };
+    }
+    if (pm.type === proto.Message.ProtocolMessage.Type.MESSAGE_EDIT && pm.editedMessage) {
+      const edited = normalizeMessageContent(pm.editedMessage);
+      const et = edited ? getContentType(edited) : undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = edited?.conversation ?? edited?.extendedTextMessage?.text ?? (edited && et ? (edited as any)[et]?.caption : null);
+      if (body) return { kind: 'edit', jid, targetWaMessageId: pm.key.id, body: String(body), timestampMs };
+    }
+  }
+  return null;
+}
+
+/** Reactions history sync attaches to the target message itself. */
+function historicalReactions(msg: WAMessage): MessageMutation[] {
+  const jid = msg.key.remoteJid;
+  const target = msg.key.id;
+  const list = (msg as WAMessage & { reactions?: proto.IReaction[] | null }).reactions;
+  if (!jid || !target || !list?.length) return [];
+  return list.filter((r) => r.text).map((r) => {
+    const fromMe = r.key?.fromMe ?? false;
+    return {
+      kind: 'reaction' as const, jid, targetWaMessageId: target, emoji: r.text ?? '', fromMe,
+      reactorJid: fromMe ? null : jidNormalizedUser(r.key?.participant || r.key?.remoteJid || jid),
+      timestampMs: Number(r.senderTimestampMs ?? 0),
+    };
+  });
 }
 
 function mediaMimeOf(content: proto.IMessage | undefined): string | null {
@@ -737,8 +866,15 @@ export class BaileysTransport extends WhatsAppTransport {
       const isLatest = (event as { isLatest?: boolean }).isLatest ?? null;
 
       const normalisedMessages: NormalisedMessage[] = [];
+      const mutations: MessageMutation[] = [];
       for (const msg of messages) {
         try {
+          mutations.push(...historicalReactions(msg));
+          const mutation = mutationFrom(msg, normalizeMessageContent(msg.message));
+          if (mutation) {
+            mutations.push(mutation);
+            continue;
+          }
           const normalised = await this._normaliseHistorical(msg);
           if (normalised) normalisedMessages.push(normalised);
         } catch (err) {
@@ -778,6 +914,7 @@ export class BaileysTransport extends WhatsAppTransport {
         syncType,
         progress: typeof progress === 'number' ? progress : null,
         isLatest,
+        mutations,
       };
 
       // Attach LID pairs captured from this sync's phoneNumberToLidMappings for
@@ -831,21 +968,37 @@ export class BaileysTransport extends WhatsAppTransport {
     return downloadMediaFromMeta(meta, this.sock);
   }
 
+  /** This account's own JIDs (phone and LID), normalised. */
+  private _ownJids(): string[] {
+    const u = this.sock?.user as { id?: string; lid?: string } | undefined;
+    return [u?.id, u?.lid].filter((j): j is string => !!j).map((j) => jidNormalizedUser(j));
+  }
+
   private async _normalise(msg: WAMessage): Promise<NormalisedMessage | null> {
-    const jid = msg.key.remoteJid;
-    if (!jid) return null;
-
-    // Unwrap disappearing / view-once / document-with-caption envelopes.
     const content = normalizeMessageContent(msg.message);
-    if (!content) return null;
+    // Reactions, deletes and edits change an earlier message — no new bubble.
+    const mutation = mutationFrom(msg, content);
+    if (mutation) {
+      this.emitMutation(mutation);
+      return null;
+    }
+    return this._normaliseContent(msg, content);
+  }
 
-    // Skip pure protocol messages (delivery receipts etc.)
-    if (content.protocolMessage || content.senderKeyDistributionMessage) return null;
-    // Skip reactions — they attach to messages, not form their own chat bubbles
-    if (content.reactionMessage) return null;
+  /** History: same shape; media is fetched later from the stored meta. */
+  private async _normaliseHistorical(msg: WAMessage): Promise<NormalisedMessage | null> {
+    return this._normaliseContent(msg, normalizeMessageContent(msg.message));
+  }
+
+  private _normaliseContent(msg: WAMessage, content: proto.IMessage | undefined): NormalisedMessage | null {
+    const jid = msg.key.remoteJid;
+    if (!jid || !content) return null;
+    // Protocol traffic and anything mutationFrom() didn't claim.
+    if (content.protocolMessage || content.senderKeyDistributionMessage || content.reactionMessage) return null;
 
     const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
     const isGroupMsg = jid.endsWith('@g.us');
+    const quoted = buildQuoted(content, this._ownJids());
     const base = {
       waMessageId: msg.key.id ?? '',
       jid,
@@ -854,9 +1007,10 @@ export class BaileysTransport extends WhatsAppTransport {
       timestampMs,
       groupSenderName: isGroupMsg && !msg.key.fromMe ? (msg.pushName ?? null) : null,
       groupSenderJid: isGroupMsg && !msg.key.fromMe ? (msg.key.participant ?? null) : null,
+      quotedWaMessageId: quoted?.waMessageId ?? null,
+      quoted,
     };
 
-    // ── Location ──────────────────────────────────────────────────────────────
     if (content.locationMessage) {
       const loc = content.locationMessage;
       return {
@@ -870,131 +1024,38 @@ export class BaileysTransport extends WhatsAppTransport {
         }),
         mediaUrl: null,
         mediaMimeType: null,
-        quotedWaMessageId: null,
       };
     }
 
-    // ── Contact card ──────────────────────────────────────────────────────────
     if (content.contactMessage || content.contactsArrayMessage) {
       const name =
         content.contactMessage?.displayName ??
         content.contactsArrayMessage?.contacts?.[0]?.displayName ?? null;
-      return {
-        ...base,
-        messageType: MessageType.CONTACT_CARD,
-        body: name,
-        mediaUrl: null,
-        mediaMimeType: null,
-        quotedWaMessageId: null,
-      };
+      return { ...base, messageType: MessageType.CONTACT_CARD, body: name, mediaUrl: null, mediaMimeType: null };
     }
 
-    // ── Text ─────────────────────────────────────────────────────────────────
     const textBody = content.conversation ?? content.extendedTextMessage?.text ?? null;
     if (textBody !== null && !content.imageMessage && !content.videoMessage &&
-        !content.audioMessage && !content.documentMessage && !content.stickerMessage) {
-      const quotedWaMessageId =
-        content.extendedTextMessage?.contextInfo?.stanzaId ?? null;
-      return {
-        ...base,
-        messageType: MessageType.TEXT,
-        body: textBody,
-        mediaUrl: null,
-        mediaMimeType: null,
-        quotedWaMessageId: quotedWaMessageId ?? null,
-      };
+        !content.audioMessage && !content.documentMessage && !content.stickerMessage && !content.ptvMessage) {
+      return { ...base, messageType: MessageType.TEXT, body: textBody, mediaUrl: null, mediaMimeType: null };
     }
 
-    // ── Media messages ────────────────────────────────────────────────────────
-    const messageType = this._detectType(content);
+    // Media: stored now, downloaded later (MediaStore) and served privately by the API.
     const captionBody =
       content.imageMessage?.caption ??
       content.videoMessage?.caption ??
       content.documentMessage?.caption ??
       content.documentMessage?.fileName ??
       null;
-
-    // Quoted message ID from any media type's context info
-    const quotedWaMessageId =
-      (content.imageMessage as any)?.contextInfo?.stanzaId ??
-      (content.videoMessage as any)?.contextInfo?.stanzaId ??
-      (content.audioMessage as any)?.contextInfo?.stanzaId ??
-      (content.documentMessage as any)?.contextInfo?.stanzaId ??
-      (content.stickerMessage as any)?.contextInfo?.stanzaId ??
-      null;
-
-    // Mime type from the media sub-message
-    const mediaMsg: any =
-      content.imageMessage ??
-      content.videoMessage ??
-      content.audioMessage ??
-      content.documentMessage ??
-      content.stickerMessage ??
-      content.ptvMessage ??
-      null;
-
-    const mediaMimeType: string | null = mediaMsg?.mimetype ?? null;
-    // Media itself is fetched after the message is stored (MediaStore), so
-    // it can be keyed by the message row and served privately by the API.
-    const mediaMeta = buildMediaMeta(msg, content);
-    const mediaUrl: string | null = null;
-
     return {
       ...base,
-      messageType,
+      messageType: this._detectType(content),
       body: captionBody,
-      mediaUrl,
-      mediaMimeType,
-      mediaMeta,
-      quotedWaMessageId: quotedWaMessageId ?? null,
+      mediaUrl: null,
+      mediaMimeType: mediaMimeOf(content),
+      mediaMeta: buildMediaMeta(msg, content),
+      mediaInfo: buildMediaInfo(content),
     };
-  }
-
-  // Historical messages: same as _normalise but no media download (content often unavailable)
-  private async _normaliseHistorical(msg: WAMessage): Promise<NormalisedMessage | null> {
-    const jid = msg.key.remoteJid;
-    if (!jid) return null;
-    const content = normalizeMessageContent(msg.message);
-    if (!content) return null;
-    if (content.protocolMessage || content.senderKeyDistributionMessage) return null;
-    if (content.reactionMessage) return null;
-
-    const timestampMs = Number(msg.messageTimestamp ?? 0) * 1000;
-    const isGroupMsg = jid.endsWith('@g.us');
-    const base = {
-      waMessageId: msg.key.id ?? '',
-      jid,
-      fromMe: msg.key.fromMe ?? false,
-      displayName: msg.pushName ?? null,
-      timestampMs,
-      groupSenderName: isGroupMsg && !msg.key.fromMe ? (msg.pushName ?? null) : null,
-      groupSenderJid: isGroupMsg && !msg.key.fromMe ? (msg.key.participant ?? null) : null,
-    };
-
-    if (content.locationMessage) {
-      const loc = content.locationMessage;
-      return { ...base, messageType: MessageType.LOCATION,
-        body: JSON.stringify({ lat: loc.degreesLatitude, lng: loc.degreesLongitude }),
-        mediaUrl: null, mediaMimeType: null, quotedWaMessageId: null };
-    }
-    if (content.contactMessage || content.contactsArrayMessage) {
-      const name = content.contactMessage?.displayName ?? null;
-      return { ...base, messageType: MessageType.CONTACT_CARD,
-        body: name, mediaUrl: null, mediaMimeType: null, quotedWaMessageId: null };
-    }
-    const textBody = content.conversation ?? content.extendedTextMessage?.text ?? null;
-    if (textBody !== null) {
-      const quotedWaMessageId = content.extendedTextMessage?.contextInfo?.stanzaId ?? null;
-      return { ...base, messageType: MessageType.TEXT,
-        body: textBody, mediaUrl: null, mediaMimeType: null, quotedWaMessageId: quotedWaMessageId ?? null };
-    }
-    // Non-text historical messages — keep what's needed to fetch the media on demand
-    const messageType = this._detectType(content);
-    const captionBody = (content.imageMessage?.caption ?? content.videoMessage?.caption
-      ?? content.documentMessage?.caption ?? content.documentMessage?.fileName ?? null);
-    return { ...base, messageType, body: captionBody,
-      mediaUrl: null, mediaMimeType: mediaMimeOf(content), mediaMeta: buildMediaMeta(msg, content),
-      quotedWaMessageId: null };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
