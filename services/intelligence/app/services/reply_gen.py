@@ -215,6 +215,8 @@ class ReplyGenerator:
         contact_summary = ' '.join(
             p for p in (contact['personality_summary'] or '', contact['current_life_context'] or '') if p
         ).strip() or f'A {relationship_type}'
+        if contact.get('facts'):
+            contact_summary += ' Things to remember: ' + '; '.join(contact['facts']) + '.'
 
         context = '\n'.join(
             f"[{r['sender_type']}]: {r['body']}" for r in reversed(list(recent))

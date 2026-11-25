@@ -32,6 +32,7 @@ _DEFAULT_CONTACT_SUMMARY = {
     'current_life_context': None,
     'communication_style': None,
     'structured_attributes': {},
+    'facts': [],
 }
 
 _DEFAULT_RELATIONSHIP_MEMORY = {
@@ -66,6 +67,18 @@ async def get_contact_summary(user_id: str, contact_id: str) -> dict:
     result = dict(row)
     result['relationship_type'] = result['relationship_type'] or 'acquaintance'
     result['structured_attributes'] = result['structured_attributes'] or {}
+    # Facts the user added or kept in the Zuri panel (key 'remember') come
+    # first, then the most confident learned ones; deactivated ("that's
+    # wrong") facts never appear.
+    async with pool.acquire() as conn:
+        facts = await conn.fetch(
+            """SELECT insight_value FROM contact_insights
+               WHERE contact_id = $1 AND user_id = $2 AND is_active = TRUE AND insight_value IS NOT NULL
+               ORDER BY (insight_key = 'remember') DESC, confidence DESC NULLS LAST, created_at DESC
+               LIMIT 8""",
+            contact_id, user_id,
+        )
+    result['facts'] = [f['insight_value'] for f in facts]
     return result
 
 

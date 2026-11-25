@@ -66,6 +66,13 @@ class ContactProfiler:
                 contact_id,
                 user_id,
             )
+            # Facts the user marked wrong in the Zuri panel — never re-learn these.
+            rejected = await conn.fetch(
+                'SELECT insight_key, insight_value FROM contact_insights'
+                ' WHERE contact_id = $1 AND user_id = $2 AND rejected_at IS NOT NULL',
+                contact_id,
+                user_id,
+            )
 
         if not messages:
             log.info('no_messages_to_profile', contact_id=contact_id)
@@ -98,6 +105,9 @@ class ContactProfiler:
         existing_summary = '; '.join(
             f"{r['insight_key']}: {r['insight_value']}" for r in existing_insights
         ) or 'none'
+        if rejected:
+            existing_summary += '. The user said these are WRONG — do not repeat them: ' + '; '.join(
+                r['insight_value'] for r in rejected if r['insight_value'])
 
         sample = build_transcript(messages[:40], contact_name, user_name, 4000)
 
@@ -211,13 +221,18 @@ class ContactProfiler:
             # Retire old insights, write fresh batch — preserve evidence/provenance
             # trail via superseded_by rather than dropping it on the floor.
             existing_by_key = {r['insight_key']: r for r in existing_insights}
+            # User-added facts ('remember') are the user's, not the profiler's: keep them.
             await conn.execute(
                 'UPDATE contact_insights SET is_active = FALSE'
-                ' WHERE contact_id = $1 AND user_id = $2',
+                " WHERE contact_id = $1 AND user_id = $2 AND insight_key <> 'remember'",
                 contact_id,
                 user_id,
             )
+            rejected_keys = {r['insight_key'] for r in rejected}
+            rejected_values = {(r['insight_value'] or '').strip().lower() for r in rejected}
             for insight in insights_model.insights:
+                if insight.key in rejected_keys or (insight.value or '').strip().lower() in rejected_values:
+                    continue
                 prior = existing_by_key.get(insight.key)
                 evidence_count = 1
                 if prior and prior['insight_value'] == insight.value:

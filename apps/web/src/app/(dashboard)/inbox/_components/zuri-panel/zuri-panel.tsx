@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import { ZuriMark } from '@/components/ui/zuri-mark'
 import { IntelPanel } from '../intel-panel'
 import { NowTab } from './now-tab'
+import { PersonTab } from './person-tab'
 
 type ZuriTab = 'now' | 'person' | 'ask' | 'media'
 
@@ -15,10 +16,9 @@ const TABS: { id: ZuriTab; label: string }[] = [
   { id: 'media', label: 'Media' },
 ]
 
-// Until Person / Ask / Media are rebuilt, they show the matching part of the
+// Until Ask / Media are rebuilt, they show the matching part of the
 // older intelligence panel (without its own header and tabs).
-const LEGACY_TAB: Record<Exclude<ZuriTab, 'now'>, ComponentProps<typeof IntelPanel>['aiTab']> = {
-  person: 'memory',
+const LEGACY_TAB: Record<Exclude<ZuriTab, 'now' | 'person'>, ComponentProps<typeof IntelPanel>['aiTab']> = {
   ask: 'chat',
   media: 'files',
 }
@@ -103,6 +103,10 @@ export function ZuriPanel({
             onFocusComposer={onFocusComposer}
             onSendSuggestion={onSendSuggestion}
           />
+        ) : tab === 'person' ? (
+          contactId
+            ? <PersonTab contactId={contactId} token={token} onUseDraft={onUseDraft} />
+            : <p className="p-6 text-center text-sm text-gray-500">No contact linked to this chat.</p>
         ) : (
           <IntelPanel {...legacyProps} embedded aiTab={LEGACY_TAB[tab]} onTabChange={() => {}} />
         )}
