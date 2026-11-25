@@ -631,7 +631,7 @@ export async function zuriPanelRoutes(fastify: FastifyInstance): Promise<void> {
                 m.sender_type, m.sender_display_name, m.whatsapp_timestamp
          FROM messages m
          WHERE m.conversation_id = $1 AND m.is_deleted = false AND m.media_url IS NOT NULL
-           AND m.message_type = ANY($2::text[])
+           AND m.message_type::text = ANY($2::text[])
            AND ($3::timestamptz IS NULL OR m.whatsapp_timestamp < $3::timestamptz)
          ORDER BY m.whatsapp_timestamp DESC LIMIT $4`,
         [id, types, before, PAGE],
