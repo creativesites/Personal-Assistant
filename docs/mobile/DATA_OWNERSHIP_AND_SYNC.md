@@ -182,7 +182,8 @@ Message send and document create are **online-only, one-shot, with a visible "se
 
 ### 6.1 Device side
 
-1. Each captured message has a `fingerprint` (ARCHITECTURE §5.3) and a `chat_key`. The `chat_key` is the JID if the M0 spike confirms `shortcutId` = JID; otherwise it is normalised title + isGroup.
+1. Each captured message has a `fingerprint` (ARCHITECTURE §5.3) and a `chat_key`. **Confirmed on a Galaxy S20 (2026-11-25):** the chat_key is the WhatsApp JID, `@g.us` for groups and `@lid` for one-to-one chats. The backend maps `@lid` to phone JIDs at ingest and, with G5, will add `lid` to the sync contact shape and accept either form when reconciling.
+   Original note: The `chat_key` is the JID if the M0 spike confirms `shortcutId` = JID; otherwise it is normalised title + isGroup.
 2. When cloud messages are imported or synced, the reconciler matches device-captured rows to cloud rows by:
    1. chat match (JID, or person ↔ contact link)
    2. sender match
