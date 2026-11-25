@@ -8,6 +8,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import app.zuri.android.core.common.Clock
 import app.zuri.android.core.security.keys.DatabaseKeyProvider
 import app.zuri.android.data.local.capture.RoomSourceSettingsRepository
+import app.zuri.android.data.local.db.DatabaseKeying
 import app.zuri.android.data.local.db.ZuriDatabase
 import app.zuri.android.data.local.inbox.RoomInboxRepository
 import app.zuri.android.domain.capture.SourceSettingsRepository
@@ -57,6 +58,7 @@ object DataModule {
             workspaceCount = { db.workspaceDao().countActive() },
             messageCount = { db.messageDao().count() },
             rawSnapshotCount = { db.captureRawDao().count() },
+            keyCheck = DatabaseKeying::rejectsWeakKeys,
         )
 
     @Provides @Singleton

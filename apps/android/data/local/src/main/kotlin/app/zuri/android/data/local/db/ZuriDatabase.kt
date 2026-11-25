@@ -33,10 +33,25 @@ abstract class ZuriDatabase : RoomDatabase() {
     companion object {
         const val FILE_NAME = "zuri.db"
 
-        fun openEncrypted(context: Context, key: ByteArray): ZuriDatabase {
+        /** What happened to the key at the last open; shown nowhere, but logged and tested. */
+        @Volatile var lastKeyingResult: DatabaseKeying.Result? = null
+            private set
+
+        /**
+         * Opens (creating if needed) the database with [key], a 256-bit key. The caller may zero [key]
+         * afterwards: SQLCipher gets its own copy, which it keeps for the life of the process
+         * (see [DatabaseKeying]).
+         */
+        fun openEncrypted(context: Context, key: ByteArray): ZuriDatabase = openEncryptedAt(context, key, FILE_NAME)
+
+        internal fun openEncryptedAt(context: Context, key: ByteArray, name: String): ZuriDatabase {
             System.loadLibrary("sqlcipher")
-            return Room.databaseBuilder(context, ZuriDatabase::class.java, FILE_NAME)
-                .openHelperFactory(SupportOpenHelperFactory(key))
+            val raw = DatabaseKeying.rawKey(key)
+            val result = DatabaseKeying.migrateIfNeeded(context.getDatabasePath(name), raw, legacyCandidates = listOf(key.copyOf()))
+            lastKeyingResult = result
+            check(result != DatabaseKeying.Result.UNREADABLE) { "The encrypted database could not be opened with its key" }
+            return Room.databaseBuilder(context, ZuriDatabase::class.java, name)
+                .openHelperFactory(SupportOpenHelperFactory(raw))
                 .addCallback(SecureDeleteCallback)
                 .build()
         }

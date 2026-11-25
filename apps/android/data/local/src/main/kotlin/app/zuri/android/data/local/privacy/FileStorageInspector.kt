@@ -13,13 +13,15 @@ class FileStorageInspector(
     private val workspaceCount: suspend () -> Int,
     private val messageCount: suspend () -> Int = { 0 },
     private val rawSnapshotCount: suspend () -> Int = { 0 },
+    /** Proves the key isn't a guessable one (see DatabaseKeying.rejectsWeakKeys); the header alone can't. */
+    private val keyCheck: (File) -> Boolean = { true },
 ) : StorageInspector {
 
     override suspend fun report(): StorageReport {
         val files = listOf("", "-wal", "-shm", "-journal").map { File(databaseFile.path + it) }
         return StorageReport(
             databaseBytes = files.filter { it.exists() }.sumOf { it.length() },
-            databaseEncryptionVerified = isEncrypted(databaseFile),
+            databaseEncryptionVerified = isEncrypted(databaseFile) && keyCheck(databaseFile),
             workspaceCount = workspaceCount(),
             messageCount = messageCount(),
             rawSnapshotCount = rawSnapshotCount(),

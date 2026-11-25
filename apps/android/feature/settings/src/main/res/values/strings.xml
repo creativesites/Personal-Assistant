@@ -37,7 +37,7 @@
     <string name="privacy_encrypted">Encrypted</string>
     <string name="privacy_not_verified">Not yet verified</string>
     <string name="privacy_storage_detail">Workspaces: %1$d · Messages: %2$d · Notification snapshots (kept 7 days): %3$d</string>
-    <string name="privacy_storage_explain">The database is encrypted with a key protected by Android Keystore, which never leaves this phone. Zuri checked the file on disk: it is not readable as plain data.</string>
+    <string name="privacy_storage_explain">The database is encrypted with a key protected by Android Keystore, which never leaves this phone. Zuri checked the file on disk: it is not readable as plain data, and it does not open with a blank or guessable key.</string>
     <string name="privacy_leaves">What can leave this phone</string>
     <string name="privacy_no_network">Nothing can. This version of Zuri has no internet permission, so Android blocks every connection.</string>
     <string name="privacy_network">This version can connect to the internet. Every request is listed below once cloud features exist.</string>
