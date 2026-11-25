@@ -37,11 +37,14 @@ Real messages {owner} sent to {contact} (match this voice, length, language mix,
 {owner} usually writes about {typical} characters per message here. Stay close to that; shorter is better than longer.
 
 WHAT TO WRITE
-- Reply to the unanswered messages (marked #1, #2…). Answer what they actually said or asked, in the order that feels natural.
-- When several separate things need answers, use 2-3 short messages, each with "reply_to" set to the # it answers (like swiping to reply). For a single message or a simple flow, use one message with reply_to null.
+- Reply to the unanswered messages (marked #1, #2…). Answer what they actually said or asked; skip filler ("ok", "alright") that needs nothing.
+- Default to ONE message. Use 2 (rarely 3) only when they raised clearly separate things that read better answered apart.
+- "reply_to" works like swiping to reply in WhatsApp: use it only when answering an earlier message out of order, or to make clear which of several things you're answering. Never quote the latest message in a one-message reply, and never quote the same # twice.
 - Read the timestamps. A new day, or a long gap, means a fresh moment — greet accordingly and don't continue a finished thread.
 - Be natural: casual, warm or brief as the relationship and moment call for. No formal sign-offs, no hashtags, no over-explaining, no questions just to fill space.
-- NEVER invent facts about {owner}: how he slept or feels, where he is, what he did, plans, decisions, prices, promises or availability. If a good reply needs something only {owner} knows, set "needs_owner": true with a short reason, and still write the best reply that doesn't make anything up (e.g. a warm acknowledgement, or answering only what you can).
+- NEVER invent facts about {owner} or his people: how he slept or feels, where he is, what he did, how his family is, plans, decisions, prices or availability.
+- NEVER make commitments for {owner} (sending, adding, paying, meeting, being somewhere, "I'll do it now") unless the chat shows he already agreed to exactly that.
+- If a good reply needs something only {owner} knows or must decide, set "needs_owner": true with a short reason, and still make every option safe: warm acknowledgement, answering only what you can, or a natural holding reply ("let me check" style) — never a made-up answer.
 - If nothing needs a reply (an "ok", a thumbs-up, a goodbye already answered), set "no_reply_needed": true.
 {business_rules}
 
@@ -106,16 +109,24 @@ def _words(text: str) -> set[str]:
     return {w for w in re.sub(r'[^\w\s]', ' ', text.lower()).split() if len(w) > 2}
 
 
+_FIRST_PERSON = re.compile(r"\b(i|i'm|im|i've|ive|i'd|my|me|mine|myself)\b", re.I)
+
+
 def _echoes(text: str, contact_texts: list[str]) -> bool:
-    """Draft repeats something the contact said (their news/feelings as ours)."""
+    """Draft claims the contact's own experience as the owner's — e.g. they
+    wrote "My night was not pleasant, my body was sweating" and the draft
+    says "My night was not good, my body kept sweating". Sympathy that
+    reuses their words ("sorry your night was rough") is fine."""
+    if not _FIRST_PERSON.search(text):
+        return False
     w = _words(text)
-    if len(w) < 4:
+    if len(w) < 5:
         return False
     for c in contact_texts:
         cw = _words(c)
-        if len(cw) < 4:
+        if len(cw) < 5 or not _FIRST_PERSON.search(c):
             continue
-        if len(w & cw) / min(len(w), len(cw)) >= 0.6:
+        if len(w & cw) / min(len(w), len(cw)) >= 0.5:
             return True
     return False
 
@@ -182,6 +193,13 @@ def _parse(raw: dict) -> ComposeResult:
             if isinstance(m, dict) and str(m.get('text') or '').strip():
                 rt = m.get('reply_to')
                 parts.append(ReplyPart(text=str(m['text']).strip(), reply_to=int(rt) if isinstance(rt, (int, float)) else None))
+        seen_quotes: set[int] = set()
+        for p in parts:
+            if p.reply_to is not None:
+                if p.reply_to in seen_quotes:
+                    p.reply_to = None
+                else:
+                    seen_quotes.add(p.reply_to)
         if parts:
             res.options.append(ReplyOption(parts=parts, tone=str(o.get('tone') or ''), why=str(o.get('why') or '')))
     return res
