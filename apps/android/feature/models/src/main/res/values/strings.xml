@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="models_title">AI models</string>
+    <string name="models_subtitle">Run on this phone, never in the cloud</string>
+    <string name="models_intro">Zuri\'s understanding runs entirely on this phone. Downloading a model is the only time Zuri uses the internet, and every download is listed in What leaves my phone.</string>
+
+    <string name="device_title">This phone</string>
+    <string name="device_ram">Memory: %1$s</string>
+    <string name="device_storage">Free storage: %1$s</string>
+    <string name="device_chip">Chip: %1$s</string>
+
+    <string name="section_chat">For understanding and writing</string>
+    <string name="section_search">For search</string>
+
+    <string name="tier_lite">Lite</string>
+    <string name="tier_standard">Recommended</string>
+    <string name="tier_high">High quality</string>
+    <string name="model_meta">%1$s · %2$s parameters · %3$s · %4$s</string>
+
+    <string name="fit_good">Good fit for this phone</string>
+    <string name="fit_tight">Will run, but slowly on this phone</string>
+    <string name="fit_memory">Too large for this phone\'s memory</string>
+    <string name="fit_storage">Free %1$s more storage to download</string>
+    <string name="fit_unsupported">This phone isn\'t supported</string>
+
+    <string name="state_installed">Installed · %1$s</string>
+    <string name="state_queued">Waiting to start</string>
+    <string name="state_queued_wifi">Waiting for Wi-Fi</string>
+    <string name="state_downloading">%1$s of %2$s</string>
+    <string name="state_paused">Paused at %1$s of %2$s</string>
+    <string name="state_verifying">Checking the file…</string>
+    <string name="failed_network">The download stopped. It will resume from where it got to.</string>
+    <string name="failed_checksum">The file didn\'t match its published checksum, so Zuri deleted it.</string>
+    <string name="failed_storage">Not enough free storage.</string>
+    <string name="failed_unknown">The download failed.</string>
+
+    <string name="action_download">Download</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_delete">Delete</string>
+    <string name="delete_title">Delete %1$s?</string>
+    <string name="delete_body">This frees %1$s. You can download it again later.</string>
+    <string name="cancel">Cancel</string>
+
+    <string name="sheet_title">Download %1$s?</string>
+    <string name="sheet_size">Size: %1$s</string>
+    <string name="sheet_source">From: %1$s, published by %2$s</string>
+    <string name="sheet_licence">Licence: %1$s</string>
+    <string name="sheet_privacy">Only the request for the file leaves your phone. No account, no messages and nothing about you is sent. The download is listed in What leaves my phone.</string>
+    <string name="sheet_verify">Zuri checks the file against its published checksum before using it.</string>
+    <string name="sheet_mobile_t">Allow mobile data</string>
+    <string name="sheet_mobile_s">Off: waits for Wi-Fi</string>
+    <string name="sheet_start">Start download</string>
+
+    <string name="open_ledger">What leaves my phone</string>
+</resources>

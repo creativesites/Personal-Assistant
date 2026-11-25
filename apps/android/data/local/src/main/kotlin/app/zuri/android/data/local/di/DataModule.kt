@@ -15,6 +15,8 @@ import app.zuri.android.domain.capture.SourceSettingsRepository
 import app.zuri.android.domain.inbox.InboxRepository
 import app.zuri.android.data.local.prefs.DataStoreAppPreferencesRepository
 import app.zuri.android.data.local.privacy.FileStorageInspector
+import app.zuri.android.data.local.privacy.RoomEgressLedger
+import app.zuri.android.domain.privacy.EgressLedger
 import app.zuri.android.data.local.workspace.RoomWorkspaceRepository
 import app.zuri.android.domain.privacy.StorageInspector
 import app.zuri.android.domain.settings.AppPreferencesRepository
@@ -64,6 +66,9 @@ object DataModule {
     @Provides @Singleton
     fun sourceSettings(db: ZuriDatabase, @Named("app") store: DataStore<Preferences>, clock: Clock): SourceSettingsRepository =
         RoomSourceSettingsRepository(db, store, clock)
+
+    @Provides @Singleton
+    fun egressLedger(db: ZuriDatabase, clock: Clock): EgressLedger = RoomEgressLedger(db, clock)
 
     @Provides @Singleton
     fun inbox(db: ZuriDatabase, clock: Clock): InboxRepository = RoomInboxRepository(db, clock)

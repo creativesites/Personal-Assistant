@@ -175,14 +175,14 @@ fun SecurityContent(
 // ---------------- Privacy Center (G11) ----------------
 
 @Composable
-fun PrivacyCenterRoute(onBack: () -> Unit, viewModel: PrivacyCenterViewModel = hiltViewModel()) {
+fun PrivacyCenterRoute(onBack: () -> Unit, onOpenLedger: () -> Unit = {}, viewModel: PrivacyCenterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refresh() }
-    PrivacyCenterContent(state, onBack)
+    PrivacyCenterContent(state, onBack, onOpenLedger)
 }
 
 @Composable
-fun PrivacyCenterContent(state: PrivacyState, onBack: () -> Unit) {
+fun PrivacyCenterContent(state: PrivacyState, onBack: () -> Unit, onOpenLedger: () -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         DetailTopBar(stringResource(R.string.privacy_title), onBack)
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -194,6 +194,9 @@ fun PrivacyCenterContent(state: PrivacyState, onBack: () -> Unit) {
                     when (access?.hasNetworkPermission) { null -> stringResource(R.string.loading); false -> stringResource(R.string.privacy_no_network); true -> stringResource(R.string.privacy_network) },
                     style = MaterialTheme.typography.bodyLarge,
                 )
+                if (access?.hasNetworkPermission == true) {
+                    androidx.compose.material3.TextButton(onClick = onOpenLedger) { Text(stringResource(R.string.privacy_open_ledger)) }
+                }
             }
             if (access != null) PermissionsSection(access)
             SectionHeader(stringResource(R.string.privacy_consents))

@@ -34,6 +34,8 @@ import app.zuri.android.R
 import app.zuri.android.core.ui.components.RootTopBar
 import app.zuri.android.domain.workspace.WorkspaceAccent
 import app.zuri.android.domain.workspace.WorkspaceId
+import app.zuri.android.feature.models.ModelsRoute
+import app.zuri.android.feature.settings.LedgerRoute
 import app.zuri.android.feature.settings.PrivacyCenterRoute
 import app.zuri.android.feature.settings.SecurityRoute
 import app.zuri.android.feature.settings.SettingsRoute
@@ -56,6 +58,8 @@ import kotlinx.serialization.Serializable
 @Serializable data object PrivacyDest
 @Serializable data object SourcesDest
 @Serializable data class ConversationDest(val id: String)
+@Serializable data object ModelsDest
+@Serializable data object LedgerDest
 
 private data class Tab(val route: Any, val type: KClass<*>, val icon: ImageVector, val label: Int)
 
@@ -98,7 +102,7 @@ fun ZuriShell(
         composable<AskDest> { RootFrame(nav, state, { switcherOpen = true }) { AskTab() } }
         composable<MoreDest> {
             RootFrame(nav, state, { switcherOpen = true }) {
-                MoreTab(onSettings = { nav.navigate(SettingsDest) }, onPrivacy = { nav.navigate(PrivacyDest) }, onSecurity = { nav.navigate(SecurityDest) })
+                MoreTab(onSettings = { nav.navigate(SettingsDest) }, onPrivacy = { nav.navigate(PrivacyDest) }, onSecurity = { nav.navigate(SecurityDest) }, onModels = { nav.navigate(ModelsDest) })
             }
         }
         composable<SettingsDest> {
@@ -111,7 +115,9 @@ fun ZuriShell(
             }
         }
         composable<SecurityDest> { Detail { SecurityRoute(onBack = { nav.popBackStack() }) } }
-        composable<PrivacyDest> { Detail { PrivacyCenterRoute(onBack = { nav.popBackStack() }) } }
+        composable<PrivacyDest> { Detail { PrivacyCenterRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }) } }
+        composable<ModelsDest> { Detail { ModelsRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }) } }
+        composable<LedgerDest> { Detail { LedgerRoute(onBack = { nav.popBackStack() }) } }
         composable<SourcesDest> { Detail { SourcesRoute(onBack = { nav.popBackStack() }) } }
     }
 

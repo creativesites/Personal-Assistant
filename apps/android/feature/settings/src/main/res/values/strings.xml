@@ -40,7 +40,14 @@
     <string name="privacy_storage_explain">The database is encrypted with a key protected by Android Keystore, which never leaves this phone. Zuri checked the file on disk: it is not readable as plain data, and it does not open with a blank or guessable key.</string>
     <string name="privacy_leaves">What can leave this phone</string>
     <string name="privacy_no_network">Nothing can. This version of Zuri has no internet permission, so Android blocks every connection.</string>
-    <string name="privacy_network">This version can connect to the internet. Every request is listed below once cloud features exist.</string>
+    <string name="privacy_network">Only model downloads you start. Zuri connects to huggingface.co to fetch the files you choose; no messages, account or personal details are sent. Every download is listed in What leaves my phone.</string>
+    <string name="privacy_open_ledger">What leaves my phone</string>
+    <string name="ledger_title">What leaves my phone</string>
+    <string name="ledger_subtitle">Every connection Zuri has made</string>
+    <string name="ledger_empty_t">Nothing has left this phone</string>
+    <string name="ledger_empty_b">Zuri hasn\'t connected to anything. Downloads you start will be listed here.</string>
+    <string name="ledger_model_download">Model download</string>
+    <string name="ledger_detail">%1$s · %2$s · sent only the request, received %3$s</string>
     <string name="privacy_permissions">Android permissions</string>
     <string name="privacy_notifications">Notification access</string>
     <string name="privacy_contacts">Contacts</string>

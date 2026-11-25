@@ -16,8 +16,8 @@ android {
         applicationId = "app.zuri.android"
         minSdk = providers.gradleProperty("zuri.minSdk").get().toInt()
         targetSdk = providers.gradleProperty("zuri.targetSdk").get().toInt()
-        versionCode = 2
-        versionName = "0.2.0-m2"
+        versionCode = 3
+        versionName = "0.3.0-m3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // arm64 only (DECISIONS.md D-15): on-device models need it, and it keeps the APK small.
         ndk { abiFilters += listOf("arm64-v8a") }
@@ -58,6 +58,9 @@ dependencies {
     implementation(project(":feature:sources"))
     implementation(project(":feature:inbox"))
     implementation(project(":engine:ingest"))
+    implementation(project(":feature:models"))
+    implementation(project(":core-ai"))
+    implementation(project(":core-ai:remote"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)

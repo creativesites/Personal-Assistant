@@ -11,15 +11,33 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.xmlpull.v1.XmlPullParser
 
-/** Guards M1's privacy promises against accidental regressions (e.g. a library adding INTERNET). */
+/** Guards the privacy promises against accidental regressions (e.g. a library adding a permission). */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
 class ManifestPolicyTest {
     private val context = ApplicationProvider.getApplicationContext<Application>()
 
-    @Test fun appCannotUseTheNetwork() {
+    /**
+     * Every permission is accounted for. INTERNET arrived in M3 for model downloads only; code that
+     * may use it is confined to :core-ai:remote by the architecture tests.
+     */
+    @Test fun onlyExpectedPermissionsAreRequested() {
         val info = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
-        assertThat(info.requestedPermissions.orEmpty().toList()).doesNotContain(Manifest.permission.INTERNET)
+        val allowed = setOf(
+            Manifest.permission.INTERNET,
+            Manifest.permission.ACCESS_NETWORK_STATE, // WorkManager: wait for Wi-Fi
+            Manifest.permission.WAKE_LOCK, Manifest.permission.RECEIVE_BOOT_COMPLETED, // WorkManager
+            Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.FOREGROUND_SERVICE_DATA_SYNC, // download progress
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.USE_BIOMETRIC, Manifest.permission.USE_FINGERPRINT, // app lock
+            context.packageName + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        )
+        assertThat(allowed).containsAtLeastElementsIn(info.requestedPermissions.orEmpty().toList())
+    }
+
+    @Test fun cleartextTrafficIsOff() {
+        val flags = context.packageManager.getApplicationInfo(context.packageName, 0).flags
+        assertThat(flags and android.content.pm.ApplicationInfo.FLAG_USES_CLEARTEXT_TRAFFIC).isEqualTo(0)
     }
 
     @Test fun backupIsDisabled() {

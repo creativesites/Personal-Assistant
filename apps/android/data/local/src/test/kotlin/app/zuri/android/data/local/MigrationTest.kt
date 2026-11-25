@@ -30,4 +30,11 @@ class MigrationTest {
             db.query("SELECT COUNT(*) FROM message").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
         }
     }
+
+    @Test fun v2ToV3AddsTheEgressLedger() {
+        helper.createDatabase("migration-test-3", 2).close()
+        helper.runMigrationsAndValidate("migration-test-3", 3, true).use { db ->
+            db.query("SELECT COUNT(*) FROM egress_ledger").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+        }
+    }
 }

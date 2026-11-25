@@ -16,7 +16,7 @@ class ArchitectureRulesTest {
             .assertFalse { file ->
                 file.imports.any {
                     it.name.startsWith("app.zuri.android.data.") || it.name.startsWith("app.zuri.android.core.security.") ||
-                        it.name.startsWith("app.zuri.android.engine.")
+                        it.name.startsWith("app.zuri.android.engine.") || it.name.startsWith("app.zuri.android.coreai.")
                 }
             }
     }

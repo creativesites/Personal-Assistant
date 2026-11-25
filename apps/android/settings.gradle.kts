@@ -30,10 +30,13 @@ include(
     ":core:security",
     ":data:local",
     ":engine:ingest",
+    ":core-ai",
+    ":core-ai:remote",
     ":feature:onboarding",
     ":feature:today",
     ":feature:settings",
     ":feature:sources",
     ":feature:inbox",
+    ":feature:models",
     ":arch-tests",
 )

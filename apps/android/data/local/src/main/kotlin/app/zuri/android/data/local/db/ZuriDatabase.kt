@@ -17,10 +17,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         WorkspaceEntity::class,
         SourceAppEntity::class, CaptureRawEntity::class, CaptureExclusionEntity::class,
         ConversationEntity::class, MessageEntity::class,
+        EgressEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class ZuriDatabase : RoomDatabase() {
     abstract fun workspaceDao(): WorkspaceDao
@@ -29,6 +30,7 @@ abstract class ZuriDatabase : RoomDatabase() {
     abstract fun captureExclusionDao(): CaptureExclusionDao
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
+    abstract fun egressDao(): EgressDao
 
     companion object {
         const val FILE_NAME = "zuri.db"

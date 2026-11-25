@@ -39,12 +39,13 @@ fun EmptyTab(icon: ImageVector, title: Int, body: Int) {
 @Composable fun AskTab() = EmptyTab(Icons.Rounded.AutoAwesome, R.string.ask_empty_t, R.string.ask_empty_b)
 
 @Composable
-fun MoreTab(onSettings: () -> Unit, onPrivacy: () -> Unit, onSecurity: () -> Unit) {
+fun MoreTab(onSettings: () -> Unit, onPrivacy: () -> Unit, onSecurity: () -> Unit, onModels: () -> Unit) {
     @Composable fun chevron() = Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = Zuri.colors.muted)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         ZuriListGroup(rows = listOf(
             { ZuriListRow(stringResource(R.string.settings), leading = { IconChip(Icons.Rounded.Settings) }, trailing = { chevron() }, onClick = onSettings) },
+            { ZuriListRow(stringResource(R.string.more_models), leading = { IconChip(Icons.Rounded.AutoAwesome) }, trailing = { chevron() }, onClick = onModels) },
             { ZuriListRow(stringResource(R.string.more_privacy), leading = { IconChip(Icons.Rounded.Shield) }, trailing = { chevron() }, onClick = onPrivacy) },
             { ZuriListRow(stringResource(R.string.more_security), leading = { IconChip(Icons.Rounded.Lock) }, trailing = { chevron() }, onClick = onSecurity) },
         ))
