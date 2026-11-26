@@ -33,6 +33,7 @@
 | D-18 | Design language: Material 3 adaptation of the Zuri design system, context tint | PO-APPROVAL (via design review) |
 | D-19 | No Kotlin Multiplatform | ARCHITECT |
 | D-20 | Deterministic engines ported to Kotlin; LLM never computes money, dates or scores | ARCHITECT |
+| D-22 | On-phone auto-replies, opt-in per chat, with hold-back rules (amends D-11) | PO-APPROVED 2026-11-26 |
 
 ---
 
@@ -159,7 +160,7 @@ A version catalog pins everything. No version is chosen here beyond these famili
 
 ## D-11 — Sending and automation from the phone
 **Decision.**
-- **Replies from the phone** go through the source notification's RemoteInput action, only while that notification is live, and always on a user tap. No unattended send.
+- **Replies from the phone** go through the source notification's RemoteInput action, only while that notification is live, and always on a user tap. No unattended send. *Amended by D-22: auto-replies the owner turns on per chat.*
 - **Accessibility:** never used.
 - **Cloud auto-send** (the existing scoped automation / auto-response through the server's Baileys session) remains a server feature the user can view and revoke from Android.
 
@@ -238,3 +239,15 @@ A version catalog pins everything. No version is chosen here beyond these famili
 - **Backend (G3):** the change feed must carry the WhatsApp timestamp and a stable server sequence per message. It must also carry the quoted-message id, reactions and media metadata (type, size, duration, file name). Media comes from the existing authenticated `GET /api/messages/:id/media`.
 - **Android:** M9 adds `server_seq`, `quoted_message_id`, a `message_reaction` table and a `media_item` table (database migration with tests). The conversation screen gains media bubbles, a voice-note player and reply quotes.
 - **Testing:** real-device checks on the product owner's Galaxy S20 (wireless debugging), comparing the Zuri thread with the same WhatsApp chat side by side.
+
+## D-22 — Auto-replies from the phone (amends D-11)
+**Decision (product owner, 2026-11-26):** "we need to also be able to enable auto-replies...i will enable it per contact and test it with my own number and one or 2 contacts till i'm satisfied its working well... i should be able to set the delay range in minutes for the auto-replies too."
+
+- **Opt-in per chat**, off by default, never for groups. A global pause stops all auto-replies at once.
+- **Same channel as tapped replies:** the source notification's reply action, only while that notification is live. No Accessibility, no other send path.
+- **Timing:** a random delay in the owner's range (0–60 minutes, default 2–5). A newer incoming message restarts the wait, so Zuri answers once the other person pauses. When the phone is asleep, Android may run the reply later than the range.
+- **Drafting:** the on-device model only (no reply without one), from the whole recent chat, open promises, requests and events, what Zuri knows about the person, and the owner's voice profile. The auto prompt agrees to nothing new: no payments, prices, meetings, dates or favours not already agreed in the chat.
+- **Hold-back rules (nothing is sent):** the messages being answered mention money, codes or passwords, or serious news (illness, emergency, death); they are media only; the draft mentions money or codes, or contains a number not in the chat; the owner replied meanwhile; more than 3 auto-replies in that chat in an hour, 15 a day, or 40 a day across all chats.
+- **Transparency:** every decision is logged per chat (sent, held for you, not needed, couldn't send, with the reason and the text). Auto-sent messages are marked "Auto-reply" in the chat and in the message's source sheet.
+- **Rollout:** the owner tests with their own second number and one or two contacts before using it more widely.
+

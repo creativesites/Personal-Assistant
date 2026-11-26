@@ -7,6 +7,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import app.zuri.android.core.security.applock.AppLockController
 import app.zuri.android.domain.capture.CaptureStatusProvider
 import dagger.Lazy
+import app.zuri.android.engine.perception.autoreply.AndroidAutoReplies
 import app.zuri.android.engine.perception.pipeline.AndroidPerceptionControls
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -20,6 +21,7 @@ class ZuriApplication : Application() {
     @Inject lateinit var appLock: Lazy<AppLockController>
     @Inject lateinit var capture: Lazy<CaptureStatusProvider>
     @Inject lateinit var perception: Lazy<AndroidPerceptionControls>
+    @Inject lateinit var autoReplies: Lazy<AndroidAutoReplies>
 
     override fun onCreate() {
         super.onCreate()
@@ -28,6 +30,9 @@ class ZuriApplication : Application() {
         // Hourly understanding of new messages (kept if already scheduled).
         @OptIn(DelicateCoroutinesApi::class)
         GlobalScope.launch { perception.get().schedule() }
+        // Auto-replies (D-22): schedule a reply when a new message arrives in a chat that has them on.
+        @OptIn(DelicateCoroutinesApi::class)
+        autoReplies.get().start(GlobalScope)
         // App lock timing follows the whole process, not individual screens.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) = appLock.get().onBackgrounded()

@@ -15,6 +15,7 @@ import app.zuri.android.domain.inbox.ConversationId
 import app.zuri.android.domain.inbox.Direction
 import app.zuri.android.domain.inbox.ReplyResult
 import app.zuri.android.domain.inbox.ReplySender
+import app.zuri.android.domain.inbox.SentFromZuri
 import app.zuri.android.engine.ingest.parse.ChatKeys
 import app.zuri.android.engine.ingest.parse.ParsedChat
 import app.zuri.android.engine.ingest.parse.ParsedMessage
@@ -39,7 +40,7 @@ class NotificationReplySender(
     override fun observeCanReply(id: ConversationId): Flow<Boolean> =
         combine(db.messageDao().observeNotificationKeys(id.value), actions.byKey) { keys, live -> keys.any { it in live } }
 
-    override suspend fun reply(id: ConversationId, text: String): ReplyResult {
+    override suspend fun reply(id: ConversationId, text: String, automatic: Boolean): ReplyResult {
         val body = text.trim()
         if (body.isEmpty()) return ReplyResult.Failed("Empty reply")
         val conv = db.conversationDao().byId(id.value) ?: return ReplyResult.NotAvailable
@@ -72,7 +73,7 @@ class NotificationReplySender(
                     placeholderKind = null, placeholderDetail = null, sentAt = now, exactTime = true,
                     fingerprint = Fingerprints.of(parsed), sourcePackage = conv.packageName,
                     notificationKey = key, notificationPostedAt = reply.postedAt, capturedAt = now,
-                    adapterVersion = SENT_FROM_ZURI, createdAt = now, updatedAt = now,
+                    adapterVersion = if (automatic) SentFromZuri.AUTO_REPLY else SENT_FROM_ZURI, createdAt = now, updatedAt = now,
                 ),
             )
             db.conversationDao().touch(conv.id, conv.title, now, 0, now)
@@ -83,6 +84,6 @@ class NotificationReplySender(
 
     companion object {
         /** Adapter version recorded on messages the owner sent from Zuri (no adapter parsed them). */
-        const val SENT_FROM_ZURI = 0
+        const val SENT_FROM_ZURI = SentFromZuri.TAPPED
     }
 }

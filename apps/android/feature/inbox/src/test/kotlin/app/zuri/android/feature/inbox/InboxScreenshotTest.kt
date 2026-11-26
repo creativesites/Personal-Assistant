@@ -86,4 +86,14 @@ class InboxScreenshotTest {
     private val drafts = DraftsState.Ready(listOf("Yes, I'll bring the chairs", "Sure Mum, see you at 1 🙂", "Will do"), byModel = true)
     @Test fun draftsLight() = shot("drafts_light", false) { DraftsPanel(drafts, {}, {}, {}) }
     @Test fun draftsDark() = shot("drafts_dark", true) { DraftsPanel(drafts, {}, {}, {}) }
+
+    private val auto = AutoReplyState(
+        enabled = true, settings = app.zuri.android.domain.inbox.AutoReplySettings(minDelayMinutes = 2, maxDelayMinutes = 5),
+        events = listOf(
+            app.zuri.android.domain.inbox.AutoReplyEvent(now - 600_000, app.zuri.android.domain.inbox.AutoReplyOutcome.SENT, null, "Sure, see you at 1 🙂"),
+            app.zuri.android.domain.inbox.AutoReplyEvent(now - 7_200_000, app.zuri.android.domain.inbox.AutoReplyOutcome.HELD, app.zuri.android.domain.inbox.AutoReplyReason.SENSITIVE, null),
+        ),
+    )
+    @Test fun autoReplyLight() = shot("auto_reply_light", false) { AutoReplyContent(auto, false, time, {}, {}, { _, _ -> }) }
+    @Test fun autoReplyDark() = shot("auto_reply_dark", true) { AutoReplyContent(auto, false, time, {}, {}, { _, _ -> }) }
 }

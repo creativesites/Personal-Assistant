@@ -107,4 +107,21 @@ class DraftsTest {
     @Test fun nothingToAnswerWithoutAnIncomingMessage() = runTest {
         assertThat(drafter.draft(ConversationId("c2"))).isEqualTo(DraftResult.NothingToAnswer)
     }
+
+    @Test fun autoDraftsAgreeToNothingAboutMoneyAndNeedAModel() = runTest {
+        model.reply = { GenerationResult.Success("""{"drafts":["ok I'll pay you Friday","ok, will get back to you"]}""", "fake", 1) }
+        val r = drafter.draftForAuto(chat) as DraftResult.Drafts
+        assertThat(r.drafts).containsExactly("ok, will get back to you")
+        assertThat(model.prompts.last()).contains("Write the reply to send now")
+        model.tier = AiTier.ESSENTIAL
+        assertThat(drafter.draftForAuto(chat)).isEqualTo(DraftResult.NoModel)
+    }
+
+    @Test fun promptCarriesTheWholeChatAndWhatZuriKnows() = runTest {
+        msg("m0", "c1", "INCOMING", "Morning! We met at the expo last week", now - 3_600_000)
+        drafter.draft(chat)
+        val prompt = model.prompts.last()
+        assertThat(prompt).contains("We met at the expo last week")
+        assertThat(prompt).contains("It is now ")
+    }
 }

@@ -438,4 +438,4 @@ Each RFC will be written as its own document (`docs/mobile/rfc/G*.md`) after app
 - Kotlin Multiplatform.
 - Re-implementing server-only engines on device: web search, job scraping, agents' autonomous execution, ERP execution against server ledgers.
 - Changing web behaviour.
-- Any auto-send from the phone.
+- Auto-send from the phone beyond D-22 (per-chat, opt-in auto-replies with hold-back rules).

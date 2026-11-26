@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.zuri.android.domain.capture.CaptureStatus
 import app.zuri.android.domain.capture.CaptureStatusProvider
 import app.zuri.android.domain.capture.SourceKind
+import app.zuri.android.domain.inbox.AutoReplies
 import app.zuri.android.domain.inbox.ConversationDetail
 import app.zuri.android.domain.inbox.ConversationId
 import app.zuri.android.domain.inbox.ConversationSummary
@@ -100,6 +101,7 @@ class ConversationViewModel @Inject constructor(
     private val inbox: InboxRepository,
     private val replies: ReplySender,
     private val drafter: ReplyDrafter,
+    private val autoReplies: AutoReplies,
 ) : ViewModel() {
     private val id = ConversationId(checkNotNull(savedState.get<String>("id")) { "conversation id missing" })
     private val sendState = MutableStateFlow<Pair<Boolean, ReplyResult?>>(false to null)
@@ -118,6 +120,14 @@ class ConversationViewModel @Inject constructor(
         if (result == ReplyResult.Sent) { onSent(); draftState.value = DraftsState.Idle }
     }
 
+    val autoReply: StateFlow<AutoReplyState> = combine(autoReplies.observeEnabled(id), autoReplies.settings, autoReplies.observeEvents(id)) { on, s, events ->
+        AutoReplyState(on, s, events)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AutoReplyState())
+
+    fun setAutoReply(on: Boolean) = viewModelScope.launch { autoReplies.setEnabled(id, on) }
+    fun pauseAutoReplies(paused: Boolean) = viewModelScope.launch { autoReplies.setPaused(paused) }
+    fun setAutoReplyDelay(min: Int, max: Int) = viewModelScope.launch { autoReplies.setDelay(min, max) }
+
     /** Drafts are written only when the owner asks, while the chat is open. */
     fun suggest() {
         if (drafting?.isActive == true) return
@@ -126,7 +136,7 @@ class ConversationViewModel @Inject constructor(
             draftState.value = when (val r = drafter.draft(id)) {
                 is DraftResult.Drafts -> DraftsState.Ready(r.drafts, r.byModel)
                 DraftResult.NothingToAnswer -> DraftsState.NothingToAnswer
-                is DraftResult.Failed -> DraftsState.Failed
+                is DraftResult.Failed, DraftResult.NoModel -> DraftsState.Failed
             }
         }
     }

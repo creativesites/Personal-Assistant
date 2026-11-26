@@ -20,12 +20,14 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         ConversationEntity::class, MessageEntity::class,
         EgressEntity::class,
         MemoryEntity::class, MemoryFeedbackEntity::class, MessageFtsEntity::class,
+        AutoReplyEventEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4, spec = Migration3To4::class),
+        AutoMigration(from = 4, to = 5),
     ],
 )
 abstract class ZuriDatabase : RoomDatabase() {
@@ -38,6 +40,7 @@ abstract class ZuriDatabase : RoomDatabase() {
     abstract fun egressDao(): EgressDao
     abstract fun memoryDao(): MemoryDao
     abstract fun perceptionDao(): PerceptionDao
+    abstract fun autoReplyDao(): AutoReplyDao
 
     companion object {
         const val FILE_NAME = "zuri.db"

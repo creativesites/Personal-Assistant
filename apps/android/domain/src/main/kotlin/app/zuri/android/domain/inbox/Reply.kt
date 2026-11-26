@@ -17,5 +17,12 @@ sealed interface ReplyResult {
  */
 interface ReplySender {
     fun observeCanReply(id: ConversationId): Flow<Boolean>
-    suspend fun reply(id: ConversationId, text: String): ReplyResult
+    /** [automatic]: sent by an auto-reply (D-22), marked as such on the stored message. */
+    suspend fun reply(id: ConversationId, text: String, automatic: Boolean = false): ReplyResult
+}
+
+/** Adapter versions on messages Zuri itself sent (real capture adapters are numbered from 1). */
+object SentFromZuri {
+    const val TAPPED = 0
+    const val AUTO_REPLY = -1
 }

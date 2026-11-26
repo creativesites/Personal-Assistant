@@ -82,6 +82,18 @@ interface ConversationDao {
     @Query("UPDATE conversation SET title = :title, last_message_at = MAX(last_message_at, :lastAt), unread_count = unread_count + :unreadDelta, updated_at = :now WHERE id = :id")
     suspend fun touch(id: String, title: String, lastAt: Long, unreadDelta: Int, now: Long)
 
+    @Query("UPDATE conversation SET auto_reply = :on WHERE id = :id AND (is_group = 0 OR :on = 0)")
+    suspend fun setAutoReply(id: String, on: Boolean)
+
+    /** Each auto-reply chat's newest incoming message (re-emits whenever messages change). */
+    @Query(
+        """SELECT m.conversation_id AS conversationId, m.id AS messageId, m.created_at AS createdAt
+           FROM message m JOIN conversation c ON c.id = m.conversation_id
+           WHERE c.auto_reply = 1 AND c.is_group = 0 AND c.deleted_at IS NULL AND m.direction = 'INCOMING' AND m.deleted_at IS NULL
+           AND m.sent_at = (SELECT MAX(m2.sent_at) FROM message m2 WHERE m2.conversation_id = m.conversation_id AND m2.direction = 'INCOMING' AND m2.deleted_at IS NULL)""",
+    )
+    fun observeAutoReplyTriggers(): Flow<List<AutoReplyTrigger>>
+
     @Query("UPDATE conversation SET unread_count = 0 WHERE id = :id")
     suspend fun markRead(id: String)
 

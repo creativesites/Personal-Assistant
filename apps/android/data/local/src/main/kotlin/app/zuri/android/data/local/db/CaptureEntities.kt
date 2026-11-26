@@ -69,6 +69,8 @@ data class ConversationEntity(
     @ColumnInfo(name = "remote_id") val remoteId: String? = null,
     @ColumnInfo(name = "sync_state") val syncState: String = SyncState.LOCAL_ONLY.name,
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
+    /** The owner turned on auto-replies for this chat (D-22). Never for groups. */
+    @ColumnInfo(name = "auto_reply", defaultValue = "0") val autoReply: Boolean = false,
 )
 
 @Entity(

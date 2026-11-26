@@ -5,7 +5,9 @@ sealed interface DraftResult {
     data class Drafts(val drafts: List<String>, val byModel: Boolean) : DraftResult
     /** The chat has no message from the other side to answer. */
     data object NothingToAnswer : DraftResult
-    data class Failed(val message: String) : DraftResult
+    data class Failed(val message: String, val engineStopped: Boolean = false) : DraftResult
+    /** No AI model on this phone (auto-replies need one; tapped drafts fall back to quick replies). */
+    data object NoModel : DraftResult
 }
 
 /**
@@ -15,4 +17,10 @@ sealed interface DraftResult {
  */
 interface ReplyDrafter {
     suspend fun draft(id: ConversationId): DraftResult
+
+    /**
+     * One reply to send on the owner's behalf (auto-reply), written with stricter rules: it agrees to
+     * nothing new. Empty drafts mean no safe draft could be written.
+     */
+    suspend fun draftForAuto(id: ConversationId): DraftResult
 }

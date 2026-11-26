@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -61,6 +62,7 @@ import app.zuri.android.domain.inbox.InboxMessage
 import app.zuri.android.domain.inbox.MessageId
 import app.zuri.android.domain.inbox.PlaceholderKind
 import app.zuri.android.domain.inbox.ReplyResult
+import app.zuri.android.domain.inbox.SentFromZuri
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.foundation.layout.imePadding
 
@@ -68,6 +70,7 @@ import androidx.compose.foundation.layout.imePadding
 @Composable
 fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val auto by viewModel.autoReply.collectAsStateWithLifecycle()
     val detail = state.detail
     LaunchedEffect(detail?.summary?.unreadCount) { if ((detail?.summary?.unreadCount ?: 0) > 0) viewModel.markRead() }
     LaunchedEffect(state.loading, detail == null) { if (!state.loading && detail == null) onBack() }
@@ -78,6 +81,10 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
         onDeleteMessage = viewModel::deleteMessage,
         onDeleteConversation = viewModel::deleteConversation,
         onExclude = viewModel::exclude,
+        autoReplyOn = auto.enabled && !detail.summary.isGroup,
+        autoReplySheet = {
+            AutoReplyContent(auto, detail.summary.isGroup, TimeContext.system(), viewModel::setAutoReply, viewModel::pauseAutoReplies, viewModel::setAutoReplyDelay)
+        },
         composer = {
             ReplyComposer(
                 state = state,
@@ -104,8 +111,11 @@ fun ConversationContent(
     onExclude: () -> Unit,
     modifier: Modifier = Modifier,
     initiallySelected: MessageId? = null,
+    autoReplyOn: Boolean = false,
+    autoReplySheet: (@Composable () -> Unit)? = null,
     composer: @Composable () -> Unit = {},
 ) {
+    var showAuto by remember { mutableStateOf(false) }
     val s = detail.summary
     val sourceName = stringResource(s.source.label())
     var menu by remember { mutableStateOf(false) }
@@ -122,12 +132,19 @@ fun ConversationContent(
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conv_menu)) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (autoReplySheet != null) DropdownMenuItem(text = { Text(stringResource(R.string.auto_menu)) }, onClick = { menu = false; showAuto = true })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_exclude)) }, onClick = { menu = false; confirm = "exclude" })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_delete)) }, onClick = { menu = false; confirm = "delete" })
                     }
                 }
             },
         )
+        if (autoReplyOn) {
+            Text(
+                stringResource(R.string.auto_on_banner), style = MaterialTheme.typography.labelMedium, color = Zuri.colors.ctx,
+                modifier = Modifier.fillMaxWidth().background(Zuri.colors.ctxWeak).clickable { showAuto = true }.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
         val list = rememberLazyListState(initialFirstVisibleItemIndex = (detail.messages.size - 1).coerceAtLeast(0))
         LaunchedEffect(detail.messages.size) { if (detail.messages.isNotEmpty()) list.animateScrollToItem(detail.messages.size - 1) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
@@ -153,6 +170,9 @@ fun ConversationContent(
         )
     }
 
+    if (showAuto && autoReplySheet != null) {
+        ModalBottomSheet(onDismissRequest = { showAuto = false }) { autoReplySheet() }
+    }
     selected?.let { m ->
         ModalBottomSheet(onDismissRequest = { selected = null }) {
             MessageInfoContent(m, sourceName, time, onDelete = { selected = null; confirmMessage = m }, onClose = { selected = null })
@@ -218,6 +238,7 @@ private fun Bubble(m: InboxMessage, showSender: Boolean, time: TimeContext, onLo
                 Text(m.text.orEmpty(), style = MaterialTheme.typography.bodyLarge)
             }
             Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                if (m.provenance.adapterVersion == SentFromZuri.AUTO_REPLY) Text(stringResource(R.string.auto_badge) + " · ", style = MaterialTheme.typography.labelSmall, color = c.ctx)
                 if (m.edited) Text(stringResource(R.string.edited) + " · ", style = MaterialTheme.typography.labelSmall, color = c.faint)
                 Text(time.time(m.sentAtMillis), style = MaterialTheme.typography.labelSmall, color = c.faint)
             }
@@ -237,13 +258,17 @@ fun MessageInfoContent(m: InboxMessage, sourceName: String, time: TimeContext, o
             Text(stringResource(note), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
         }
-        listOf(
-            stringResource(R.string.prov_from, sourceName),
-            stringResource(R.string.prov_posted, time.full(p.notificationPostedAtMillis)),
-            stringResource(R.string.prov_captured, time.full(p.capturedAtMillis)),
-            stringResource(R.string.prov_adapter, sourceName, p.adapterVersion),
-            stringResource(R.string.prov_left),
-        ).forEach {
+        when (p.adapterVersion) {
+            SentFromZuri.TAPPED -> listOf(stringResource(R.string.prov_sent_zuri, sourceName), stringResource(R.string.prov_captured, time.full(p.capturedAtMillis)))
+            SentFromZuri.AUTO_REPLY -> listOf(stringResource(R.string.prov_sent_auto, sourceName), stringResource(R.string.prov_captured, time.full(p.capturedAtMillis)))
+            else -> listOf(
+                stringResource(R.string.prov_from, sourceName),
+                stringResource(R.string.prov_posted, time.full(p.notificationPostedAtMillis)),
+                stringResource(R.string.prov_captured, time.full(p.capturedAtMillis)),
+                stringResource(R.string.prov_adapter, sourceName, p.adapterVersion),
+                stringResource(R.string.prov_left),
+            )
+        }.forEach {
             Text("• $it", style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted, modifier = Modifier.padding(vertical = 2.dp))
         }
         Spacer(Modifier.height(16.dp))
@@ -278,15 +303,17 @@ private fun ReplyComposer(
             is ReplyResult.Failed -> Text(stringResource(R.string.reply_failed), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.bad, modifier = Modifier.padding(horizontal = 8.dp))
             else -> Unit
         }
-        DraftsPanel(state.drafts, onSuggest, onDismissDrafts) { draft ->
-            if (state.canReply) {
-                text = draft
-            } else {
-                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
-                cm?.setPrimaryClip(android.content.ClipData.newPlainText("Reply", draft))
-                android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
-            }
+        val copy: (String) -> Unit = { draft ->
+            val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+            cm?.setPrimaryClip(android.content.ClipData.newPlainText("Reply", draft))
+            android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
         }
+        DraftsPanel(
+            state.drafts, onSuggest, onDismissDrafts,
+            // With a reply button a tapped draft goes in the box to edit; without one it's copied.
+            onPick = { draft -> if (state.canReply) text = draft else copy(draft) },
+            onCopy = copy,
+        )
         if (state.canReply) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.material3.OutlinedTextField(
@@ -307,7 +334,7 @@ private fun ReplyComposer(
 }
 
 @Composable
-fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Unit, onPick: (String) -> Unit, onCopy: (String) -> Unit = onPick) {
     val c = Zuri.colors
     when (drafts) {
         DraftsState.Idle -> TextButton(onClick = onSuggest) {
@@ -337,11 +364,16 @@ fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Uni
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
             }
             drafts.drafts.forEach { d ->
-                Text(
-                    d, style = MaterialTheme.typography.bodyMedium, maxLines = 4,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp))
-                        .background(c.ctxWeak).clickable { onPick(d) }.padding(horizontal = 12.dp, vertical = 10.dp),
-                )
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(c.ctxWeak),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        d, style = MaterialTheme.typography.bodyMedium, maxLines = 4,
+                        modifier = Modifier.weight(1f).clickable { onPick(d) }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+                    )
+                    IconButton(onClick = { onCopy(d) }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.drafts_copy), tint = c.muted, modifier = Modifier.size(20.dp)) }
+                }
             }
             Spacer(Modifier.height(4.dp))
         }

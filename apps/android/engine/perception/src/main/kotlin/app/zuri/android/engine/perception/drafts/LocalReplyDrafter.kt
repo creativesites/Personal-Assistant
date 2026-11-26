@@ -12,6 +12,10 @@ import app.zuri.android.domain.inbox.Direction
 import app.zuri.android.domain.inbox.DraftResult
 import app.zuri.android.domain.inbox.ReplyDrafter
 import app.zuri.android.domain.memory.MemoryKind
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -23,26 +27,71 @@ import kotlinx.serialization.json.Json
  * already in the conversation, so a draft can't make up a commitment. Without a model, a few
  * quick replies matched to the last message are offered, restyled to the owner's habits.
  */
-class LocalReplyDrafter(private val db: ZuriDatabase, private val model: LocalLanguageModel) : ReplyDrafter {
+class LocalReplyDrafter(
+    private val db: ZuriDatabase,
+    private val model: LocalLanguageModel,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val zone: () -> ZoneId = { ZoneId.systemDefault() },
+) : ReplyDrafter {
     private val perception = db.perceptionDao()
     private val memories = db.memoryDao()
 
     override suspend fun draft(id: ConversationId): DraftResult {
-        val tail = perception.tail(id.value, CONTEXT_MESSAGES)
-        val lastIncoming = tail.lastOrNull { it.direction == Direction.INCOMING.name } ?: return DraftResult.NothingToAnswer
-        val ws = lastIncoming.workspaceId
-        val own = perception.ownerMessages(ws, VOICE_MESSAGES)
-        val voice = VoiceProfile.from(own.mapNotNull { it.text })
-
+        val ctx = context(id) ?: return DraftResult.NothingToAnswer
         if (model.tier() == AiTier.STANDARD) {
-            val open = memories.recentIn(ws, listOf(id.value), OPEN_KINDS, 6).filter { it.status == "OPEN" }
-            when (val r = modelDrafts(tail, open, voice, examples(own, id.value))) {
+            when (val r = modelDrafts(ctx, auto = false)) {
                 is ModelOutcome.Ok -> return DraftResult.Drafts(r.drafts, byModel = true)
-                is ModelOutcome.Error -> if (r.engineStopped) return DraftResult.Failed(r.message)
+                is ModelOutcome.Error -> if (r.engineStopped) return DraftResult.Failed(r.message, engineStopped = true)
                 ModelOutcome.Empty -> Unit
             }
         }
-        return DraftResult.Drafts(QuickReplies.forMessage(lastIncoming.text).map(voice::restyle).distinct(), byModel = false)
+        return DraftResult.Drafts(QuickReplies.forMessage(ctx.lastIncoming.text).map(ctx.voice::restyle).distinct(), byModel = false)
+    }
+
+    override suspend fun draftForAuto(id: ConversationId): DraftResult {
+        val ctx = context(id) ?: return DraftResult.NothingToAnswer
+        if (model.tier() != AiTier.STANDARD) return DraftResult.NoModel
+        return when (val r = modelDrafts(ctx, auto = true)) {
+            is ModelOutcome.Ok -> DraftResult.Drafts(r.drafts.filterNot(Sensitive::inDraft).take(1), byModel = true)
+            is ModelOutcome.Error -> DraftResult.Failed(r.message, r.engineStopped)
+            ModelOutcome.Empty -> DraftResult.Drafts(emptyList(), byModel = true)
+        }
+    }
+
+    /** Everything a reply draws on: the chat, what Zuri knows from it, and how the owner writes. */
+    private class Context(
+        val tail: List<MessageWithConversation>,
+        val lastIncoming: MessageWithConversation,
+        val open: List<MemoryEntity>,
+        val facts: List<MemoryEntity>,
+        val voice: VoiceProfile,
+        val examples: List<String>,
+    )
+
+    private suspend fun context(id: ConversationId): Context? {
+        val tail = fit(perception.tail(id.value, CONTEXT_MESSAGES))
+        val lastIncoming = tail.lastOrNull { it.direction == Direction.INCOMING.name } ?: return null
+        val ws = lastIncoming.workspaceId
+        val own = perception.ownerMessages(ws, VOICE_MESSAGES)
+        val items = memories.recentIn(ws, listOf(id.value), ITEM_KINDS, 16).filter { it.status == "OPEN" }
+        return Context(
+            tail = tail, lastIncoming = lastIncoming,
+            open = items.filter { it.kind != MemoryKind.FACT.name }.take(6),
+            facts = items.filter { it.kind == MemoryKind.FACT.name }.take(5),
+            voice = VoiceProfile.from(own.mapNotNull { it.text }), examples = examples(own, id.value),
+        )
+    }
+
+    /** The newest messages that fit the prompt budget; older ones are dropped first. */
+    private fun fit(messages: List<MessageWithConversation>): List<MessageWithConversation> {
+        val out = ArrayDeque<MessageWithConversation>()
+        var used = 0
+        for (m in messages.asReversed()) {
+            val cost = (m.text?.length?.coerceAtMost(MESSAGE_CHARS) ?: 20) + 24
+            if (out.isNotEmpty() && used + cost > CONTEXT_CHARS) break
+            out.addFirst(m); used += cost
+        }
+        return out.toList()
     }
 
     private sealed interface ModelOutcome {
@@ -53,31 +102,38 @@ class LocalReplyDrafter(private val db: ZuriDatabase, private val model: LocalLa
 
     @Serializable private data class Reply(val drafts: List<String> = emptyList())
 
-    private suspend fun modelDrafts(tail: List<MessageWithConversation>, open: List<MemoryEntity>, voice: VoiceProfile, examples: List<String>): ModelOutcome {
-        val chat = tail.first()
+    private suspend fun modelDrafts(ctx: Context, auto: Boolean): ModelOutcome {
+        val chat = ctx.tail.first()
         val other = if (chat.isGroup) "the group ${chat.title}" else chat.title
-        val lines = tail.map { m ->
+        val lines = ctx.tail.map { m ->
             val who = if (m.direction == Direction.OUTGOING.name) "You" else (m.senderName ?: chat.title)
-            val body = m.text?.take(300) ?: "(${m.placeholderKind?.lowercase() ?: "message"} without text)"
-            "[$who] $body"
+            val body = m.text?.take(MESSAGE_CHARS) ?: "(${m.placeholderKind?.lowercase()?.replace('_', ' ') ?: "message"} without text)"
+            "[${STAMP.format(Instant.ofEpochMilli(m.sentAt).atZone(zone()))}] [$who] $body"
         }
         val prompt = buildString {
-            val notes = voice.notes()
+            append("It is now ").append(NOW.format(Instant.ofEpochMilli(clock()).atZone(zone()))).append(".\n\n")
+            val notes = ctx.voice.notes()
             if (notes.isNotEmpty()) { append("How the owner writes:\n"); notes.forEach { append("- ").append(it).append('\n') }; append('\n') }
-            if (examples.isNotEmpty()) { append("Messages the owner wrote before:\n"); examples.forEach { append("- ").append(it).append('\n') }; append('\n') }
-            if (open.isNotEmpty()) { append("Open items in this chat:\n"); open.forEach { append("- ").append(itemLine(it)).append('\n') }; append('\n') }
+            if (ctx.examples.isNotEmpty()) { append("Messages the owner wrote before:\n"); ctx.examples.forEach { append("- ").append(it).append('\n') }; append('\n') }
+            if (ctx.facts.isNotEmpty()) { append("What the owner knows about ").append(chat.title).append(":\n"); ctx.facts.forEach { append("- ").append(it.text).append('\n') }; append('\n') }
+            if (ctx.open.isNotEmpty()) { append("Open items in this chat:\n"); ctx.open.forEach { append("- ").append(itemLine(it)).append('\n') }; append('\n') }
             append("Chat with ").append(other).append(", oldest first:\n")
             lines.forEach { append(it).append('\n') }
             append('\n')
-            if (tail.last().direction == Direction.OUTGOING.name) append("The owner sent the last message. Draft short follow-ups the owner could send now.")
-            else append("Draft replies the owner could send now.")
+            when {
+                auto -> append("Write the reply to send now to the latest messages, using the whole chat for context.")
+                ctx.tail.last().direction == Direction.OUTGOING.name -> append("The owner sent the last message. Draft short follow-ups the owner could send now.")
+                else -> append("Draft replies the owner could send now to the latest messages, using the whole chat for context.")
+            }
         }
-        val r = model.generateJson(GenerationRequest(prompt, SYSTEM, maxOutputTokens = 320), SCHEMA)
+        val system = if (auto) SYSTEM + AUTO_RULES else SYSTEM
+        val r = model.generateJson(GenerationRequest(prompt, system, maxOutputTokens = 320), SCHEMA)
         if (r is GenerationResult.Failed) return ModelOutcome.Error(r.message, r.engineStopped)
         if (r !is GenerationResult.Success) return ModelOutcome.Empty
         val reply = runCatching { JSON.decodeFromString<Reply>(r.text.trim()) }.getOrNull() ?: return ModelOutcome.Empty
-        val context = (lines + open.map(::itemLine)).joinToString("\n")
-        val kept = DraftCheck.keep(reply.drafts, context, tail.lastOrNull { it.direction == Direction.INCOMING.name }?.text)
+        // Numbers a draft may use: only those in what was said (not the timestamps added above).
+        val context = (ctx.tail.mapNotNull { it.text } + ctx.open.map(::itemLine) + ctx.facts.map { it.text }).joinToString("\n")
+        val kept = DraftCheck.keep(reply.drafts, context, ctx.lastIncoming.text)
         return if (kept.isEmpty()) ModelOutcome.Empty else ModelOutcome.Ok(kept)
     }
 
@@ -96,16 +152,32 @@ class LocalReplyDrafter(private val db: ZuriDatabase, private val model: LocalLa
     }
 
     private companion object {
-        const val CONTEXT_MESSAGES = 14
+        const val CONTEXT_MESSAGES = 30
+        const val CONTEXT_CHARS = 3_600
+        const val MESSAGE_CHARS = 300
         const val VOICE_MESSAGES = 200
         const val EXAMPLES = 6
-        val OPEN_KINDS = listOf(MemoryKind.MY_PROMISE.name, MemoryKind.REQUEST_TO_ME.name, MemoryKind.THEIR_PROMISE.name, MemoryKind.EVENT.name)
+        val ITEM_KINDS = listOf(MemoryKind.MY_PROMISE.name, MemoryKind.REQUEST_TO_ME.name, MemoryKind.THEIR_PROMISE.name, MemoryKind.EVENT.name, MemoryKind.FACT.name)
         val JSON = Json { ignoreUnknownKeys = true }
+        val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE HH:mm", Locale.ENGLISH)
+        val NOW: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM, HH:mm", Locale.ENGLISH)
         const val SYSTEM = """You draft chat replies for the phone's owner, written as the owner ("You" in the chat), in the owner's own voice: match how they write in length, tone, language and emoji.
-Answer the latest messages. Give three different options, for example a direct answer, a warmer one and a very short one.
-Never invent facts, times, dates, prices or amounts that aren't in the chat. If something is unknown, keep the reply general or ask. No placeholders in brackets. Reply text only, with no name or label in front."""
+Read the whole chat and answer the latest messages in that context. Give three different options, for example a direct answer, a warmer one and a very short one.
+Never invent facts, times, dates, prices or amounts that aren't in the chat. If something is unknown, keep the reply general or ask. No placeholders in brackets. Reply text only, with no name, time or label in front."""
+        const val AUTO_RULES = """
+This reply is sent automatically, without the owner checking it first. Agree to nothing new: no payments, prices, meetings, dates or favours the owner hasn't already agreed to in the chat. If the message needs the owner's decision, reply warmly that you'll get back to them soon. Keep it short and natural."""
         const val SCHEMA = """{"type":"object","properties":{"drafts":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"string","minLength":1,"maxLength":280}}},"required":["drafts"]}"""
     }
+}
+
+/** Messages and drafts an auto-reply must not handle: money, codes and passwords, serious news. */
+object Sensitive {
+    private val MONEY = Regex("\\b(k\\s?\\d|zmw|kwacha|usd|\\$\\s?\\d|pay|paid|payment|money|transfer|send me|loan|borrow|lend|owe|debt|bank|account|airtel money|mtn money|momo|mobile money|price|cost|invoice|deposit|refund)", RegexOption.IGNORE_CASE)
+    private val SECRET = Regex("\\b(password|passcode|pin|otp|verification|code|cvv|card number|login)\\b", RegexOption.IGNORE_CASE)
+    private val SERIOUS = Regex("\\b(died|death|dead|passed away|funeral|condolence|hospital|accident|emergency|urgent|sick|ill|pain|police|arrested|help me|depressed|suicide|divorce|pregnant|sorry for your loss)\\b", RegexOption.IGNORE_CASE)
+
+    fun inMessage(text: String): Boolean = MONEY.containsMatchIn(text) || SECRET.containsMatchIn(text) || SERIOUS.containsMatchIn(text)
+    fun inDraft(text: String): Boolean = MONEY.containsMatchIn(text) || SECRET.containsMatchIn(text)
 }
 
 /** Checks on model drafts before the owner sees them. */
