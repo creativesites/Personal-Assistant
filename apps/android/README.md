@@ -23,7 +23,7 @@ Prototype: `design/mobile/index.html`.
 | **M2** Sources screen with the prominent disclosure, listener health, restricted-settings and battery guidance; Inbox; read-only conversation with provenance; selective deletion | built |
 | Network | `INTERNET` only for model downloads, in `:core-ai:remote`; every attempt is in the egress ledger ("What leaves my phone") |
 | **M3** Model catalog (Gemma 4 E2B/E4B, Granite 4.0 350M, EmbeddingGemma), verified resumable downloads, fit verdicts, AI tier, benchmark with a structured-output check | built; Gemma 4 E2B verified on the S20 |
-| **M3** LiteRT-LM in its own `:llm` process: an engine crash or memory kill fails the call, not the app; the process ends after 90 s idle | built |
+| **M3** LiteRT-LM in its own `:llm` process: an engine crash or memory kill fails the call, not the app; the process ends after 90 s idle | built, crash test passed on the S20 |
 | **M3** PrivacyGate (default deny; SECRET never leaves); remote AI calls need a GateToken (Konsist rule) | built; no remote provider exists |
 | **M4** Perception: hourly batches of 12 messages per chat (last 30 days, groups excluded), schema-constrained JSON from the model, grounding (real message, real quote, kind fits speaker), date resolution; rules-only Essential tier | built |
 | **M4** Memory screen (promises, owed to you, events, about people, done; confirm/edit/not right/delete; source link); Today shows open promises and the week's events | built |
