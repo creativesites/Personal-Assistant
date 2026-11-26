@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -58,15 +59,18 @@ private fun Chevron() = Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null
 // ---------------- Settings (G10) ----------------
 
 @Composable
-fun SettingsRoute(versionName: String, onBack: () -> Unit, onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsRoute(
+    versionName: String, onBack: () -> Unit, onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit,
+    onOpenWorkspaces: () -> Unit = {}, viewModel: SettingsViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsContent(state, versionName, onBack, viewModel::setTheme, onOpenSecurity, onOpenPrivacy, onOpenSources)
+    SettingsContent(state, versionName, onBack, viewModel::setTheme, onOpenSecurity, onOpenPrivacy, onOpenSources, onOpenWorkspaces)
 }
 
 @Composable
 fun SettingsContent(
     state: SettingsState, versionName: String, onBack: () -> Unit, onTheme: (ThemeMode) -> Unit,
-    onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit,
+    onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, onOpenWorkspaces: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         DetailTopBar(stringResource(R.string.settings_title), onBack)
@@ -87,6 +91,12 @@ fun SettingsContent(
                 Spacer(Modifier.height(8.dp))
                 Text(stringResource(R.string.settings_theme_hint), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted)
             }
+            ZuriListGroup(rows = listOf({
+                ZuriListRow(
+                    stringResource(R.string.settings_workspaces), supporting = stringResource(R.string.settings_workspaces_s),
+                    leading = { IconChip(Icons.Rounded.Storefront) }, trailing = { Chevron() }, onClick = onOpenWorkspaces,
+                )
+            }))
             SectionHeader(stringResource(R.string.settings_privacy_security))
             ZuriListGroup(rows = listOf(
                 { ZuriListRow(stringResource(R.string.settings_privacy_center), supporting = stringResource(R.string.settings_privacy_center_s), leading = { IconChip(Icons.Rounded.Shield) }, trailing = { Chevron() }, onClick = onOpenPrivacy) },
@@ -175,14 +185,14 @@ fun SecurityContent(
 // ---------------- Privacy Center (G11) ----------------
 
 @Composable
-fun PrivacyCenterRoute(onBack: () -> Unit, onOpenLedger: () -> Unit = {}, viewModel: PrivacyCenterViewModel = hiltViewModel()) {
+fun PrivacyCenterRoute(onBack: () -> Unit, onOpenLedger: () -> Unit = {}, onOpenContextLedger: () -> Unit = {}, viewModel: PrivacyCenterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refresh() }
-    PrivacyCenterContent(state, onBack, onOpenLedger)
+    PrivacyCenterContent(state, onBack, onOpenLedger, onOpenContextLedger)
 }
 
 @Composable
-fun PrivacyCenterContent(state: PrivacyState, onBack: () -> Unit, onOpenLedger: () -> Unit = {}) {
+fun PrivacyCenterContent(state: PrivacyState, onBack: () -> Unit, onOpenLedger: () -> Unit = {}, onOpenContextLedger: () -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         DetailTopBar(stringResource(R.string.privacy_title), onBack)
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -198,6 +208,12 @@ fun PrivacyCenterContent(state: PrivacyState, onBack: () -> Unit, onOpenLedger: 
                     androidx.compose.material3.TextButton(onClick = onOpenLedger) { Text(stringResource(R.string.privacy_open_ledger)) }
                 }
             }
+            ZuriListGroup(rows = listOf({
+                ZuriListRow(
+                    stringResource(R.string.privacy_context_ledger), supporting = stringResource(R.string.privacy_context_ledger_s),
+                    leading = { IconChip(Icons.Rounded.Shield) }, trailing = { Chevron() }, onClick = onOpenContextLedger,
+                )
+            }))
             if (access != null) PermissionsSection(access)
             SectionHeader(stringResource(R.string.privacy_consents))
             val notAvailable = stringResource(R.string.state_not_available)

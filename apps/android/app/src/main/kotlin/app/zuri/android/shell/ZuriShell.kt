@@ -41,6 +41,14 @@ import app.zuri.android.feature.settings.LedgerRoute
 import app.zuri.android.feature.settings.PrivacyCenterRoute
 import app.zuri.android.feature.settings.SecurityRoute
 import app.zuri.android.feature.settings.SettingsRoute
+import app.zuri.android.feature.settings.StudioRoute
+import app.zuri.android.feature.settings.DocumentsRoute
+import app.zuri.android.feature.settings.WorkspacesRoute
+import app.zuri.android.feature.settings.WorkspaceSettingsRoute
+import app.zuri.android.feature.settings.ContextLedgerRoute
+import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Layers
 import app.zuri.android.feature.inbox.ConversationRoute
 import app.zuri.android.feature.inbox.InboxRoute
 import app.zuri.android.feature.sources.SourcesRoute
@@ -48,6 +56,7 @@ import app.zuri.android.feature.today.TodayRoute
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.reflect.KClass
+import androidx.navigation.toRoute
 import kotlinx.serialization.Serializable
 
 @Serializable data object TodayDest
@@ -63,8 +72,22 @@ import kotlinx.serialization.Serializable
 @Serializable data object ModelsDest
 @Serializable data object LedgerDest
 @Serializable data object MemoryDest
+@Serializable data object StudioDest
+@Serializable data object DocumentsDest
+@Serializable data object WorkspacesDest
+@Serializable data class WorkspaceDest(val id: String)
+@Serializable data object ContextLedgerDest
 
 private data class Tab(val route: Any, val type: KClass<*>, val icon: ImageVector, val label: Int)
+
+/** Business workspaces swap People/More for Studio/Documents (DESIGN_REVIEW §3). */
+private val businessTabs = listOf(
+    Tab(TodayDest, TodayDest::class, Icons.Rounded.Today, R.string.nav_today),
+    Tab(InboxDest, InboxDest::class, Icons.Rounded.Forum, R.string.nav_inbox),
+    Tab(StudioDest, StudioDest::class, Icons.Rounded.Storefront, R.string.nav_studio),
+    Tab(AskDest, AskDest::class, Icons.Rounded.AutoAwesome, R.string.nav_ask),
+    Tab(DocumentsDest, DocumentsDest::class, Icons.Rounded.Description, R.string.nav_documents),
+)
 
 private val tabs = listOf(
     Tab(TodayDest, TodayDest::class, Icons.Rounded.Today, R.string.nav_today),
@@ -77,7 +100,7 @@ private val tabs = listOf(
 /**
  * The app shell (ARCHITECTURE.md §2). Root tabs share the context-tinted top bar and an adaptive
  * navigation suite (bottom bar on phones, rail on larger windows); detail screens are full screen.
- * Business navigation (Studio, Documents) arrives with Business Studio (M10).
+ * In a business workspace the bar shows Studio and Documents instead of People and More (M5).
  */
 @Composable
 fun ZuriShell(
@@ -85,6 +108,7 @@ fun ZuriShell(
     versionName: String,
     onSwitchWorkspace: (WorkspaceId) -> Unit,
     onCreateBusiness: (String, WorkspaceAccent) -> Unit,
+    onHybrid: (Set<WorkspaceId>) -> Unit = {},
 ) {
     val nav = rememberNavController()
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
@@ -117,11 +141,24 @@ fun ZuriShell(
                     versionName = versionName, onBack = { nav.popBackStack() },
                     onOpenSecurity = { nav.navigate(SecurityDest) }, onOpenPrivacy = { nav.navigate(PrivacyDest) },
                     onOpenSources = { nav.navigate(SourcesDest) },
+                    onOpenWorkspaces = { nav.navigate(WorkspacesDest) },
                 )
             }
         }
+        composable<StudioDest> {
+            RootFrame(nav, state, { switcherOpen = true }) {
+                StudioRoute(
+                    onOpenWorkspace = { nav.navigate(WorkspaceDest(it.value)) }, onOpenMemory = { nav.navigate(MemoryDest) },
+                    onOpenModels = { nav.navigate(ModelsDest) }, onOpenPrivacy = { nav.navigate(PrivacyDest) }, onOpenSources = { nav.navigate(SourcesDest) },
+                )
+            }
+        }
+        composable<DocumentsDest> { RootFrame(nav, state, { switcherOpen = true }) { DocumentsRoute(onOpenWorkspace = { nav.navigate(WorkspaceDest(it.value)) }) } }
+        composable<WorkspacesDest> { Detail { WorkspacesRoute(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(WorkspaceDest(it.value)) }) } }
+        composable<WorkspaceDest> { entry -> Detail { WorkspaceSettingsRoute(id = entry.toRoute<WorkspaceDest>().id, onBack = { nav.popBackStack() }) } }
+        composable<ContextLedgerDest> { Detail { ContextLedgerRoute(onBack = { nav.popBackStack() }) } }
         composable<SecurityDest> { Detail { SecurityRoute(onBack = { nav.popBackStack() }) } }
-        composable<PrivacyDest> { Detail { PrivacyCenterRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }) } }
+        composable<PrivacyDest> { Detail { PrivacyCenterRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }, onOpenContextLedger = { nav.navigate(ContextLedgerDest) }) } }
         composable<ModelsDest> { Detail { ModelsRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }) } }
         composable<MemoryDest> { Detail { MemoryRoute(onBack = { nav.popBackStack() }, onOpenSource = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<LedgerDest> { Detail { LedgerRoute(onBack = { nav.popBackStack() }) } }
@@ -132,6 +169,7 @@ fun ZuriShell(
         ContextSwitcherSheet(
             workspaces = state.workspaces, active = state.active.id,
             onSelect = onSwitchWorkspace, onCreate = onCreateBusiness, onDismiss = { switcherOpen = false },
+            hybrid = state.hybrid, hybridMembers = state.hybridMembers.map { it.id }.toSet(), onHybrid = onHybrid,
         )
     }
 }
@@ -148,7 +186,8 @@ private fun RootFrame(nav: NavHostController, state: AppState.Ready, onOpenSwitc
     val captureState by capture.state.collectAsStateWithLifecycle()
     NavigationSuiteScaffold(
         navigationSuiteItems = {
-            tabs.forEach { tab ->
+            val shown = if (!state.hybrid && state.active.kind == app.zuri.android.domain.workspace.WorkspaceKind.BUSINESS) businessTabs else tabs
+            shown.forEach { tab ->
                 val selected = entry?.destination?.hasRoute(tab.type) == true
                 item(
                     selected = selected,
@@ -167,8 +206,8 @@ private fun RootFrame(nav: NavHostController, state: AppState.Ready, onOpenSwitc
     ) {
         Column(Modifier.fillMaxSize()) {
             RootTopBar(
-                contextLabel = state.active.name,
-                contextIcon = iconFor(state.active),
+                contextLabel = state.label,
+                contextIcon = if (state.hybrid) Icons.Rounded.Layers else iconFor(state.active),
                 captureState = captureState,
                 onContextClick = onOpenSwitcher,
                 onCaptureClick = { nav.navigate(SourcesDest) },

@@ -84,4 +84,15 @@ class MigrationTest {
             db.query("SELECT COUNT(*) FROM message_embedding").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
         }
     }
+
+    @Test fun v7ToV8AddsBrandColumnsRulesAndLedger() {
+        helper.createDatabase("migration-test-8", 7).use { db ->
+            db.execSQL("INSERT INTO workspace VALUES ('ws','BUSINESS','Shop','INDIGO',0,0,'DEVICE',NULL,'LOCAL_ONLY',NULL)")
+        }
+        helper.runMigrationsAndValidate("migration-test-8", 8, true).use { db ->
+            db.query("SELECT name, brand_name FROM workspace WHERE id = 'ws'").use { c -> c.moveToFirst(); assertThat(c.getString(0)).isEqualTo("Shop"); assertThat(c.isNull(1)).isTrue() }
+            db.query("SELECT COUNT(*) FROM workspace_rule").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+            db.query("SELECT COUNT(*) FROM context_ledger").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+        }
+    }
 }

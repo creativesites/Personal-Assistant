@@ -119,6 +119,7 @@ data class MessageEntity(
 /** A conversation row with its latest message, for the Inbox list. */
 data class ConversationRow(
     val id: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
     @ColumnInfo(name = "source_kind") val sourceKind: String,
     val title: String,
     @ColumnInfo(name = "is_group") val isGroup: Boolean,

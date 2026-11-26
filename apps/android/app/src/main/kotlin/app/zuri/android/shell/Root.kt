@@ -39,6 +39,7 @@ fun ZuriRoot(
     onUnlockRequested: () -> Unit,
     onSwitchWorkspace: (WorkspaceId) -> Unit,
     onCreateBusiness: (String, WorkspaceAccent) -> Unit,
+    onHybrid: (Set<WorkspaceId>) -> Unit = {},
 ) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (state) {
@@ -47,7 +48,7 @@ fun ZuriRoot(
             AppState.Locked -> LockScreen(onUnlockRequested)
             AppState.CannotOpenData -> CannotOpenDataScreen()
             is AppState.Ready -> SecureContent(enabled = state.blockScreenshots) {
-                ZuriShell(state, versionName, onSwitchWorkspace, onCreateBusiness)
+                ZuriShell(state, versionName, onSwitchWorkspace, onCreateBusiness, onHybrid)
             }
         }
     }

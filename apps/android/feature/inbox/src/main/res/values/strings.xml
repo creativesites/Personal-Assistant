@@ -10,8 +10,8 @@
     <string name="empty_off_cta">Choose sources</string>
     <string name="empty_waiting_t">Waiting for your first message</string>
     <string name="empty_waiting_b">Zuri is listening to %1$s. Messages appear here when they notify.</string>
-    <string name="empty_business_t">Phone messages go to Personal for now</string>
-    <string name="empty_business_b">Until workspace rules arrive, every captured conversation is stored in Personal. Switch to Personal to see them.</string>
+    <string name="empty_business_t">No chats in this workspace yet</string>
+    <string name="empty_business_b">New chats go to Personal unless an app is set to bring them here (Studio → Workspace settings). You can also move a chat here from its menu.</string>
 
     <string name="banner_access">Notification access is off, so new messages aren\'t being captured.</string>
     <string name="banner_disconnected">Android disconnected Zuri\'s listener. New messages may be missed.</string>
@@ -124,4 +124,9 @@
     <string name="mood_neutral">Neutral</string>
     <string name="mood_low">They seem down</string>
     <string name="mood_tense">They seem upset or stressed</string>
+    <string name="move_menu">Move to workspace…</string>
+    <string name="move_title">Move this chat</string>
+    <string name="move_current">%1$s (now)</string>
+    <string name="move_body">Its %1$d messages and %2$d things Zuri understood move too, with its summary and search index. New messages from this chat will go there. It stops being visible in this workspace.</string>
+    <string name="move_confirm">Move</string>
 </resources>

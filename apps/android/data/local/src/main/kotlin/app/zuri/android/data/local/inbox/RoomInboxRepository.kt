@@ -35,8 +35,8 @@ class RoomInboxRepository(private val db: ZuriDatabase, private val clock: Clock
     private val messages = db.messageDao()
     private val raw = db.captureRawDao()
 
-    override fun observeConversations(workspace: WorkspaceId): Flow<List<ConversationSummary>> =
-        conversations.observeRows(workspace.value).map { rows -> rows.mapNotNull { it.toDomain() } }
+    override fun observeConversations(workspaces: Set<WorkspaceId>): Flow<List<ConversationSummary>> =
+        conversations.observeRows(workspaces.map { it.value }).map { rows -> rows.mapNotNull { it.toDomain() } }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeConversation(id: ConversationId): Flow<ConversationDetail?> =
@@ -46,7 +46,7 @@ class RoomInboxRepository(private val db: ZuriDatabase, private val clock: Clock
                 combine(messages.observeFor(c.id), db.captureExclusionDao().observeExcluded(c.packageName, c.chatKey)) { list, excluded ->
                     val last = list.lastOrNull()
                     val summary = ConversationSummary(
-                        id = ConversationId(c.id), source = kind, title = c.title, isGroup = c.isGroup,
+                        id = ConversationId(c.id), workspaceId = WorkspaceId(c.workspaceId), source = kind, title = c.title, isGroup = c.isGroup,
                         lastMessageAtMillis = c.lastMessageAt, lastText = last?.text,
                         lastPlaceholder = last?.placeholderKind?.toPlaceholder(), lastSenderName = last?.senderName,
                         lastFromMe = last?.direction == Direction.OUTGOING.name, unreadCount = c.unreadCount, messageCount = list.size,
@@ -102,7 +102,7 @@ internal fun String.toPlaceholder(): PlaceholderKind? = runCatching { Placeholde
 private fun ConversationRow.toDomain(): ConversationSummary? {
     val kind = SourceKind.entries.firstOrNull { it.name == sourceKind } ?: return null
     return ConversationSummary(
-        id = ConversationId(id), source = kind, title = title, isGroup = isGroup, lastMessageAtMillis = lastMessageAt,
+        id = ConversationId(id), workspaceId = WorkspaceId(workspaceId), source = kind, title = title, isGroup = isGroup, lastMessageAtMillis = lastMessageAt,
         lastText = lastText, lastPlaceholder = lastPlaceholder?.toPlaceholder(), lastSenderName = lastSender,
         lastFromMe = lastDirection == Direction.OUTGOING.name, unreadCount = unreadCount, messageCount = messageCount,
     )

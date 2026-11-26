@@ -27,6 +27,7 @@ enum class Direction { INCOMING, OUTGOING }
 
 data class ConversationSummary(
     val id: ConversationId,
+    val workspaceId: WorkspaceId,
     val source: SourceKind,
     val title: String,
     val isGroup: Boolean,
@@ -70,7 +71,8 @@ data class ConversationDetail(
 )
 
 interface InboxRepository {
-    fun observeConversations(workspace: WorkspaceId): Flow<List<ConversationSummary>>
+    fun observeConversations(workspaces: Set<WorkspaceId>): Flow<List<ConversationSummary>>
+    fun observeConversations(workspace: WorkspaceId): Flow<List<ConversationSummary>> = observeConversations(setOf(workspace))
     fun observeConversation(id: ConversationId): Flow<ConversationDetail?>
     suspend fun markRead(id: ConversationId)
     suspend fun deleteMessage(id: MessageId)

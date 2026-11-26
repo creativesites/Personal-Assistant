@@ -73,6 +73,14 @@ object DataModule {
     fun egressLedger(db: ZuriDatabase, clock: Clock): EgressLedger = RoomEgressLedger(db, clock)
 
     @Provides @Singleton
+    fun activeContext(prefs: AppPreferencesRepository, workspaces: WorkspaceRepository): app.zuri.android.domain.context.ActiveContextProvider =
+        app.zuri.android.data.local.workspace.PreferencesActiveContext(prefs, workspaces)
+
+    @Provides @Singleton
+    fun contextLedger(db: ZuriDatabase, clock: Clock): app.zuri.android.domain.context.ContextLedger =
+        app.zuri.android.data.local.workspace.RoomContextLedger(db, clock)
+
+    @Provides @Singleton
     fun inbox(db: ZuriDatabase, clock: Clock): InboxRepository = RoomInboxRepository(db, clock)
 
     @Provides @Singleton

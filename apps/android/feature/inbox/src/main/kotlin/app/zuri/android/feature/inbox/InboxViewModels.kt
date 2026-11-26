@@ -44,6 +44,8 @@ data class InboxState(
     val conversations: List<ConversationSummary> = emptyList(),
     val filter: SourceKind? = null,
     val status: CaptureStatus = CaptureStatus.Off,
+    /** In Hybrid view, each chat's workspace name; empty otherwise. */
+    val workspaceNames: Map<app.zuri.android.domain.workspace.WorkspaceId, String> = emptyMap(),
 ) {
     val sources: List<SourceKind> get() = conversations.map { it.source }.distinct().sortedBy { it.ordinal }
     val visible: List<ConversationSummary> get() = conversations.filter { filter == null || it.source == filter }
@@ -51,27 +53,22 @@ data class InboxState(
 
 @HiltViewModel
 class InboxViewModel @Inject constructor(
-    preferences: AppPreferencesRepository,
-    workspaces: WorkspaceRepository,
+    context: app.zuri.android.domain.context.ActiveContextProvider,
     inbox: InboxRepository,
     private val capture: CaptureStatusProvider,
 ) : ViewModel() {
     private val filter = MutableStateFlow<SourceKind?>(null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val active = combine(preferences.preferences, workspaces.observeAll()) { p, all ->
-        all.firstOrNull { it.id == p.activeWorkspaceId } ?: all.firstOrNull()
+    private val conversations = context.active.flatMapLatest { ctx ->
+        if (ctx == null) flowOf(null to emptyList()) else inbox.observeConversations(ctx.ids).map { ctx to it }
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val conversations = active.flatMapLatest { ws: Workspace? ->
-        if (ws == null) flowOf(null to emptyList()) else inbox.observeConversations(ws.id).map { ws to it }
-    }
-
-    val state: StateFlow<InboxState> = combine(conversations, filter, capture.status) { (ws, list), f, status ->
+    val state: StateFlow<InboxState> = combine(conversations, filter, capture.status) { (ctx, list), f, status ->
         InboxState(
             loading = false,
-            workspaceKind = ws?.kind ?: WorkspaceKind.PERSONAL,
+            workspaceKind = if (ctx?.hybrid == true) WorkspaceKind.PERSONAL else ctx?.primary?.kind ?: WorkspaceKind.PERSONAL,
+            workspaceNames = if (ctx?.hybrid == true) ctx.members.associate { it.id to it.name } else emptyMap(),
             conversations = list,
             filter = f?.takeIf { k -> list.any { it.source == k } },
             status = status,
@@ -119,7 +116,16 @@ class ConversationViewModel @Inject constructor(
     private val autoReplies: AutoReplies,
     private val insights: ConversationInsights,
     private val feedback: DraftFeedback,
+    private val workspaces: WorkspaceRepository,
 ) : ViewModel() {
+    val allWorkspaces: StateFlow<List<Workspace>> = workspaces.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** What moving this chat would take with it, for the confirmation. */
+    suspend fun movePreview() = workspaces.movePreview(id)
+
+    /** Moves the chat and everything understood from it (D-04 §3), after the owner confirmed. */
+    fun moveTo(target: app.zuri.android.domain.workspace.WorkspaceId) = viewModelScope.launch { workspaces.moveConversation(id, target) }
+
     private val id = ConversationId(checkNotNull(savedState.get<String>("id")) { "conversation id missing" })
     private val sendState = MutableStateFlow<Pair<Boolean, ReplyResult?>>(false to null)
     private val draftState = MutableStateFlow<DraftsState>(DraftsState.Idle)

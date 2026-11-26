@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,8 +79,13 @@ fun ContextSwitcherSheet(
     onSelect: (WorkspaceId) -> Unit,
     onCreate: (String, WorkspaceAccent) -> Unit,
     onDismiss: () -> Unit,
+    hybrid: Boolean = false,
+    hybridMembers: Set<WorkspaceId> = emptySet(),
+    onHybrid: (Set<WorkspaceId>) -> Unit = {},
 ) {
     var creating by rememberSaveable { mutableStateOf(false) }
+    var choosingHybrid by rememberSaveable { mutableStateOf(false) }
+    val businesses = workspaces.filter { it.kind == WorkspaceKind.BUSINESS }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
             Text(stringResource(R.string.ctx_title), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(horizontal = 20.dp))
@@ -90,15 +97,31 @@ fun ContextSwitcherSheet(
                         title = ws.name,
                         supporting = stringResource(if (ws.kind == WorkspaceKind.PERSONAL) R.string.ctx_personal_s else R.string.ctx_business_s),
                         leading = { WorkspaceBadge(ws) },
-                        trailing = if (ws.id == active) { { Icon(Icons.Rounded.CheckCircle, selectedLabel, tint = Zuri.colors.ctx) } } else null,
+                        trailing = if (!hybrid && ws.id == active) { { Icon(Icons.Rounded.CheckCircle, selectedLabel, tint = Zuri.colors.ctx) } } else null,
                         onClick = { onSelect(ws.id); onDismiss() },
-                        modifier = Modifier.semantics { selected = ws.id == active },
+                        modifier = Modifier.semantics { selected = !hybrid && ws.id == active },
                     )
                 }
-            } + listOf<@Composable () -> Unit> {
+            } + (if (businesses.isEmpty()) emptyList() else listOf<@Composable () -> Unit> {
+                ZuriListRow(
+                    title = stringResource(R.string.ctx_hybrid),
+                    supporting = stringResource(R.string.ctx_hybrid_s),
+                    leading = {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(ZuriTint.Slate.base), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Layers, null, tint = Color.White)
+                        }
+                    },
+                    trailing = if (hybrid) { { Icon(Icons.Rounded.CheckCircle, selectedLabel, tint = Zuri.colors.ctx) } } else null,
+                    onClick = { choosingHybrid = true },
+                    modifier = Modifier.semantics { selected = hybrid },
+                )
+            }) + listOf<@Composable () -> Unit> {
                 ZuriListRow(stringResource(R.string.ctx_new), leading = { IconChip(Icons.Rounded.Add, tone = Tone.Neutral) }, onClick = { creating = true })
             })
         }
+    }
+    if (choosingHybrid) {
+        HybridDialog(businesses, hybridMembers, onDismiss = { choosingHybrid = false }, onConfirm = { ids -> choosingHybrid = false; onHybrid(ids); onDismiss() })
     }
     if (creating) {
         NewWorkspaceDialog(onDismiss = { creating = false }, onCreate = { name, accent -> creating = false; onCreate(name, accent); onDismiss() })
@@ -147,6 +170,29 @@ private fun NewWorkspaceDialog(onDismiss: () -> Unit, onCreate: (String, Workspa
             }
         },
         confirmButton = { TextButton(onClick = { onCreate(name, accent) }, enabled = valid) { Text(stringResource(R.string.ctx_create)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
+}
+
+@Composable
+private fun HybridDialog(businesses: List<Workspace>, current: Set<WorkspaceId>, onDismiss: () -> Unit, onConfirm: (Set<WorkspaceId>) -> Unit) {
+    var chosen by remember { mutableStateOf(current.ifEmpty { businesses.map { it.id }.toSet() }) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.ctx_hybrid_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.ctx_hybrid_body), style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted)
+                Spacer(Modifier.height(8.dp))
+                businesses.forEach { b ->
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { chosen = if (b.id in chosen) chosen - b.id else chosen + b.id }) {
+                        androidx.compose.material3.Checkbox(checked = b.id in chosen, onCheckedChange = { on -> chosen = if (on) chosen + b.id else chosen - b.id })
+                        Text(b.name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(chosen) }, enabled = chosen.isNotEmpty()) { Text(stringResource(R.string.ctx_hybrid_show)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }

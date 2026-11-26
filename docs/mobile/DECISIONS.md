@@ -16,7 +16,7 @@
 | D-01 | Native Kotlin/Compose app; supersede `apps/companion` and `apps/mobile` | PO-APPROVAL |
 | D-02 | Lives at `apps/android` in this monorepo; never edits existing code paths | ARCHITECT |
 | D-03 | Technology stack | ARCHITECT |
-| D-04 | Device workspaces: Personal + N Business, hard-isolated; optional server `workspace_id` | PO-APPROVAL (+ BACKEND-RFC for server part) |
+| D-04 | Device workspaces: Personal + N Business, hard-isolated; optional server `workspace_id` | Device part accepted 2026-11-24 (default), built in M5; BACKEND-RFC G9 for the server part |
 | D-05 | Local-first ownership model | PO-APPROVAL |
 | D-06 | Clerk Android SDK + new `/api/auth/clerk-exchange` | BACKEND-RFC |
 | D-07 | Import first, then change-feed sync with outbox + idempotency | BACKEND-RFC |

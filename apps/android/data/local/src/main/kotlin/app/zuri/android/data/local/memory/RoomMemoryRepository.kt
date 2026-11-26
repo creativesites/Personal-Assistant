@@ -23,11 +23,12 @@ import kotlinx.coroutines.flow.map
 class RoomMemoryRepository(private val db: ZuriDatabase, private val clock: Clock) : MemoryRepository {
     private val dao = db.memoryDao()
 
-    override fun observe(workspace: WorkspaceId, filter: MemoryFilter): Flow<List<MemoryItem>> {
+    override fun observe(workspaces: Set<WorkspaceId>, filter: MemoryFilter): Flow<List<MemoryItem>> {
         val kinds = filter.kinds.map { it.name }
         val statuses = filter.statuses.map { it.name }
-        val rows = filter.conversation?.let { dao.observeIn(workspace.value, it.value, kinds, statuses) }
-            ?: dao.observe(workspace.value, kinds, statuses)
+        val ws = workspaces.map { it.value }
+        val rows = filter.conversation?.let { dao.observeIn(ws, it.value, kinds, statuses) }
+            ?: dao.observe(ws, kinds, statuses)
         return rows.map { list -> list.mapNotNull { it.toDomain() } }
     }
 

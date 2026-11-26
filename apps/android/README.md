@@ -4,7 +4,7 @@ Native Kotlin / Jetpack Compose app. Local-first: it is fully usable without a Z
 phone owns the data it creates. Design and plan: `docs/mobile/` (start with `IMPLEMENTATION_PLAN.md`).
 Prototype: `design/mobile/index.html`.
 
-## Status: M1 done; M2 built and running on the reference S20; M3 local AI runtime built; M4 first slice (perception, Memory, Ask) built
+## Status: M1 done; M2 built and running on the reference S20; M3 local AI runtime built; M4 built; M5 (workspaces and context isolation) built
 
 | Area | State |
 |---|---|
@@ -15,7 +15,7 @@ Prototype: `design/mobile/index.html`.
 | App lock: biometric or device credential, timeouts; screenshot blocking; blank recents preview | done |
 | Backups: disabled; every data domain excluded from cloud backup and device transfer | done |
 | Onboarding (Welcome, Privacy, local start), Today (first-day state), Settings (theme), Security, Privacy Center (measured values) | done |
-| Workspaces: Personal plus business workspaces, context switcher, tinted chrome | done (isolation enforcement grows in M5) |
+| Workspaces: Personal plus business workspaces, context switcher, tinted chrome | done; isolation enforced in M5 |
 | Network | **none**: the app has no INTERNET permission in M1, enforced by a test |
 | **M2** Notification listener; per-source opt-in (all off by default); capture gate checked before a notification is read | built |
 | **M2** Source adapters (WhatsApp, WA Business, Telegram, Signal, Messenger, Slack, Gmail, Google/Samsung Messages), normaliser with honest placeholders (media, deleted, one-time-code hidden, preview hidden) | built; synthetic golden fixtures until the M0 spike |
@@ -30,7 +30,15 @@ Prototype: `design/mobile/index.html`.
 | **M4** Ask Zuri: name-scoped hybrid retrieval (understood items + full-text search), answers cite sources or say not found | built |
 | **M4** Reply from Zuri through the live WhatsApp notification (user taps send); WhatsApp's echo deduplicated | built, verified on the S20 |
 | **M4** Model extraction eval on the S20: fixtures and 10 held-out chats each pass commitments P ≥ 0.85, R ≥ 0.70 | passed |
-| **M4** Conversation state, emotion, voice profile, reply drafts; embeddings | not started (next M4 slice) |
+| **M4** Reply drafts in the owner's voice (whole chat, open items, facts, voice profile), copy on demand; per-chat auto-replies with hold rules and limits (D-22) | built; drafts verified on the S20, auto-replies awaiting the owner's test |
+| **M4** Chat state (port of the server's conversation memory: whose turn, open questions, agreements), mood without a model, on-demand summary; Today "Waiting for your reply" | built |
+| **M4** Learning loop: turned-down drafts not offered again in that chat for 14 days; rejected memories not suggested again | built |
+| **M4** Meaning-based search: EmbeddingGemma 2 (270M) in the `:llm` process, message vectors (v7), fused with keyword search in Ask Zuri | built; not yet run on the S20 |
+| **M5** Scope enforced in the DAOs (workspace filter before ranking) and checked again before any prompt (`ContextScope.requireAll`); reply drafts and summaries use only their chat's workspace | built |
+| **M5** Workspace rules (an app's new chats go to a business), move a chat with everything derived from it, delete a business workspace | built |
+| **M5** Hybrid view (Personal plus chosen businesses, slate tint, workspace label on each chat); Ask's "Also look in Personal"; context ledger in Privacy Center | built |
+| **M5** Business navigation (Today, Inbox, Studio, Ask, Documents), workspace settings, local brand profile | built (Studio and Documents are shells until M10/M11) |
+| **M5** Isolation tests: randomised three-workspace property test over Ask prompts and sources (150 cases), 10 red-team questions, drafter and summary isolation | passing |
 
 ## Build
 
@@ -74,13 +82,13 @@ adb shell am instrument -w -e class app.zuri.android.ModelEvalTest app.zuri.andr
 ## Deviations from the plan
 
 - SDK levels follow D-15: compileSdk 37.2 (current AndroidX/Compose require at least 37.1), targetSdk 36, minSdk 29.
-- Business navigation (Studio, Documents) and the Hybrid view arrive with their milestones; M1 has the Personal tab set for every workspace.
+- Business navigation shows Studio and Documents from M5, but both are shells until Business Studio (M10) and the Document Engine (M11).
 - The identity `app.zuri.android` and the name "Zuri" are placeholders (Q-11).
 - M2 ingest runs in-process (a conflated single consumer) instead of as WorkManager work: the bound listener keeps the process alive and the work needs no model. Rows left pending by a killed process are processed on the next start. Retention piggybacks on ingest at most every 12 hours.
 - M2 has no generic adapter for arbitrary apps: listing every installed app needs `QUERY_ALL_PACKAGES`, which Play restricts. Only the nine supported apps are visible to Zuri (`<queries>`).
 - M2 stores the sender's name and key on each message; the `person` table and identity resolution arrive with M4/M6.
-- Every captured conversation goes to Personal until M5 adds workspace rules.
-- M3/M4 retrieval is full-text (FTS4) plus understood items, not embeddings yet: EmbeddingGemma is in the catalog, but LiteRT-LM 0.20 has no embedding call wired here; semantic retrieval arrives with the next M4 slice.
+- A new chat goes to Personal unless its app has a workspace rule; a chat the owner moved stays where it was moved.
+- Ask retrieval is understood items plus keyword (FTS4) and meaning (EmbeddingGemma) matches, fused by reciprocal rank. Without the embedding model installed it falls back to keywords. Vectors are brute-force cosine over at most 6,000 recent messages per scope.
 - Perception reads only the last 30 days and skips groups unless analysis is on for them; on the S20's CPU one 12-message batch takes about 20 s.
 - Memory confidence is computed from grounding (quote length, agreement with the rules, a resolved date), not from the model's own score.
 

@@ -14,4 +14,7 @@
     <string name="ask_not_found_body">Nothing stored on this phone answers it. Zuri only knows the messages it has captured.</string>
     <string name="ask_by_model">Answered on this phone by your AI model</string>
     <string name="ask_by_rules">Found on this phone</string>
+    <string name="ask_scope">Looking in: %1$s</string>
+    <string name="ask_scope_widened">You added Personal for this question: %1$s. Logged in Privacy Center.</string>
+    <string name="ask_widen">Also look in Personal</string>
 </resources>

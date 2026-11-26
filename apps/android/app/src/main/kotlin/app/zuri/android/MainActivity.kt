@@ -35,7 +35,9 @@ class MainActivity : FragmentActivity() {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val dark = when (mode) { ThemeMode.SYSTEM -> isSystemInDarkTheme(); ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
             applySystemBars(dark)
-            val tint = (state as? AppState.Ready)?.active?.let(::tintFor) ?: tintFor(null)
+            val ready = state as? AppState.Ready
+            // Hybrid view is slate (DESIGN_REVIEW: the active context is always visible).
+            val tint = if (ready?.hybrid == true) app.zuri.android.core.ui.theme.ZuriTint.Slate else ready?.active?.let(::tintFor) ?: tintFor(null)
             ZuriTheme(darkTheme = dark, tint = tint) {
                 ZuriRoot(
                     state = state,
@@ -43,6 +45,7 @@ class MainActivity : FragmentActivity() {
                     onUnlockRequested = ::requestUnlock,
                     onSwitchWorkspace = viewModel::switchTo,
                     onCreateBusiness = viewModel::createBusiness,
+                    onHybrid = viewModel::switchToHybrid,
                 )
             }
         }

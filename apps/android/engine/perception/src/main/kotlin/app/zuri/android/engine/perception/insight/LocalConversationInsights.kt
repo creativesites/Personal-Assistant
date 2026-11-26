@@ -19,6 +19,8 @@ import app.zuri.android.domain.inbox.PlaceholderKind
 import app.zuri.android.domain.inbox.SummaryResult
 import app.zuri.android.domain.inbox.WaitingChat
 import app.zuri.android.domain.workspace.WorkspaceId
+import app.zuri.android.domain.context.ContextScope
+import app.zuri.android.domain.context.Purpose
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -91,6 +93,7 @@ class LocalConversationInsights(
         if (tail.size < 2) return SummaryResult.NothingToSummarize
         if (model.tier() != AiTier.STANDARD) return SummaryResult.NoModel
         val chat = tail.first()
+        ContextScope.single(WorkspaceId(chat.workspaceId), Purpose.BROWSE).requireAll(tail.map { it.workspaceId }, "Summary context")
         val prompt = buildString {
             append("Chat with ").append(if (chat.isGroup) "the group ${chat.title}" else chat.title).append(", oldest first:\n")
             tail.forEach { m ->

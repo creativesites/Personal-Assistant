@@ -48,7 +48,7 @@ class NotificationReplySenderTest {
     @Before fun seed() = runBlocking {
         db.workspaceDao().insert(WorkspaceEntity("ws-personal", "PERSONAL", "Personal", "TEAL", now, now))
         capture(listOf(SnapshotMessage("Can you send the quote?", now - 60_000, "Chanda", "Chanda")))
-        conversation = ConversationId(db.conversationDao().observeRows("ws-personal").first().single().id)
+        conversation = ConversationId(db.conversationDao().observeRows(listOf("ws-personal")).first().single().id)
     }
 
     @After fun close() = db.close()

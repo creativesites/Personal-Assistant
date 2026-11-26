@@ -72,6 +72,7 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
     val state by viewModel.state.collectAsStateWithLifecycle()
     val auto by viewModel.autoReply.collectAsStateWithLifecycle()
     val insight by viewModel.insight.collectAsStateWithLifecycle()
+    val allWorkspaces by viewModel.allWorkspaces.collectAsStateWithLifecycle()
     val detail = state.detail
     LaunchedEffect(detail?.summary?.unreadCount) { if ((detail?.summary?.unreadCount ?: 0) > 0) viewModel.markRead() }
     LaunchedEffect(state.loading, detail == null) { if (!state.loading && detail == null) onBack() }
@@ -85,6 +86,9 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
         autoReplyOn = auto.enabled && !detail.summary.isGroup,
         insight = insight,
         onSummarize = viewModel::summarize,
+        moveSheet = if (allWorkspaces.size > 1) { close ->
+            MoveContent(allWorkspaces, detail.summary.workspaceId, preview = viewModel::movePreview, onMove = { viewModel.moveTo(it); close() }, onCancel = close)
+        } else null,
         autoReplySheet = {
             AutoReplyContent(auto, detail.summary.isGroup, TimeContext.system(), viewModel::setAutoReply, viewModel::pauseAutoReplies, viewModel::setAutoReplyDelay)
         },
@@ -120,10 +124,12 @@ fun ConversationContent(
     autoReplySheet: (@Composable () -> Unit)? = null,
     insight: InsightState? = null,
     onSummarize: () -> Unit = {},
+    moveSheet: (@Composable (close: () -> Unit) -> Unit)? = null,
     composer: @Composable () -> Unit = {},
 ) {
     var showAuto by remember { mutableStateOf(false) }
     var showInsight by remember { mutableStateOf(false) }
+    var showMove by remember { mutableStateOf(false) }
     val s = detail.summary
     val sourceName = stringResource(s.source.label())
     var menu by remember { mutableStateOf(false) }
@@ -141,6 +147,7 @@ fun ConversationContent(
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conv_menu)) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         if (insight != null) DropdownMenuItem(text = { Text(stringResource(R.string.insight_menu)) }, onClick = { menu = false; showInsight = true })
+                        if (moveSheet != null) DropdownMenuItem(text = { Text(stringResource(R.string.move_menu)) }, onClick = { menu = false; showMove = true })
                         if (autoReplySheet != null) DropdownMenuItem(text = { Text(stringResource(R.string.auto_menu)) }, onClick = { menu = false; showAuto = true })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_exclude)) }, onClick = { menu = false; confirm = "exclude" })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_delete)) }, onClick = { menu = false; confirm = "delete" })
@@ -180,6 +187,9 @@ fun ConversationContent(
         )
     }
 
+    if (showMove && moveSheet != null) {
+        ModalBottomSheet(onDismissRequest = { showMove = false }) { moveSheet { showMove = false } }
+    }
     if (showInsight && insight != null) {
         ModalBottomSheet(onDismissRequest = { showInsight = false }) { InsightContent(insight, time, onSummarize) }
     }

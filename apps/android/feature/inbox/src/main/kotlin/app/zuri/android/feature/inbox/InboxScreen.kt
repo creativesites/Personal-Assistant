@@ -80,7 +80,7 @@ fun InboxContent(
     Column(modifier.fillMaxSize()) {
         Text(stringResource(R.string.inbox_title), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
         if (state.loading) return@Column
-        if (state.workspaceKind == WorkspaceKind.BUSINESS) {
+        if (state.workspaceKind == WorkspaceKind.BUSINESS && state.conversations.isEmpty()) {
             EmptyState(Icons.Rounded.Work, stringResource(R.string.empty_business_t), stringResource(R.string.empty_business_b), Modifier.padding(top = 16.dp))
             return@Column
         }
@@ -111,7 +111,7 @@ fun InboxContent(
         }
         LazyColumn(Modifier.fillMaxSize()) {
             items(state.visible, key = { it.id.value }) { c ->
-                ConversationRowView(c, time, showSource = state.sources.size > 1) { onOpenConversation(c.id) }
+                ConversationRowView(c, time, showSource = state.sources.size > 1, workspace = state.workspaceNames[c.workspaceId]) { onOpenConversation(c.id) }
                 HorizontalDivider(Modifier.padding(start = 76.dp), color = Zuri.colors.line)
             }
         }
@@ -157,7 +157,7 @@ internal fun initials(title: String): String {
 }
 
 @Composable
-private fun ConversationRowView(c: ConversationSummary, time: TimeContext, showSource: Boolean, onClick: () -> Unit) {
+private fun ConversationRowView(c: ConversationSummary, time: TimeContext, showSource: Boolean, workspace: String? = null, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 72.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -173,6 +173,13 @@ private fun ConversationRowView(c: ConversationSummary, time: TimeContext, showS
                     c.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     fontWeight = if (c.unreadCount > 0) FontWeight.Bold else FontWeight.SemiBold, modifier = Modifier.weight(1f),
                 )
+                // Hybrid view: every chat shows which workspace it belongs to.
+                if (workspace != null) {
+                    Text(
+                        workspace, style = MaterialTheme.typography.labelSmall, color = Zuri.colors.muted, maxLines = 1,
+                        modifier = Modifier.padding(end = 6.dp).clip(CircleShape).background(Zuri.colors.surface2).padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
                 Text(time.short(c.lastMessageAtMillis), style = MaterialTheme.typography.labelMedium, color = if (c.unreadCount > 0) Zuri.colors.ctx else Zuri.colors.muted)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {

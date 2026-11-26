@@ -43,7 +43,7 @@ class InboxScreenshotTest {
     private val listening = CaptureStatus(true, true, false, setOf(SourceKind.WHATSAPP, SourceKind.GMAIL), now, 14)
 
     private fun conv(id: String, src: SourceKind, title: String, ago: Long, text: String?, ph: PlaceholderKind? = null, sender: String? = null, me: Boolean = false, group: Boolean = false, unread: Int = 0) =
-        ConversationSummary(ConversationId(id), src, title, group, now - ago, text, ph, sender, me, unread, 5)
+        ConversationSummary(ConversationId(id), app.zuri.android.domain.workspace.WorkspaceId("ws"), src, title, group, now - ago, text, ph, sender, me, unread, 5)
 
     private val conversations = listOf(
         conv("1", SourceKind.WHATSAPP, "Chanda Mwila", 4 * 60_000, "Sending the quote tonight", unread = 2),

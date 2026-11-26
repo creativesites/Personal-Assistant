@@ -53,12 +53,29 @@ import java.util.Locale
 @Composable
 fun AskRoute(onOpenSource: (ConversationId) -> Unit, vm: AskViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    AskScreen(state, onEdit = vm::edit, onSubmit = { vm.submit(it) }, onOpenSource = onOpenSource)
+    val scope by vm.scopeLabel.collectAsStateWithLifecycle()
+    AskScreen(state, onEdit = vm::edit, onSubmit = { vm.submit(it) }, onOpenSource = onOpenSource, scopeLabel = scope, onWiden = vm::widenToPersonal)
 }
 
 @Composable
-fun AskScreen(state: AskState, onEdit: (String) -> Unit, onSubmit: (String) -> Unit, onOpenSource: (ConversationId) -> Unit) {
+fun AskScreen(
+    state: AskState,
+    onEdit: (String) -> Unit,
+    onSubmit: (String) -> Unit,
+    onOpenSource: (ConversationId) -> Unit,
+    scopeLabel: String = "",
+    onWiden: () -> Unit = {},
+) {
     Column(Modifier.fillMaxSize().imePadding()) {
+        val label = state.scopeLabel.ifEmpty { scopeLabel }
+        if (label.isNotEmpty()) {
+            Text(
+                stringResource(if (state.widened) R.string.ask_scope_widened else R.string.ask_scope, label),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (state.widened) Zuri.colors.warn else Zuri.colors.muted,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 state.asked == null -> item { Intro(onSubmit) }
@@ -83,6 +100,13 @@ fun AskScreen(state: AskState, onEdit: (String) -> Unit, onSubmit: (String) -> U
                             }
                         }
                         null -> Unit
+                    }
+                    if (state.canWiden && !state.thinking && state.answer != null) {
+                        item {
+                            androidx.compose.material3.TextButton(onClick = onWiden, modifier = Modifier.padding(horizontal = 12.dp)) {
+                                Text(stringResource(R.string.ask_widen))
+                            }
+                        }
                     }
                 }
             }

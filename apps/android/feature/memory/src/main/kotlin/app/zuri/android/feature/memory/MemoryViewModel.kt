@@ -43,20 +43,17 @@ data class MemoryState(
 
 @HiltViewModel
 class MemoryViewModel @Inject constructor(
-    preferences: AppPreferencesRepository,
-    workspaces: WorkspaceRepository,
+    context: app.zuri.android.domain.context.ActiveContextProvider,
     private val memory: MemoryRepository,
     private val controls: PerceptionControls,
 ) : ViewModel() {
     private val tab = MutableStateFlow(MemoryTab.PROMISES)
-    private val active = combine(preferences.preferences, workspaces.observeAll()) { p, all ->
-        all.firstOrNull { it.id == p.activeWorkspaceId } ?: all.firstOrNull()
-    }
+    private val active = context.active
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<MemoryState> = combine(active, tab) { ws, t -> ws to t }.flatMapLatest { (ws, t) ->
         if (ws == null) flowOf(MemoryState(loading = false, tab = t))
-        else combine(memory.observe(ws.id, MemoryFilter(t.kinds, t.statuses)), controls.observeStatus(ws.id)) { items, status ->
+        else combine(memory.observe(ws.ids, MemoryFilter(t.kinds, t.statuses)), controls.observeStatus(ws.primary.id)) { items, status ->
             MemoryState(loading = false, tab = t, items = items, status = status)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MemoryState())

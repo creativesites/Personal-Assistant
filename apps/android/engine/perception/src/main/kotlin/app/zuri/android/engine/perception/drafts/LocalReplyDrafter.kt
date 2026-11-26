@@ -16,6 +16,9 @@ import app.zuri.android.engine.perception.insight.ConversationStateUpdater
 import app.zuri.android.engine.perception.insight.EmotionDerivation
 import app.zuri.android.engine.perception.insight.StateMessage
 import app.zuri.android.domain.inbox.Mood
+import app.zuri.android.domain.context.ContextScope
+import app.zuri.android.domain.context.Purpose
+import app.zuri.android.domain.workspace.WorkspaceId
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -85,10 +88,13 @@ class LocalReplyDrafter(
         val lastIncoming = tail.lastOrNull { it.direction == Direction.INCOMING.name } ?: return null
         val ws = lastIncoming.workspaceId
         val own = perception.ownerMessages(ws, VOICE_MESSAGES)
-        val items = memories.recentIn(ws, listOf(id.value), ITEM_KINDS, 16).filter { it.status == "OPEN" }
+        val items = memories.recentIn(listOf(ws), listOf(id.value), ITEM_KINDS, 16).filter { it.status == "OPEN" }
         val full = perception.tail(id.value, STATE_MESSAGES)
         val state = ConversationStateUpdater.fold(full.map { StateMessage(it.direction == Direction.OUTGOING.name, it.text, it.placeholderKind, it.sentAt) }, clock())
         val stored = insights.byConversation(id.value)?.takeIf { it.workspaceId == ws }
+        // A reply draws only on its chat's own workspace (§8.2): checked before anything enters the prompt.
+        ContextScope.single(WorkspaceId(ws), Purpose.DRAFT_REPLY)
+            .requireAll(tail.map { it.workspaceId } + full.map { it.workspaceId } + own.map { it.workspaceId } + items.map { it.workspaceId }, "Draft context")
         return Context(
             tail = tail, lastIncoming = lastIncoming,
             open = items.filter { it.kind != MemoryKind.FACT.name }.take(6),

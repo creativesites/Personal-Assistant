@@ -80,7 +80,7 @@ class CapturePipelineTest {
         waitFor { db.messageDao().count() == 1 }
         delay(200) // give any wrongly accepted capture time to land
         assertThat(db.captureRawDao().count()).isEqualTo(1)
-        val row = db.conversationDao().observeRows("ws").first().single()
+        val row = db.conversationDao().observeRows(listOf("ws")).first().single()
         assertThat(row.lastText).isEqualTo("Hello from WhatsApp")
         assertThat(row.title).isEqualTo("Chanda")
     }

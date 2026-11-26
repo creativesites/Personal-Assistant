@@ -61,7 +61,8 @@ data class MemoryFilter(
 )
 
 interface MemoryRepository {
-    fun observe(workspace: WorkspaceId, filter: MemoryFilter): Flow<List<MemoryItem>>
+    fun observe(workspaces: Set<WorkspaceId>, filter: MemoryFilter): Flow<List<MemoryItem>>
+    fun observe(workspace: WorkspaceId, filter: MemoryFilter): Flow<List<MemoryItem>> = observe(setOf(workspace), filter)
     suspend fun confirm(id: MemoryId)
     suspend fun edit(id: MemoryId, text: String, dueAtMillis: Long?)
     suspend fun setStatus(id: MemoryId, status: MemoryStatus)

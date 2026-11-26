@@ -34,7 +34,8 @@ data class IngestStats(
  * parse with the source's adapter, drop excluded conversations, deduplicate, apply edits and
  * deletions, and assign the workspace. Cheap and deterministic: no model runs here.
  *
- * Workspace assignment (until M5's rules): every captured conversation goes to Personal.
+ * Workspace assignment (D-04 §3): a chat stays in the workspace it is in (the owner may have moved
+ * it); a new chat goes to the workspace its app's rule names (e.g. WhatsApp Business → a shop), else Personal.
  */
 class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
     private val raw = db.captureRawDao()
@@ -74,13 +75,14 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
             is ParseResult.Failed -> { stats.failed++; raw.mark(row.id, STATE_FAILED, result.reason, now) }
             is ParseResult.Messages -> db.withTransaction {
                 val personal = checkNotNull(workspaces.personal())
+                val home = workspaces.ruleFor(kind.name) ?: personal.id
                 val storeOnly = db.sourceAppDao().all().firstOrNull { it.kind == kind.name }?.storeOnly ?: false
                 var keptAny = false
                 var excludedAll = true
                 for ((chatKey, group) in result.messages.groupBy { it.chat.key }) {
                     if (exclusions.isExcluded(row.packageName, chatKey)) { stats.excluded += group.size; continue }
                     excludedAll = false
-                    val conv = conversationFor(personal.id, kind, row.packageName, group.first(), storeOnly, now)
+                    val conv = conversationFor(home, kind, row.packageName, group.first(), storeOnly, now)
                     var unread = 0
                     var lastAt = 0L
                     for (m in group) {
@@ -110,7 +112,7 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
     private suspend fun conversationFor(
         workspaceId: String, kind: SourceKind, pkg: String, m: ParsedMessage, storeOnly: Boolean, now: Long,
     ): ConversationEntity {
-        conversations.find(workspaceId, pkg, m.chat.key)?.let { return it }
+        conversations.findAnywhere(pkg, m.chat.key)?.let { return it }
         val entity = ConversationEntity(
             id = UuidV7.generate(clock), workspaceId = workspaceId, sourceKind = kind.name, packageName = pkg,
             chatKey = m.chat.key, title = m.chat.title, isGroup = m.chat.isGroup,

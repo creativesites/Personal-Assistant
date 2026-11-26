@@ -25,5 +25,9 @@ sealed interface AskAnswer {
 
 /** Ask Zuri: answers from what is stored on this phone, offline, with sources. */
 interface AskZuri {
-    suspend fun ask(workspace: WorkspaceId, question: String): AskAnswer
+    /** Retrieval, prompts and answers use only records inside [scope]. */
+    suspend fun ask(scope: app.zuri.android.domain.context.ContextScope, question: String): AskAnswer
+
+    suspend fun ask(workspace: WorkspaceId, question: String): AskAnswer =
+        ask(app.zuri.android.domain.context.ContextScope.single(workspace, app.zuri.android.domain.context.Purpose.ASK), question)
 }

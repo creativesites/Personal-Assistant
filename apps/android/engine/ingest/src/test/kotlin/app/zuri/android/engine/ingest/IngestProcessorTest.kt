@@ -54,7 +54,7 @@ class IngestProcessorTest {
 
     private fun msg(text: String, t: Long, name: String? = "Chanda", self: Boolean = false) = SnapshotMessage(text, t, name, senderKey = name, fromSelf = self)
 
-    private suspend fun messages() = db.conversationDao().observeRows("ws-personal").first().flatMap { c -> db.messageDao().observeFor(c.id).first() }
+    private suspend fun messages() = db.conversationDao().observeRows(listOf("ws-personal")).first().flatMap { c -> db.messageDao().observeFor(c.id).first() }
 
     @Test fun cumulativeRepostsAreStoredExactlyOnce() = runTest {
         capture(wa(msg("Hi", 1_000_000)))
@@ -64,7 +64,7 @@ class IngestProcessorTest {
         assertThat(stats.inserted).isEqualTo(3)
         assertThat(stats.duplicates).isEqualTo(3)
         assertThat(messages().map { it.text }).containsExactly("Hi", "Are you free?", "Yes").inOrder()
-        val row = db.conversationDao().observeRows("ws-personal").first().single()
+        val row = db.conversationDao().observeRows(listOf("ws-personal")).first().single()
         assertThat(row.unreadCount).isEqualTo(2) // own reply isn't unread
         assertThat(row.lastDirection).isEqualTo("OUTGOING")
     }
@@ -178,5 +178,26 @@ class IngestProcessorTest {
         capture(wa(msg("Hi", 8_000_000)))
         assertThat(processor.processPending().snapshots).isEqualTo(0)
         assertThat(db.captureRawDao().pending(10)).hasSize(1)
+    }
+
+    @Test fun newChatsFollowTheirAppsRuleAndMovedChatsStayMoved() = runTest {
+        db.workspaceDao().insert(WorkspaceEntity("ws-shop", "BUSINESS", "Shop", "INDIGO", now, now))
+        db.workspaceDao().putRule(app.zuri.android.data.local.db.WorkspaceRuleEntity("WHATSAPP_BUSINESS", "ws-shop", now))
+        capture(wa(msg("Is the order ready?", 3_000_000, name = "Client"), title = "Client", pkg = "com.whatsapp.w4b"))
+        capture(wa(msg("Dinner Sunday?", 3_000_000, name = "Mum"), title = "Mum"))
+        processor.processPending()
+        assertThat(db.conversationDao().observeRows(listOf("ws-shop")).first().map { it.title }).containsExactly("Client")
+        assertThat(db.conversationDao().observeRows(listOf("ws-personal")).first().map { it.title }).containsExactly("Mum")
+
+        // The owner moves Mum's chat to the shop: her next message follows it there.
+        val mum = db.conversationDao().observeRows(listOf("ws-personal")).first().single().id
+        db.workspaceMoveDao().moveConversation(mum, "ws-shop", now)
+        db.workspaceMoveDao().moveMessages(mum, "ws-shop")
+        capture(wa(msg("Dinner Sunday?", 3_000_000, name = "Mum"), msg("Bring rice", 3_060_000, name = "Mum"), title = "Mum"))
+        processor.processPending()
+        assertThat(db.conversationDao().observeRows(listOf("ws-personal")).first()).isEmpty()
+        val moved = db.conversationDao().observeRows(listOf("ws-shop")).first().first { it.title == "Mum" }
+        assertThat(db.messageDao().observeFor(moved.id).first().map { it.workspaceId }.distinct()).containsExactly("ws-shop")
+        assertThat(db.messageDao().observeFor(moved.id).first().map { it.text }).containsExactly("Dinner Sunday?", "Bring rice").inOrder()
     }
 }

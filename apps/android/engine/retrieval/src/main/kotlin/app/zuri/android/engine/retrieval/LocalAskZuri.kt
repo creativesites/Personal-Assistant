@@ -18,7 +18,7 @@ import app.zuri.android.domain.memory.AskAnswer
 import app.zuri.android.domain.memory.AskSource
 import app.zuri.android.domain.memory.AskZuri
 import app.zuri.android.domain.memory.MemoryKind
-import app.zuri.android.domain.workspace.WorkspaceId
+import app.zuri.android.domain.context.ContextScope
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -43,11 +43,11 @@ class LocalAskZuri(
     private val memories = db.memoryDao()
     private val embeddings = db.embeddingDao()
 
-    override suspend fun ask(workspace: WorkspaceId, question: String): AskAnswer {
+    override suspend fun ask(scope: ContextScope, question: String): AskAnswer {
         val q = question.trim()
         if (q.isEmpty()) return AskAnswer.NotFound(emptyList())
-        val plan = QueryPlanner.plan(q, perception.conversationTitles(workspace.value))
-        val sources = gather(workspace.value, plan, q)
+        val plan = QueryPlanner.plan(q, perception.conversationTitles(scope.ids))
+        val sources = gather(scope, plan, q)
         if (sources.isEmpty()) return AskAnswer.NotFound(emptyList())
 
         if (model.tier() == AiTier.STANDARD) {
@@ -57,7 +57,8 @@ class LocalAskZuri(
     }
 
     /** Items first (they are the distilled facts), then matching messages; one source per message. */
-    private suspend fun gather(ws: String, plan: QueryPlan, question: String): List<AskSource> {
+    private suspend fun gather(scope: ContextScope, plan: QueryPlan, question: String): List<AskSource> {
+        val ws = scope.ids
         val kinds = plan.kinds.map { it.name }
         val items = if (plan.scope.isNotEmpty()) memories.recentIn(ws, plan.scope, kinds, 8) else memories.recent(ws, kinds, 40)
         val keptItems = if (plan.scope.isNotEmpty() || plan.intent != Intent.GENERAL) items.take(8)
@@ -69,10 +70,12 @@ class LocalAskZuri(
         val meaning = semantic(ws, plan.scope, question)
         val messages = buildList {
             addAll(fuse(keyword, meaning))
-            if (isEmpty() && plan.scope.isNotEmpty()) addAll(perception.latestIn(plan.scope, 10))
+            if (isEmpty() && plan.scope.isNotEmpty()) addAll(perception.latestIn(ws, plan.scope, 10))
         }
 
-        val itemMessages = perception.messages(keptItems.map { it.sourceMessageId }).associateBy { it.id }
+        val itemMessages = perception.messages(ws, keptItems.map { it.sourceMessageId }).associateBy { it.id }
+        // The prompt assembler's check: nothing outside the scope may become a source.
+        scope.requireAll(keptItems.map { it.workspaceId } + itemMessages.values.map { it.workspaceId } + messages.map { it.workspaceId }, "Ask sources")
         val out = mutableListOf<AskSource>()
         val used = mutableSetOf<String>()
         for (m in keptItems) {
@@ -93,16 +96,16 @@ class LocalAskZuri(
      * vectors of this workspace only, so "when is the party" finds "the braai is on Saturday".
      * Empty when no embedding model is installed or nothing is indexed yet.
      */
-    private suspend fun semantic(ws: String, scope: List<String>, question: String): List<MessageWithConversation> {
+    private suspend fun semantic(ws: List<String>, scope: List<String>, question: String): List<MessageWithConversation> {
         val e = embedder ?: return emptyList()
         val modelId = e.modelId() ?: return emptyList()
-        val stored = embeddings.vectors(listOf(ws), modelId, MAX_VECTORS).let { all -> if (scope.isEmpty()) all else all.filter { it.conversationId in scope } }
+        val stored = embeddings.vectors(ws, modelId, MAX_VECTORS).let { all -> if (scope.isEmpty()) all else all.filter { it.conversationId in scope } }
         if (stored.isEmpty()) return emptyList()
         val q = (e.embed(listOf(question), EmbedPurpose.QUERY) as? EmbedResult.Vectors)?.vectors?.firstOrNull() ?: return emptyList()
         val best = stored.map { it.messageId to Vectors.cosine(q, Vectors.unpack(it.vector)) }
             .filter { it.second >= MIN_SIMILARITY }.sortedByDescending { it.second }.take(SEMANTIC_HITS)
         if (best.isEmpty()) return emptyList()
-        val rows = perception.messages(best.map { it.first }).filter { it.workspaceId == ws }.associateBy { it.id }
+        val rows = perception.messages(ws, best.map { it.first }).associateBy { it.id }
         return best.mapNotNull { rows[it.first] }
     }
 

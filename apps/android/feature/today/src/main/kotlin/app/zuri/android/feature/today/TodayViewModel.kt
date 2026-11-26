@@ -45,30 +45,27 @@ data class TodayState(
 
 @HiltViewModel
 class TodayViewModel @Inject constructor(
-    preferences: AppPreferencesRepository,
-    workspaces: WorkspaceRepository,
+    context: app.zuri.android.domain.context.ActiveContextProvider,
     capture: CaptureStatusProvider,
     memory: MemoryRepository,
     insights: ConversationInsights,
     private val clock: Clock,
 ) : ViewModel() {
-    private val active = combine(preferences.preferences, workspaces.observeAll()) { prefs, all ->
-        all.firstOrNull { it.id == prefs.activeWorkspaceId } ?: all.firstOrNull()
-    }
+    private val active = context.active
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val items = active.flatMapLatest { ws ->
         if (ws == null) flowOf(emptyList())
-        else memory.observe(ws.id, MemoryFilter(kinds = setOf(MemoryKind.MY_PROMISE, MemoryKind.REQUEST_TO_ME, MemoryKind.EVENT)))
+        else memory.observe(ws.ids, MemoryFilter(kinds = setOf(MemoryKind.MY_PROMISE, MemoryKind.REQUEST_TO_ME, MemoryKind.EVENT)))
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val waiting = active.flatMapLatest { ws -> if (ws == null) flowOf(emptyList()) else insights.observeWaiting(setOf(ws.id)) }
+    private val waiting = active.flatMapLatest { ws -> if (ws == null) flowOf(emptyList()) else insights.observeWaiting(ws.ids) }
 
     val state: StateFlow<TodayState> = combine(active, capture.status, items, waiting) { ws, status, list, waitingChats ->
         val now = clock.nowMillis()
         val week = now + 7L * 24 * 60 * 60 * 1000
-        snapshot(ws?.name.orEmpty()).copy(
+        snapshot(ws?.label.orEmpty()).copy(
             capture = status.state, capturedToday = status.capturedToday,
             promises = list.filter { it.kind != MemoryKind.EVENT }.take(5),
             // An event with no time is kept through the end of its day.

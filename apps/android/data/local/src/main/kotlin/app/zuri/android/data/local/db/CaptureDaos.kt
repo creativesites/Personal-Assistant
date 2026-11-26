@@ -70,6 +70,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversation WHERE workspace_id = :ws AND package_name = :pkg AND chat_key = :chatKey AND deleted_at IS NULL")
     suspend fun find(ws: String, pkg: String, chatKey: String): ConversationEntity?
 
+    /** A chat lives in exactly one workspace: ingest finds it wherever the owner moved it. */
+    @Query("SELECT * FROM conversation WHERE package_name = :pkg AND chat_key = :chatKey AND deleted_at IS NULL ORDER BY created_at LIMIT 1")
+    suspend fun findAnywhere(pkg: String, chatKey: String): ConversationEntity?
+
     @Query("SELECT * FROM conversation WHERE id = :id AND deleted_at IS NULL")
     suspend fun byId(id: String): ConversationEntity?
 
@@ -99,19 +103,19 @@ interface ConversationDao {
 
     @Query(
         """
-        SELECT c.id, c.source_kind, c.title, c.is_group, c.last_message_at, c.unread_count,
+        SELECT c.id, c.workspace_id, c.source_kind, c.title, c.is_group, c.last_message_at, c.unread_count,
           (SELECT COUNT(*) FROM message m WHERE m.conversation_id = c.id) AS message_count,
           l.text AS last_text, l.placeholder_kind AS last_placeholder, l.sender_name AS last_sender, l.direction AS last_direction
         FROM conversation c
         LEFT JOIN message l ON l.id = (
           SELECT m2.id FROM message m2 WHERE m2.conversation_id = c.id ORDER BY m2.sent_at DESC, m2.id DESC LIMIT 1
         )
-        WHERE c.workspace_id = :ws AND c.deleted_at IS NULL
+        WHERE c.workspace_id IN (:ws) AND c.deleted_at IS NULL
           AND EXISTS (SELECT 1 FROM message m3 WHERE m3.conversation_id = c.id)
         ORDER BY c.last_message_at DESC
         """,
     )
-    fun observeRows(ws: String): Flow<List<ConversationRow>>
+    fun observeRows(ws: List<String>): Flow<List<ConversationRow>>
 
     @Query("DELETE FROM conversation WHERE id = :id")
     suspend fun delete(id: String)

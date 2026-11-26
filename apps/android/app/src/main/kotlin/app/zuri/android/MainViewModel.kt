@@ -29,7 +29,16 @@ sealed interface AppState {
     data object Loading : AppState
     data object Onboarding : AppState
     data object Locked : AppState
-    data class Ready(val active: Workspace, val workspaces: List<Workspace>, val blockScreenshots: Boolean) : AppState
+    data class Ready(
+        val active: Workspace,
+        val workspaces: List<Workspace>,
+        val blockScreenshots: Boolean,
+        /** Hybrid view: Personal plus [hybridMembers]' businesses, read together. */
+        val hybrid: Boolean = false,
+        val hybridMembers: List<Workspace> = emptyList(),
+    ) : AppState {
+        val label: String get() = if (hybrid) hybridMembers.joinToString(" + ") { it.name } else active.name
+    }
     data object CannotOpenData : AppState
 }
 
@@ -40,6 +49,7 @@ class MainViewModel @Inject constructor(
     private val security: SecuritySettingsRepository,
     private val appLock: AppLockController,
     private val access: DeviceAccessInspector,
+    private val activeContext: app.zuri.android.domain.context.ActiveContextProvider,
 ) : ViewModel() {
     val themeMode: StateFlow<ThemeMode> = preferences.preferences.map { it.themeMode }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
@@ -61,7 +71,7 @@ class MainViewModel @Inject constructor(
             }
             workspaces = repo
             var first = true
-            combine(preferences.preferences, repo.observeAll(), security.settings, appLock.locked) { prefs, all, sec, locked ->
+            combine(preferences.preferences, repo.observeAll(), security.settings, appLock.locked, activeContext.active) { prefs, all, sec, locked, ctx ->
                 if (first) {
                     first = false
                     appLock.updateSettings(sec, access.report().deviceLockConfigured)
@@ -75,9 +85,11 @@ class MainViewModel @Inject constructor(
                     locked -> AppState.Locked
                     all.isEmpty() -> AppState.Loading
                     else -> AppState.Ready(
-                        active = all.firstOrNull { it.id == prefs.activeWorkspaceId } ?: all.first(),
+                        active = ctx?.primary ?: all.firstOrNull { it.id == prefs.activeWorkspaceId } ?: all.first(),
                         workspaces = all,
                         blockScreenshots = sec.blockScreenshots,
+                        hybrid = ctx?.hybrid == true,
+                        hybridMembers = if (ctx?.hybrid == true) ctx.members else emptyList(),
                     )
                 }
             }.collect { _state.value = it }
@@ -87,6 +99,11 @@ class MainViewModel @Inject constructor(
     fun onUnlocked() = appLock.onAuthenticated()
 
     fun switchTo(id: WorkspaceId) = viewModelScope.launch { preferences.setActiveWorkspace(id) }
+
+    fun switchToHybrid(businesses: Set<WorkspaceId>) = viewModelScope.launch {
+        if (businesses.isEmpty()) return@launch
+        preferences.setHybrid(businesses)
+    }
 
     fun createBusiness(name: String, accent: WorkspaceAccent) = viewModelScope.launch {
         val repo = workspaces ?: return@launch

@@ -19,31 +19,31 @@ interface MemoryDao {
     suspend fun byId(id: String): MemoryEntity?
 
     @Query(
-        """SELECT * FROM memory_item WHERE workspace_id = :ws AND review != 'REJECTED'
+        """SELECT * FROM memory_item WHERE workspace_id IN (:ws) AND review != 'REJECTED'
            AND kind IN (:kinds) AND status IN (:statuses)
            ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, source_sent_at DESC""",
     )
-    fun observe(ws: String, kinds: List<String>, statuses: List<String>): Flow<List<MemoryEntity>>
+    fun observe(ws: List<String>, kinds: List<String>, statuses: List<String>): Flow<List<MemoryEntity>>
 
     @Query(
-        """SELECT * FROM memory_item WHERE workspace_id = :ws AND conversation_id = :conversationId AND review != 'REJECTED'
+        """SELECT * FROM memory_item WHERE workspace_id IN (:ws) AND conversation_id = :conversationId AND review != 'REJECTED'
            AND kind IN (:kinds) AND status IN (:statuses)
            ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, source_sent_at DESC""",
     )
-    fun observeIn(ws: String, conversationId: String, kinds: List<String>, statuses: List<String>): Flow<List<MemoryEntity>>
+    fun observeIn(ws: List<String>, conversationId: String, kinds: List<String>, statuses: List<String>): Flow<List<MemoryEntity>>
 
     /** For Ask Zuri: visible items, optionally in some conversations, newest first. */
     @Query(
-        """SELECT * FROM memory_item WHERE workspace_id = :ws AND review != 'REJECTED' AND status != 'DISMISSED'
+        """SELECT * FROM memory_item WHERE workspace_id IN (:ws) AND review != 'REJECTED' AND status != 'DISMISSED'
            AND kind IN (:kinds) ORDER BY source_sent_at DESC LIMIT :limit""",
     )
-    suspend fun recent(ws: String, kinds: List<String>, limit: Int): List<MemoryEntity>
+    suspend fun recent(ws: List<String>, kinds: List<String>, limit: Int): List<MemoryEntity>
 
     @Query(
-        """SELECT * FROM memory_item WHERE workspace_id = :ws AND conversation_id IN (:conversationIds) AND review != 'REJECTED'
+        """SELECT * FROM memory_item WHERE workspace_id IN (:ws) AND conversation_id IN (:conversationIds) AND review != 'REJECTED'
            AND status != 'DISMISSED' AND kind IN (:kinds) ORDER BY source_sent_at DESC LIMIT :limit""",
     )
-    suspend fun recentIn(ws: String, conversationIds: List<String>, kinds: List<String>, limit: Int): List<MemoryEntity>
+    suspend fun recentIn(ws: List<String>, conversationIds: List<String>, kinds: List<String>, limit: Int): List<MemoryEntity>
 
     @Query("SELECT EXISTS(SELECT 1 FROM memory_item WHERE source_message_id = :messageId AND kind = :kind)")
     suspend fun exists(messageId: String, kind: String): Boolean
@@ -72,8 +72,8 @@ interface MemoryDao {
     @Query("SELECT text FROM memory_item WHERE conversation_id = :conversationId AND kind = :kind AND review = 'REJECTED'")
     suspend fun rejectedTexts(conversationId: String, kind: String): List<String>
 
-    @Query("SELECT COUNT(*) FROM memory_item WHERE workspace_id = :ws AND review != 'REJECTED' AND status = 'OPEN'")
-    fun observeOpenCount(ws: String): Flow<Int>
+    @Query("SELECT COUNT(*) FROM memory_item WHERE workspace_id IN (:ws) AND review != 'REJECTED' AND status = 'OPEN'")
+    fun observeOpenCount(ws: List<String>): Flow<Int>
 }
 
 /** A stored message with its conversation, as perception and retrieval read it. */
@@ -130,23 +130,23 @@ interface PerceptionDao {
     @Query(
         """SELECT m.id, m.conversation_id, m.workspace_id, m.direction, m.sender_name, m.text, m.placeholder_kind, m.sent_at, c.title, c.is_group
            FROM message_fts JOIN message m ON m.rowid = message_fts.rowid JOIN conversation c ON c.id = m.conversation_id
-           WHERE message_fts MATCH :query AND c.workspace_id = :ws ORDER BY m.sent_at DESC LIMIT :limit""",
+           WHERE message_fts MATCH :query AND c.workspace_id IN (:ws) ORDER BY m.sent_at DESC LIMIT :limit""",
     )
-    suspend fun search(ws: String, query: String, limit: Int): List<MessageWithConversation>
+    suspend fun search(ws: List<String>, query: String, limit: Int): List<MessageWithConversation>
 
     @Query(
         """SELECT m.id, m.conversation_id, m.workspace_id, m.direction, m.sender_name, m.text, m.placeholder_kind, m.sent_at, c.title, c.is_group
            FROM message_fts JOIN message m ON m.rowid = message_fts.rowid JOIN conversation c ON c.id = m.conversation_id
-           WHERE message_fts MATCH :query AND c.workspace_id = :ws AND m.conversation_id IN (:conversationIds) ORDER BY m.sent_at DESC LIMIT :limit""",
+           WHERE message_fts MATCH :query AND c.workspace_id IN (:ws) AND m.conversation_id IN (:conversationIds) ORDER BY m.sent_at DESC LIMIT :limit""",
     )
-    suspend fun searchIn(ws: String, conversationIds: List<String>, query: String, limit: Int): List<MessageWithConversation>
+    suspend fun searchIn(ws: List<String>, conversationIds: List<String>, query: String, limit: Int): List<MessageWithConversation>
 
     @Query(
         """SELECT m.id, m.conversation_id, m.workspace_id, m.direction, m.sender_name, m.text, m.placeholder_kind, m.sent_at, c.title, c.is_group
            FROM message m JOIN conversation c ON c.id = m.conversation_id
-           WHERE m.conversation_id IN (:conversationIds) AND m.text IS NOT NULL ORDER BY m.sent_at DESC LIMIT :limit""",
+           WHERE c.workspace_id IN (:ws) AND m.conversation_id IN (:conversationIds) AND m.text IS NOT NULL ORDER BY m.sent_at DESC LIMIT :limit""",
     )
-    suspend fun latestIn(conversationIds: List<String>, limit: Int): List<MessageWithConversation>
+    suspend fun latestIn(ws: List<String>, conversationIds: List<String>, limit: Int): List<MessageWithConversation>
 
     /** A chat's latest messages (placeholders included), oldest first: what a reply answers. */
     @Query(
@@ -166,14 +166,14 @@ interface PerceptionDao {
     )
     suspend fun ownerMessages(ws: String, limit: Int): List<MessageWithConversation>
 
-    @Query("SELECT id, title FROM conversation WHERE workspace_id = :ws AND deleted_at IS NULL")
-    suspend fun conversationTitles(ws: String): List<ConversationTitle>
+    @Query("SELECT id, title FROM conversation WHERE workspace_id IN (:ws) AND deleted_at IS NULL")
+    suspend fun conversationTitles(ws: List<String>): List<ConversationTitle>
 
     @Query(
         """SELECT m.id, m.conversation_id, m.workspace_id, m.direction, m.sender_name, m.text, m.placeholder_kind, m.sent_at, c.title, c.is_group
-           FROM message m JOIN conversation c ON c.id = m.conversation_id WHERE m.id IN (:ids)""",
+           FROM message m JOIN conversation c ON c.id = m.conversation_id WHERE c.workspace_id IN (:ws) AND m.id IN (:ids)""",
     )
-    suspend fun messages(ids: List<String>): List<MessageWithConversation>
+    suspend fun messages(ws: List<String>, ids: List<String>): List<MessageWithConversation>
 }
 
 data class ConversationTitle(val id: String, val title: String)
