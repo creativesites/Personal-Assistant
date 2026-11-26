@@ -24,3 +24,20 @@ interface ReplyDrafter {
      */
     suspend fun draftForAuto(id: ConversationId): DraftResult
 }
+
+/** What the owner did with a draft (the learning loop). */
+enum class DraftAction {
+    /** Picked and sent unchanged. */
+    SENT_AS_IS,
+    /** Picked, edited, then sent. */
+    SENT_EDITED,
+    /** Copied to paste in the messaging app. */
+    COPIED,
+    /** Shown, then closed without using it: not offered again in this chat for a while. */
+    DISMISSED,
+}
+
+/** Records what happened to drafts. Stored on the phone only. */
+interface DraftFeedback {
+    suspend fun record(id: ConversationId, draft: String, action: DraftAction, finalText: String? = null)
+}

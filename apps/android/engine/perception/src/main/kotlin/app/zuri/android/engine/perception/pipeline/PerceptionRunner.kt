@@ -101,6 +101,8 @@ class PerceptionRunner(
             for (g in items) {
                 val row = byId.getValue(g.source.id)
                 if (memories.exists(row.id, g.kind.name)) continue
+                // Learning loop: something the owner already rejected in this chat isn't suggested again.
+                if (memories.rejectedTexts(row.conversationId, g.kind.name).any { normalized(it) == normalized(g.text) }) continue
                 memories.insert(
                     MemoryEntity(
                         id = UuidV7.generate(clock), workspaceId = row.workspaceId, conversationId = row.conversationId,
@@ -116,6 +118,8 @@ class PerceptionRunner(
         }
         return count
     }
+
+    private fun normalized(text: String) = text.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
     companion object {
         const val BATCH = 12

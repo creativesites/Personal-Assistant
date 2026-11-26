@@ -18,4 +18,13 @@
     <string name="today_sources_on_s">%1$d notifications captured today</string>
     <string name="today_sources_warn_t">Capture needs attention</string>
     <string name="today_sources_warn_s">New messages aren’t being captured</string>
+    <string name="today_waiting">Waiting for your reply</string>
+    <plurals name="today_waiting_questions">
+        <item quantity="one">%d question</item>
+        <item quantity="other">%d questions</item>
+    </plurals>
+    <string name="today_waiting_tense">seems upset</string>
+    <string name="today_waiting_low">seems down</string>
+    <string name="today_waiting_since">since %1$s</string>
+    <string name="today_waiting_media">Photo, voice note or file</string>
 </resources>

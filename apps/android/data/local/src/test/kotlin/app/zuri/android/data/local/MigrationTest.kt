@@ -65,4 +65,16 @@ class MigrationTest {
             db.query("SELECT COUNT(*) FROM auto_reply_event").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
         }
     }
+
+    @Test fun v5ToV6AddsEmptyInsightAndFeedbackTables() {
+        helper.createDatabase("migration-test-6", 5).use { db ->
+            db.execSQL("INSERT INTO workspace VALUES ('ws','PERSONAL','Personal','TEAL',0,0,'DEVICE',NULL,'LOCAL_ONLY',NULL)")
+            db.execSQL("INSERT INTO conversation VALUES ('c1','ws','WHATSAPP','com.whatsapp','k','Chanda',0,1,0,0,0,0,'DEVICE',NULL,'LOCAL_ONLY',NULL,0)")
+        }
+        helper.runMigrationsAndValidate("migration-test-6", 6, true).use { db ->
+            db.query("SELECT COUNT(*) FROM conversation_insight").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+            db.query("SELECT COUNT(*) FROM draft_feedback").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+            db.query("SELECT title FROM conversation WHERE id = 'c1'").use { c -> c.moveToFirst(); assertThat(c.getString(0)).isEqualTo("Chanda") }
+        }
+    }
 }

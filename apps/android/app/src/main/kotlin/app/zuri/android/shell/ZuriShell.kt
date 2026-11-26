@@ -92,7 +92,10 @@ fun ZuriShell(
     NavHost(nav, startDestination = TodayDest) {
         composable<TodayDest> {
             RootFrame(nav, state, { switcherOpen = true }) {
-                TodayRoute(onOpenPrivacy = { nav.navigate(PrivacyDest) }, onOpenSources = { nav.navigate(SourcesDest) }, onOpenMemory = { nav.navigate(MemoryDest) })
+                TodayRoute(
+                    onOpenPrivacy = { nav.navigate(PrivacyDest) }, onOpenSources = { nav.navigate(SourcesDest) }, onOpenMemory = { nav.navigate(MemoryDest) },
+                    onOpenConversation = { nav.navigate(ConversationDest(it.value)) },
+                )
             }
         }
         composable<InboxDest> {

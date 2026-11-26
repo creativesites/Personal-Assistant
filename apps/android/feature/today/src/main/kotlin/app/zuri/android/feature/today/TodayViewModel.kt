@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import app.zuri.android.core.common.Clock
 import app.zuri.android.domain.capture.CaptureHealth
 import app.zuri.android.domain.capture.CaptureStatusProvider
+import app.zuri.android.domain.inbox.ConversationInsights
+import app.zuri.android.domain.inbox.WaitingChat
 import app.zuri.android.domain.memory.MemoryFilter
 import app.zuri.android.domain.memory.MemoryItem
 import app.zuri.android.domain.memory.MemoryKind
@@ -37,6 +39,8 @@ data class TodayState(
     val promises: List<MemoryItem> = emptyList(),
     /** Events in the next seven days. */
     val upcoming: List<MemoryItem> = emptyList(),
+    /** One-to-one chats where they wrote last, newest first. */
+    val waiting: List<WaitingChat> = emptyList(),
 )
 
 @HiltViewModel
@@ -45,6 +49,7 @@ class TodayViewModel @Inject constructor(
     workspaces: WorkspaceRepository,
     capture: CaptureStatusProvider,
     memory: MemoryRepository,
+    insights: ConversationInsights,
     private val clock: Clock,
 ) : ViewModel() {
     private val active = combine(preferences.preferences, workspaces.observeAll()) { prefs, all ->
@@ -57,13 +62,17 @@ class TodayViewModel @Inject constructor(
         else memory.observe(ws.id, MemoryFilter(kinds = setOf(MemoryKind.MY_PROMISE, MemoryKind.REQUEST_TO_ME, MemoryKind.EVENT)))
     }
 
-    val state: StateFlow<TodayState> = combine(active, capture.status, items) { ws, status, list ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val waiting = active.flatMapLatest { ws -> if (ws == null) flowOf(emptyList()) else insights.observeWaiting(setOf(ws.id)) }
+
+    val state: StateFlow<TodayState> = combine(active, capture.status, items, waiting) { ws, status, list, waitingChats ->
         val now = clock.nowMillis()
         val week = now + 7L * 24 * 60 * 60 * 1000
         snapshot(ws?.name.orEmpty()).copy(
             capture = status.state, capturedToday = status.capturedToday,
             promises = list.filter { it.kind != MemoryKind.EVENT }.take(5),
             // An event with no time is kept through the end of its day.
+            waiting = waitingChats.take(5),
             upcoming = list.filter { it.kind == MemoryKind.EVENT && it.dueAtMillis != null && it.dueAtMillis!! in (now - 24L * 60 * 60 * 1000)..week }.take(5),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), snapshot(""))

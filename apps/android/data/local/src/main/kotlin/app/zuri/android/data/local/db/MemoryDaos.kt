@@ -68,6 +68,10 @@ interface MemoryDao {
     @Query("DELETE FROM memory_item WHERE id = :id")
     suspend fun delete(id: String)
 
+    /** Texts the owner rejected in a chat: the learning loop doesn't suggest them again. */
+    @Query("SELECT text FROM memory_item WHERE conversation_id = :conversationId AND kind = :kind AND review = 'REJECTED'")
+    suspend fun rejectedTexts(conversationId: String, kind: String): List<String>
+
     @Query("SELECT COUNT(*) FROM memory_item WHERE workspace_id = :ws AND review != 'REJECTED' AND status = 'OPEN'")
     fun observeOpenCount(ws: String): Flow<Int>
 }

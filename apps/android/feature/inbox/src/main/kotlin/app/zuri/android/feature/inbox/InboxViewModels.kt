@@ -10,7 +10,12 @@ import app.zuri.android.domain.inbox.AutoReplies
 import app.zuri.android.domain.inbox.ConversationDetail
 import app.zuri.android.domain.inbox.ConversationId
 import app.zuri.android.domain.inbox.ConversationSummary
+import app.zuri.android.domain.inbox.DraftAction
+import app.zuri.android.domain.inbox.DraftFeedback
 import app.zuri.android.domain.inbox.DraftResult
+import app.zuri.android.domain.inbox.ConversationInsight
+import app.zuri.android.domain.inbox.ConversationInsights
+import app.zuri.android.domain.inbox.SummaryResult
 import app.zuri.android.domain.inbox.InboxRepository
 import app.zuri.android.domain.inbox.MessageId
 import app.zuri.android.domain.inbox.ReplyDrafter
@@ -95,6 +100,16 @@ sealed interface DraftsState {
     data object Failed : DraftsState
 }
 
+sealed interface SummaryState {
+    data object Idle : SummaryState
+    data object Working : SummaryState
+    data object NoModel : SummaryState
+    data object Nothing : SummaryState
+    data object Failed : SummaryState
+}
+
+data class InsightState(val insight: ConversationInsight = ConversationInsight(), val summary: SummaryState = SummaryState.Idle)
+
 @HiltViewModel
 class ConversationViewModel @Inject constructor(
     savedState: SavedStateHandle,
@@ -102,11 +117,37 @@ class ConversationViewModel @Inject constructor(
     private val replies: ReplySender,
     private val drafter: ReplyDrafter,
     private val autoReplies: AutoReplies,
+    private val insights: ConversationInsights,
+    private val feedback: DraftFeedback,
 ) : ViewModel() {
     private val id = ConversationId(checkNotNull(savedState.get<String>("id")) { "conversation id missing" })
     private val sendState = MutableStateFlow<Pair<Boolean, ReplyResult?>>(false to null)
     private val draftState = MutableStateFlow<DraftsState>(DraftsState.Idle)
     private var drafting: kotlinx.coroutines.Job? = null
+    /** The draft the owner put in the reply box, to learn whether it was sent as is or edited. */
+    private var picked: String? = null
+    private val summarizing = MutableStateFlow<SummaryState>(SummaryState.Idle)
+    private var summaryJob: kotlinx.coroutines.Job? = null
+
+    val insight: StateFlow<InsightState> = combine(insights.observe(id), summarizing) { i, s -> InsightState(i, s) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InsightState())
+
+    fun summarize() {
+        if (summaryJob?.isActive == true) return
+        summaryJob = viewModelScope.launch {
+            summarizing.value = SummaryState.Working
+            summarizing.value = when (val r = insights.summarize(id)) {
+                SummaryResult.Done -> SummaryState.Idle
+                SummaryResult.NoModel -> SummaryState.NoModel
+                SummaryResult.NothingToSummarize -> SummaryState.Nothing
+                is SummaryResult.Failed -> SummaryState.Failed
+            }
+        }
+    }
+
+    fun picked(draft: String) { picked = draft }
+
+    fun copied(draft: String) = viewModelScope.launch { feedback.record(id, draft, DraftAction.COPIED) }
 
     val state: StateFlow<ConversationState> = combine(inbox.observeConversation(id), replies.observeCanReply(id), sendState, draftState) { detail, can, (sending, result), drafts ->
         ConversationState(loading = false, detail = detail, canReply = can, sending = sending, lastResult = result, drafts = drafts)
@@ -117,7 +158,11 @@ class ConversationViewModel @Inject constructor(
         sendState.value = true to null
         val result = replies.reply(id, text)
         sendState.value = false to result
-        if (result == ReplyResult.Sent) { onSent(); draftState.value = DraftsState.Idle }
+        if (result == ReplyResult.Sent) {
+            picked?.let { d -> feedback.record(id, d, if (d.trim() == text.trim()) DraftAction.SENT_AS_IS else DraftAction.SENT_EDITED, text.takeIf { d.trim() != it.trim() }) }
+            picked = null
+            onSent(); draftState.value = DraftsState.Idle
+        }
     }
 
     val autoReply: StateFlow<AutoReplyState> = combine(autoReplies.observeEnabled(id), autoReplies.settings, autoReplies.observeEvents(id)) { on, s, events ->
@@ -141,7 +186,13 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    fun dismissDrafts() { drafting?.cancel(); draftState.value = DraftsState.Idle }
+    /** Closing the drafts without using one tells Zuri they weren't right (not offered again here for a while). */
+    fun dismissDrafts() {
+        drafting?.cancel()
+        val shown = draftState.value as? DraftsState.Ready
+        draftState.value = DraftsState.Idle
+        if (shown != null && picked == null) viewModelScope.launch { shown.drafts.forEach { feedback.record(id, it, DraftAction.DISMISSED) } }
+    }
 
     fun markRead() = viewModelScope.launch { inbox.markRead(id) }
     fun deleteMessage(message: MessageId) = viewModelScope.launch { inbox.deleteMessage(message) }

@@ -7,6 +7,9 @@ import app.zuri.android.core.common.Clock
 import app.zuri.android.data.local.db.ZuriDatabase
 import app.zuri.android.domain.ai.LocalLanguageModel
 import app.zuri.android.domain.inbox.AutoReplies
+import app.zuri.android.domain.inbox.ConversationInsights
+import app.zuri.android.domain.inbox.DraftFeedback
+import app.zuri.android.engine.perception.insight.LocalConversationInsights
 import app.zuri.android.domain.inbox.ReplyDrafter
 import app.zuri.android.domain.inbox.ReplySender
 import app.zuri.android.engine.perception.autoreply.AndroidAutoReplies
@@ -37,6 +40,15 @@ object PerceptionModule {
 
     @Provides @Singleton
     fun drafter(db: ZuriDatabase, model: LocalLanguageModel, clock: Clock): ReplyDrafter = LocalReplyDrafter(db, model, clock::nowMillis)
+
+    @Provides @Singleton
+    fun localInsights(db: ZuriDatabase, model: LocalLanguageModel, clock: Clock) = LocalConversationInsights(db, model, clock::nowMillis)
+
+    @Provides @Singleton
+    fun insights(impl: LocalConversationInsights): ConversationInsights = impl
+
+    @Provides @Singleton
+    fun draftFeedback(impl: LocalConversationInsights): DraftFeedback = impl
 
     @Provides @Singleton
     fun androidAutoReplies(@ApplicationContext context: Context, db: ZuriDatabase, clock: Clock) =

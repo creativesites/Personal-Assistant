@@ -12,6 +12,10 @@ import app.zuri.android.domain.inbox.Direction
 import app.zuri.android.domain.inbox.DraftResult
 import app.zuri.android.domain.inbox.ReplyDrafter
 import app.zuri.android.domain.memory.MemoryKind
+import app.zuri.android.engine.perception.insight.ConversationStateUpdater
+import app.zuri.android.engine.perception.insight.EmotionDerivation
+import app.zuri.android.engine.perception.insight.StateMessage
+import app.zuri.android.domain.inbox.Mood
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -35,6 +39,7 @@ class LocalReplyDrafter(
 ) : ReplyDrafter {
     private val perception = db.perceptionDao()
     private val memories = db.memoryDao()
+    private val insights = db.insightDao()
 
     override suspend fun draft(id: ConversationId): DraftResult {
         val ctx = context(id) ?: return DraftResult.NothingToAnswer
@@ -45,7 +50,8 @@ class LocalReplyDrafter(
                 ModelOutcome.Empty -> Unit
             }
         }
-        return DraftResult.Drafts(QuickReplies.forMessage(ctx.lastIncoming.text).map(ctx.voice::restyle).distinct(), byModel = false)
+        val quick = QuickReplies.forMessage(ctx.lastIncoming.text).map(ctx.voice::restyle).distinct()
+        return DraftResult.Drafts(quick.filterNot { q -> ctx.dismissed.any { it.equals(q, ignoreCase = true) } }.ifEmpty { quick }, byModel = false)
     }
 
     override suspend fun draftForAuto(id: ConversationId): DraftResult {
@@ -66,6 +72,12 @@ class LocalReplyDrafter(
         val facts: List<MemoryEntity>,
         val voice: VoiceProfile,
         val examples: List<String>,
+        val questions: List<String>,
+        val decisions: List<String>,
+        val mood: Mood?,
+        val summary: String?,
+        /** Drafts the owner turned down in this chat lately (learning loop): not offered again. */
+        val dismissed: List<String>,
     )
 
     private suspend fun context(id: ConversationId): Context? {
@@ -74,11 +86,18 @@ class LocalReplyDrafter(
         val ws = lastIncoming.workspaceId
         val own = perception.ownerMessages(ws, VOICE_MESSAGES)
         val items = memories.recentIn(ws, listOf(id.value), ITEM_KINDS, 16).filter { it.status == "OPEN" }
+        val full = perception.tail(id.value, STATE_MESSAGES)
+        val state = ConversationStateUpdater.fold(full.map { StateMessage(it.direction == Direction.OUTGOING.name, it.text, it.placeholderKind, it.sentAt) }, clock())
+        val stored = insights.byConversation(id.value)?.takeIf { it.workspaceId == ws }
         return Context(
             tail = tail, lastIncoming = lastIncoming,
             open = items.filter { it.kind != MemoryKind.FACT.name }.take(6),
             facts = items.filter { it.kind == MemoryKind.FACT.name }.take(5),
             voice = VoiceProfile.from(own.mapNotNull { it.text }), examples = examples(own, id.value),
+            questions = state.unansweredQuestions.takeLast(4), decisions = state.decisions.takeLast(3),
+            mood = EmotionDerivation.mood(full.asReversed().filter { it.direction == Direction.INCOMING.name }.mapNotNull { it.text }),
+            summary = stored?.summary,
+            dismissed = insights.dismissedDrafts(id.value, clock() - DISMISSED_WINDOW_MILLIS, 6),
         )
     }
 
@@ -117,6 +136,16 @@ class LocalReplyDrafter(
             if (ctx.examples.isNotEmpty()) { append("Messages the owner wrote before:\n"); ctx.examples.forEach { append("- ").append(it).append('\n') }; append('\n') }
             if (ctx.facts.isNotEmpty()) { append("What the owner knows about ").append(chat.title).append(":\n"); ctx.facts.forEach { append("- ").append(it.text).append('\n') }; append('\n') }
             if (ctx.open.isNotEmpty()) { append("Open items in this chat:\n"); ctx.open.forEach { append("- ").append(itemLine(it)).append('\n') }; append('\n') }
+            if (ctx.summary != null) append("Earlier in this chat: ").append(ctx.summary).append("\n\n")
+            if (ctx.decisions.isNotEmpty()) { append("Already agreed:\n"); ctx.decisions.forEach { append("- ").append(it).append('\n') }; append('\n') }
+            if (ctx.questions.isNotEmpty()) { append("Their questions still unanswered (answer these if you can):\n"); ctx.questions.forEach { append("- ").append(it).append('\n') }; append('\n') }
+            when (ctx.mood) {
+                Mood.TENSE -> append("They seem upset or stressed: be calm and kind.\n\n")
+                Mood.LOW -> append("They seem down: be warm and gentle.\n\n")
+                Mood.WARM -> append("The mood is warm and friendly.\n\n")
+                else -> Unit
+            }
+            if (ctx.dismissed.isNotEmpty()) { append("Replies the owner turned down here recently (don't offer these again):\n"); ctx.dismissed.forEach { append("- ").append(it).append('\n') }; append('\n') }
             append("Chat with ").append(other).append(", oldest first:\n")
             lines.forEach { append(it).append('\n') }
             append('\n')
@@ -132,8 +161,8 @@ class LocalReplyDrafter(
         if (r !is GenerationResult.Success) return ModelOutcome.Empty
         val reply = runCatching { JSON.decodeFromString<Reply>(r.text.trim()) }.getOrNull() ?: return ModelOutcome.Empty
         // Numbers a draft may use: only those in what was said (not the timestamps added above).
-        val context = (ctx.tail.mapNotNull { it.text } + ctx.open.map(::itemLine) + ctx.facts.map { it.text }).joinToString("\n")
-        val kept = DraftCheck.keep(reply.drafts, context, ctx.lastIncoming.text)
+        val context = (ctx.tail.mapNotNull { it.text } + ctx.open.map(::itemLine) + ctx.facts.map { it.text } + ctx.decisions + ctx.questions).joinToString("\n")
+        val kept = DraftCheck.keep(reply.drafts, context, ctx.lastIncoming.text).filterNot { d -> ctx.dismissed.any { it.equals(d, ignoreCase = true) } }
         return if (kept.isEmpty()) ModelOutcome.Empty else ModelOutcome.Ok(kept)
     }
 
@@ -153,6 +182,8 @@ class LocalReplyDrafter(
 
     private companion object {
         const val CONTEXT_MESSAGES = 30
+        const val STATE_MESSAGES = 40
+        const val DISMISSED_WINDOW_MILLIS = 14L * 24 * 60 * 60 * 1000
         const val CONTEXT_CHARS = 3_600
         const val MESSAGE_CHARS = 300
         const val VOICE_MESSAGES = 200

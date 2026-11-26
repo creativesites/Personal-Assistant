@@ -71,6 +71,7 @@ import androidx.compose.foundation.layout.imePadding
 fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val auto by viewModel.autoReply.collectAsStateWithLifecycle()
+    val insight by viewModel.insight.collectAsStateWithLifecycle()
     val detail = state.detail
     LaunchedEffect(detail?.summary?.unreadCount) { if ((detail?.summary?.unreadCount ?: 0) > 0) viewModel.markRead() }
     LaunchedEffect(state.loading, detail == null) { if (!state.loading && detail == null) onBack() }
@@ -82,6 +83,8 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
         onDeleteConversation = viewModel::deleteConversation,
         onExclude = viewModel::exclude,
         autoReplyOn = auto.enabled && !detail.summary.isGroup,
+        insight = insight,
+        onSummarize = viewModel::summarize,
         autoReplySheet = {
             AutoReplyContent(auto, detail.summary.isGroup, TimeContext.system(), viewModel::setAutoReply, viewModel::pauseAutoReplies, viewModel::setAutoReplyDelay)
         },
@@ -91,6 +94,8 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
                 onSend = { text, clear -> viewModel.reply(text, clear) },
                 onSuggest = viewModel::suggest,
                 onDismissDrafts = viewModel::dismissDrafts,
+                onPicked = viewModel::picked,
+                onCopied = viewModel::copied,
                 onOpenApp = {
                     detail.summary.source.packages.firstNotNullOfOrNull { context.packageManager.getLaunchIntentForPackage(it) }
                         ?.let { runCatching { context.startActivity(it) } }
@@ -113,9 +118,12 @@ fun ConversationContent(
     initiallySelected: MessageId? = null,
     autoReplyOn: Boolean = false,
     autoReplySheet: (@Composable () -> Unit)? = null,
+    insight: InsightState? = null,
+    onSummarize: () -> Unit = {},
     composer: @Composable () -> Unit = {},
 ) {
     var showAuto by remember { mutableStateOf(false) }
+    var showInsight by remember { mutableStateOf(false) }
     val s = detail.summary
     val sourceName = stringResource(s.source.label())
     var menu by remember { mutableStateOf(false) }
@@ -132,6 +140,7 @@ fun ConversationContent(
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, stringResource(R.string.conv_menu)) }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (insight != null) DropdownMenuItem(text = { Text(stringResource(R.string.insight_menu)) }, onClick = { menu = false; showInsight = true })
                         if (autoReplySheet != null) DropdownMenuItem(text = { Text(stringResource(R.string.auto_menu)) }, onClick = { menu = false; showAuto = true })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_exclude)) }, onClick = { menu = false; confirm = "exclude" })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_delete)) }, onClick = { menu = false; confirm = "delete" })
@@ -145,6 +154,7 @@ fun ConversationContent(
                 modifier = Modifier.fillMaxWidth().background(Zuri.colors.ctxWeak).clickable { showAuto = true }.padding(horizontal = 16.dp, vertical = 6.dp),
             )
         }
+        if (insight != null && insight.insight.worthAStrip()) InsightStrip(insight.insight) { showInsight = true }
         val list = rememberLazyListState(initialFirstVisibleItemIndex = (detail.messages.size - 1).coerceAtLeast(0))
         LaunchedEffect(detail.messages.size) { if (detail.messages.isNotEmpty()) list.animateScrollToItem(detail.messages.size - 1) }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
@@ -170,6 +180,9 @@ fun ConversationContent(
         )
     }
 
+    if (showInsight && insight != null) {
+        ModalBottomSheet(onDismissRequest = { showInsight = false }) { InsightContent(insight, time, onSummarize) }
+    }
     if (showAuto && autoReplySheet != null) {
         ModalBottomSheet(onDismissRequest = { showAuto = false }) { autoReplySheet() }
     }
@@ -293,6 +306,8 @@ private fun ReplyComposer(
     onSuggest: () -> Unit,
     onDismissDrafts: () -> Unit,
     onOpenApp: () -> Unit,
+    onPicked: (String) -> Unit = {},
+    onCopied: (String) -> Unit = {},
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -307,11 +322,12 @@ private fun ReplyComposer(
             val cm = context.getSystemService(android.content.ClipboardManager::class.java)
             cm?.setPrimaryClip(android.content.ClipData.newPlainText("Reply", draft))
             android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
+            onCopied(draft)
         }
         DraftsPanel(
             state.drafts, onSuggest, onDismissDrafts,
             // With a reply button a tapped draft goes in the box to edit; without one it's copied.
-            onPick = { draft -> if (state.canReply) text = draft else copy(draft) },
+            onPick = { draft -> if (state.canReply) { text = draft; onPicked(draft) } else copy(draft) },
             onCopy = copy,
         )
         if (state.canReply) {

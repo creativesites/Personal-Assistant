@@ -32,16 +32,34 @@ import app.zuri.android.domain.capture.CaptureHealth
 import app.zuri.android.domain.memory.MemoryItem
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.MarkChatUnread
+import androidx.compose.ui.res.pluralStringResource
+import app.zuri.android.domain.inbox.ConversationId
+import app.zuri.android.domain.inbox.Mood
+import app.zuri.android.domain.inbox.WaitingChat
 
 @Composable
-fun TodayRoute(onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, onOpenMemory: () -> Unit = {}, viewModel: TodayViewModel = hiltViewModel()) {
+fun TodayRoute(
+    onOpenPrivacy: () -> Unit,
+    onOpenSources: () -> Unit,
+    onOpenMemory: () -> Unit = {},
+    onOpenConversation: (ConversationId) -> Unit = {},
+    viewModel: TodayViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    TodayContent(state, onOpenPrivacy, onOpenSources, onOpenMemory = onOpenMemory)
+    TodayContent(state, onOpenPrivacy, onOpenSources, onOpenMemory = onOpenMemory, onOpenConversation = onOpenConversation)
 }
 
 /** P01 in its first-day state: honest about having nothing yet, and about why. */
 @Composable
-fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, modifier: Modifier = Modifier, onOpenMemory: () -> Unit = {}) {
+fun TodayContent(
+    state: TodayState,
+    onOpenPrivacy: () -> Unit,
+    onOpenSources: () -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenMemory: () -> Unit = {},
+    onOpenConversation: (ConversationId) -> Unit = {},
+) {
     val greeting = stringResource(
         when (state.dayPart) { DayPart.Morning -> R.string.today_morning; DayPart.Afternoon -> R.string.today_afternoon; DayPart.Evening -> R.string.today_evening },
     )
@@ -50,12 +68,16 @@ fun TodayContent(state: TodayState, onOpenPrivacy: () -> Unit, onOpenSources: ()
             Text(state.dateLabel, style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted)
             Text(greeting, style = MaterialTheme.typography.headlineLarge)
         }
-        if (state.promises.isEmpty() && state.upcoming.isEmpty()) {
+        if (state.promises.isEmpty() && state.upcoming.isEmpty() && state.waiting.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.WbSunny,
                 title = stringResource(R.string.today_empty_title),
                 body = stringResource(if (state.capture == CaptureHealth.LISTENING) R.string.today_empty_body_listening else R.string.today_empty_body),
             )
+        }
+        if (state.waiting.isNotEmpty()) {
+            SectionHeader(stringResource(R.string.today_waiting))
+            ZuriListGroup(rows = state.waiting.map { chat -> { WaitingRow(chat) { onOpenConversation(chat.id) } } })
         }
         if (state.promises.isNotEmpty()) {
             SectionHeader(stringResource(R.string.today_promises), action = stringResource(R.string.today_all), onAction = onOpenMemory)
@@ -103,6 +125,25 @@ private fun MemoryRow(item: MemoryItem, icon: androidx.compose.ui.graphics.vecto
         title = item.text,
         supporting = listOfNotNull(item.personName, due).joinToString(" · "),
         leading = { IconChip(icon) },
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun WaitingRow(chat: WaitingChat, onClick: () -> Unit) {
+    val since = java.time.format.DateTimeFormatter.ofPattern("EEE HH:mm", java.util.Locale.getDefault())
+        .format(java.time.Instant.ofEpochMilli(chat.waitingSinceMillis).atZone(java.time.ZoneId.systemDefault()))
+    val detail = buildList {
+        if (chat.questions > 0) add(pluralStringResource(R.plurals.today_waiting_questions, chat.questions, chat.questions))
+        if (chat.mood == Mood.TENSE) add(stringResource(R.string.today_waiting_tense))
+        if (chat.mood == Mood.LOW) add(stringResource(R.string.today_waiting_low))
+        add(stringResource(R.string.today_waiting_since, since))
+    }
+    ZuriListRow(
+        title = chat.title,
+        supporting = (chat.lastText?.take(80) ?: stringResource(R.string.today_waiting_media)) + "\n" + detail.joinToString(" · "),
+        leading = { IconChip(Icons.Rounded.MarkChatUnread, tone = if (chat.mood == Mood.TENSE) Tone.Warn else Tone.Neutral) },
+        trailing = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = Zuri.colors.muted) },
         onClick = onClick,
     )
 }

@@ -97,4 +97,31 @@
     <string name="auto_r_error">send error</string>
     <string name="prov_sent_zuri">Sent by you from Zuri, through %1$s\'s reply button</string>
     <string name="prov_sent_auto">Sent automatically by Zuri (auto-reply), through %1$s\'s reply button</string>
+    <string name="insight_menu">About this chat…</string>
+    <string name="insight_title">About this chat</string>
+    <string name="insight_your_turn">Your turn</string>
+    <plurals name="insight_questions">
+        <item quantity="one">%d question waiting</item>
+        <item quantity="other">%d questions waiting</item>
+    </plurals>
+    <string name="insight_summary">Summary</string>
+    <string name="insight_summary_none">No summary yet. Zuri can write one on this phone.</string>
+    <string name="insight_summary_note">Written on this phone, %1$s</string>
+    <string name="insight_summary_outdated">Written %1$s. New messages since: update it to include them.</string>
+    <string name="insight_summary_working">Summarising on this phone…</string>
+    <string name="insight_summary_no_model">Summaries need the on-device model. Add it in Models.</string>
+    <string name="insight_summary_nothing">There isn\'t enough in this chat to summarise yet.</string>
+    <string name="insight_summary_failed">Zuri couldn\'t write a summary it could check against the chat. Try again later.</string>
+    <string name="insight_summarize">Summarise</string>
+    <string name="insight_update">Update summary</string>
+    <string name="insight_waiting">Waiting for your answer</string>
+    <string name="insight_your_turn_only">They wrote last, with no question.</string>
+    <string name="insight_nothing_waiting">Nothing waiting for you.</string>
+    <string name="insight_agreed">Agreed recently</string>
+    <string name="insight_mood">Mood</string>
+    <string name="insight_mood_note">From the wording and emoji in their latest messages. A guess, not a judgement.</string>
+    <string name="mood_warm">Warm</string>
+    <string name="mood_neutral">Neutral</string>
+    <string name="mood_low">They seem down</string>
+    <string name="mood_tense">They seem upset or stressed</string>
 </resources>
