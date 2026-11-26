@@ -82,4 +82,8 @@ class InboxScreenshotTest {
     @Test fun conversationLight() = shot("conversation_light", false) { ConversationContent(thread, time, {}, {}, {}, {}) }
     @Test fun conversationDark() = shot("conversation_dark", true) { ConversationContent(thread, time, {}, {}, {}, {}) }
     @Test fun provenanceLight() = shot("message_info_light", false) { MessageInfoContent(thread.messages[2], "WhatsApp", time, {}, {}) }
+
+    private val drafts = DraftsState.Ready(listOf("Yes, I'll bring the chairs", "Sure Mum, see you at 1 🙂", "Will do"), byModel = true)
+    @Test fun draftsLight() = shot("drafts_light", false) { DraftsPanel(drafts, {}, {}, {}) }
+    @Test fun draftsDark() = shot("drafts_dark", true) { DraftsPanel(drafts, {}, {}, {}) }
 }

@@ -144,6 +144,24 @@ interface PerceptionDao {
     )
     suspend fun latestIn(conversationIds: List<String>, limit: Int): List<MessageWithConversation>
 
+    /** A chat's latest messages (placeholders included), oldest first: what a reply answers. */
+    @Query(
+        """SELECT * FROM (SELECT m.id, m.conversation_id, m.workspace_id, m.direction, m.sender_name, m.text, m.placeholder_kind, m.sent_at, c.title, c.is_group
+           FROM message m JOIN conversation c ON c.id = m.conversation_id
+           WHERE m.conversation_id = :conversationId AND m.deleted_at IS NULL ORDER BY m.sent_at DESC, m.id DESC LIMIT :limit)
+           ORDER BY sent_at, id""",
+    )
+    suspend fun tail(conversationId: String, limit: Int): List<MessageWithConversation>
+
+    /** The owner's own recent text messages in a workspace, newest first: how they write (voice profile). */
+    @Query(
+        """SELECT m.id, m.conversation_id, m.workspace_id, m.direction, m.sender_name, m.text, m.placeholder_kind, m.sent_at, c.title, c.is_group
+           FROM message m JOIN conversation c ON c.id = m.conversation_id
+           WHERE c.workspace_id = :ws AND m.direction = 'OUTGOING' AND m.text IS NOT NULL AND m.deleted_at IS NULL AND c.deleted_at IS NULL
+           ORDER BY m.sent_at DESC LIMIT :limit""",
+    )
+    suspend fun ownerMessages(ws: String, limit: Int): List<MessageWithConversation>
+
     @Query("SELECT id, title FROM conversation WHERE workspace_id = :ws AND deleted_at IS NULL")
     suspend fun conversationTitles(ws: String): List<ConversationTitle>
 

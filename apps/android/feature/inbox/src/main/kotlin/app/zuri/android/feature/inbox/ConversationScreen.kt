@@ -2,6 +2,7 @@ package app.zuri.android.feature.inbox
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -80,6 +82,8 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
             ReplyComposer(
                 state = state,
                 onSend = { text, clear -> viewModel.reply(text, clear) },
+                onSuggest = viewModel::suggest,
+                onDismissDrafts = viewModel::dismissDrafts,
                 onOpenApp = {
                     detail.summary.source.packages.firstNotNullOfOrNull { context.packageManager.getLaunchIntentForPackage(it) }
                         ?.let { runCatching { context.startActivity(it) } }
@@ -252,15 +256,36 @@ fun MessageInfoContent(m: InboxMessage, sourceName: String, time: TimeContext, o
     }
 }
 
-/** Reply bar: sends through the source app's live notification; otherwise offers to open the app. */
+/**
+ * Reply bar: sends through the source app's live notification; otherwise offers to open the app.
+ * "Suggest replies" writes drafts on the phone; a tapped draft goes into the box to edit (or, with
+ * no reply button, is copied to paste in the app). Nothing is sent without the Send tap.
+ */
 @Composable
-private fun ReplyComposer(state: ConversationState, onSend: (String, () -> Unit) -> Unit, onOpenApp: () -> Unit) {
+private fun ReplyComposer(
+    state: ConversationState,
+    onSend: (String, () -> Unit) -> Unit,
+    onSuggest: () -> Unit,
+    onDismissDrafts: () -> Unit,
+    onOpenApp: () -> Unit,
+) {
     var text by rememberSaveable { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val copied = stringResource(R.string.drafts_copied)
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
         when (state.lastResult) {
             ReplyResult.NotAvailable -> Text(stringResource(R.string.reply_expired), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.warn, modifier = Modifier.padding(horizontal = 8.dp))
             is ReplyResult.Failed -> Text(stringResource(R.string.reply_failed), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.bad, modifier = Modifier.padding(horizontal = 8.dp))
             else -> Unit
+        }
+        DraftsPanel(state.drafts, onSuggest, onDismissDrafts) { draft ->
+            if (state.canReply) {
+                text = draft
+            } else {
+                val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("Reply", draft))
+                android.widget.Toast.makeText(context, copied, android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
         if (state.canReply) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -277,6 +302,48 @@ private fun ReplyComposer(state: ConversationState, onSend: (String, () -> Unit)
                 Text(stringResource(R.string.reply_unavailable), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted, modifier = Modifier.weight(1f))
                 androidx.compose.material3.TextButton(onClick = onOpenApp) { Text(stringResource(R.string.reply_open_app)) }
             }
+        }
+    }
+}
+
+@Composable
+fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val c = Zuri.colors
+    when (drafts) {
+        DraftsState.Idle -> TextButton(onClick = onSuggest) {
+            Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(6.dp))
+            Text(stringResource(R.string.drafts_suggest))
+        }
+        DraftsState.Drafting -> Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(10.dp))
+            Text(stringResource(R.string.drafts_working), style = MaterialTheme.typography.bodySmall, color = c.muted, modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+        DraftsState.NothingToAnswer, DraftsState.Failed -> Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(if (drafts == DraftsState.Failed) R.string.drafts_failed else R.string.drafts_nothing),
+                style = MaterialTheme.typography.bodySmall, color = c.muted, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        }
+        is DraftsState.Ready -> Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(if (drafts.byModel) R.string.drafts_by_model else R.string.drafts_quick),
+                    style = MaterialTheme.typography.labelMedium, color = c.muted, modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+            }
+            drafts.drafts.forEach { d ->
+                Text(
+                    d, style = MaterialTheme.typography.bodyMedium, maxLines = 4,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp))
+                        .background(c.ctxWeak).clickable { onPick(d) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
         }
     }
 }

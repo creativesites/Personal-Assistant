@@ -9,8 +9,10 @@ import app.zuri.android.domain.capture.SourceKind
 import app.zuri.android.domain.inbox.ConversationDetail
 import app.zuri.android.domain.inbox.ConversationId
 import app.zuri.android.domain.inbox.ConversationSummary
+import app.zuri.android.domain.inbox.DraftResult
 import app.zuri.android.domain.inbox.InboxRepository
 import app.zuri.android.domain.inbox.MessageId
+import app.zuri.android.domain.inbox.ReplyDrafter
 import app.zuri.android.domain.inbox.ReplyResult
 import app.zuri.android.domain.inbox.ReplySender
 import app.zuri.android.domain.settings.AppPreferencesRepository
@@ -81,19 +83,31 @@ data class ConversationState(
     val canReply: Boolean = false,
     val sending: Boolean = false,
     val lastResult: ReplyResult? = null,
+    val drafts: DraftsState = DraftsState.Idle,
 )
+
+sealed interface DraftsState {
+    data object Idle : DraftsState
+    data object Drafting : DraftsState
+    data class Ready(val drafts: List<String>, val byModel: Boolean) : DraftsState
+    data object NothingToAnswer : DraftsState
+    data object Failed : DraftsState
+}
 
 @HiltViewModel
 class ConversationViewModel @Inject constructor(
     savedState: SavedStateHandle,
     private val inbox: InboxRepository,
     private val replies: ReplySender,
+    private val drafter: ReplyDrafter,
 ) : ViewModel() {
     private val id = ConversationId(checkNotNull(savedState.get<String>("id")) { "conversation id missing" })
     private val sendState = MutableStateFlow<Pair<Boolean, ReplyResult?>>(false to null)
+    private val draftState = MutableStateFlow<DraftsState>(DraftsState.Idle)
+    private var drafting: kotlinx.coroutines.Job? = null
 
-    val state: StateFlow<ConversationState> = combine(inbox.observeConversation(id), replies.observeCanReply(id), sendState) { detail, can, (sending, result) ->
-        ConversationState(loading = false, detail = detail, canReply = can, sending = sending, lastResult = result)
+    val state: StateFlow<ConversationState> = combine(inbox.observeConversation(id), replies.observeCanReply(id), sendState, draftState) { detail, can, (sending, result), drafts ->
+        ConversationState(loading = false, detail = detail, canReply = can, sending = sending, lastResult = result, drafts = drafts)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConversationState())
 
     /** Sends only on the owner's tap; returns true when the text should be cleared. */
@@ -101,8 +115,23 @@ class ConversationViewModel @Inject constructor(
         sendState.value = true to null
         val result = replies.reply(id, text)
         sendState.value = false to result
-        if (result == ReplyResult.Sent) onSent()
+        if (result == ReplyResult.Sent) { onSent(); draftState.value = DraftsState.Idle }
     }
+
+    /** Drafts are written only when the owner asks, while the chat is open. */
+    fun suggest() {
+        if (drafting?.isActive == true) return
+        drafting = viewModelScope.launch {
+            draftState.value = DraftsState.Drafting
+            draftState.value = when (val r = drafter.draft(id)) {
+                is DraftResult.Drafts -> DraftsState.Ready(r.drafts, r.byModel)
+                DraftResult.NothingToAnswer -> DraftsState.NothingToAnswer
+                is DraftResult.Failed -> DraftsState.Failed
+            }
+        }
+    }
+
+    fun dismissDrafts() { drafting?.cancel(); draftState.value = DraftsState.Idle }
 
     fun markRead() = viewModelScope.launch { inbox.markRead(id) }
     fun deleteMessage(message: MessageId) = viewModelScope.launch { inbox.deleteMessage(message) }

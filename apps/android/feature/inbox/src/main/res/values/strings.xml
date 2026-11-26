@@ -58,4 +58,11 @@
     <string name="reply_open_app">Open app</string>
     <string name="reply_expired">That notification was cleared, so the reply wasn\'t sent. Open the app to reply.</string>
     <string name="reply_failed">The reply couldn\'t be sent.</string>
+    <string name="drafts_suggest">Suggest replies</string>
+    <string name="drafts_working">Writing drafts on this phone…</string>
+    <string name="drafts_by_model">Drafted on this phone in your style. Tap one to edit it before sending.</string>
+    <string name="drafts_quick">Quick replies (no AI model on this phone). Tap one to edit it before sending.</string>
+    <string name="drafts_nothing">There\'s no message from them to answer yet.</string>
+    <string name="drafts_failed">Drafting stopped. Try again in a moment.</string>
+    <string name="drafts_copied">Copied. Paste it in the app to send.</string>
 </resources>

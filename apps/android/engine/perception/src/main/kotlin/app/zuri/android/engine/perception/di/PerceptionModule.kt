@@ -6,7 +6,9 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import app.zuri.android.core.common.Clock
 import app.zuri.android.data.local.db.ZuriDatabase
 import app.zuri.android.domain.ai.LocalLanguageModel
+import app.zuri.android.domain.inbox.ReplyDrafter
 import app.zuri.android.domain.memory.PerceptionControls
+import app.zuri.android.engine.perception.drafts.LocalReplyDrafter
 import app.zuri.android.engine.perception.pipeline.AndroidPerceptionControls
 import app.zuri.android.engine.perception.pipeline.PerceptionRunner
 import dagger.Module
@@ -28,4 +30,7 @@ object PerceptionModule {
 
     @Provides @Singleton
     fun controls(impl: AndroidPerceptionControls): PerceptionControls = impl
+
+    @Provides @Singleton
+    fun drafter(db: ZuriDatabase, model: LocalLanguageModel): ReplyDrafter = LocalReplyDrafter(db, model)
 }
