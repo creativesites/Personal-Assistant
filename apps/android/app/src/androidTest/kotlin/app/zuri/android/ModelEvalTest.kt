@@ -1,5 +1,7 @@
 package app.zuri.android
 
+import android.app.Instrumentation
+import android.os.Bundle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.zuri.android.coreai.catalog.ModelCatalog
@@ -38,7 +40,7 @@ class ModelEvalTest {
         val tuned = evaluate("fixtures", extractor, zone)
         val heldOut = evaluate("heldout", extractor, zone)
         val seconds = (System.nanoTime() - started) / 1e9
-        println("ZURI_EVAL total %.0f s".format(seconds))
+        report("ZURI_EVAL total %.0f s".format(seconds))
         model.release()
         // The held-out set is the honest number: the grounding rules were tuned on "fixtures".
         assertThat(heldOut.precision).isAtLeast(0.85)
@@ -63,8 +65,14 @@ class ModelEvalTest {
             commitments += s
             events += EvalFixtures.score(found, expected[i], setOf(MemoryKind.EVENT))
         }
-        println("ZURI_EVAL $name model commitments P=%.2f R=%.2f %s; events P=%.2f R=%.2f %s; %d chats".format(
+        report("ZURI_EVAL $name model commitments P=%.2f R=%.2f %s; events P=%.2f R=%.2f %s; %d chats".format(
             commitments.precision, commitments.recall, commitments, events.precision, events.recall, events, batches.size))
         return commitments
+    }
+
+    /** Summary lines go to logcat and to `am instrument` output, which survives logcat rotation. */
+    private fun report(line: String) {
+        println(line)
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, Bundle().apply { putString(Instrumentation.REPORT_KEY_STREAMRESULT, line + "\n") })
     }
 }

@@ -28,7 +28,9 @@ Prototype: `design/mobile/index.html`.
 | **M4** Perception: hourly batches of 12 messages per chat (last 30 days, groups excluded), schema-constrained JSON from the model, grounding (real message, real quote, kind fits speaker), date resolution; rules-only Essential tier | built |
 | **M4** Memory screen (promises, owed to you, events, about people, done; confirm/edit/not right/delete; source link); Today shows open promises and the week's events | built |
 | **M4** Ask Zuri: name-scoped hybrid retrieval (understood items + full-text search), answers cite sources or say not found | built |
-| **M4** Conversation state, emotion, voice profile, reply drafts and the RemoteInput reply sheet; embeddings | not started (next M4 slice) |
+| **M4** Reply from Zuri through the live WhatsApp notification (user taps send); WhatsApp's echo deduplicated | built, verified on the S20 |
+| **M4** Model extraction eval on the S20: fixtures and 10 held-out chats each pass commitments P ≥ 0.85, R ≥ 0.70 | passed |
+| **M4** Conversation state, emotion, voice profile, reply drafts; embeddings | not started (next M4 slice) |
 
 ## Build
 
