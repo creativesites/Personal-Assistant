@@ -9,6 +9,7 @@ internal object LlmProtocol {
     const val OP_GENERATE = 1
     const val OP_BENCHMARK = 2
     const val OP_RELEASE = 3
+    const val OP_EMBED = 4
 
     const val K_PATH = "path"
     const val K_PROMPT = "prompt"
@@ -18,6 +19,10 @@ internal object LlmProtocol {
     const val K_SCHEMA = "schema"
 
     const val K_TEXT = "text"
+    const val K_TEXTS = "texts"
+    const val K_DIM = "dim"
+    /** All vectors back to back, [K_DIM] floats each. */
+    const val K_VECTORS = "vectors"
     const val K_ERROR = "error"
 
     const val K_LOAD = "load"

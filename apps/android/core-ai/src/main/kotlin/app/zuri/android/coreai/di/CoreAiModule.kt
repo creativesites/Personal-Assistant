@@ -52,6 +52,10 @@ object CoreAiModule {
         LiteRtLanguageModel(catalog, storage, client)
 
     @Provides @Singleton
+    fun embedder(catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, client: LlmClient): app.zuri.android.domain.ai.LocalEmbedder =
+        app.zuri.android.coreai.runtime.LiteRtEmbedder(catalog, storage, client)
+
+    @Provides @Singleton
     fun benchmarks(@ApplicationContext context: Context, catalog: List<@JvmSuppressWildcards ModelSpec>, storage: ModelStorage, client: LlmClient, clock: Clock): ModelBenchmarks =
         LiteRtBenchmarks(catalog, storage, client, PreferenceDataStoreFactory.create { context.preferencesDataStoreFile("zuri_ai") }, clock)
 

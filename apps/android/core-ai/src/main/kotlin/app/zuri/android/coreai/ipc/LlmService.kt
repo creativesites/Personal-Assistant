@@ -37,12 +37,14 @@ import kotlinx.coroutines.runBlocking
 class LlmService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var engines: LiteRtEngineManager
+    private lateinit var embedders: app.zuri.android.coreai.runtime.LiteRtEmbeddingManager
     private lateinit var thread: HandlerThread
     private lateinit var messenger: Messenger
 
     override fun onCreate() {
         super.onCreate()
         engines = LiteRtEngineManager(File(cacheDir, "litertlm"))
+        embedders = app.zuri.android.coreai.runtime.LiteRtEmbeddingManager(File(cacheDir, "litertlm-embed"))
         thread = HandlerThread("llm-ipc").apply { start() }
         messenger = Messenger(Handler(thread.looper) { msg -> receive(msg); true })
     }
@@ -77,12 +79,21 @@ class LlmService : Service() {
             Bundle().apply { putString(K_TEXT, text) }
         }
         LlmProtocol.OP_BENCHMARK -> measureBenchmark(engines, requireNotNull(args.getString(K_PATH)))
-        LlmProtocol.OP_RELEASE -> { engines.release(); Bundle() }
+        LlmProtocol.OP_EMBED -> {
+            val path = requireNotNull(args.getString(K_PATH))
+            val texts = requireNotNull(args.getStringArrayList(LlmProtocol.K_TEXTS))
+            val vectors = embedders.embed(path, texts, args.getInt(LlmProtocol.K_DIM, 256))
+            val dim = vectors.firstOrNull()?.size ?: 0
+            val flat = FloatArray(dim * vectors.size)
+            vectors.forEachIndexed { i, v -> require(v.size == dim) { "uneven vectors" }; v.copyInto(flat, i * dim) }
+            Bundle().apply { putInt(LlmProtocol.K_DIM, dim); putFloatArray(LlmProtocol.K_VECTORS, flat) }
+        }
+        LlmProtocol.OP_RELEASE -> { engines.release(); embedders.release(); Bundle() }
         else -> error("Unknown operation $op")
     }
 
     override fun onDestroy() {
-        runBlocking { runCatching { engines.release() } }
+        runBlocking { runCatching { engines.release() }; runCatching { embedders.release() } }
         scope.cancel()
         thread.quitSafely()
         super.onDestroy()

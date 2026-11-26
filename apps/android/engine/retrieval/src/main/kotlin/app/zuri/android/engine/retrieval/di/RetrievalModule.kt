@@ -14,5 +14,5 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object RetrievalModule {
     @Provides @Singleton
-    fun ask(db: ZuriDatabase, model: LocalLanguageModel): AskZuri = LocalAskZuri(db, model)
+    fun ask(db: ZuriDatabase, model: LocalLanguageModel, embedder: app.zuri.android.domain.ai.LocalEmbedder): AskZuri = LocalAskZuri(db, model, embedder = embedder)
 }

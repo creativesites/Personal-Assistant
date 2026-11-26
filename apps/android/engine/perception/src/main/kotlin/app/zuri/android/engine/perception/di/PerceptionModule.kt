@@ -42,6 +42,10 @@ object PerceptionModule {
     fun drafter(db: ZuriDatabase, model: LocalLanguageModel, clock: Clock): ReplyDrafter = LocalReplyDrafter(db, model, clock::nowMillis)
 
     @Provides @Singleton
+    fun indexer(db: ZuriDatabase, embedder: app.zuri.android.domain.ai.LocalEmbedder, clock: Clock) =
+        app.zuri.android.engine.perception.embed.SemanticIndexer(db, embedder, clock::nowMillis)
+
+    @Provides @Singleton
     fun localInsights(db: ZuriDatabase, model: LocalLanguageModel, clock: Clock) = LocalConversationInsights(db, model, clock::nowMillis)
 
     @Provides @Singleton

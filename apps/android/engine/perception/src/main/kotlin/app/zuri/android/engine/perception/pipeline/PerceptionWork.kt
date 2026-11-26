@@ -40,6 +40,7 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
     @InstallIn(SingletonComponent::class)
     interface Deps {
         fun runner(): PerceptionRunner
+        fun indexer(): app.zuri.android.engine.perception.embed.SemanticIndexer
         fun controls(): AndroidPerceptionControls
     }
 
@@ -51,6 +52,11 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
         if (hot()) return Result.retry()
         val stats = deps.runner().run(deadlineMillis = System.currentTimeMillis() + RUN_BUDGET_MILLIS, pause = hot)
         ZuriLog.i("PERCEPTION", "run", "batches" to stats.batches, "messages" to stats.messages, "stored" to stats.stored, "early" to stats.stoppedEarly, "hot" to hot())
+        // Meaning-based search index: cheap next to perception, and only with an embedding model installed.
+        if (stats.failure == null && !hot()) {
+            val idx = deps.indexer().run(deadlineMillis = System.currentTimeMillis() + INDEX_BUDGET_MILLIS, pause = hot)
+            ZuriLog.i("EMBED", "run", "embedded" to idx.embedded, "early" to idx.stoppedEarly)
+        }
         deps.controls().recordRun()
         // A run the owner asked for keeps going until the backlog is read (or the engine fails).
         if (inputData.getBoolean(KEY_NOW, false) && stats.stoppedEarly && stats.failure == null && !hot()) deps.controls().runNow()
@@ -60,6 +66,7 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
     companion object {
         const val KEY_NOW = "now"
         const val RUN_BUDGET_MILLIS = 8 * 60_000L
+        const val INDEX_BUDGET_MILLIS = 60_000L
     }
 }
 

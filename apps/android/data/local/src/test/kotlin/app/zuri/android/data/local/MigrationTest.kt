@@ -77,4 +77,11 @@ class MigrationTest {
             db.query("SELECT title FROM conversation WHERE id = 'c1'").use { c -> c.moveToFirst(); assertThat(c.getString(0)).isEqualTo("Chanda") }
         }
     }
+
+    @Test fun v6ToV7AddsAnEmptyMessageVectorIndex() {
+        helper.createDatabase("migration-test-7", 6).close()
+        helper.runMigrationsAndValidate("migration-test-7", 7, true).use { db ->
+            db.query("SELECT COUNT(*) FROM message_embedding").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+        }
+    }
 }
