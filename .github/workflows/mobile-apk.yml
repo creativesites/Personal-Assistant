@@ -1,0 +1,88 @@
+# Builds an installable APK of the Expo/React Native app (apps/mobile, "Zuri Universe").
+# Path-filtered: runs only when apps/mobile changes, or on demand from the Actions tab.
+# Never deploys anything. Download the APK from the run's "Artifacts" section.
+name: Mobile APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile-apk.yml'
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API base URL baked into the app'
+        required: false
+        default: 'https://34-13-48-134.sslip.io'
+
+concurrency:
+  group: mobile-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      # Inlined into the JS bundle at build time (Expo EXPO_PUBLIC_* convention).
+      EXPO_PUBLIC_API_URL: ${{ github.event.inputs.api_url || 'https://34-13-48-134.sslip.io' }}
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.workers.max=4
+      CI: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Each CI build gets a higher versionCode so a new APK installs as an update.
+      - name: Stamp version
+        run: |
+          node -e "
+            const fs = require('fs');
+            const a = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            a.expo.android.versionCode = Number(process.env.GITHUB_RUN_NUMBER);
+            fs.writeFileSync('app.json', JSON.stringify(a, null, 2));
+          "
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install --clean
+
+      # Release build is signed with the debug keystore (Expo template default):
+      # fine for sideloading onto your own phone, not for the Play Store.
+      - name: Assemble release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "dist/zuri-universe-${GITHUB_RUN_NUMBER}.apk"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zuri-universe-apk-${{ github.run_number }}
+          path: apps/mobile/dist/*.apk
+          retention-days: 30
+          if-no-files-found: error

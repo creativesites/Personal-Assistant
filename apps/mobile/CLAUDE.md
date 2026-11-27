@@ -13,6 +13,14 @@ npx tsc --noEmit                                    # must be clean
 npx expo export --platform android --output-dir /tmp/zuri-export   # Metro + Hermes bundle must succeed
 ```
 
+## Building an APK
+CI builds it, not this container (cloud sandboxes usually can't reach Google's Android SDK host). `.github/workflows/mobile-apk.yml` runs on every push to `main` that touches `apps/mobile/**`, or on demand from the Actions tab ("Mobile APK" → Run workflow, with an optional API URL). It runs `expo prebuild` → `gradlew assembleRelease` and uploads `zuri-universe-<run>.apk` as a run artifact, kept for 30 days.
+- `versionCode` = the run number, so each new APK installs as an update over the last one.
+- It's signed with the debug keystore. That's fine for sideloading, but the Play Store needs a real keystore.
+- The package is `com.zuri.app`. The native Kotlin app (`apps/android`) is `app.zuri.android`, so both can be installed side by side.
+- `EXPO_PUBLIC_API_URL` is inlined at build time, and defaults to production `https://34-13-48-134.sslip.io`.
+- `android/` is generated and gitignored. Never commit it.
+
 ## Layout
 ```
 src/
