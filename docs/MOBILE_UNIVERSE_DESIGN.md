@@ -94,6 +94,18 @@ Gradients: `sky` (page), `launch` (primary CTA: violet → purple → cyan), `ou
 | Drifting | 25–49 | ember |
 | Dormant | < 25 or null | grey-lilac |
 
+### 3.1b Brand mark & launch assets
+
+The Zuri mark is a folded-ribbon **Z** (teal → blue → orange) inside an orbit ring carrying a cyan moon and an amber moon. It already fits the universe metaphor, so it's used as-is:
+
+| File | Source / treatment |
+|---|---|
+| `assets/icon.png` (1024², no alpha) | the supplied app icon with its outer black margin trimmed; iOS's own corner mask hides the remaining corners |
+| `assets/adaptive-icon.png` (1024²) | the Z + orbit scaled into Android's 66 % safe zone and feathered onto `#06223D` (also `adaptiveIcon.backgroundColor`), so circle/squircle masks never clip the moons |
+| `assets/splash.png` (852×1846) | the supplied splash, unchanged, `resizeMode: cover` on `#000722` |
+
+The mark's teal/blue/orange is a **brand** palette. In-app UI chrome stays on the violet/ion tokens above. Don't recolour UI to match the logo, and don't recolour the logo to match the UI.
+
 ### 3.2 Typography
 
 | Use | Font | Size / tracking |
@@ -301,6 +313,5 @@ All shapes come from the real API (`apps/mobile/src/lib/api.ts`; the original sc
 
 - **Auth model:** the app still signs in with email/password (`POST /api/auth/login`), which only works for legacy password accounts; Clerk-created users have no password. Moving mobile to Clerk is out of scope for the redesign (see `docs/mobile/BACKEND_API_MAP.md`).
 - **Strategic status:** `docs/mobile/DECISIONS.md` D-01 proposes superseding `apps/mobile` with a native Kotlin/Compose app (`apps/android`), pending product-owner approval. If that happens, port this design language: Compose `graphicsLayer { rotationX; cameraDistance }` covers the 3D transforms, and the orbit engine's projection math (§6) carries over unchanged.
-- **Assets:** `app.json` references `assets/icon.png`, `assets/splash.png`, `assets/adaptive-icon.png`, which do not exist yet. Design them in the Universe style (the ringed Ignition planet on `#03040B`).
 - Not yet built: per-message "Zuri noticed" insights beyond `requiresResponse`, Advisor chat (the core), Calendar, and push notifications.
 - Not verified on a physical device in this pass — validated by typecheck and a full Metro/Hermes Android export only.

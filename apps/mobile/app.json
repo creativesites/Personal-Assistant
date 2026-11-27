@@ -8,17 +8,22 @@
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#03040B"
+      "resizeMode": "cover",
+      "backgroundColor": "#000722"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.zuri.app"
+      "bundleIdentifier": "com.zuri.app",
+      "splash": {
+        "image": "./assets/splash.png",
+        "resizeMode": "cover",
+        "backgroundColor": "#000722"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#03040B"
+        "backgroundColor": "#06223D"
       },
       "package": "com.zuri.app"
     },

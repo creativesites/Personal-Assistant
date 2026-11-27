@@ -782,7 +782,8 @@ See `docs/MOBILE_UNIVERSE_DESIGN.md` (full spec) and `apps/mobile/CLAUDE.md` (ag
 - **Dependencies added:** `react-native-svg`, `expo-linear-gradient`, `expo-haptics`, `expo-font`, `@expo-google-fonts/inter` + `space-grotesk` (only 7 weights bundled, each required individually in `App.tsx`). Deliberately **no** reanimated/skia/blur/Lottie.
 - **API client fixed in the same pass:** `src/lib/api.ts` now matches the real response envelopes (`{conversations}`, `{contacts}`, `{suggestions}`, nested `contact`/`relationship`), proactive launch uses the real `POST /api/proactive/:id/send`, manual send uses `POST /api/conversations/:id/messages`, and `lib/socket.ts` authenticates with the raw JWT string the API's socket handler expects (it previously sent an object and never joined the user room).
 - **Verify mobile changes with** `cd apps/mobile && npx tsc --noEmit && npx expo export --platform android`.
-- **Known gaps:** email/password auth (doesn't work for Clerk-only accounts), missing `assets/` icon/splash, and `docs/mobile/DECISIONS.md` D-01 (a pending proposal to replace this app with native Kotlin/Compose). If D-01 is approved, carry the Universe design language over (design doc §11).
+- **Launch assets:** `apps/mobile/assets/` has the Zuri Z-in-orbit app icon, an Android adaptive icon (logo inside the 66% safe zone on `#06223D`), and the splash (`cover` on `#000722`). See design doc §3.1b.
+- **Known gaps:** email/password auth (doesn't work for Clerk-only accounts), and `docs/mobile/DECISIONS.md` D-01 (a pending proposal to replace this app with native Kotlin/Compose). If D-01 is approved, carry the Universe design language over (design doc §11).
 
 ---
 
@@ -903,7 +904,7 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 | 11 — Enterprise Features | ⏳ Planned |
 | — Business Workspace (Documents — quotations/invoices/proposals/contracts) | ✅ Complete (Phases 0–4) |
 | — Kotlin Companion App | ✅ Built |
-| — React Native Mobile | 🔄 Zuri Universe redesign shipped (5 screens); Clerk auth + assets remaining |
+| — React Native Mobile | 🔄 Zuri Universe redesign shipped (5 screens, icon + splash); Clerk auth remaining |
 
 **What's been built:**
 - [x] Full monorepo scaffold (Turborepo + npm workspaces)

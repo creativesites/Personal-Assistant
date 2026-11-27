@@ -44,4 +44,5 @@ src/
 
 ## Context
 - `docs/mobile/` holds a separate, pending proposal (D-01) to replace this app with native Kotlin/Compose. Until that's approved, this app is live work. If it's approved, the Universe design language carries over (design doc §11).
+- Launch assets live in `assets/` (icon, Android adaptive icon, splash). See design doc §3.1b before replacing them.
 - Auth is still email/password (`/api/auth/login`), which doesn't work for Clerk-only accounts. This is a known gap.
