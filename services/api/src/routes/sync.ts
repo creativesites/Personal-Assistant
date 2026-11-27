@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { getEffectiveScope } from '../lib/org-scope';
+import { avatarTag } from './sync-avatars';
 
 const FAILED_TRANSCRIPT = '[Audio voice message]';
 const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'document', 'sticker']);
@@ -175,6 +176,8 @@ function contactShape(r: Row) {
     isGroup: Boolean(r.is_group),
     isBusiness: Boolean(r.is_business),
     hasAvatar: Boolean(r.avatar_url),
+    // Changes whenever the picture does; matches the avatar endpoint's ETag.
+    avatarTag: r.avatar_url ? avatarTag(r.avatar_url) : null,
     lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).getTime() : null,
   };
 }

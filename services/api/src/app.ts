@@ -10,6 +10,7 @@ import { whatsappRoutes } from './routes/whatsapp';
 import { conversationsRoutes } from './routes/conversations';
 import { zuriPanelRoutes } from './routes/zuri-panel';
 import { syncRoutes } from './routes/sync';
+import { syncAvatarRoutes } from './routes/sync-avatars';
 import { contactsRoutes } from './routes/contacts';
 import { proactiveRoutes } from './routes/proactive';
 import { suggestionsRoutes } from './routes/suggestions';
@@ -132,6 +133,7 @@ export async function buildApp() {
   await fastify.register(conversationsRoutes);
   await fastify.register(zuriPanelRoutes);
   await fastify.register(syncRoutes);
+  await fastify.register(syncAvatarRoutes);
   await fastify.register(contactsRoutes);
   await fastify.register(proactiveRoutes);
   await fastify.register(suggestionsRoutes);

@@ -175,8 +175,18 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
 ### Contact
 ```ts
 { id; jid; phone: string | null; name: string | null; savedName: string | null; pushName: string | null;
-  isGroup: boolean; isBusiness: boolean; hasAvatar: boolean; lastSeenAt: number | null }
+  isGroup: boolean; isBusiness: boolean; hasAvatar: boolean;
+  avatarTag: string | null;   // changes when the picture changes; equals the avatar ETag
+  lastSeenAt: number | null }
 ```
+
+### `GET /api/sync/contacts/:id/avatar`
+
+Returns the contact's WhatsApp profile picture as `image/jpeg`. Send `If-None-Match: "<avatarTag>"` to get a 304 while it's unchanged; the response carries the `ETag`.
+
+- Returns 404 `no_avatar` when the contact has no picture, or when WhatsApp no longer has it.
+- The server caches the bytes. When WhatsApp's link has expired, the server fetches a fresh one. This updates the contact, so the feed re-sends it with a new `avatarTag`.
+- Refetch only when `avatarTag` changes.
 
 ## Media
 
@@ -197,7 +207,6 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
 - **G4:** idempotent sends from the phone.
 - **G5:** reconciling notification-captured messages with these rows.
 - **G7:** FCM tickles.
-- **Avatars:** there is no avatar bytes endpoint in this contract yet.
 - **Statuses and calls** are not synced.
 
 ## Scaling note
