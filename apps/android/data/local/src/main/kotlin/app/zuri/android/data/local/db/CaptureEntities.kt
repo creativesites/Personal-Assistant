@@ -71,6 +71,9 @@ data class ConversationEntity(
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     /** The owner turned on auto-replies for this chat (D-22). Never for groups. */
     @ColumnInfo(name = "auto_reply", defaultValue = "0") val autoReply: Boolean = false,
+    /** Cloud sync (D-21): the server contact behind this chat, and the change_seq last applied. */
+    @ColumnInfo(name = "remote_contact_id") val remoteContactId: String? = null,
+    @ColumnInfo(name = "remote_seq") val remoteSeq: Long? = null,
 )
 
 @Entity(
@@ -81,6 +84,8 @@ data class ConversationEntity(
         Index(value = ["conversation_id", "fingerprint"]),
         Index(value = ["conversation_id", "sender_key", "sent_at"]),
         Index("source_package"),
+        Index("remote_id"),
+        Index(value = ["conversation_id", "wa_id"]),
     ],
 )
 data class MessageEntity(
@@ -114,6 +119,58 @@ data class MessageEntity(
     @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     /** When perception last read this message; cleared when its text changes so it is read again. */
     @ColumnInfo(name = "perceived_at") val perceivedAt: Long? = null,
+    // ── Cloud sync (D-21, docs/SYNC_FEED.md). Null/false for messages captured from notifications. ──
+    /** WhatsApp's own message id. */
+    @ColumnInfo(name = "wa_id") val waId: String? = null,
+    /** Server arrival order: display order is (sent_at, sort_order). */
+    @ColumnInfo(name = "sort_order") val sortOrder: Long? = null,
+    @ColumnInfo(name = "remote_seq") val remoteSeq: Long? = null,
+    /** sending / sent / delivered / read / failed, for the owner's own messages. */
+    @ColumnInfo(name = "delivery_status") val deliveryStatus: String? = null,
+    /** JSON snapshots (CloudJson): the quoted message, media details, reactions, location. */
+    val quoted: String? = null,
+    val media: String? = null,
+    val reactions: String? = null,
+    val location: String? = null,
+    @ColumnInfo(defaultValue = "0") val forwarded: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
+)
+
+/** Cloud contacts (sync feed); they name cloud conversations. */
+@Entity(tableName = "cloud_contact", indices = [Index("jid")])
+data class CloudContactEntity(
+    @PrimaryKey val id: String,
+    val jid: String,
+    val phone: String?,
+    val name: String?,
+    @ColumnInfo(name = "saved_name") val savedName: String?,
+    @ColumnInfo(name = "push_name") val pushName: String?,
+    @ColumnInfo(name = "is_group") val isGroup: Boolean,
+    @ColumnInfo(name = "is_business") val isBusiness: Boolean,
+    val seq: Long,
+) {
+    /** The name to show: the owner's saved name, then the server's name, then WhatsApp's push name. */
+    fun displayName(): String? = savedName?.takeIf { it.isNotBlank() } ?: name?.takeIf { it.isNotBlank() } ?: pushName?.takeIf { it.isNotBlank() }
+}
+
+/** A cloud message whose chat hasn't arrived from the feed yet; applied once it does. */
+@Entity(tableName = "cloud_pending_message", indices = [Index("conversation_remote_id")])
+data class CloudPendingMessageEntity(
+    @PrimaryKey @ColumnInfo(name = "remote_id") val remoteId: String,
+    @ColumnInfo(name = "conversation_remote_id") val conversationRemoteId: String,
+    val seq: Long,
+    val json: String,
+)
+
+/** A downloaded media file, kept encrypted under filesDir/media (D-21). Evicted least-recently-used. */
+@Entity(tableName = "media_file", indices = [Index("last_used_at")])
+data class MediaFileEntity(
+    @PrimaryKey @ColumnInfo(name = "message_id") val messageId: String,
+    val path: String,
+    val bytes: Long,
+    val mime: String?,
+    @ColumnInfo(name = "saved_at") val savedAt: Long,
+    @ColumnInfo(name = "last_used_at") val lastUsedAt: Long,
 )
 
 /** A conversation row with its latest message, for the Inbox list. */

@@ -24,14 +24,15 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         ConversationInsightEntity::class, DraftFeedbackEntity::class,
         MessageEmbeddingEntity::class,
         WorkspaceRuleEntity::class, ContextLedgerEntity::class,
+        CloudContactEntity::class, MediaFileEntity::class, CloudPendingMessageEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4, spec = Migration3To4::class),
         AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7),
-        AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
     ],
 )
 abstract class ZuriDatabase : RoomDatabase() {
@@ -48,6 +49,7 @@ abstract class ZuriDatabase : RoomDatabase() {
     abstract fun insightDao(): InsightDao
     abstract fun embeddingDao(): EmbeddingDao
     abstract fun workspaceMoveDao(): WorkspaceMoveDao
+    abstract fun cloudSyncDao(): CloudSyncDao
 
     companion object {
         const val FILE_NAME = "zuri.db"

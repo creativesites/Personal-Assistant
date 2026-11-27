@@ -51,7 +51,55 @@ data class InboxMessage(
     val sentAtMillis: Long,
     val edited: Boolean,
     val provenance: Provenance,
+    /** What only the cloud copy carries (D-21); null/empty for notification captures. */
+    val cloud: CloudDetail? = null,
 )
+
+/** WhatsApp detail from the sync feed: media, the quoted message, reactions, ticks, location. */
+data class CloudDetail(
+    val media: MessageMedia? = null,
+    val quoted: QuotedMessage? = null,
+    val reactions: List<Reaction> = emptyList(),
+    val status: DeliveryStatus? = null,
+    val location: GeoPoint? = null,
+    val forwarded: Boolean = false,
+    val starred: Boolean = false,
+)
+
+enum class MediaKind { IMAGE, VIDEO, AUDIO, DOCUMENT, STICKER }
+
+data class MessageMedia(
+    val kind: MediaKind,
+    val mime: String?,
+    val sizeBytes: Long?,
+    val width: Int?,
+    val height: Int?,
+    val seconds: Double?,
+    val voiceNote: Boolean,
+    val gif: Boolean,
+    val fileName: String?,
+    val pageCount: Int?,
+    /** A tiny JPEG (base64) to show, blurred, before the file is downloaded. */
+    val thumbnailBase64: String?,
+    /** False when WhatsApp no longer has the file. */
+    val available: Boolean,
+)
+
+data class QuotedMessage(
+    /** The local message, when it is on this phone (tap to jump to it). */
+    val localId: MessageId?,
+    val fromMe: Boolean?,
+    val senderName: String?,
+    val text: String?,
+    val placeholder: PlaceholderKind?,
+    val deleted: Boolean,
+)
+
+data class Reaction(val emoji: String, val fromMe: Boolean)
+
+enum class DeliveryStatus { SENDING, SENT, DELIVERED, READ, FAILED }
+
+data class GeoPoint(val lat: Double, val lng: Double, val name: String?, val address: String?)
 
 /** Where a message came from; shown on request so every stored line can be traced. */
 data class Provenance(

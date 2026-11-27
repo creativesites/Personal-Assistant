@@ -65,6 +65,7 @@ import app.zuri.android.domain.inbox.ReplyResult
 import app.zuri.android.domain.inbox.SentFromZuri
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.foundation.layout.imePadding
+import kotlinx.coroutines.launch
 
 /** P03 Conversation detail (read-only in M2): bubbles, honest placeholders, per-message provenance. */
 @Composable
@@ -73,6 +74,8 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
     val auto by viewModel.autoReply.collectAsStateWithLifecycle()
     val insight by viewModel.insight.collectAsStateWithLifecycle()
     val allWorkspaces by viewModel.allWorkspaces.collectAsStateWithLifecycle()
+    val media by viewModel.media.collectAsStateWithLifecycle()
+    val older by viewModel.older.collectAsStateWithLifecycle()
     val detail = state.detail
     LaunchedEffect(detail?.summary?.unreadCount) { if ((detail?.summary?.unreadCount ?: 0) > 0) viewModel.markRead() }
     LaunchedEffect(state.loading, detail == null) { if (!state.loading && detail == null) onBack() }
@@ -86,6 +89,10 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
         autoReplyOn = auto.enabled && !detail.summary.isGroup,
         insight = insight,
         onSummarize = viewModel::summarize,
+        media = media,
+        onOpenMedia = viewModel::openMedia,
+        older = older,
+        onLoadOlder = viewModel::loadOlder,
         moveSheet = if (allWorkspaces.size > 1) { close ->
             MoveContent(allWorkspaces, detail.summary.workspaceId, preview = viewModel::movePreview, onMove = { viewModel.moveTo(it); close() }, onCancel = close)
         } else null,
@@ -125,8 +132,15 @@ fun ConversationContent(
     insight: InsightState? = null,
     onSummarize: () -> Unit = {},
     moveSheet: (@Composable (close: () -> Unit) -> Unit)? = null,
+    media: Map<String, MediaUi> = emptyMap(),
+    onOpenMedia: (MessageId, Boolean) -> Unit = { _, _ -> },
+    older: OlderState = OlderState(exhausted = true),
+    onLoadOlder: () -> Unit = {},
     composer: @Composable () -> Unit = {},
 ) {
+    var viewing by remember { mutableStateOf<Pair<MediaUi.Ready, app.zuri.android.domain.inbox.MediaKind>?>(null) }
+    var highlight by remember { mutableStateOf<MessageId?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var showAuto by remember { mutableStateOf(false) }
     var showInsight by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
@@ -163,14 +177,34 @@ fun ConversationContent(
         }
         if (insight != null && insight.insight.worthAStrip()) InsightStrip(insight.insight) { showInsight = true }
         val list = rememberLazyListState(initialFirstVisibleItemIndex = (detail.messages.size - 1).coerceAtLeast(0))
-        LaunchedEffect(detail.messages.size) { if (detail.messages.isNotEmpty()) list.animateScrollToItem(detail.messages.size - 1) }
+        // Follow the newest message only when a new one arrives at the bottom (older history loads above).
+        val lastId = detail.messages.lastOrNull()?.id
+        LaunchedEffect(lastId) { if (detail.messages.isNotEmpty()) list.animateScrollToItem(detail.messages.size - 1) }
+        // Scrolled to the top of what's on the phone: fetch the next older page from the cloud.
+        val atTop by remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex <= 2 } }
+        LaunchedEffect(atTop, detail.messages.size) { if (atTop) onLoadOlder() }
+        val indexOf = remember(detail.messages) { detail.messages.withIndex().associate { it.value.id to it.index } }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+            if (older.loading) item(key = "older") {
+                Text(stringResource(R.string.load_older), style = MaterialTheme.typography.labelMedium, color = Zuri.colors.muted,
+                    modifier = Modifier.fillMaxWidth().padding(8.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
             items(detail.messages.indices.toList(), key = { detail.messages[it].id.value }) { i ->
                 val m = detail.messages[i]
                 val prev = detail.messages.getOrNull(i - 1)
                 if (prev == null || !time.sameDay(prev.sentAtMillis, m.sentAtMillis)) DayLabel(time.day(m.sentAtMillis, stringResource(R.string.today), stringResource(R.string.yesterday)))
-                val showSender = s.isGroup && m.direction == Direction.INCOMING && (prev == null || prev.senderName != m.senderName || prev.direction != m.direction)
-                Bubble(m, showSender, time) { selected = m }
+                val sameAuthor = prev != null && prev.direction == m.direction && prev.senderName == m.senderName && time.sameDay(prev.sentAtMillis, m.sentAtMillis)
+                val showSender = s.isGroup && m.direction == Direction.INCOMING && !sameAuthor
+                Bubble(
+                    m, showSender, time, grouped = sameAuthor, highlighted = highlight == m.id,
+                    media = media[m.id.value],
+                    onOpenMedia = { force -> onOpenMedia(m.id, force) },
+                    onViewMedia = { r, k -> viewing = r to k },
+                    onJumpToQuote = m.cloud?.quoted?.localId?.let { target -> indexOf[target]?.let { idx -> {
+                        highlight = target
+                        scope.launch { list.animateScrollToItem(idx + if (older.loading) 1 else 0); kotlinx.coroutines.delay(1600); highlight = null }
+                    } } },
+                ) { selected = m }
             }
         }
         Box(Modifier.navigationBarsPadding().imePadding()) { composer() }
@@ -196,6 +230,7 @@ fun ConversationContent(
     if (showAuto && autoReplySheet != null) {
         ModalBottomSheet(onDismissRequest = { showAuto = false }) { autoReplySheet() }
     }
+    viewing?.let { (r, k) -> MediaViewer(r, k) { viewing = null } }
     selected?.let { m ->
         ModalBottomSheet(onDismissRequest = { selected = null }) {
             MessageInfoContent(m, sourceName, time, onDelete = { selected = null; confirmMessage = m }, onClose = { selected = null })
@@ -232,41 +267,75 @@ private fun DayLabel(text: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(m: InboxMessage, showSender: Boolean, time: TimeContext, onLongPress: () -> Unit) {
+private fun Bubble(
+    m: InboxMessage, showSender: Boolean, time: TimeContext,
+    grouped: Boolean = false, highlighted: Boolean = false,
+    media: MediaUi? = null, onOpenMedia: (Boolean) -> Unit = {}, onViewMedia: (MediaUi.Ready, app.zuri.android.domain.inbox.MediaKind) -> Unit = { _, _ -> },
+    onJumpToQuote: (() -> Unit)? = null,
+    onLongPress: () -> Unit,
+) {
     val mine = m.direction == Direction.OUTGOING
     val c = Zuri.colors
-    val bg = if (mine) c.ctxWeak else c.surface2
-    val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = if (mine) 18.dp else 6.dp, bottomEnd = if (mine) 6.dp else 18.dp)
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+    val bg = when {
+        highlighted -> c.ctx.copy(alpha = 0.25f)
+        mine -> c.ctxWeak
+        else -> c.surface2
+    }
+    val tail = if (grouped) 18.dp else 6.dp
+    val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = if (mine) 18.dp else tail, bottomEnd = if (mine) tail else 18.dp)
+    val cloud = m.cloud
+    Column(Modifier.fillMaxWidth().padding(top = if (grouped) 1.dp else 4.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
         Column(
             Modifier.widthIn(max = 300.dp).clip(shape).background(bg)
                 .combinedClickable(onClick = onLongPress, onLongClick = onLongPress)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 7.dp),
         ) {
-            if (showSender && m.senderName != null) Text(m.senderName!!, style = MaterialTheme.typography.labelLarge, color = c.ctx)
+            if (showSender && m.senderName != null) Text(m.senderName!!, style = MaterialTheme.typography.labelLarge, color = senderColor(m.senderName!!))
+            if (cloud?.forwarded == true) Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, color = c.muted, fontStyle = FontStyle.Italic)
+            cloud?.quoted?.let { QuoteBlock(it, mine, onJumpToQuote) }
             val ph = m.placeholder
-            if (ph == PlaceholderKind.REACTION) {
-                Text(stringResource(R.string.reacted, m.placeholderDetail.orEmpty()), style = MaterialTheme.typography.bodyLarge, color = c.muted)
-            } else if (ph != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(ph.icon(), null, tint = c.muted, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text(
-                        listOfNotNull(stringResource(ph.label()), m.placeholderDetail).joinToString(" · "),
-                        style = MaterialTheme.typography.bodyMedium, color = c.muted, fontStyle = FontStyle.Italic,
-                    )
+            val richMedia = cloud?.media
+            when {
+                ph == PlaceholderKind.REACTION -> Text(stringResource(R.string.reacted, m.placeholderDetail.orEmpty()), style = MaterialTheme.typography.bodyLarge, color = c.muted)
+                ph == PlaceholderKind.DELETED -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(ph.icon(), null, tint = c.muted, modifier = Modifier.size(16.dp)); Spacer(Modifier.size(6.dp))
+                    Text(stringResource(ph.label()), style = MaterialTheme.typography.bodyMedium, color = c.muted, fontStyle = FontStyle.Italic)
                 }
-                if (m.text != null) { Spacer(Modifier.height(4.dp)); Text(m.text!!, style = MaterialTheme.typography.bodyLarge) }
-            } else {
-                Text(m.text.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                richMedia != null -> {
+                    MediaBlock(richMedia, media, onOpenMedia, onViewMedia)
+                    // A voice note's transcript, or a photo's caption.
+                    m.text?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                }
+                cloud?.location != null -> LocationBlock(cloud.location!!)
+                ph != null -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(ph.icon(), null, tint = c.muted, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            listOfNotNull(stringResource(ph.label()), m.placeholderDetail).joinToString(" · "),
+                            style = MaterialTheme.typography.bodyMedium, color = c.muted, fontStyle = FontStyle.Italic,
+                        )
+                    }
+                    if (m.text != null) { Spacer(Modifier.height(4.dp)); Text(m.text!!, style = MaterialTheme.typography.bodyLarge) }
+                }
+                else -> Text(m.text.orEmpty(), style = MaterialTheme.typography.bodyLarge)
             }
             Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                if (m.provenance.adapterVersion == SentFromZuri.AUTO_REPLY) Text(stringResource(R.string.auto_badge) + " · ", style = MaterialTheme.typography.labelSmall, color = c.ctx)
+                if (m.provenance.adapterVersion == SentFromZuri.AUTO_REPLY && cloud == null) Text(stringResource(R.string.auto_badge) + " · ", style = MaterialTheme.typography.labelSmall, color = c.ctx)
                 if (m.edited) Text(stringResource(R.string.edited) + " · ", style = MaterialTheme.typography.labelSmall, color = c.faint)
                 Text(time.time(m.sentAtMillis), style = MaterialTheme.typography.labelSmall, color = c.faint)
+                if (mine) Ticks(cloud?.status)
             }
         }
+        if (!cloud?.reactions.isNullOrEmpty()) ReactionChips(cloud!!.reactions, mine)
     }
+}
+
+/** A stable colour per group participant, like WhatsApp. */
+@Composable
+private fun senderColor(name: String): androidx.compose.ui.graphics.Color {
+    val palette = listOf(0xFF6366F1, 0xFF0EA5E9, 0xFF10B981, 0xFFF59E0B, 0xFFEC4899, 0xFF8B5CF6, 0xFF14B8A6, 0xFFEF4444)
+    return androidx.compose.ui.graphics.Color(palette[(name.hashCode() and 0x7fffffff) % palette.size])
 }
 
 /** Long-press sheet: where this exact message came from, and deletion. */

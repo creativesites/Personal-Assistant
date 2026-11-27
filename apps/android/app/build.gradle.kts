@@ -18,8 +18,8 @@ android {
         applicationId = "app.zuri.android"
         minSdk = providers.gradleProperty("zuri.minSdk").get().toInt()
         targetSdk = providers.gradleProperty("zuri.targetSdk").get().toInt()
-        versionCode = 3
-        versionName = "0.3.0-m3"
+        versionCode = 5
+        versionName = "0.5.0-m5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // On-device evals run against the installed app and its downloaded model only when asked for.
         // arm64 only (DECISIONS.md D-15): on-device models need it, and it keeps the APK small.
@@ -55,6 +55,8 @@ dependencies {
     implementation(project(":core:ui"))
     implementation(project(":core:security"))
     implementation(project(":data:local"))
+    implementation(project(":data:remote"))
+    implementation(project(":engine:sync"))
     implementation(project(":feature:onboarding"))
     implementation(project(":feature:today"))
     implementation(project(":feature:settings"))

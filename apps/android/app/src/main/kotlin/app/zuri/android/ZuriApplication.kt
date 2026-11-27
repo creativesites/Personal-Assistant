@@ -1,5 +1,9 @@
 package app.zuri.android
 
+import androidx.lifecycle.lifecycleScope
+import app.zuri.android.data.remote.ClerkAuth
+import app.zuri.android.engine.sync.CloudSyncImpl
+
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -22,11 +26,16 @@ class ZuriApplication : Application() {
     @Inject lateinit var capture: Lazy<CaptureStatusProvider>
     @Inject lateinit var perception: Lazy<AndroidPerceptionControls>
     @Inject lateinit var autoReplies: Lazy<AndroidAutoReplies>
+    @Inject lateinit var cloudSync: Lazy<CloudSyncImpl>
 
     override fun onCreate() {
         super.onCreate()
         // The model's process (core-ai LlmService) runs no app code: no lock, no capture, no database.
         if (getProcessName().endsWith(":llm")) return
+        // Cloud account (M7): Clerk keeps its own session; Zuri exchanges it for this phone's session.
+        ClerkAuth.initialize(this)
+        @OptIn(DelicateCoroutinesApi::class)
+        GlobalScope.launch { cloudSync.get().schedule() }
         // Hourly understanding of new messages (kept if already scheduled).
         @OptIn(DelicateCoroutinesApi::class)
         GlobalScope.launch { perception.get().schedule() }
@@ -35,8 +44,13 @@ class ZuriApplication : Application() {
         autoReplies.get().start(GlobalScope)
         // App lock timing follows the whole process, not individual screens.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStop(owner: LifecycleOwner) = appLock.get().onBackgrounded()
+            override fun onStop(owner: LifecycleOwner) {
+                appLock.get().onBackgrounded()
+                cloudSync.get().onBackground()
+            }
             override fun onStart(owner: LifecycleOwner) {
+                // While Zuri is open, new cloud messages show up within seconds (D-21).
+                cloudSync.get().onForeground(owner.lifecycleScope)
                 appLock.get().onForegrounded()
                 // Re-reads notification access and, when granted, starts ingest (picks up pending captures).
                 capture.get().refresh()

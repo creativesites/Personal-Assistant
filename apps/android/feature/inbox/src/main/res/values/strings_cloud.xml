@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quoted_someone">Someone</string>
+    <string name="media_unavailable">No longer on WhatsApp</string>
+    <string name="media_download">Download</string>
+    <string name="media_retry">Tap to retry</string>
+    <string name="media_pause">Pause</string>
+    <string name="media_play">Play</string>
+    <string name="media_pages">%1$d pages</string>
+    <string name="load_older">Loading earlier messages…</string>
+    <string name="forwarded">Forwarded</string>
+    <string name="jump_latest">Latest</string>
+</resources>

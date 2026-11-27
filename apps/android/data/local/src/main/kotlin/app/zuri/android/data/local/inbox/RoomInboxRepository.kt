@@ -4,6 +4,14 @@ import androidx.room.withTransaction
 import app.zuri.android.core.common.Clock
 import app.zuri.android.core.common.UuidV7
 import app.zuri.android.data.local.db.CaptureExclusionEntity
+import app.zuri.android.data.local.db.CloudJson
+import app.zuri.android.domain.inbox.CloudDetail
+import app.zuri.android.domain.inbox.DeliveryStatus
+import app.zuri.android.domain.inbox.GeoPoint
+import app.zuri.android.domain.inbox.MediaKind
+import app.zuri.android.domain.inbox.MessageMedia
+import app.zuri.android.domain.inbox.QuotedMessage
+import app.zuri.android.domain.inbox.Reaction
 import app.zuri.android.data.local.db.ConversationRow
 import app.zuri.android.data.local.db.MessageEntity
 import app.zuri.android.data.local.db.ZuriDatabase
@@ -51,7 +59,12 @@ class RoomInboxRepository(private val db: ZuriDatabase, private val clock: Clock
                         lastPlaceholder = last?.placeholderKind?.toPlaceholder(), lastSenderName = last?.senderName,
                         lastFromMe = last?.direction == Direction.OUTGOING.name, unreadCount = c.unreadCount, messageCount = list.size,
                     )
-                    ConversationDetail(summary, list.map { it.toDomain(kind) }, excluded)
+                    ConversationDetail(summary, list.let { all ->
+                        // Quotes link to the local copy of the quoted message when it is on the phone.
+                        val byRemote = all.mapNotNull { m -> m.remoteId?.let { it to m.id } }.toMap()
+                        val byWa = all.mapNotNull { m -> m.waId?.let { it to m.id } }.toMap()
+                        all.map { it.toDomain(kind) { q -> (q.remoteId?.let(byRemote::get) ?: byWa[q.waId])?.let(::MessageId) } }
+                    }, excluded)
                 }
             }
         }
@@ -108,10 +121,31 @@ private fun ConversationRow.toDomain(): ConversationSummary? {
     )
 }
 
-private fun MessageEntity.toDomain(kind: SourceKind) = InboxMessage(
+private fun MessageEntity.toDomain(kind: SourceKind, localOf: (CloudJson.Quoted) -> MessageId? = { null }) = InboxMessage(
     id = MessageId(id),
     direction = if (direction == Direction.OUTGOING.name) Direction.OUTGOING else Direction.INCOMING,
     senderName = senderName, text = text, placeholder = placeholderKind?.toPlaceholder(), placeholderDetail = placeholderDetail,
     sentAtMillis = sentAt, edited = edited,
     provenance = Provenance(kind, sourcePackage, capturedAt, notificationPostedAt, adapterVersion),
+    cloud = if (remoteId == null) null else cloudDetail(localOf),
+)
+
+private fun MessageEntity.cloudDetail(localOf: (CloudJson.Quoted) -> MessageId?): CloudDetail = CloudDetail(
+    media = CloudJson.media(media)?.let { m ->
+        MessageMedia(
+            kind = when (m.kind) { "image" -> MediaKind.IMAGE; "video" -> MediaKind.VIDEO; "audio" -> MediaKind.AUDIO; "sticker" -> MediaKind.STICKER; else -> MediaKind.DOCUMENT },
+            mime = m.mime, sizeBytes = m.size, width = m.width, height = m.height, seconds = m.seconds, voiceNote = m.voiceNote,
+            gif = m.gif, fileName = m.fileName, pageCount = m.pageCount, thumbnailBase64 = m.thumbnail, available = m.available,
+        )
+    },
+    quoted = CloudJson.quoted(quoted)?.let { q ->
+        QuotedMessage(
+            localId = localOf(q), fromMe = q.fromMe, senderName = q.senderName, text = q.text, deleted = q.deleted,
+            placeholder = when (q.type) { "image" -> PlaceholderKind.PHOTO; "video" -> PlaceholderKind.VIDEO; "audio" -> PlaceholderKind.VOICE_NOTE; "document" -> PlaceholderKind.DOCUMENT; "sticker" -> PlaceholderKind.STICKER; "location" -> PlaceholderKind.LOCATION; else -> null },
+        )
+    },
+    reactions = CloudJson.reactions(reactions).map { Reaction(it.emoji, it.fromMe) },
+    status = deliveryStatus?.let { s -> runCatching { DeliveryStatus.valueOf(s.uppercase()) }.getOrNull() },
+    location = CloudJson.location(location)?.let { GeoPoint(it.lat, it.lng, it.name, it.address) },
+    forwarded = forwarded, starred = starred,
 )

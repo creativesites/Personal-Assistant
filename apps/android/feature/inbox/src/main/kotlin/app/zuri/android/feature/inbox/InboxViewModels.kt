@@ -117,7 +117,45 @@ class ConversationViewModel @Inject constructor(
     private val insights: ConversationInsights,
     private val feedback: DraftFeedback,
     private val workspaces: WorkspaceRepository,
+    private val cloudSync: app.zuri.android.domain.cloud.CloudSync,
+    private val cloudMedia: app.zuri.android.domain.cloud.CloudMedia,
 ) : ViewModel() {
+    // ── Cloud (D-21): older history on scroll, media on tap ─────────────────
+    private val _olderState = MutableStateFlow(OlderState())
+    val older: StateFlow<OlderState> = _olderState
+
+    /** Older history for this chat from the server; one page per call. */
+    fun loadOlder() {
+        val s = _olderState.value
+        if (s.loading || s.exhausted) return
+        _olderState.value = s.copy(loading = true)
+        viewModelScope.launch {
+            val more = cloudSync.loadOlder(id.value)
+            _olderState.value = OlderState(loading = false, exhausted = !more)
+        }
+    }
+
+    private val _media = MutableStateFlow<Map<String, MediaUi>>(emptyMap())
+    val media: StateFlow<Map<String, MediaUi>> = _media
+
+    fun openMedia(messageId: MessageId, force: Boolean = false) {
+        val key = messageId.value
+        if (_media.value[key] is MediaUi.Loading) return
+        _media.value = _media.value + (key to MediaUi.Loading)
+        viewModelScope.launch {
+            val r = cloudMedia.open(key, force)
+            _media.value = _media.value + (key to when (r) {
+                is app.zuri.android.domain.cloud.MediaResult.Ready -> MediaUi.Ready(r.path, r.mime)
+                app.zuri.android.domain.cloud.MediaResult.NeedsWifi -> MediaUi.NeedsWifi
+                app.zuri.android.domain.cloud.MediaResult.NotAvailable -> MediaUi.Unavailable
+                app.zuri.android.domain.cloud.MediaResult.NotConnected -> MediaUi.Failed("Connect Zuri cloud in Settings")
+                is app.zuri.android.domain.cloud.MediaResult.Failed -> MediaUi.Failed(r.message)
+            })
+        }
+    }
+
+    init { cloudSync.syncNow() }
+
     val allWorkspaces: StateFlow<List<Workspace>> = workspaces.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** What moving this chat would take with it, for the confirmation. */
@@ -204,4 +242,14 @@ class ConversationViewModel @Inject constructor(
     fun deleteMessage(message: MessageId) = viewModelScope.launch { inbox.deleteMessage(message) }
     fun deleteConversation() = viewModelScope.launch { inbox.deleteConversation(id) }
     fun exclude() = viewModelScope.launch { inbox.excludeConversation(id) }
+}
+
+data class OlderState(val loading: Boolean = false, val exhausted: Boolean = false)
+
+sealed interface MediaUi {
+    data object Loading : MediaUi
+    data class Ready(val path: String, val mime: String?) : MediaUi
+    data object NeedsWifi : MediaUi
+    data object Unavailable : MediaUi
+    data class Failed(val message: String) : MediaUi
 }

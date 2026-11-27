@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Shield
@@ -61,16 +62,17 @@ private fun Chevron() = Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null
 @Composable
 fun SettingsRoute(
     versionName: String, onBack: () -> Unit, onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit,
-    onOpenWorkspaces: () -> Unit = {}, viewModel: SettingsViewModel = hiltViewModel(),
+    onOpenWorkspaces: () -> Unit = {}, onOpenCloud: () -> Unit = {}, viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsContent(state, versionName, onBack, viewModel::setTheme, onOpenSecurity, onOpenPrivacy, onOpenSources, onOpenWorkspaces)
+    SettingsContent(state, versionName, onBack, viewModel::setTheme, onOpenSecurity, onOpenPrivacy, onOpenSources, onOpenWorkspaces, onOpenCloud)
 }
 
 @Composable
 fun SettingsContent(
     state: SettingsState, versionName: String, onBack: () -> Unit, onTheme: (ThemeMode) -> Unit,
     onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, onOpenWorkspaces: () -> Unit = {},
+    onOpenCloud: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         DetailTopBar(stringResource(R.string.settings_title), onBack)
@@ -95,6 +97,11 @@ fun SettingsContent(
                 ZuriListRow(
                     stringResource(R.string.settings_workspaces), supporting = stringResource(R.string.settings_workspaces_s),
                     leading = { IconChip(Icons.Rounded.Storefront) }, trailing = { Chevron() }, onClick = onOpenWorkspaces,
+                )
+            }, {
+                ZuriListRow(
+                    stringResource(R.string.settings_cloud), supporting = stringResource(R.string.settings_cloud_s_off),
+                    leading = { IconChip(Icons.Rounded.Cloud) }, trailing = { Chevron() }, onClick = onOpenCloud,
                 )
             }))
             SectionHeader(stringResource(R.string.settings_privacy_security))

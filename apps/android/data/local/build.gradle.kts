@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.room)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -32,6 +33,7 @@ room { schemaDirectory("$projectDir/schemas") }
 android.sourceSets.getByName("test").assets.srcDir("$projectDir/schemas")
 
 dependencies {
+    implementation(libs.kotlinx.serialization.json)
     api(project(":domain"))
     api(project(":core:common"))
     implementation(project(":core:security"))

@@ -95,4 +95,19 @@ class MigrationTest {
             db.query("SELECT COUNT(*) FROM context_ledger").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
         }
     }
+
+    @Test fun v8ToV9AddsCloudColumnsWithoutTouchingCapturedChats() {
+        helper.createDatabase("migration-test-9", 8).use { db ->
+            db.execSQL("INSERT INTO workspace (id, kind, name, accent, created_at, updated_at, origin, sync_state) VALUES ('ws','PERSONAL','Personal','TEAL',0,0,'DEVICE','LOCAL_ONLY')")
+            db.execSQL("INSERT INTO conversation VALUES ('c1','ws','WHATSAPP','com.whatsapp','s:1@lid','Chanda',0,1,0,0,0,0,'DEVICE',NULL,'LOCAL_ONLY',NULL,0)")
+        }
+        helper.runMigrationsAndValidate("migration-test-9", 9, true).use { db ->
+            db.query("SELECT title, remote_id, remote_contact_id, remote_seq FROM conversation WHERE id = 'c1'").use { c ->
+                c.moveToFirst(); assertThat(c.getString(0)).isEqualTo("Chanda"); assertThat(c.isNull(1)).isTrue(); assertThat(c.isNull(2)).isTrue(); assertThat(c.isNull(3)).isTrue()
+            }
+            listOf("cloud_contact", "media_file", "cloud_pending_message").forEach { t ->
+                db.query("SELECT COUNT(*) FROM $t").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+            }
+        }
+    }
 }

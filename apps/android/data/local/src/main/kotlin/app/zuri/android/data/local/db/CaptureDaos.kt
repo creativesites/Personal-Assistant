@@ -149,7 +149,7 @@ interface MessageDao {
     @Query("UPDATE message SET text = :text, placeholder_kind = :placeholder, placeholder_detail = :detail, fingerprint = :fingerprint, adapter_version = :adapterVersion, updated_at = :now, perceived_at = NULL WHERE id = :id")
     suspend fun reparse(id: String, text: String?, placeholder: String?, detail: String?, fingerprint: String, adapterVersion: Int, now: Long)
 
-    @Query("SELECT * FROM message WHERE conversation_id = :conversationId ORDER BY sent_at, id")
+    @Query("SELECT * FROM message WHERE conversation_id = :conversationId ORDER BY sent_at, COALESCE(sort_order, 0), id")
     fun observeFor(conversationId: String): Flow<List<MessageEntity>>
 
     @Query("DELETE FROM message WHERE id = :id")

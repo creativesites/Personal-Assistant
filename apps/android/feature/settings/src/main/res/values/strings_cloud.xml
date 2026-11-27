@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_cloud">Zuri cloud</string>
+    <string name="settings_cloud_s_off">Bring your full WhatsApp chats and media to this phone</string>
+    <string name="settings_cloud_s_on">Connected as %1$s</string>
+    <string name="cloud_title">Zuri cloud</string>
+    <string name="cloud_subtitle">Full chats, media and history from your Zuri account</string>
+    <string name="cloud_explainer">Connecting signs this phone in to your Zuri account and copies your WhatsApp chats from it: the whole history, photos, voice notes, replies and reactions, in WhatsApp\'s order. Nothing on this phone is uploaded, and no message is sent to a cloud AI.</string>
+    <string name="cloud_google">Continue with Google</string>
+    <string name="cloud_email">Email</string>
+    <string name="cloud_send_code">Email me a code</string>
+    <string name="cloud_code">Code</string>
+    <string name="cloud_verify">Sign in</string>
+    <string name="cloud_code_sent">We sent a code to %1$s.</string>
+    <string name="cloud_connecting">Connecting this phone…</string>
+    <string name="cloud_connected_as">Signed in as</string>
+    <string name="cloud_needs_sign_in">Sign in again</string>
+    <string name="cloud_sync">Sync chats</string>
+    <string name="cloud_sync_s">Keep this phone up to date with your Zuri account</string>
+    <string name="cloud_sync_now">Sync now</string>
+    <string name="cloud_syncing">Syncing…</string>
+    <string name="cloud_importing">Importing your history: %1$s of about %2$s</string>
+    <string name="cloud_last_sync">Last synced %1$s</string>
+    <string name="cloud_never_synced">Not synced yet</string>
+    <string name="cloud_messages">%1$s messages from the cloud on this phone</string>
+    <string name="cloud_media">Media</string>
+    <string name="cloud_wifi_only">Download media on Wi-Fi only</string>
+    <string name="cloud_wifi_only_s">Photos and voice notes still show a preview; tap to download on mobile data</string>
+    <string name="cloud_cache">Downloaded media: %1$s (encrypted)</string>
+    <string name="cloud_clear_cache">Clear</string>
+    <string name="cloud_disconnect">Disconnect this phone</string>
+    <string name="cloud_disconnect_t">Disconnect from Zuri cloud?</string>
+    <string name="cloud_disconnect_b">This phone stops syncing and is signed out. Your chats captured on this phone stay either way.</string>
+    <string name="cloud_keep">Keep cloud chats on this phone</string>
+    <string name="cloud_remove">Also remove cloud chats and media</string>
+    <string name="cloud_cancel">Cancel</string>
+</resources>

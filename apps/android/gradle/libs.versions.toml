@@ -33,6 +33,7 @@ konsist = "0.18.1"
 truth = "1.4.4"
 okhttp = "5.5.1"
 litertlm = "0.20.0"
+clerk = "1.5.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -86,6 +87,7 @@ androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "a
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
 konsist = { module = "com.lemonappdev:konsist", version.ref = "konsist" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+clerk-android-api = { module = "com.clerk:clerk-android-api", version.ref = "clerk" }
 litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlm" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
 

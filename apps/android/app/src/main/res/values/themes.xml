@@ -2,7 +2,7 @@
 <resources>
     <color name="zuri_bg">#F6F7FB</color>
     <color name="zuri_brand">#4F46E5</color>
-    <color name="launcher_bg">#EEF0FB</color>
+    <color name="launcher_bg">#04173A</color>
 
     <style name="Theme.Zuri" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/zuri_bg</item>

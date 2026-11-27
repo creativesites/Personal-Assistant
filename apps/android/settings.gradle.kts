@@ -29,6 +29,8 @@ include(
     ":core:ui",
     ":core:security",
     ":data:local",
+    ":data:remote",
+    ":engine:sync",
     ":engine:ingest",
     ":engine:perception",
     ":engine:retrieval",

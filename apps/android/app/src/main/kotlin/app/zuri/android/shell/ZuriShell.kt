@@ -46,6 +46,7 @@ import app.zuri.android.feature.settings.DocumentsRoute
 import app.zuri.android.feature.settings.WorkspacesRoute
 import app.zuri.android.feature.settings.WorkspaceSettingsRoute
 import app.zuri.android.feature.settings.ContextLedgerRoute
+import app.zuri.android.feature.settings.CloudRoute
 import androidx.compose.material.icons.rounded.Storefront
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Layers
@@ -77,6 +78,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object WorkspacesDest
 @Serializable data class WorkspaceDest(val id: String)
 @Serializable data object ContextLedgerDest
+@Serializable data object CloudDest
 
 private data class Tab(val route: Any, val type: KClass<*>, val icon: ImageVector, val label: Int)
 
@@ -142,6 +144,7 @@ fun ZuriShell(
                     onOpenSecurity = { nav.navigate(SecurityDest) }, onOpenPrivacy = { nav.navigate(PrivacyDest) },
                     onOpenSources = { nav.navigate(SourcesDest) },
                     onOpenWorkspaces = { nav.navigate(WorkspacesDest) },
+                    onOpenCloud = { nav.navigate(CloudDest) },
                 )
             }
         }
@@ -156,6 +159,7 @@ fun ZuriShell(
         composable<DocumentsDest> { RootFrame(nav, state, { switcherOpen = true }) { DocumentsRoute(onOpenWorkspace = { nav.navigate(WorkspaceDest(it.value)) }) } }
         composable<WorkspacesDest> { Detail { WorkspacesRoute(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(WorkspaceDest(it.value)) }) } }
         composable<WorkspaceDest> { entry -> Detail { WorkspaceSettingsRoute(id = entry.toRoute<WorkspaceDest>().id, onBack = { nav.popBackStack() }) } }
+        composable<CloudDest> { Detail { CloudRoute(onBack = { nav.popBackStack() }) } }
         composable<ContextLedgerDest> { Detail { ContextLedgerRoute(onBack = { nav.popBackStack() }) } }
         composable<SecurityDest> { Detail { SecurityRoute(onBack = { nav.popBackStack() }) } }
         composable<PrivacyDest> { Detail { PrivacyCenterRoute(onBack = { nav.popBackStack() }, onOpenLedger = { nav.navigate(LedgerDest) }, onOpenContextLedger = { nav.navigate(ContextLedgerDest) }) } }
