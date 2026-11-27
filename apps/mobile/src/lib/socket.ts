@@ -15,7 +15,8 @@ export async function getSocket(): Promise<Socket> {
   });
 
   socket.on('connect', () => {
-    if (token) socket!.emit('authenticate', { token });
+    // The API's socket handler expects the raw JWT string, not an object.
+    if (token) socket!.emit('authenticate', token);
   });
 
   return socket;

@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { api } from '../lib/api';
 import { storage } from '../lib/storage';
+import { disconnectSocket } from '../lib/socket';
 
 interface AuthState {
   token: string | null;
@@ -43,6 +44,7 @@ export function useAuthProvider(): AuthContext {
   };
 
   const logout = async () => {
+    disconnectSocket();
     await storage.clearToken();
     setState({ token: null, userId: null, loading: false });
   };

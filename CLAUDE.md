@@ -24,7 +24,7 @@ Working title: **Zuri** (placeholder — rename before launch).
 /
 ├── apps/
 │   ├── web/            Next.js SaaS dashboard + marketing (→ Vercel)
-│   ├── mobile/         React Native + Expo (lower priority — mirrors web)
+│   ├── mobile/         React Native + Expo — "Zuri Universe" 3D/animated design (see apps/mobile/CLAUDE.md)
 │   └── companion/      Kotlin Android background notification relay
 ├── services/
 │   ├── api/            Node.js (Fastify) — REST + WebSocket API server
@@ -40,7 +40,8 @@ Working title: **Zuri** (placeholder — rename before launch).
 │   ├── ROADMAP.md          Phased build plan and current status
 │   ├── SCHEMA.md           Database schema reference (30 tables, 8 domains, 25 migrations)
 │   ├── PRODUCT_VISION.md   Full product spec — 12 engines, pricing, feature matrix
-│   └── NEXT_PHASE.md       Concrete implementation plan for the current sprint
+│   ├── NEXT_PHASE.md       Concrete implementation plan for the current sprint
+│   └── MOBILE_UNIVERSE_DESIGN.md  Mobile design system — the "Zuri Universe" (source of truth for apps/mobile)
 ├── CLAUDE.md           ← you are here
 ├── README.md
 ├── .gitignore
@@ -108,7 +109,7 @@ Full product surface. Inbox, relationships, proactive queue, AI advisor, calenda
 Background `NotificationListenerService`. Reads WhatsApp notifications, POSTs to `/api/companion/message`. Dual role: open-wa fallback + mobile-only tier enabler.
 
 ### `apps/mobile` — React Native App (Expo)
-Mobile mirror of web dashboard. Lower priority — build after web is feature-complete.
+Personal mobile surface with its own design language, the **Zuri Universe** (see "Mobile App — Zuri Universe" below). Five screens today: Ignition (login), Signals (inbox), Signal Tunnel (conversation), Orbits (relationships), Missions (proactive). Agent guide: `apps/mobile/CLAUDE.md`.
 
 ---
 
@@ -772,6 +773,19 @@ This codebase has a real, measured problem: `apps/web/src/app/(dashboard)/studio
 
 ---
 
+## Mobile App — Zuri Universe
+
+See `docs/MOBILE_UNIVERSE_DESIGN.md` (full spec) and `apps/mobile/CLAUDE.md` (agent rules). **The web Design System below does not apply to `apps/mobile`.** The mobile app uses its own dark, animated design language, where relationships are a living star system: the user is the sun, contacts are planets, orbital distance = relationship health, planet size = importance tier, and a pulsing ion ring = unread. Interactive prototype: https://claude.ai/artifact/78u1CJxPDBB64ehAUEaavX.
+
+- **Kit:** `apps/mobile/src/universe/` holds tokens (`theme.ts`), the motion system (`motion.tsx`: calm/cosmic/hyper speed setting persisted in SecureStore, OS Reduce Motion freezes every loop), `SpaceScreen`/`Starfield` (every screen's root), `Orb` (lit SVG sphere, deterministic per-contact skin via `skinFor(id)`), `OrbitSystem`, `HoloDeck`, `WarpTunnel`, `PlanetHero`, the floating `Dock` tab bar (Orbits is the raised pulsing core), `ControlDeck` (motion + sign out), and atoms (`Glass`, `Rise`, `TiltPressable`, `LaunchButton`, `Chip`, `LivePill`, `LoadingOrb`, `tap()` haptics).
+- **3D without preserve-3d:** `OrbitSystem` projects tilted circular orbits itself (`x = r·cosθ`, `y = r·sinθ·cos(tilt)`, depth = `sinθ`), samples 48 points into `Animated.interpolate`, and runs entirely on the native driver. Each body is drawn twice (behind and in front of the centre object) for real occlusion, and has a single ≥44px hit layer. Cards use `perspective` + `rotateX/rotateY`.
+- **Dependencies added:** `react-native-svg`, `expo-linear-gradient`, `expo-haptics`, `expo-font`, `@expo-google-fonts/inter` + `space-grotesk` (only 7 weights bundled, each required individually in `App.tsx`). Deliberately **no** reanimated/skia/blur/Lottie.
+- **API client fixed in the same pass:** `src/lib/api.ts` now matches the real response envelopes (`{conversations}`, `{contacts}`, `{suggestions}`, nested `contact`/`relationship`), proactive launch uses the real `POST /api/proactive/:id/send`, manual send uses `POST /api/conversations/:id/messages`, and `lib/socket.ts` authenticates with the raw JWT string the API's socket handler expects (it previously sent an object and never joined the user room).
+- **Verify mobile changes with** `cd apps/mobile && npx tsc --noEmit && npx expo export --platform android`.
+- **Known gaps:** email/password auth (doesn't work for Clerk-only accounts), missing `assets/` icon/splash, and `docs/mobile/DECISIONS.md` D-01 (a pending proposal to replace this app with native Kotlin/Compose). If D-01 is approved, carry the Universe design language over (design doc §11).
+
+---
+
 ## Design System
 
 **This is the default styling for every page in `apps/web` from now on.** It was established by `dashboard/page.tsx` and `advisor/page.tsx` and is also fully implemented in `settings/page.tsx`. Treat these three files as the reference implementation — when in doubt, look at how they solve a problem before inventing a new pattern. This supersedes the older flat gray/white token list under "Phase 1 UI Audit" below and the old dark slate-900 chat theme (no longer used anywhere).
@@ -889,7 +903,7 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 | 11 — Enterprise Features | ⏳ Planned |
 | — Business Workspace (Documents — quotations/invoices/proposals/contracts) | ✅ Complete (Phases 0–4) |
 | — Kotlin Companion App | ✅ Built |
-| — React Native Mobile | 🔄 Scaffold done |
+| — React Native Mobile | 🔄 Zuri Universe redesign shipped (5 screens); Clerk auth + assets remaining |
 
 **What's been built:**
 - [x] Full monorepo scaffold (Turborepo + npm workspaces)
@@ -907,7 +921,7 @@ The `INTERNAL_API_SECRET` is the shared secret between Vercel and the ECS API. I
 - [x] Leads page: live pipeline with hot/warm/cold stages, real WA quotes, score meters
 - [x] CRM contacts: full CRM fields (company, job title, email, lead score, pipeline stage)
 - [x] Kotlin companion app (NotificationListenerService, API relay)
-- [x] React Native mobile scaffold (Expo, navigation, auth, typed API client)
+- [x] React Native mobile app: Zuri Universe 3D/animated redesign of all 5 screens, real API shapes, live socket updates (`docs/MOBILE_UNIVERSE_DESIGN.md`)
 - [x] Production Docker Compose on ECS: api + whatsapp + intelligence + redis + nginx
 - [x] Phase 8 — Autonomous Agent Engine: AI agents with roles, tool calling, knowledge base, escalation rules, trust levels (Observe → Autonomous), AI Workforce UI
 - [x] Phase 9 — Business Intelligence & Executive Intelligence Platform: 11 intelligence API endpoints, Executive Dashboard, Sales/Customer/Conversation/Operations/Opportunities/Predictions/Health Score/ROI/Timeline/Reports pages, Business Health Score (0-100 with A-F grading), AnalyticsSubNav

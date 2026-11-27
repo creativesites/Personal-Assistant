@@ -1,10 +1,9 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { DarkTheme, NavigationContainer, NavigatorScreenParams, Theme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../hooks/useAuth';
-import { ActivityIndicator, View } from 'react-native';
+import { colors, Dock, LoadingOrb, SpaceScreen } from '../universe';
 
 import LoginScreen from '../screens/LoginScreen';
 import InboxScreen from '../screens/InboxScreen';
@@ -12,40 +11,45 @@ import ConversationScreen from '../screens/ConversationScreen';
 import RelationshipsScreen from '../screens/RelationshipsScreen';
 import ProactiveScreen from '../screens/ProactiveScreen';
 
-export type RootStackParamList = {
-  Login: undefined;
-  Main: undefined;
-  Conversation: { conversationId: string; contactName: string };
+export type TabParamList = {
+  Inbox: undefined; // "Signals"
+  Relationships: undefined; // "Orbits"
+  Proactive: undefined; // "Missions"
 };
 
-export type TabParamList = {
-  Inbox: undefined;
-  Relationships: undefined;
-  Proactive: undefined;
+export type RootStackParamList = {
+  Login: undefined;
+  Main: NavigatorScreenParams<TabParamList> | undefined;
+  Conversation: { conversationId: string; contactName: string; contactId?: string; healthScore?: number | null };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
+// Dark theme so no white frame ever flashes between screens.
+const UNIVERSE_THEME: Theme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: colors.void,
+    card: colors.space,
+    text: colors.ink,
+    border: 'transparent',
+    primary: colors.ion,
+    notification: colors.ion,
+  },
+};
+
 function MainTabs() {
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
-            Inbox: focused ? 'chatbubbles' : 'chatbubbles-outline',
-            Relationships: focused ? 'people' : 'people-outline',
-            Proactive: focused ? 'bulb' : 'bulb-outline',
-          };
-          return <Ionicons name={icons[route.name]} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#6200EE',
-        tabBarInactiveTintColor: '#666',
-      })}
+      tabBar={(props) => <Dock {...props} />}
+      sceneContainerStyle={{ backgroundColor: colors.void }}
+      screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen name="Inbox" component={InboxScreen} />
-      <Tab.Screen name="Relationships" component={RelationshipsScreen} />
-      <Tab.Screen name="Proactive" component={ProactiveScreen} options={{ title: 'To-Do' }} />
+      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: 'Signals' }} />
+      <Tab.Screen name="Relationships" component={RelationshipsScreen} options={{ title: 'Orbits' }} />
+      <Tab.Screen name="Proactive" component={ProactiveScreen} options={{ title: 'Missions' }} />
     </Tab.Navigator>
   );
 }
@@ -55,23 +59,19 @@ export default function Navigation() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#6200EE" />
-      </View>
+      <SpaceScreen>
+        <LoadingOrb />
+      </SpaceScreen>
     );
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <NavigationContainer theme={UNIVERSE_THEME}>
+      <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.void }, animation: 'fade_from_bottom' }}>
         {token ? (
           <>
             <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen
-              name="Conversation"
-              component={ConversationScreen}
-              options={{ headerShown: true }}
-            />
+            <Stack.Screen name="Conversation" component={ConversationScreen} options={{ animation: 'slide_from_right' }} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />
