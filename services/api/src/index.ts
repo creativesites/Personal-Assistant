@@ -4,6 +4,7 @@ import { connectDb } from './lib/db';
 import { redis } from './lib/redis';
 import { redisSub, startRedisSubscriber } from './lib/redis-subscriber';
 import { setupSocket } from './lib/socket';
+import { isTokenTrusted } from './lib/device-sessions';
 import { config } from './config';
 import { startSocialPublishWorker } from './workers/social-publish-worker';
 import { startRecurringDocumentsWorker } from './workers/recurring-documents-worker';
@@ -24,7 +25,11 @@ async function main() {
   // listen() must come before Socket.io setup — fastify.server is only bound after listen
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
 
-  const io = setupSocket(app.server, (token) => app.jwt.verify<{ userId: string }>(token));
+  const io = setupSocket(app.server, async (token) => {
+    const payload = app.jwt.verify<{ userId: string; sid?: string; tv?: number }>(token);
+    if (!(await isTokenTrusted(payload))) throw new Error('revoked');
+    return payload;
+  });
   app.log.info('Socket.io initialised');
 
   await redisSub.connect();

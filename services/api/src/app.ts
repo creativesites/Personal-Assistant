@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import { isTokenTrusted } from './lib/device-sessions';
 import multipart from '@fastify/multipart';
 import { config } from './config';
 import { healthRoutes } from './routes/health';
@@ -101,6 +102,8 @@ export async function buildApp() {
 
   await fastify.register(jwt, {
     secret: config.JWT_SECRET,
+    // Device tokens (sid/tv claims, mobile G1) stop working once revoked.
+    trusted: (_request, decoded) => isTokenTrusted(decoded),
   });
 
   await fastify.register(multipart, {

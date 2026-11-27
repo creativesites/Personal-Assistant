@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ensureMessageMedia, MessageMediaError } from '../lib/message-media';
+import { isTokenTrusted } from '../lib/device-sessions';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -66,8 +67,9 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
     let userId: string | undefined;
     try {
       const payload = token
-        ? fastify.jwt.verify<{ userId: string }>(token)
+        ? fastify.jwt.verify<{ userId: string; sid?: string; tv?: number }>(token)
         : await request.jwtVerify<{ userId: string }>();
+      if (token && !(await isTokenTrusted(payload))) throw new Error('revoked');
       userId = payload.userId;
     } catch {
       return reply.code(401).send({ error: 'Unauthorized' });

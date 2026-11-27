@@ -5,7 +5,7 @@ import { getMissedEvents } from './event-buffer';
 
 let io: Server | null = null;
 
-type JwtVerifyFn = (token: string) => { userId: string };
+type JwtVerifyFn = (token: string) => Promise<{ userId: string }>;
 
 export function setupSocket(httpServer: HttpServer, jwtVerify?: JwtVerifyFn): Server {
   io = new Server(httpServer, {
@@ -17,11 +17,11 @@ export function setupSocket(httpServer: HttpServer, jwtVerify?: JwtVerifyFn): Se
   });
 
   io.on('connection', (socket) => {
-    socket.on('authenticate', (token: string) => {
+    socket.on('authenticate', async (token: string) => {
       try {
         let userId: string;
         if (jwtVerify) {
-          const payload = jwtVerify(token);
+          const payload = await jwtVerify(token);
           userId = payload.userId;
         } else {
           userId = token;

@@ -7,6 +7,8 @@ import { authenticate } from '../plugins/authenticate';
 import { MARKETING_ACCESS_OPEN_FOR_TESTING } from '../lib/marketing-access';
 import { getEffectivePlanFamily } from '../lib/entitlements';
 import { clerkIssuer, verifyClerkSessionToken } from '../lib/clerk-verify';
+import crypto from 'crypto';
+import { upsertDeviceSession, revokeDeviceSession } from '../lib/device-sessions';
 
 // See lib/marketing-access.ts — testing-phase override, independent of the DB value.
 function resolveMarketingAccess(dbValue: string | null | undefined): string {
@@ -20,6 +22,15 @@ const clerkSyncBody = z.object({
   clerkOrgId: z.string().nullable().optional(),
   orgRole: z.string().nullable().optional(),
   orgSlug: z.string().nullable().optional(),
+});
+
+const clerkExchangeBody = z.object({
+  deviceId: z.string().min(1).max(128),
+  deviceName: z.string().max(255).nullable().optional(),
+  platform: z.string().min(1).max(32).optional(),
+  // Only used to create an account when none is linked to this Clerk user yet.
+  email: z.string().email().optional(),
+  name: z.string().max(255).optional(),
 });
 
 const registerBody = z.object({
@@ -52,6 +63,58 @@ type UserRow = {
   is_company_managed: boolean
   current_organization_id: string | null
   timezone?: string
+}
+
+const USER_COLUMNS = `id, email, full_name, COALESCE(mode, 'business') AS mode,
+       COALESCE(marketing_access, 'none') AS marketing_access,
+       is_admin, onboarding_completed,
+       COALESCE(is_company_managed, false) AS is_company_managed,
+       current_organization_id`
+
+/** Creates a new Zuri user linked to a Clerk user, with its default rows. */
+async function provisionClerkUser(email: string, name: string, clerkUserId: string): Promise<UserRow> {
+  const { rows: [created] } = await db.query<UserRow>(
+    `INSERT INTO users (email, full_name, clerk_user_id)
+     VALUES ($1, $2, $3)
+     RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode,
+               COALESCE(marketing_access, 'none') AS marketing_access,
+               is_admin, onboarding_completed, false AS is_company_managed, NULL AS current_organization_id`,
+    [email, name || 'User', clerkUserId],
+  )
+  await Promise.all([
+    db.query(
+      `INSERT INTO subscriptions (
+         user_id, plan, status, trial_ends_at, current_period_start, current_period_end,
+         plan_id, billing_period, messages_remaining_today, ai_replies_remaining_today,
+         nudges_remaining_today, documents_remaining_today, credits_reset_at
+       )
+       SELECT $1, 'pro', 'trialing', NOW() + INTERVAL '7 days', NOW(), NOW() + INTERVAL '7 days',
+         p.id, p.billing_period, 999999, 999999, 999999, 999999,
+         NOW() + INTERVAL '24 hours'
+       FROM subscription_plans p WHERE p.key = 'free'
+       ON CONFLICT (user_id) DO NOTHING`,
+      [created.id],
+    ),
+    db.query(
+      `INSERT INTO subscription_events (user_id, event_type, metadata) VALUES ($1, 'trial_started', '{}'::jsonb)`,
+      [created.id],
+    ),
+    db.query('INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [created.id]),
+    db.query(
+      `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true) ON CONFLICT DO NOTHING`,
+      [created.id],
+    ),
+    db.query(
+      `INSERT INTO agents
+         (user_id, name, agent_type, description, trust_level, is_active,
+          role_title, avatar_emoji, tone, is_default)
+       VALUES ($1, 'Assistant', 'custom',
+         'Your default AI assistant — drafts replies for every contact not assigned to a specialised agent.',
+         'suggest', true, 'Personal Assistant', '🤝', 'friendly', true)`,
+      [created.id],
+    ),
+  ])
+  return created
 }
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
@@ -131,47 +194,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           await db.query('UPDATE users SET clerk_user_id = $1, updated_at = NOW() WHERE id = $2', [clerkUserId, existing.id])
           user = existing
         } else {
-          const { rows: [created] } = await db.query<UserRow>(
-            `INSERT INTO users (email, full_name, clerk_user_id)
-             VALUES ($1, $2, $3)
-             RETURNING id, email, full_name, COALESCE(mode, 'hybrid') AS mode,
-                       COALESCE(marketing_access, 'none') AS marketing_access,
-                       is_admin, onboarding_completed, false AS is_company_managed, NULL AS current_organization_id`,
-            [email, name || 'User', clerkUserId],
-          )
-          await Promise.all([
-            db.query(
-              `INSERT INTO subscriptions (
-                 user_id, plan, status, trial_ends_at, current_period_start, current_period_end,
-                 plan_id, billing_period, messages_remaining_today, ai_replies_remaining_today,
-                 nudges_remaining_today, documents_remaining_today, credits_reset_at
-               )
-               SELECT $1, 'pro', 'trialing', NOW() + INTERVAL '7 days', NOW(), NOW() + INTERVAL '7 days',
-                 p.id, p.billing_period, 999999, 999999, 999999, 999999,
-                 NOW() + INTERVAL '24 hours'
-               FROM subscription_plans p WHERE p.key = 'free'
-               ON CONFLICT (user_id) DO NOTHING`,
-              [created.id],
-            ),
-            db.query(
-              `INSERT INTO subscription_events (user_id, event_type, metadata) VALUES ($1, 'trial_started', '{}'::jsonb)`,
-              [created.id],
-            ),
-            db.query('INSERT INTO notification_preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [created.id]),
-            db.query(
-              `INSERT INTO calendars (user_id, name, is_default) VALUES ($1, 'My Calendar', true) ON CONFLICT DO NOTHING`,
-              [created.id],
-            ),
-            db.query(
-              `INSERT INTO agents
-                 (user_id, name, agent_type, description, trust_level, is_active,
-                  role_title, avatar_emoji, tone, is_default)
-               VALUES ($1, 'Assistant', 'custom',
-                 'Your default AI assistant — drafts replies for every contact not assigned to a specialised agent.',
-                 'suggest', true, 'Personal Assistant', '🤝', 'friendly', true)`,
-              [created.id],
-            ),
-          ])
+          const created = await provisionClerkUser(email, name, clerkUserId)
           user = created
         }
       }
@@ -286,6 +309,124 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         code: err.code,
       })
     }
+  })
+
+  // Native apps (Zuri Android, mobile plan G1). The device signs in with the
+  // Clerk SDK and sends its Clerk session token; no shared secret is involved.
+  // Each device gets its own session row, so logging out (or revoking a lost
+  // phone) cuts off only that device. Contract: docs/SYNC_FEED.md "Sign-in".
+  fastify.post('/api/auth/clerk-exchange', async (request, reply) => {
+    const parsed = clerkExchangeBody.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.message })
+    const { deviceId, deviceName, platform, email, name } = parsed.data
+
+    const bearer = (request.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
+    let clerkUserId: string
+    try {
+      clerkUserId = (await verifyClerkSessionToken(bearer)).userId
+    } catch (err) {
+      fastify.log.info({ problem: (err as Error).message }, 'clerk-exchange: rejected Clerk token')
+      return reply.code(401).send({ error: 'invalid_clerk_session' })
+    }
+
+    try {
+      let { rows: [user] } = await db.query<UserRow>(
+        `SELECT ${USER_COLUMNS} FROM users WHERE clerk_user_id = $1`,
+        [clerkUserId],
+      )
+      if (!user) {
+        if (!email) return reply.code(404).send({ error: 'no_account' })
+        // The email here is not verified by Clerk's token, so it may only
+        // create a brand-new account, never adopt an existing one.
+        const { rows: [taken] } = await db.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [email])
+        if (taken) {
+          return reply.code(409).send({ error: 'This email already has a Zuri account. Sign in on the web once to link it.' })
+        }
+        user = await provisionClerkUser(email, name ?? '', clerkUserId)
+      }
+
+      const session = await upsertDeviceSession(user.id, deviceId, deviceName ?? null, platform ?? 'android')
+      const token = fastify.jwt.sign(
+        {
+          userId: user.id,
+          isAdmin: user.is_admin ?? false,
+          orgId: user.current_organization_id,
+          sid: session.id,
+          tv: session.tokenVersion,
+          jti: crypto.randomUUID(),
+        },
+        { expiresIn: '30d' },
+      )
+
+      let organization: { id: string; clerkOrgId: string | null; name: string; role: string } | null = null
+      if (user.current_organization_id) {
+        const { rows: [org] } = await db.query<{ id: string; clerk_org_id: string | null; name: string; role: string }>(
+          `SELECT o.id, o.clerk_org_id, o.name, om.role
+           FROM organizations o JOIN organization_members om ON om.organization_id = o.id
+           WHERE o.id = $1 AND om.user_id = $2 AND om.status = 'active'`,
+          [user.current_organization_id, user.id],
+        )
+        if (org) organization = { id: org.id, clerkOrgId: org.clerk_org_id, name: org.name, role: org.role }
+      }
+
+      return reply.send({
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.full_name,
+          mode: user.mode ?? 'hybrid',
+          marketingAccess: resolveMarketingAccess(user.marketing_access),
+          isAdmin: user.is_admin ?? false,
+          onboardingCompleted: user.onboarding_completed,
+          planFamily: await getEffectivePlanFamily(user.id),
+          isCompanyManaged: user.is_company_managed,
+          organization,
+        },
+        session: { id: session.id, deviceId },
+      })
+    } catch (err: any) {
+      fastify.log.error({ err, clerkUserId }, 'clerk-exchange: database error')
+      return reply.code(500).send({ error: 'Exchange failed' })
+    }
+  })
+
+  // Ends this device's session. Web tokens have no device session: no-op.
+  fastify.post('/api/auth/logout', { preHandler: authenticate }, async (request, reply) => {
+    const { userId, sid } = request.user as { userId: string; sid?: string }
+    if (sid) await revokeDeviceSession(userId, sid)
+    return reply.code(204).send()
+  })
+
+  // Signed-in devices, so a lost phone can be revoked from anywhere.
+  fastify.get('/api/auth/devices', { preHandler: authenticate }, async (request) => {
+    const { userId, sid } = request.user as { userId: string; sid?: string }
+    const { rows } = await db.query(
+      `SELECT id, device_id, device_name, platform, created_at, last_exchange_at, last_seen_at
+       FROM device_sessions WHERE user_id = $1 AND revoked_at IS NULL
+       ORDER BY COALESCE(last_seen_at, last_exchange_at) DESC`,
+      [userId],
+    )
+    return {
+      devices: rows.map((r: any) => ({
+        id: r.id,
+        deviceId: r.device_id,
+        deviceName: r.device_name,
+        platform: r.platform,
+        createdAt: r.created_at,
+        lastExchangeAt: r.last_exchange_at,
+        lastSeenAt: r.last_seen_at,
+        current: r.id === sid,
+      })),
+    }
+  })
+
+  fastify.delete('/api/auth/devices/:id', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(400).send({ error: 'Invalid id' })
+    const ok = await revokeDeviceSession(userId, id)
+    return ok ? reply.code(204).send() : reply.code(404).send({ error: 'Not found' })
   })
 
   fastify.post('/api/auth/register', async (request, reply) => {

@@ -5,7 +5,47 @@ The messaging slice of mobile backend item **G3** (`docs/mobile/IMPLEMENTATION_P
 - **Implementation:** `services/api/src/routes/sync.ts`
 - **Schema:** `db/migrations/0137_sync_change_feed.sql`
 
-All endpoints need `Authorization: Bearer <Zuri JWT>`. None of them has side effects. In particular, none marks a chat as read, unlike the web inbox's message GET.
+All sync endpoints need `Authorization: Bearer <Zuri JWT>` (see "Sign-in" below for how a device gets one). None of them has side effects. In particular, none marks a chat as read, unlike the web inbox's message GET.
+
+## Sign-in (G1)
+
+The device signs in with the Clerk Android SDK, then exchanges its Clerk session token for a Zuri JWT. No shared secret is ever on the device.
+
+### `POST /api/auth/clerk-exchange`
+- **Header:** `Authorization: Bearer <Clerk session JWT>`, verified against the Clerk instance's JWKS.
+- **Body:** `{ deviceId, deviceName?, platform?, email?, name? }`.
+  - `deviceId`: 1–128 characters, stable for the install.
+  - `platform` defaults to `android`.
+- **Response:** `{ token, user, session: { id, deviceId } }`.
+  - `user` has the same shape as clerk-sync's.
+  - `token` is valid for 30 days. Its claims are `userId`, `isAdmin`, `orgId`, `sid` (device session id), `tv` (token version) and `jti`.
+- **Re-exchange on any 401.** Re-exchanging from a live session keeps its token version, so other in-flight tokens for that device stay valid.
+- **`email`/`name`** are used only when no Zuri account is linked to this Clerk user yet. They create a new account, and only if the email is unused. They never adopt an existing account: the email isn't verified by the token.
+
+| Status | Meaning |
+|---|---|
+| 400 `invalid_body` | The body failed validation |
+| 401 `invalid_clerk_session` | The Clerk token is missing, invalid or expired |
+| 404 `no_account` | No linked account, and no email was sent |
+| 409 | The email already has an account. Sign in on the web once to link it |
+
+### Other endpoints
+
+All three take the Zuri JWT as Bearer.
+
+- **`POST /api/auth/logout`** revokes this device's session and returns 204. Every token issued to this device stops working at once. Web sessions are unaffected.
+- **`GET /api/auth/devices`** lists the live device sessions: `{ devices: [{ id, deviceId, deviceName, platform, createdAt, lastExchangeAt, lastSeenAt, current }] }`.
+- **`DELETE /api/auth/devices/:id`** revokes one device, for example a lost phone. It returns 204, or 404 if the session isn't yours.
+
+### Where revocation applies
+
+A device token is checked against `device_sessions` (migration 0138) on every request that sends it:
+
+- Bearer requests;
+- the Socket.io `authenticate` event;
+- `?token=` on `/api/messages/:id/media`.
+
+The check is cached for up to 30 s per server process. A revoke clears the cache.
 
 ## Model
 
