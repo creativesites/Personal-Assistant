@@ -194,6 +194,19 @@ Returns the contact's WhatsApp profile picture as `image/jpeg`. Send `If-None-Ma
 - The server caches the bytes. When WhatsApp's link has expired, the server fetches a fresh one and updates the contact, so the feed re-sends it.
 - `avatarTag` is derived from the picture's path, not its expiring link parameters. It only changes when the picture itself changes. Refetch only when `avatarTag` changes.
 
+## Sending safely (G4)
+
+`POST /api/conversations/:id/messages` accepts an **`Idempotency-Key`** header: 8–128 characters from `A-Z a-z 0-9 . _ : -`. Generate one per outgoing message, and keep it across retries.
+
+| Retry outcome | Response |
+|---|---|
+| Same key and body after a success | `201` with the first result and `Idempotent-Replay: true`. Nothing is sent again. |
+| Same key, different body or chat | `422 idempotency_key_reused` |
+| First attempt still in flight (< 60 s) | `409 send_in_progress`. Retry shortly. |
+| First attempt failed | The key is released, so retrying with it sends normally. |
+
+Keys are kept for 7 days. For a multi-message draft, use one key per message.
+
 ## Phone-captured messages (G5)
 
 ### `POST /api/device/messages:batch`
@@ -245,7 +258,6 @@ Statuses:
 
 ## Not yet (later phases)
 
-- **G4:** idempotent sends from the phone.
 - **G7:** FCM tickles.
 - **Statuses and calls** are not synced.
 
