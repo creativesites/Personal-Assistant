@@ -21,6 +21,8 @@ CI builds it, not this container (cloud sandboxes usually can't reach Google's A
 - `EXPO_PUBLIC_API_URL` is inlined at build time, and defaults to production `https://34-13-48-134.sslip.io`.
 - `android/` is generated and gitignored. Never commit it.
 
+**Building in a cloud session (works, if CI is down):** the environment must allow `dl.google.com`, `www.jitpack.io` and `repo.reactnative.dev` (Maven Central redirects the `react-android`/`hermes-android` AARs there). You also need a Java 17 JDK (`apt-get install -y openjdk-17-jdk-headless`). The sandbox's `JAVA_TOOL_OPTIONS`/`_JAVA_OPTIONS` make every JVM print "Picked up ..." on stderr, and AGP treats any stderr from the prefab tool as `CXX1210 No compatible library found`. So run gradle with both vars unset (`env -u JAVA_TOOL_OPTIONS -u _JAVA_OPTIONS`), and put the proxy/truststore settings in `~/.gradle/gradle.properties` as `systemProp.*` + `org.gradle.jvmargs` instead. Then run `npx expo prebuild --platform android --no-install` and `cd android && ./gradlew :app:assembleRelease --no-daemon`. Expect about 17 minutes. Maven Central may return 429 on the first run, so retry.
+
 ## Layout
 ```
 src/
