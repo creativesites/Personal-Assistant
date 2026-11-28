@@ -3,6 +3,8 @@ package app.zuri.android.feature.inbox
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,8 +54,12 @@ import kotlin.math.abs
  * neighbours swing ±128dp with rotateY ∓38°, 86% scale, 55% opacity. Tap a side card to swing it
  * forward; tap the front card to put its text in the reply box. Nothing is ever sent from here.
  */
+/** One card: 1–3 messages that send separately, and (from the cloud engine) why and tone. */
+internal data class HoloCard(val messages: List<String>, val why: String?, val tone: String?)
+
 @Composable
-internal fun HoloDeck(drafts: List<String>, label: String, onPick: (String) -> Unit, onCopy: (String) -> Unit) {
+internal fun HoloDeck(cards: List<HoloCard>, label: String, onPickIndex: (Int) -> Unit, onCopyIndex: (Int) -> Unit) {
+    val drafts = cards
     var front by remember(drafts) { mutableIntStateOf(0) }
     // Swiping moves the whole fan with the finger; letting go settles on the nearest card.
     var drag by remember(drafts) { androidx.compose.runtime.mutableFloatStateOf(0f) }
@@ -68,7 +74,7 @@ internal fun HoloDeck(drafts: List<String>, label: String, onPick: (String) -> U
         }
         Text(label, style = MaterialTheme.typography.bodySmall, color = u.inkMuted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
         Box(
-            Modifier.fillMaxWidth().height(176.dp)
+            Modifier.fillMaxWidth().height(if (drafts.any { it.messages.size > 1 || it.why != null }) 204.dp else 176.dp)
                 .pointerInput(drafts) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -100,21 +106,32 @@ internal fun HoloDeck(drafts: List<String>, label: String, onPick: (String) -> U
                             alpha = if (abs(o) > 1.5f) 0f else 1f - 0.45f * abs(o).coerceAtMost(1f)
                             cameraDistance = 14 * density
                         }
-                        .size(236.dp, 164.dp)
+                        .size(248.dp, if (drafts.any { it.messages.size > 1 || it.why != null }) 192.dp else 164.dp)
                         .deepCard(RoundedCornerShape(24.dp))
                         .drawWithContent {
                             drawContent()
                             val x = -size.width + shimmer * size.width * 3
                             drawRect(Brush.linearGradient(listOf(Color.Transparent, u.ion.copy(alpha = 0.10f), Color.Transparent), Offset(x, 0f), Offset(x + size.width * 0.6f, size.height)))
                         }
-                        .semantics { selected = isFront; contentDescription = d }
-                        .clickable { if (isFront) onPick(d) else front = i }
-                        .padding(14.dp),
+                        .semantics { selected = isFront; contentDescription = d.messages.joinToString(" / ") }
+                        .clickable { if (isFront) onPickIndex(i) else front = i }
+                        .padding(12.dp),
                 ) {
-                    Text(d, style = MaterialTheme.typography.bodyMedium, color = u.ink, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    // Each message is its own bubble: a multi-message option sends as separate WhatsApp messages.
+                    Column(Modifier.weight(1f), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+                        d.messages.take(3).forEach { m ->
+                            Text(
+                                m, style = MaterialTheme.typography.bodyMedium, color = Color.White, maxLines = if (d.messages.size > 1) 2 else 4, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                                    .background(androidx.compose.ui.graphics.Brush.linearGradient(app.zuri.android.core.ui.theme.OutgoingGradient.map { it.copy(alpha = 0.85f) }))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                            )
+                        }
+                    }
+                    d.why?.let { Text(stringResource(R.string.holo_why, it), style = MaterialTheme.typography.labelSmall, color = u.inkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     if (isFront) Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.holo_tap_to_edit), style = MaterialTheme.typography.labelSmall, color = u.ion, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { onCopy(d) }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.drafts_copy), tint = u.inkMuted, modifier = Modifier.size(18.dp)) }
+                        IconButton(onClick = { onCopyIndex(i) }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.drafts_copy), tint = u.inkMuted, modifier = Modifier.size(18.dp)) }
                     }
                 }
             }

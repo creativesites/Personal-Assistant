@@ -69,6 +69,6 @@ object PerceptionModule {
     fun autoReplies(impl: AndroidAutoReplies): AutoReplies = impl
 
     @Provides @Singleton
-    fun autoReplyEngine(db: ZuriDatabase, drafter: ReplyDrafter, sender: ReplySender, settings: AndroidAutoReplies, clock: Clock) =
-        AutoReplyEngine(db, drafter, sender, settings::current, clock)
+    fun autoReplyEngine(db: ZuriDatabase, drafter: ReplyDrafter, sender: ReplySender, settings: AndroidAutoReplies, clock: Clock, cloud: app.zuri.android.domain.cloud.CloudReplies) =
+        AutoReplyEngine(db, drafter, sender, settings::current, clock, cloud)
 }

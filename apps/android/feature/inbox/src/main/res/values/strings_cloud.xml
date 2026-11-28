@@ -20,4 +20,13 @@
     <string name="holo_tap_to_edit">Tap to edit</string>
     <string name="holo_not_now">Not now</string>
     <string name="holo_title">Zuri drafts</string>
+    <string name="holo_why">Why: %1$s</string>
+    <string name="drafts_by_cloud">Drafted by %1$s in your voice. Tap one to edit, swipe for more.</string>
+    <string name="drafts_ai_off">Zuri AI is off for this chat. Turn it on from the menu.</string>
+    <string name="question_eyebrow">ZURI NEEDS TO KNOW</string>
+    <string name="menu_ai_on">Zuri AI for this chat: on</string>
+    <string name="menu_ai_off">Zuri AI for this chat: off</string>
+    <string name="menu_partner_mark">Mark as my partner</string>
+    <string name="menu_partner_unmark">Unmark partner</string>
+    <string name="ai_off_banner">Zuri AI is off for this chat: no drafts or auto-replies.</string>
 </resources>

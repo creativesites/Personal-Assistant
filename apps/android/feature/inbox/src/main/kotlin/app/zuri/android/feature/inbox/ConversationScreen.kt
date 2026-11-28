@@ -1,5 +1,7 @@
 package app.zuri.android.feature.inbox
 
+import androidx.compose.foundation.horizontalScroll
+
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 
@@ -102,6 +104,9 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
         media = media,
         onOpenMedia = viewModel::openMedia,
         photo = avatars[detail.summary.id.value],
+        ai = state.ai,
+        onSetAi = viewModel::setAiEnabled,
+        onSetPartner = viewModel::setPartner,
         onNeedPhoto = { viewModel.needAvatar(detail.summary.id.value) },
         older = older,
         onLoadOlder = viewModel::loadOlder,
@@ -119,6 +124,8 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
                 onDismissDrafts = viewModel::dismissDrafts,
                 onPicked = viewModel::picked,
                 onCopied = viewModel::copied,
+                onPickedCloud = viewModel::pickedCloud,
+                onAnswer = viewModel::answer,
                 onOpenApp = {
                     detail.summary.source.packages.firstNotNullOfOrNull { context.packageManager.getLaunchIntentForPackage(it) }
                         ?.let { runCatching { context.startActivity(it) } }
@@ -150,6 +157,9 @@ fun ConversationContent(
     onLoadOlder: () -> Unit = {},
     photo: androidx.compose.ui.graphics.ImageBitmap? = null,
     onNeedPhoto: () -> Unit = {},
+    ai: app.zuri.android.domain.cloud.ChatAi? = null,
+    onSetAi: (Boolean) -> Unit = {},
+    onSetPartner: (Boolean) -> Unit = {},
     composer: @Composable () -> Unit = {},
 ) {
     LaunchedEffect(detail.summary.id) { onNeedPhoto() }
@@ -181,12 +191,30 @@ fun ConversationContent(
                         if (insight != null) DropdownMenuItem(text = { Text(stringResource(R.string.insight_menu)) }, onClick = { menu = false; showInsight = true })
                         if (moveSheet != null) DropdownMenuItem(text = { Text(stringResource(R.string.move_menu)) }, onClick = { menu = false; showMove = true })
                         if (autoReplySheet != null) DropdownMenuItem(text = { Text(stringResource(R.string.auto_menu)) }, onClick = { menu = false; showAuto = true })
+                        // Server-side switches (docs/AI_API.md): only for one-to-one chats synced with the cloud.
+                        if (ai != null && ai.linked && !ai.isGroup) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(if (ai.aiEnabled) R.string.menu_ai_on else R.string.menu_ai_off)) },
+                                trailingIcon = { androidx.compose.material3.Switch(checked = ai.aiEnabled, onCheckedChange = null) },
+                                onClick = { menu = false; onSetAi(!ai.aiEnabled) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(if (ai.partner) R.string.menu_partner_unmark else R.string.menu_partner_mark)) },
+                                onClick = { menu = false; onSetPartner(!ai.partner) },
+                            )
+                        }
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_exclude)) }, onClick = { menu = false; confirm = "exclude" })
                         DropdownMenuItem(text = { Text(stringResource(R.string.conv_delete)) }, onClick = { menu = false; confirm = "delete" })
                     }
                 }
             },
         )
+        if (ai != null && ai.linked && !ai.aiEnabled) {
+            Text(
+                stringResource(R.string.ai_off_banner), style = MaterialTheme.typography.labelMedium, color = Zuri.universe.inkMuted,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (autoReplyOn) {
             Text(
                 stringResource(R.string.auto_on_banner), style = MaterialTheme.typography.labelMedium, color = Zuri.colors.ctx,
@@ -260,6 +288,25 @@ fun ConversationContent(
             stringResource(R.string.delete_msg_title), stringResource(R.string.delete_msg_body, sourceName), stringResource(R.string.delete),
             onConfirm = { confirmMessage = null; onDeleteMessage(m.id) }, onDismiss = { confirmMessage = null },
         )
+    }
+}
+
+/** The engine needs something only the owner knows: one tap answers, and Zuri redrafts with it. */
+@Composable
+private fun QuestionCard(q: app.zuri.android.domain.cloud.ReplyQuestion, onAnswer: (String) -> Unit) {
+    val u = Zuri.universe
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).glass(RoundedCornerShape(20.dp)).padding(12.dp)) {
+        Text(stringResource(R.string.question_eyebrow), style = MaterialTheme.typography.labelSmall, color = u.star)
+        Text(q.text, style = MaterialTheme.typography.titleMedium, color = u.ink, modifier = Modifier.padding(vertical = 4.dp))
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            q.answers.forEach { a ->
+                Text(
+                    a, style = MaterialTheme.typography.labelLarge, color = u.ink,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(u.ion.copy(alpha = 0.18f)).clickable { onAnswer(a) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+        }
     }
 }
 
@@ -431,6 +478,8 @@ private fun ReplyComposer(
     onOpenApp: () -> Unit,
     onPicked: (String) -> Unit = {},
     onCopied: (String) -> Unit = {},
+    onPickedCloud: (String, app.zuri.android.domain.cloud.ReplyOption) -> Unit = { _, _ -> },
+    onAnswer: (String, String) -> Unit = { _, _ -> },
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     val sendLabel = stringResource(R.string.reply_send)
@@ -450,11 +499,16 @@ private fun ReplyComposer(
         }
         DraftsPanel(
             state.drafts, onSuggest, onDismissDrafts,
-            // With a reply button a tapped draft goes in the box to edit; without one it's copied.
-            onPick = { draft -> if (state.canReply) { text = draft; onPicked(draft) } else copy(draft) },
+            // With a way to send, a tapped draft goes in the box to edit; without one it's copied.
+            onPick = { draft -> if (state.canSend) { text = draft; onPicked(draft) } else copy(draft) },
             onCopy = copy,
+            onPickCloud = { draftId, option ->
+                val joined = option.messages.joinToString("\n\n")
+                if (state.canSend) { text = joined; onPickedCloud(draftId, option) } else copy(option.messages.joinToString("\n"))
+            },
+            onAnswer = onAnswer,
         )
-        if (state.canReply) {
+        if (state.canSend) {
             // Glass composer with the violet send orb (spec §4.3). Sending is always the owner's tap.
             Row(Modifier.glass(RoundedCornerShape(26.dp)).padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.material3.TextField(
@@ -488,7 +542,11 @@ private fun ReplyComposer(
 }
 
 @Composable
-fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Unit, onPick: (String) -> Unit, onCopy: (String) -> Unit = onPick) {
+fun DraftsPanel(
+    drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Unit, onPick: (String) -> Unit, onCopy: (String) -> Unit = onPick,
+    onPickCloud: (String, app.zuri.android.domain.cloud.ReplyOption) -> Unit = { _, o -> onPick(o.messages.joinToString("\n\n")) },
+    onAnswer: (String, String) -> Unit = { _, _ -> },
+) {
     val c = Zuri.colors
     when (drafts) {
         DraftsState.Idle -> TextButton(onClick = onSuggest) {
@@ -509,10 +567,24 @@ fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Uni
             )
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         }
+        DraftsState.AiOff -> Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.drafts_ai_off), style = MaterialTheme.typography.bodySmall, color = c.muted, modifier = Modifier.weight(1f))
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
+        }
+        is DraftsState.Cloud -> Column(Modifier.fillMaxWidth()) {
+            drafts.question?.let { q -> QuestionCard(q) { a -> onAnswer(q.id, a) } }
+            HoloDeck(
+                drafts.options.map { HoloCard(it.messages, it.why, it.tone) },
+                stringResource(R.string.drafts_by_cloud, drafts.model?.substringAfter('/')?.replace('-', ' ') ?: "Zuri"),
+                onPickIndex = { i -> onPickCloud(drafts.draftId, drafts.options[i]) },
+                onCopyIndex = { i -> onCopy(drafts.options[i].messages.joinToString("\n")) },
+            )
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.holo_not_now), color = Zuri.universe.inkMuted) }
+        }
         is DraftsState.Ready -> Column(Modifier.fillMaxWidth()) {
             HoloDeck(
-                drafts.drafts, stringResource(if (drafts.byModel) R.string.drafts_by_model else R.string.drafts_quick),
-                onPick = onPick, onCopy = onCopy,
+                drafts.drafts.map { HoloCard(listOf(it), null, null) }, stringResource(if (drafts.byModel) R.string.drafts_by_model else R.string.drafts_quick),
+                onPickIndex = { onPick(drafts.drafts[it]) }, onCopyIndex = { onCopy(drafts.drafts[it]) },
             )
             TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.holo_not_now), color = Zuri.universe.inkMuted) }
         }

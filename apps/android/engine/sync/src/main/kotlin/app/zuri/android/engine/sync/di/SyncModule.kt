@@ -64,6 +64,15 @@ object SyncModule {
     @Provides fun cloudMedia(impl: CloudMediaStore): CloudMedia = impl
 
     @Provides @Singleton
+    fun cloudAi(db: ZuriDatabase, api: CloudApi, store: CloudAccountStore, clock: Clock) = app.zuri.android.engine.sync.CloudAiImpl(db, api, store, clock)
+    @Provides fun cloudReplies(impl: app.zuri.android.engine.sync.CloudAiImpl): app.zuri.android.domain.cloud.CloudReplies = impl
+    @Provides fun aiSettings(impl: app.zuri.android.engine.sync.CloudAiImpl): app.zuri.android.domain.cloud.AiSettings = impl
+
+    @Provides @Singleton
+    fun networking(db: ZuriDatabase, api: CloudApi, store: CloudAccountStore, clock: Clock): app.zuri.android.domain.cloud.Networking =
+        app.zuri.android.engine.sync.NetworkingImpl(db, api, store, clock)
+
+    @Provides @Singleton
     fun avatars(@ApplicationContext context: Context, db: ZuriDatabase, api: CloudApi, store: CloudAccountStore) = AvatarStore(context, db, api, store)
     @Provides fun cloudAvatars(impl: AvatarStore): app.zuri.android.domain.cloud.CloudAvatars = impl
 }

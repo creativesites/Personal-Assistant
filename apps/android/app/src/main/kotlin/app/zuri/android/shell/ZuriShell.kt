@@ -87,6 +87,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class WorkspaceDest(val id: String)
 @Serializable data object ContextLedgerDest
 @Serializable data object CloudDest
+@Serializable data object NetworkDest
+@Serializable data object AiSettingsDest
 @Serializable data object TrajectoryDest
 @Serializable data object GoalsDest
 @Serializable data object TimelineDest
@@ -142,7 +144,7 @@ fun ZuriShell(
             }
         }
         composable<ConversationDest> { Detail { ConversationRoute(onBack = { nav.popBackStack() }) } }
-        composable<PeopleDest> { RootFrame(nav, state, { switcherOpen = true }) { app.zuri.android.feature.people.OrbitsRoute(onOpenConversation = { nav.navigate(ConversationDest(it.value)) }) } }
+        composable<PeopleDest> { RootFrame(nav, state, { switcherOpen = true }) { app.zuri.android.feature.people.OrbitsRoute(onOpenConversation = { nav.navigate(ConversationDest(it.value)) }, onOpenNetwork = { nav.navigate(NetworkDest) }) } }
         composable<AskDest> { RootFrame(nav, state, { switcherOpen = true }) { AskRoute(onOpenSource = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<MoreDest> {
             RootFrame(nav, state, { switcherOpen = true }) {
@@ -158,6 +160,7 @@ fun ZuriShell(
                     onOpenSources = { nav.navigate(SourcesDest) },
                     onOpenWorkspaces = { nav.navigate(WorkspacesDest) },
                     onOpenCloud = { nav.navigate(CloudDest) },
+                    onOpenAi = { nav.navigate(AiSettingsDest) },
                 )
             }
         }
@@ -176,6 +179,8 @@ fun ZuriShell(
         composable<GoalsDest> { Detail { app.zuri.android.feature.life.GoalsRoute(onBack = { nav.popBackStack() }) } }
         composable<TimelineDest> { Detail { app.zuri.android.feature.life.TimelineRoute(onBack = { nav.popBackStack() }) } }
         composable<NotesDest> { Detail { app.zuri.android.feature.life.NotesRoute(onBack = { nav.popBackStack() }) } }
+        composable<AiSettingsDest> { Detail { app.zuri.android.feature.settings.AiSettingsRoute(onBack = { nav.popBackStack() }) } }
+        composable<NetworkDest> { Detail { app.zuri.android.feature.people.NetworkRoute(onBack = { nav.popBackStack() }, onOpenConversation = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<CloudDest> { Detail { CloudRoute(onBack = { nav.popBackStack() }) } }
         composable<ContextLedgerDest> { Detail { ContextLedgerRoute(onBack = { nav.popBackStack() }) } }
         composable<SecurityDest> { Detail { SecurityRoute(onBack = { nav.popBackStack() }) } }

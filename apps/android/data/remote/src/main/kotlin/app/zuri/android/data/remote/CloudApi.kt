@@ -111,6 +111,121 @@ class CloudApi(
         }
     }
 
+    // ── AI (docs/AI_API.md) ─────────────────────────────────────────────────
+
+    @Serializable data class DraftAnswer(val questionId: String, val text: String)
+    @Serializable data class DraftRequest(val answer: DraftAnswer? = null, val instruction: String? = null)
+    @Serializable data class DraftPart(val text: String, val quoting: String? = null)
+    @Serializable data class DraftOption(val id: String, val messages: List<String>, val parts: List<DraftPart> = emptyList(), val tone: String? = null, val why: String? = null)
+    @Serializable data class DraftQuestion(val id: String, val text: String, val answers: List<String> = emptyList())
+    @Serializable data class DraftResponse(
+        val draftId: String? = null, val model: String? = null, val noReplyNeeded: Boolean = false, val needsOwnerReason: String? = null,
+        val question: DraftQuestion? = null, val options: List<DraftOption> = emptyList(), val answering: List<String> = emptyList(), val info: String? = null,
+    )
+    @Serializable data class OutcomeRequest(val optionId: String? = null, val outcome: String, val sentMessages: List<String>? = null)
+
+    suspend fun replyDrafts(conversationId: String, body: DraftRequest): DraftResponse =
+        sendJson("POST", "/api/conversations/$conversationId/reply-drafts", JSON.encodeToString(DraftRequest.serializer(), body)) { JSON.decodeFromString(DraftResponse.serializer(), it) }
+
+    suspend fun draftOutcome(draftId: String, body: OutcomeRequest) {
+        sendJson("POST", "/api/reply-drafts/$draftId/outcome", JSON.encodeToString(OutcomeRequest.serializer(), body)) { }
+    }
+
+    @Serializable data class SentMessage(val id: String? = null)
+
+    /**
+     * Sends through the owner's cloud WhatsApp session (G4). [idempotencyKey] is one per outgoing
+     * message and is reused on retry, so a retry never sends twice (409 = still sending, replay = already sent).
+     */
+    suspend fun sendMessage(conversationId: String, text: String, idempotencyKey: String) = withContext(Dispatchers.IO) {
+        authorized { token ->
+            Request.Builder().url(resolve("/api/conversations/$conversationId/messages", emptyMap()))
+                .header("Authorization", "Bearer $token").header("Idempotency-Key", idempotencyKey)
+                .post("""{"text":${q(text)}}""".toRequestBody(JSON_TYPE)).build()
+        }.use { r -> if (!r.isSuccessful) throw HttpError(r.code, r.body.string()) }
+    }
+
+    suspend fun setConversationAi(conversationId: String, enabled: Boolean) {
+        sendJson("PATCH", "/api/conversations/$conversationId", """{"aiEnabled":$enabled}""") { }
+    }
+
+    suspend fun setContactPartner(contactId: String, partner: Boolean) {
+        sendJson("PATCH", "/api/contacts/$contactId", """{"isPartner":$partner}""") { }
+    }
+
+    @Serializable data class RoutingJob(val job: String, val chain: List<String>, val isDefault: Boolean = true)
+    @Serializable data class Routing(val jobs: List<RoutingJob> = emptyList(), val defaults: Map<String, List<String>> = emptyMap())
+    @Serializable data class ModelTest(val model: String, val ok: Boolean, val error: String? = null, val ms: Long? = null, val byok: Boolean = false)
+    @Serializable data class ModelTests(val results: List<ModelTest> = emptyList())
+    @Serializable data class ByokKey(
+        val provider: String, @SerialName("key_hint") val keyHint: String? = null, val status: String? = null,
+        @SerialName("last_error_message") val lastError: String? = null, @SerialName("is_active") val active: Boolean = true,
+    )
+    @Serializable data class ByokKeys(val keys: List<ByokKey> = emptyList())
+    @Serializable data class ByokTest(val ok: Boolean = false, val friendlyMessage: String? = null, val latencyMs: Long? = null)
+    @Serializable data class SpendMetrics(val totalRequests: Long = 0, val totalTokens: Long = 0, val estimatedCostUsd: Double = 0.0, val avgLatencyMs: Long = 0)
+    @Serializable data class Spend(val timeframe: String? = null, val metrics: SpendMetrics = SpendMetrics())
+
+    suspend fun routing(): Routing = getJson("/api/ai/routing", emptyMap(), Routing.serializer())
+    suspend fun setRouting(job: String, chain: List<String>?) {
+        val body = if (chain == null) """{"job":${q(job)},"reset":true}""" else """{"job":${q(job)},"chain":[${chain.joinToString(",") { q(it) }}]}"""
+        sendJson("PUT", "/api/ai/routing", body) { }
+    }
+    suspend fun testModels(models: List<String>): List<ModelTest> =
+        sendJson("POST", "/api/ai/routing/test", """{"models":[${models.joinToString(",") { q(it) }}]}""") { JSON.decodeFromString(ModelTests.serializer(), it).results }
+    suspend fun byokKeys(): List<ByokKey> = getJson("/api/byok/keys", emptyMap(), ByokKeys.serializer()).keys
+    suspend fun saveByokKey(provider: String, key: String) { sendJson("POST", "/api/byok/keys", """{"provider":${q(provider)},"apiKey":${q(key)}}""") { } }
+    suspend fun deleteByokKey(provider: String) { sendJson("DELETE", "/api/byok/keys/$provider", null) { } }
+    suspend fun testByokKey(provider: String): ByokTest = sendJson("POST", "/api/byok/test", """{"provider":${q(provider)}}""") { JSON.decodeFromString(ByokTest.serializer(), it) }
+    suspend fun spend(timeframe: String = "30d"): Spend = getJson("/api/ai/analytics", mapOf("timeframe" to timeframe), Spend.serializer())
+
+    // ── Networking (warm list and keep-warm nudges) ─────────────────────────
+    @Serializable data class WarmContact(
+        val contactId: String, val name: String? = null, val avatarTag: String? = null, val company: String? = null, val jobTitle: String? = null,
+        val tier: String? = null, val role: String? = null, val note: String? = null, val warmth: Int = 0, val status: String = "new",
+        val daysSince: Int? = null, val typicalGapDays: Double? = null, val lastFrom: String? = null, val waitingOnYou: Boolean = false,
+        val messageCount: Int = 0, val reasons: List<String> = emptyList(), val hasPendingNudge: Boolean = false,
+    )
+    @Serializable data class WarmCounts(val warm: Int = 0, val cooling: Int = 0, val cold: Int = 0, val new: Int = 0)
+    @Serializable data class WarmList(val contacts: List<WarmContact> = emptyList(), val counts: WarmCounts = WarmCounts())
+    @Serializable data class Suggestion(
+        val contactId: String, val name: String? = null, val avatarTag: String? = null, val company: String? = null, val jobTitle: String? = null,
+        val why: List<String> = emptyList(), val messageCount: Int = 0, val warmth: Int = 0, val status: String = "new",
+    )
+    @Serializable data class Suggestions(val suggestions: List<Suggestion> = emptyList())
+    @Serializable data class Nudge(
+        val id: String, val contactId: String, val conversationId: String? = null, val name: String? = null, val avatarTag: String? = null,
+        val tier: String? = null, val role: String? = null, val reason: String? = null, val warmth: Int = 0, val messages: List<String> = emptyList(),
+        val skippedBefore: Int = 0, val status: String = "pending",
+    )
+    @Serializable data class Nudges(val nudges: List<Nudge> = emptyList())
+
+    suspend fun warmList(): WarmList = getJson("/api/network/warm-list", emptyMap(), WarmList.serializer())
+    suspend fun networkSuggestions(): List<Suggestion> = getJson("/api/network/suggestions", emptyMap(), Suggestions.serializer()).suggestions
+    suspend fun nudges(): List<Nudge> = getJson("/api/network/nudges", mapOf("status" to "pending"), Nudges.serializer()).nudges
+    suspend fun putNetworkContact(contactId: String, tier: String, role: String?) {
+        sendJson("PUT", "/api/network/contacts/$contactId", """{"tier":${q(tier)}${role?.let { ",\"role\":${q(it)}" }.orEmpty()}}""") { }
+    }
+    suspend fun deleteNetworkContact(contactId: String) { sendJson("DELETE", "/api/network/contacts/$contactId", null) { } }
+    suspend fun nudgeAction(id: String, action: String, sent: List<String>? = null) {
+        val extra = sent?.let { ",\"sentMessages\":[${it.joinToString(",") { m -> q(m) }}]" }.orEmpty()
+        sendJson("POST", "/api/network/nudges/$id", """{"action":${q(action)}$extra}""") { }
+    }
+    suspend fun runNudges() { sendJson("POST", "/api/network/nudges/run", "{}") { } }
+
+    private fun q(s: String) = kotlinx.serialization.json.JsonPrimitive(s).toString()
+
+    private suspend fun <T> sendJson(method: String, path: String, body: String?, parse: (String) -> T): T = withContext(Dispatchers.IO) {
+        authorized { token ->
+            Request.Builder().url(resolve(path, emptyMap())).header("Authorization", "Bearer $token")
+                .method(method, body?.toRequestBody(JSON_TYPE) ?: if (method == "GET") null else ByteArray(0).toRequestBody(null)).build()
+        }.use { r ->
+            val text = r.body.string()
+            if (!r.isSuccessful) throw HttpError(r.code, text)
+            parse(text)
+        }
+    }
+
     // ── plumbing ────────────────────────────────────────────────────────────
 
     private suspend fun <T> getJson(path: String, query: Map<String, String>, de: kotlinx.serialization.DeserializationStrategy<T>): T =
@@ -178,6 +293,8 @@ class CloudApi(
     val id: String, val contactId: String? = null, val chatJid: String? = null, val lastMessageAt: Long? = null,
     val preview: String? = null, val unreadCount: Int = 0, val archived: Boolean = false, val muted: Boolean = false,
     val pinned: Boolean = false, val pinnedAt: Long? = null,
+    /** Per-chat AI switch (docs/AI_API.md); drafts and auto-replies are off when false. */
+    val aiEnabled: Boolean = true,
 )
 
 @Serializable data class SyncContact(
@@ -185,4 +302,7 @@ class CloudApi(
     val pushName: String? = null, val isGroup: Boolean = false, val isBusiness: Boolean = false, val hasAvatar: Boolean = false,
     val lastSeenAt: Long? = null, @SerialName("mergedInto") val mergedInto: String? = null,
     val avatarTag: String? = null,
+    /** G5: WhatsApp's @lid and phone JIDs for this contact (notification captures use the lid). */
+    val lid: String? = null, val pnJid: String? = null,
+    val isPartner: Boolean = false,
 )

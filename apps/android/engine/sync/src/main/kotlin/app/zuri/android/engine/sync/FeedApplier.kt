@@ -61,8 +61,18 @@ class FeedApplier(private val db: ZuriDatabase, private val clock: Clock) {
     private suspend fun contact(s: SyncContact, seq: Long) {
         val existing = dao.contact(s.id)
         if (existing != null && existing.seq > seq) return
-        val entity = CloudContactEntity(s.id, s.jid, s.phone, s.name, s.savedName, s.pushName, s.isGroup, s.isBusiness, seq, avatarTag = s.avatarTag)
+        val entity = CloudContactEntity(
+            s.id, s.jid, s.phone, s.name, s.savedName, s.pushName, s.isGroup, s.isBusiness, seq,
+            avatarTag = s.avatarTag, lid = s.lid, pnJid = s.pnJid, isPartner = s.isPartner,
+        )
         dao.upsertContact(entity)
+        // G5: a chat captured from notifications under this contact's @lid that is still separate from
+        // its cloud chat (linked earlier by name, or not at all) is merged into the cloud chat now.
+        s.lid?.let { lid ->
+            val cloudChats = dao.conversationsOfContact(s.id)
+            val cloud = cloudChats.firstOrNull { it.remoteId != null }
+            if (cloud != null) for (dup in dao.unlinkedAllByChatKey(CHAT_KEY_PREFIX + lid, WHATSAPP_PACKAGES)) mergeInto(dup, cloud)
+        }
         val title = titleFor(entity) ?: return
         // Chats that came from the cloud take the contact's name; captured chats keep the phone's.
         for (conv in dao.conversationsOfContact(s.id)) {
@@ -82,10 +92,13 @@ class FeedApplier(private val db: ZuriDatabase, private val clock: Clock) {
             if ((existing.remoteSeq ?: 0) > seq) return existing
             val title = if (existing.origin == Origin.CLOUD.name) contact?.let { titleFor(it) } ?: existing.title else existing.title
             dao.linkConversation(existing.id, s.id, s.contactId, seq, title, existing.isGroup || isGroup, s.lastMessageAt ?: 0, s.unreadCount, now)
+            dao.setAiEnabled(existing.id, s.aiEnabled)
             drainPending(s.id)
             return checkNotNull(dao.conversationByRemote(s.id))
         }
-        val candidate = jid?.let { dao.unlinkedByChatKey(CHAT_KEY_PREFIX + it, WHATSAPP_PACKAGES) }
+        // Notifications key one-to-one chats by @lid (G5 gives it to us); groups by their @g.us JID.
+        val candidate = contact?.lid?.let { dao.unlinkedByChatKey(CHAT_KEY_PREFIX + it, WHATSAPP_PACKAGES) }
+            ?: jid?.let { dao.unlinkedByChatKey(CHAT_KEY_PREFIX + it, WHATSAPP_PACKAGES) }
             ?: if (!isGroup) contact?.let { titleFor(it) }?.let { t -> dao.unlinkedByTitle(t, WHATSAPP_PACKAGES).singleOrNull() } else null
         if (candidate != null) {
             dao.linkConversation(candidate.id, s.id, s.contactId, seq, candidate.title, candidate.isGroup || isGroup, s.lastMessageAt ?: 0, s.unreadCount, now)
@@ -105,8 +118,40 @@ class FeedApplier(private val db: ZuriDatabase, private val clock: Clock) {
                 dao.insertConversation(entity.copy(chatKey = "cloud:${s.id}"))
             }
         }
+        dao.conversationByRemote(s.id)?.let { dao.setAiEnabled(it.id, s.aiEnabled) }
         drainPending(s.id)
         return checkNotNull(dao.conversationByRemote(s.id))
+    }
+
+    /**
+     * Folds a duplicate captured chat into its cloud chat. Captured messages that the cloud already has
+     * are dropped after their memories are re-pointed to the cloud copy; the rest move over, with
+     * everything else that belonged to the duplicate (memories, missions, goals, auto-reply history).
+     */
+    internal suspend fun mergeInto(dup: ConversationEntity, cloud: ConversationEntity) {
+        if (dup.id == cloud.id) return
+        val ws = cloud.workspaceId
+        for (m in dao.capturedIn(dup.id)) {
+            val mapped = CloudMessages.Mapped(m.text, m.placeholderKind, m.placeholderDetail, m.senderName, null, m.direction == Direction.OUTGOING.name, 0, null, null, null, null)
+            val twin = dao.cloudTwins(cloud.id, m.direction, m.sentAt - MATCH_WINDOW_MILLIS, m.sentAt + MATCH_WINDOW_MILLIS)
+                .firstOrNull { CloudMessages.sameContent(it.copy(text = it.text), mapped) }
+            if (twin != null) {
+                dao.repointMemories(m.id, twin.id)
+                dao.dropEmbedding(m.id)
+                dao.deleteMessageById(m.id)
+            } else {
+                dao.moveMessage(m.id, cloud.id, ws)
+            }
+        }
+        dao.moveMemories(dup.id, cloud.id, ws)
+        dao.moveAutoReplyEvents(dup.id, cloud.id)
+        dao.moveDraftFeedback(dup.id, cloud.id)
+        dao.moveMissions(dup.id, cloud.id, ws)
+        dao.moveGoalPeople(dup.id, cloud.id)
+        dao.moveHealthLog(dup.id, cloud.id)
+        if (dup.autoReply) dao.enableAutoReply(cloud.id)
+        // Its summary, relationship row and leftovers are recomputed for the cloud chat.
+        dao.deleteConversationById(dup.id)
     }
 
     private suspend fun deleteConversation(remoteId: String) {

@@ -94,12 +94,24 @@ data class ConversationState(
     val sending: Boolean = false,
     val lastResult: ReplyResult? = null,
     val drafts: DraftsState = DraftsState.Idle,
-)
+    /** The chat's cloud AI state (linked, AI on, partner). */
+    val ai: app.zuri.android.domain.cloud.ChatAi? = null,
+) {
+    /** The owner can send: through the live notification, or through their cloud WhatsApp session. */
+    val canSend: Boolean get() = canReply || ai?.linked == true
+}
 
 sealed interface DraftsState {
     data object Idle : DraftsState
     data object Drafting : DraftsState
     data class Ready(val drafts: List<String>, val byModel: Boolean) : DraftsState
+    /** From the cloud reply engine: options of 1–3 messages each, maybe a question only the owner can answer. */
+    data class Cloud(
+        val draftId: String, val model: String?, val options: List<app.zuri.android.domain.cloud.ReplyOption>,
+        val question: app.zuri.android.domain.cloud.ReplyQuestion?,
+    ) : DraftsState
+    /** AI is switched off for this chat (server switch). */
+    data object AiOff : DraftsState
     data object NothingToAnswer : DraftsState
     data object Failed : DraftsState
 }
@@ -126,6 +138,7 @@ class ConversationViewModel @Inject constructor(
     private val workspaces: WorkspaceRepository,
     private val cloudSync: app.zuri.android.domain.cloud.CloudSync,
     private val cloudMedia: app.zuri.android.domain.cloud.CloudMedia,
+    private val cloudReplies: app.zuri.android.domain.cloud.CloudReplies,
     avatarSource: app.zuri.android.domain.cloud.CloudAvatars,
 ) : ViewModel() {
     private val avatarLoader = AvatarLoader(avatarSource, viewModelScope)
@@ -204,18 +217,41 @@ class ConversationViewModel @Inject constructor(
 
     fun copied(draft: String) = viewModelScope.launch { feedback.record(id, draft, DraftAction.COPIED) }
 
-    val state: StateFlow<ConversationState> = combine(inbox.observeConversation(id), replies.observeCanReply(id), sendState, draftState) { detail, can, (sending, result), drafts ->
-        ConversationState(loading = false, detail = detail, canReply = can, sending = sending, lastResult = result, drafts = drafts)
+    val state: StateFlow<ConversationState> = combine(
+        combine(inbox.observeConversation(id), replies.observeCanReply(id), sendState, draftState) { detail, can, s, drafts -> listOf(detail, can, s, drafts) },
+        cloudReplies.state(id.value),
+    ) { parts, ai ->
+        val (sending, result) = @Suppress("UNCHECKED_CAST") (parts[2] as Pair<Boolean, ReplyResult?>)
+        ConversationState(
+            loading = false, detail = parts[0] as ConversationDetail?, canReply = parts[1] as Boolean, sending = sending, lastResult = result,
+            drafts = parts[3] as DraftsState, ai = ai,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ConversationState())
 
     /** Sends only on the owner's tap; returns true when the text should be cleared. */
     fun reply(text: String, onSent: () -> Unit) = viewModelScope.launch {
         sendState.value = true to null
-        val result = replies.reply(id, text)
+        // A cloud option is 1–3 separate WhatsApp messages; blank lines separate them in the box.
+        val messages = text.split(Regex("\\n\\s*\\n")).map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf(text.trim()) }
+        val viaNotification = state.value.canReply
+        val result = if (viaNotification) {
+            var r: ReplyResult = ReplyResult.Sent
+            for ((i, m) in messages.withIndex()) {
+                r = replies.reply(id, m)
+                if (r != ReplyResult.Sent) break
+                if (i < messages.lastIndex) kotlinx.coroutines.delay(700)
+            }
+            r
+        } else if (cloudReplies.send(id.value, messages)) ReplyResult.Sent
+        else ReplyResult.Failed("Couldn't send through Zuri cloud")
         sendState.value = false to result
         if (result == ReplyResult.Sent) {
             picked?.let { d -> feedback.record(id, d, if (d.trim() == text.trim()) DraftAction.SENT_AS_IS else DraftAction.SENT_EDITED, text.takeIf { d.trim() != it.trim() }) }
-            picked = null
+            pickedOption?.let { (draftId, o) ->
+                val same = o.messages.map { it.trim() } == messages
+                cloudReplies.outcome(draftId, o.id, if (same) app.zuri.android.domain.cloud.DraftOutcome.SENT else app.zuri.android.domain.cloud.DraftOutcome.EDITED, messages)
+            }
+            picked = null; pickedOption = null
             onSent(); draftState.value = DraftsState.Idle
         }
     }
@@ -229,21 +265,42 @@ class ConversationViewModel @Inject constructor(
     fun setAutoReplyDelay(min: Int, max: Int) = viewModelScope.launch { autoReplies.setDelay(min, max) }
 
     /** Drafts are written only when the owner asks, while the chat is open. */
-    fun suggest() {
+    /** Cloud reply engine first (docs/AI_API.md); the on-device drafter when the chat isn't synced or the cloud can't draft. */
+    fun suggest(answer: Pair<String, String>? = null) {
         if (drafting?.isActive == true) return
         drafting = viewModelScope.launch {
             draftState.value = DraftsState.Drafting
-            draftState.value = when (val r = drafter.draft(id)) {
-                is DraftResult.Drafts -> DraftsState.Ready(r.drafts, r.byModel)
-                DraftResult.NothingToAnswer -> DraftsState.NothingToAnswer
-                is DraftResult.Failed, DraftResult.NoModel -> DraftsState.Failed
+            draftState.value = when (val c = cloudReplies.draft(id.value, answer)) {
+                is app.zuri.android.domain.cloud.CloudDraft.Ready -> DraftsState.Cloud(c.draftId, c.model, c.options, c.question)
+                is app.zuri.android.domain.cloud.CloudDraft.NothingToAnswer -> DraftsState.NothingToAnswer
+                app.zuri.android.domain.cloud.CloudDraft.AiOff -> DraftsState.AiOff
+                app.zuri.android.domain.cloud.CloudDraft.Unavailable, is app.zuri.android.domain.cloud.CloudDraft.Failed -> localDraft()
             }
         }
     }
 
+    /** The owner tapped an answer to the engine's question: redraft with it. */
+    fun answer(questionId: String, text: String) { drafting?.cancel(); suggest(questionId to text) }
+
+    private suspend fun localDraft(): DraftsState = when (val r = drafter.draft(id)) {
+        is DraftResult.Drafts -> DraftsState.Ready(r.drafts, r.byModel)
+        DraftResult.NothingToAnswer -> DraftsState.NothingToAnswer
+        is DraftResult.Failed, DraftResult.NoModel -> DraftsState.Failed
+    }
+
+    /** The cloud option the owner put in the box, to report sent / edited. */
+    private var pickedOption: Pair<String, app.zuri.android.domain.cloud.ReplyOption>? = null
+    fun pickedCloud(draftId: String, option: app.zuri.android.domain.cloud.ReplyOption) { pickedOption = draftId to option; picked = null }
+
+    fun setAiEnabled(on: Boolean) = viewModelScope.launch { cloudReplies.setAiEnabled(id.value, on); if (!on) draftState.value = DraftsState.Idle }
+    fun setPartner(on: Boolean) = viewModelScope.launch { cloudReplies.setPartner(id.value, on) }
+
     /** Closing the drafts without using one tells Zuri they weren't right (not offered again here for a while). */
     fun dismissDrafts() {
         drafting?.cancel()
+        (draftState.value as? DraftsState.Cloud)?.let { c ->
+            if (pickedOption == null) viewModelScope.launch { cloudReplies.outcome(c.draftId, null, app.zuri.android.domain.cloud.DraftOutcome.DISMISSED) }
+        }
         val shown = draftState.value as? DraftsState.Ready
         draftState.value = DraftsState.Idle
         if (shown != null && picked == null) viewModelScope.launch { shown.drafts.forEach { feedback.record(id, it, DraftAction.DISMISSED) } }

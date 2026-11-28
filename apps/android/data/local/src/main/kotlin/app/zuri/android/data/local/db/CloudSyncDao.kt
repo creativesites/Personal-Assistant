@@ -43,6 +43,16 @@ interface CloudSyncDao {
     )
     suspend fun linkConversation(id: String, remoteId: String, contactId: String?, seq: Long, title: String, isGroup: Boolean, lastAt: Long, unread: Int, now: Long)
 
+    @Query("UPDATE conversation SET ai_enabled = :on WHERE id = :id")
+    suspend fun setAiEnabled(id: String, on: Boolean)
+
+    @Query("UPDATE cloud_contact SET is_partner = :on WHERE id = :id")
+    suspend fun setPartner(id: String, on: Boolean)
+
+    /** The linked chat of a contact known by its @lid (G5): notifications key one-to-one chats by lid. */
+    @Query("SELECT v.* FROM conversation v JOIN cloud_contact cc ON cc.id = v.remote_contact_id WHERE cc.lid = :lid AND v.package_name = :pkg LIMIT 1")
+    suspend fun linkedByLid(lid: String, pkg: String): ConversationEntity?
+
     @Query("UPDATE conversation SET title = :title, updated_at = :now WHERE id = :id")
     suspend fun retitle(id: String, title: String, now: Long)
 
@@ -153,6 +163,52 @@ interface CloudSyncDao {
            WHERE cc.avatar_tag IS NOT NULL AND v.deleted_at IS NULL GROUP BY cc.id ORDER BY MAX(v.last_message_at) DESC LIMIT :limit""",
     )
     suspend fun recentAvatars(limit: Int): List<AvatarRef>
+
+    // ── merging a duplicate captured chat into its cloud chat (G5) ──────────
+    @Query("SELECT * FROM message WHERE conversation_id = :conversationId AND remote_id IS NULL ORDER BY sent_at")
+    suspend fun capturedIn(conversationId: String): List<MessageEntity>
+
+    @Query("UPDATE memory_item SET source_message_id = :to WHERE source_message_id = :from")
+    suspend fun repointMemories(from: String, to: String)
+
+    @Query("DELETE FROM message_embedding WHERE message_id = :messageId")
+    suspend fun dropEmbedding(messageId: String)
+
+    @Query("UPDATE message SET conversation_id = :to, workspace_id = :ws WHERE id = :id")
+    suspend fun moveMessage(id: String, to: String, ws: String)
+
+    @Query("UPDATE memory_item SET conversation_id = :to, workspace_id = :ws WHERE conversation_id = :from")
+    suspend fun moveMemories(from: String, to: String, ws: String)
+
+    @Query("UPDATE auto_reply_event SET conversation_id = :to WHERE conversation_id = :from")
+    suspend fun moveAutoReplyEvents(from: String, to: String)
+
+    @Query("UPDATE draft_feedback SET conversation_id = :to WHERE conversation_id = :from")
+    suspend fun moveDraftFeedback(from: String, to: String)
+
+    @Query("UPDATE mission SET conversation_id = :to, workspace_id = :ws WHERE conversation_id = :from")
+    suspend fun moveMissions(from: String, to: String, ws: String)
+
+    @Query("UPDATE OR IGNORE goal_person SET conversation_id = :to WHERE conversation_id = :from")
+    suspend fun moveGoalPeople(from: String, to: String)
+
+    @Query("UPDATE health_log SET conversation_id = :to WHERE conversation_id = :from")
+    suspend fun moveHealthLog(from: String, to: String)
+
+    @Query("SELECT * FROM message WHERE conversation_id = :conversationId AND remote_id IS NOT NULL AND direction = :direction AND sent_at BETWEEN :from AND :to")
+    suspend fun cloudTwins(conversationId: String, direction: String, from: Long, to: Long): List<MessageEntity>
+
+    @Query("DELETE FROM message WHERE id = :id")
+    suspend fun deleteMessageById(id: String)
+
+    @Query("DELETE FROM conversation WHERE id = :id")
+    suspend fun deleteConversationById(id: String)
+
+    @Query("UPDATE conversation SET auto_reply = 1 WHERE id = :id")
+    suspend fun enableAutoReply(id: String)
+
+    @Query("SELECT * FROM conversation WHERE chat_key = :chatKey AND package_name IN (:packages) AND remote_id IS NULL")
+    suspend fun unlinkedAllByChatKey(chatKey: String, packages: List<String>): List<ConversationEntity>
 
     // ── media cache ─────────────────────────────────────────────────────────
     @Upsert suspend fun upsertMedia(m: MediaFileEntity)

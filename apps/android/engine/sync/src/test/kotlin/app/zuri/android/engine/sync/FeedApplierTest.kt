@@ -136,4 +136,36 @@ class FeedApplierTest {
         // Dated by the message, so a day-old import can't start an auto-reply (D-22).
         assertThat(photo.createdAt).isEqualTo(now - 86_400_000)
     }
+
+    @Test fun lidMergesADuplicateCapturedChatIntoItsCloudChat() = runTest {
+        // A one-to-one chat captured from notifications under WhatsApp's @lid…
+        db.conversationDao().insert(ConversationEntity("dev", "ws-personal", "WHATSAPP", "com.whatsapp", "s:4242@lid", "Mwila", false, true, now, 0, now, now, autoReply = true))
+        fun capture(id: String, text: String, at: Long) = MessageEntity(
+            id = id, conversationId = "dev", workspaceId = "ws-personal", direction = "INCOMING", senderKey = "s:4242@lid", senderName = "Mwila",
+            text = text, placeholderKind = null, placeholderDetail = null, sentAt = at, exactTime = true, fingerprint = "f$id",
+            sourcePackage = "com.whatsapp", notificationKey = "k", notificationPostedAt = at, capturedAt = at, adapterVersion = 3, createdAt = at, updatedAt = at,
+        )
+        db.messageDao().insert(capture("cap1", "See you at the market", now - 60_000))
+        db.messageDao().insert(capture("cap2", "Only on this phone", now - 30_000))
+        db.memoryDao().insert(app.zuri.android.data.local.db.MemoryEntity(
+            id = "mem1", workspaceId = "ws-personal", conversationId = "dev", sourceMessageId = "cap1", kind = "EVENT", text = "Market", personName = "Mwila",
+            sourceQuote = "See you at the market", sourceSentAt = now - 60_000, dueAt = null, dueText = null, dueHasTime = false, confidence = 0.9f,
+            origin = "RULES", modelId = null, status = "OPEN", review = "SUGGESTED", createdAt = now, updatedAt = now,
+        ))
+        // …and the same person's cloud chat, linked by phone JID before the feed carried the lid.
+        applier.apply(listOf(contact("k9", "260977@s.whatsapp.net", "Mwila B"), conversation("c9", "k9", "260977@s.whatsapp.net"),
+            message("m9", "c9", "See you at the market", now - 58_000)))
+        val cloud = checkNotNull(db.cloudSyncDao().conversationByRemote("c9"))
+        assertThat(cloud.id).isNotEqualTo("dev")
+        // The feed now sends the lid: the duplicate is folded in.
+        applier.apply(listOf(change("contact", "k9", """{"id":"k9","jid":"260977@s.whatsapp.net","name":"Mwila B","savedName":"Mwila B","lid":"4242@lid"}""")))
+        assertThat(db.conversationDao().byId("dev")).isNull()
+        val msgs = messagesOf(cloud.id)
+        assertThat(msgs.map { it.text }).containsExactly("See you at the market", "Only on this phone")
+        // The memory now points at the cloud copy of the message, in the cloud chat.
+        val mem = db.memoryDao().byId("mem1")!!
+        assertThat(mem.sourceMessageId).isEqualTo(msgs.first { it.remoteId == "m9" }.id)
+        assertThat(mem.conversationId).isEqualTo(cloud.id)
+        assertThat(db.conversationDao().byId(cloud.id)!!.autoReply).isTrue()
+    }
 }

@@ -116,7 +116,11 @@ class IngestProcessor(private val db: ZuriDatabase, private val clock: Clock) {
         // A one-to-one chat already synced from the cloud carries the phone-number JID, while
         // notifications use WhatsApp's @lid: join it by name when exactly one linked chat matches
         // (until the feed carries the lid, G5).
-        if (!m.chat.isGroup) db.cloudSyncDao().linkedByTitle(m.chat.title, pkg).singleOrNull()?.let { return it }
+        if (!m.chat.isGroup) {
+            // G5: the cloud contact's @lid matches the notification's chat key exactly.
+            m.chat.key.removePrefix("s:").takeIf { it.endsWith("@lid") }?.let { lid -> db.cloudSyncDao().linkedByLid(lid, pkg)?.let { return it } }
+            db.cloudSyncDao().linkedByTitle(m.chat.title, pkg).singleOrNull()?.let { return it }
+        }
         val entity = ConversationEntity(
             id = UuidV7.generate(clock), workspaceId = workspaceId, sourceKind = kind.name, packageName = pkg,
             chatKey = m.chat.key, title = m.chat.title, isGroup = m.chat.isGroup,

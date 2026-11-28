@@ -89,11 +89,11 @@ import app.zuri.android.domain.people.Relationship
 
 /** Orbits (spec §4.4): the owner's people as a star system. Healthier relationships orbit closer. */
 @Composable
-fun OrbitsRoute(onOpenConversation: (ConversationId) -> Unit, viewModel: OrbitsViewModel = hiltViewModel()) {
+fun OrbitsRoute(onOpenConversation: (ConversationId) -> Unit, onOpenNetwork: () -> Unit = {}, viewModel: OrbitsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val avatars by viewModel.avatars.collectAsStateWithLifecycle()
     LifecycleResumeEffect(Unit) { viewModel.refresh(); onPauseOrDispose { } }
-    OrbitsContent(state, avatars, viewModel::setFilter, viewModel::needAvatar, viewModel::setTier, onOpenConversation)
+    OrbitsContent(state, avatars, viewModel::setFilter, viewModel::needAvatar, viewModel::setTier, onOpenConversation, onOpenNetwork)
 }
 
 enum class OrbitFilter { ALL, ATTENTION, DORMANT }
@@ -107,6 +107,7 @@ fun OrbitsContent(
     onNeedAvatar: (String) -> Unit = {},
     onSetTier: (ConversationId, Int) -> Unit = { _, _ -> },
     onOpenConversation: (ConversationId) -> Unit = {},
+    onOpenNetwork: () -> Unit = {},
 ) {
     val u = Zuri.universe
     var selected by remember { mutableStateOf<Relationship?>(null) }
@@ -131,6 +132,8 @@ fun OrbitsContent(
                 FilterPill(stringResource(R.string.orbits_all), state.filter == OrbitFilter.ALL) { onFilter(OrbitFilter.ALL) }
                 FilterPill(stringResource(R.string.orbits_attention), state.filter == OrbitFilter.ATTENTION) { onFilter(OrbitFilter.ATTENTION) }
                 FilterPill(stringResource(R.string.orbits_dormant), state.filter == OrbitFilter.DORMANT) { onFilter(OrbitFilter.DORMANT) }
+                // Network (Part C): the warm list and keep-warm nudges from the cloud.
+                FilterPill(stringResource(R.string.orbits_network) + " →", false, onOpenNetwork)
             }
         }
         item(key = "map") { GravityMap(list, avatars, selected?.conversationId) { id -> selected = list.firstOrNull { it.conversationId.value == id } } }

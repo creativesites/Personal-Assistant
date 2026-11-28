@@ -137,4 +137,16 @@ class MigrationTest {
             }
         }
     }
+
+    @Test fun v12ToV13KeepsChatsWithAiOnAndAddsLidAndPartner() {
+        helper.createDatabase("migration-test-13", 12).use { db ->
+            db.execSQL("INSERT INTO workspace (id, kind, name, accent, created_at, updated_at, origin, sync_state) VALUES ('ws','PERSONAL','Personal','TEAL',0,0,'DEVICE','LOCAL_ONLY')")
+            db.execSQL("INSERT INTO conversation (id, workspace_id, source_kind, package_name, chat_key, title, is_group, analyse, last_message_at, unread_count, created_at, updated_at, origin, sync_state, auto_reply) VALUES ('c1','ws','WHATSAPP','com.whatsapp','s:1@lid','Chanda',0,1,0,0,0,0,'DEVICE','LOCAL_ONLY',0)")
+            db.execSQL("INSERT INTO cloud_contact (id, jid, is_group, is_business, seq) VALUES ('k1','1@s.whatsapp.net',0,0,1)")
+        }
+        helper.runMigrationsAndValidate("migration-test-13", 13, true).use { db ->
+            db.query("SELECT ai_enabled FROM conversation WHERE id = 'c1'").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(1) }
+            db.query("SELECT lid, is_partner FROM cloud_contact WHERE id = 'k1'").use { c -> c.moveToFirst(); assertThat(c.isNull(0)).isTrue(); assertThat(c.getInt(1)).isEqualTo(0) }
+        }
+    }
 }

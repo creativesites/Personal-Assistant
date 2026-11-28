@@ -74,6 +74,8 @@ data class ConversationEntity(
     /** Cloud sync (D-21): the server contact behind this chat, and the change_seq last applied. */
     @ColumnInfo(name = "remote_contact_id") val remoteContactId: String? = null,
     @ColumnInfo(name = "remote_seq") val remoteSeq: Long? = null,
+    /** Per-chat AI switch from the server (docs/AI_API.md); drafts and auto-replies are off when false. */
+    @ColumnInfo(name = "ai_enabled", defaultValue = "1") val aiEnabled: Boolean = true,
 )
 
 @Entity(
@@ -150,6 +152,10 @@ data class CloudContactEntity(
     val seq: Long,
     /** Changes whenever the WhatsApp profile picture does; null when there is none (sync feed). */
     @ColumnInfo(name = "avatar_tag") val avatarTag: String? = null,
+    /** G5: WhatsApp's @lid (what notifications use) and phone JID. */
+    val lid: String? = null,
+    @ColumnInfo(name = "pn_jid") val pnJid: String? = null,
+    @ColumnInfo(name = "is_partner", defaultValue = "0") val isPartner: Boolean = false,
 ) {
     /** The name to show: the owner's saved name, then the server's name, then WhatsApp's push name. */
     fun displayName(): String? = savedName?.takeIf { it.isNotBlank() } ?: name?.takeIf { it.isNotBlank() } ?: pushName?.takeIf { it.isNotBlank() }

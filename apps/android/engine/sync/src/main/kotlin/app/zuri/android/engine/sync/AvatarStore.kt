@@ -54,6 +54,9 @@ class AvatarStore(
         return load(ref, fetch = true)
     }
 
+    override suspend fun forContact(contactId: String, tag: String?): ByteArray? =
+        tag?.let { load(AvatarRef(contactId, it), fetch = true) }
+
     /** After a sync run: fetch pictures for the most recent chats that don't have theirs yet. */
     suspend fun prefetch(limit: Int = 60): Int {
         if (account.token == null) return 0
