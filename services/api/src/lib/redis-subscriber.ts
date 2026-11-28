@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { scheduleTickle, TICKLE_EVENTS } from './fcm';
 import type { Server } from 'socket.io';
 import { config } from '../config';
 import { startHistorySync } from './history-sync';
@@ -54,6 +55,9 @@ export function startRedisSubscriber(io: Server): void {
     // per-pass loop publishes live progress here as a run proceeds, same
     // dual DB-row + Redis pattern history:progress:* already established.
     'career.job_discovery.progress:*',
+    // Networking keep-warm nudges (docs/AI_API.md) — was published but never
+    // subscribed, so the socket event never reached clients.
+    'network:nudges:*',
     (err) => {
       if (err) console.error('Redis psubscribe error:', err);
     },
@@ -89,6 +93,10 @@ export function startRedisSubscriber(io: Server): void {
     const eventType = parts.slice(0, parts.length - 1).join(':');
 
     io.to(`user:${userId}`).emit(eventType, payload);
+
+    // G7: wake the owner's phones (debounced, data-only sync tickle).
+    const tickleReason = TICKLE_EVENTS[eventType];
+    if (tickleReason) scheduleTickle(userId, tickleReason);
   });
 
   redisSub.on('error', (err) => console.error('Redis subscriber error:', err));

@@ -120,9 +120,10 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
    - the app comes to the foreground;
    - connectivity returns;
    - a Socket.io event arrives for the account (`message:new`, `message:status:update`, `message:reaction`, `message:changed`, `conversation:upsert`, `conversation:read`);
-   - a periodic worker fires.
+   - a periodic worker fires;
+   - an FCM tickle arrives (G7, see "Push tickles").
 
-   FCM tickles come later (G7). Treat the socket payloads as **tickles only**. The feed is the source of truth.
+   Treat the socket payloads and FCM tickles as **tickles only**. The feed is the source of truth.
 3. **Scrolling up** past what's stored locally: use the history endpoint with the oldest local message's `before`. History doesn't need to come through the feed.
 4. **Quotes whose original isn't stored locally.** Render from `quoted`, which is always self-contained. When a message whose `waMessageId` equals `quoted.waMessageId` arrives later, link them locally.
 
@@ -242,6 +243,31 @@ Statuses:
 | `skipped` | `reason: "unknown_chat"` or `"empty"`. |
 | `ambiguous` | Several messages fit equally well. Nothing is merged; keep the capture for the review queue. |
 
+## Push tickles (G7)
+
+Firebase project: `propzi-imbk` (the same GCP project as the backend). Android app `app.zuri.android` is registered. Implementation: `services/api/src/lib/fcm.ts`, `routes/push.ts`, migration 0143.
+
+**Registering**
+- `PUT /api/push/tokens` with `{ token, platform: "android", deviceId?, appVersion? }` returns 204.
+  - Call it on every app start, and from `onNewToken`. It's idempotent.
+  - With `deviceId`, a refreshed token replaces that device's old one.
+- `DELETE /api/push/tokens` with `{ token }` returns 204. Call it on sign-out.
+- `POST /api/push/test` sends one tickle now and returns `{ sent, results: [{ ok, status, error, token }] }`.
+
+**What arrives**
+- Each tickle is a **data-only**, high-priority FCM message (`collapse_key: "sync"`, TTL 10 minutes):
+  ```json
+  { "type": "sync", "reasons": "message,draft", "sentAt": "2026-11-28T10:00:00Z" }
+  ```
+- `reasons` is a comma-joined set:
+  - `message`: a new, changed or reacted-to message;
+  - `draft`: a reply draft is ready;
+  - `nudges`: new Networking nudges;
+  - `test`.
+- Events are debounced per account for 3 seconds, so a burst becomes one tickle.
+- A tickle never carries message content. On receipt, pull `/api/sync/changes?cursor=`, and for `draft` or `nudges` refresh those screens. It's safe to ignore a tickle while the socket is connected and in the foreground.
+- Tokens FCM reports as unregistered are deleted on the server.
+
 ## Media
 
 - Download from `media.path` (`/api/messages/:id/media`) with the Bearer header.
@@ -258,7 +284,6 @@ Statuses:
 
 ## Not yet (later phases)
 
-- **G7:** FCM tickles.
 - **Statuses and calls** are not synced.
 
 ## Scaling note
