@@ -85,9 +85,12 @@ import kotlinx.coroutines.withContext
 data class NetworkState(val loading: Boolean = true, val overview: NetworkOverview? = null, val busy: Set<String> = emptySet(), val notice: String? = null)
 
 @HiltViewModel
-class NetworkViewModel @Inject constructor(private val net: Networking, val avatars: CloudAvatars) : ViewModel() {
+class NetworkViewModel @Inject constructor(private val net: Networking, val avatars: CloudAvatars, sync: app.zuri.android.domain.cloud.CloudSync) : ViewModel() {
     private val _state = MutableStateFlow(NetworkState())
     val state: StateFlow<NetworkState> = _state
+
+    // G7: new keep-warm nudges arrive by push; refresh while this screen is open.
+    init { viewModelScope.launch { sync.tickles.collect { if ("nudges" in it) load() } } }
 
     fun load() = viewModelScope.launch { _state.value = _state.value.copy(loading = false, overview = net.overview()) }
     private fun act(key: String, block: suspend () -> Unit) = viewModelScope.launch {

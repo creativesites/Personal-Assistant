@@ -56,8 +56,10 @@ object SyncModule {
         CloudMediaStore(context, db, api, prefs, store, clock)
 
     @Provides @Singleton
-    fun syncImpl(@ApplicationContext context: Context, runner: SyncRunner, prefs: SyncPrefs, media: CloudMediaStore, db: ZuriDatabase) =
-        CloudSyncImpl(context, runner, prefs, media, db)
+    fun syncImpl(
+        @ApplicationContext context: Context, runner: SyncRunner, prefs: SyncPrefs, media: CloudMediaStore, db: ZuriDatabase,
+        api: Provider<CloudApi>, store: CloudAccountStore,
+    ) = CloudSyncImpl(context, runner, prefs, media, db, api, store)
 
     @Provides fun cloudAccount(impl: CloudAccountImpl): CloudAccount = impl
     @Provides fun cloudSync(impl: CloudSyncImpl): CloudSync = impl

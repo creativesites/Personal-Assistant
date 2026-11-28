@@ -31,6 +31,7 @@ class ManifestPolicyTest {
             Manifest.permission.POST_NOTIFICATIONS,
             Manifest.permission.USE_BIOMETRIC, Manifest.permission.USE_FINGERPRINT, // app lock
             Manifest.permission.READ_CALENDAR, // M6 Trajectory: read-only, asked for with an explanation, optional
+            "com.google.android.c2dm.permission.RECEIVE", // G7: FCM sync tickles (data-only, no content)
             context.packageName + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
         )
         assertThat(allowed).containsAtLeastElementsIn(info.requestedPermissions.orEmpty().toList())

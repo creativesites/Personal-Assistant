@@ -34,6 +34,8 @@ class ZuriApplication : Application() {
         if (getProcessName().endsWith(":llm")) return
         // Cloud account (M7): Clerk keeps its own session; Zuri exchanges it for this phone's session.
         ClerkAuth.initialize(this)
+        // G7 push tickles: set up Firebase only when this build has its config.
+        app.zuri.android.push.ZuriPush.initialize(this)
         @OptIn(DelicateCoroutinesApi::class)
         GlobalScope.launch { cloudSync.get().schedule() }
         // Hourly understanding of new messages (kept if already scheduled).
@@ -51,6 +53,7 @@ class ZuriApplication : Application() {
             override fun onStart(owner: LifecycleOwner) {
                 // While Zuri is open, new cloud messages show up within seconds (D-21).
                 cloudSync.get().onForeground(owner.lifecycleScope)
+                app.zuri.android.push.ZuriPush.register(cloudSync.get())
                 appLock.get().onForegrounded()
                 // Re-reads notification access and, when granted, starts ingest (picks up pending captures).
                 capture.get().refresh()

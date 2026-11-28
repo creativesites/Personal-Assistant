@@ -200,9 +200,16 @@ class ConversationViewModel @Inject constructor(
     init {
         cloudSync.syncNow()
         // The server drafts every new incoming message on its own: show that draft at once, if there is one.
-        viewModelScope.launch {
-            val ready = cloudReplies.latest(id.value) ?: return@launch
-            if (draftState.value == DraftsState.Idle) draftState.value = DraftsState.Cloud(ready.draftId, ready.model, ready.options, ready.question)
+        viewModelScope.launch { showLatestDraft() }
+        // G7: a push says the server finished a draft; show it if the owner isn't already working on one.
+        viewModelScope.launch { cloudSync.tickles.collect { if ("draft" in it) showLatestDraft() } }
+    }
+
+    private suspend fun showLatestDraft() {
+        val ready = cloudReplies.latest(id.value) ?: return
+        val now = draftState.value
+        if (now == DraftsState.Idle || now == DraftsState.NothingToAnswer || (now is DraftsState.Cloud && now.draftId != ready.draftId && now.question == null)) {
+            draftState.value = DraftsState.Cloud(ready.draftId, ready.model, ready.options, ready.question)
         }
     }
 

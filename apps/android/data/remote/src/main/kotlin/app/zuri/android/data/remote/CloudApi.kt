@@ -230,6 +230,13 @@ class CloudApi(
     }
     suspend fun runNudges() { sendJson("POST", "/api/network/nudges/run", "{}") { } }
 
+    // ── Push tickles (G7, docs/SYNC_FEED.md "Push tickles") ──────────────────
+    suspend fun putPushToken(token: String, deviceId: String?, appVersion: String?) {
+        val extra = listOfNotNull(deviceId?.let { ""","deviceId":${q(it)}""" }, appVersion?.let { ""","appVersion":${q(it)}""" }).joinToString("")
+        sendJson("PUT", "/api/push/tokens", """{"token":${q(token)},"platform":"android"$extra}""") { }
+    }
+    suspend fun deletePushToken(token: String) { sendJson("DELETE", "/api/push/tokens", """{"token":${q(token)}}""") { } }
+
     private fun q(s: String) = kotlinx.serialization.json.JsonPrimitive(s).toString()
 
     private suspend fun <T> sendJson(method: String, path: String, body: String?, parse: (String) -> T): T = withContext(Dispatchers.IO) {

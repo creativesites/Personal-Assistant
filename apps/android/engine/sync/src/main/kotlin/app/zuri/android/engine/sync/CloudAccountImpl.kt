@@ -96,6 +96,7 @@ class CloudAccountImpl(
     }
 
     override suspend fun disconnect(removeCloudData: Boolean) {
+        sync.get().unregisterPush()
         runCatching { api.get().logout() }
         clerk.signOut()
         sync.get().onDisconnected()

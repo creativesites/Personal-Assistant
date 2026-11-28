@@ -23,6 +23,14 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Zuri"
         tools:targetApi="36">
+        <!-- G7: data-only sync tickles from Zuri's server (no content, no notification shown). -->
+        <service android:name=".push.ZuriMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
+        <!-- Firebase is set up by hand from BuildConfig (ZuriPush), not from resources. -->
+        <provider android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider" tools:node="remove" />
+
 
         <activity
             android:name=".MainActivity"

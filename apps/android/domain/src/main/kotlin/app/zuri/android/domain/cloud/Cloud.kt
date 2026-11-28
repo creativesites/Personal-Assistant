@@ -59,6 +59,12 @@ interface CloudSync {
     suspend fun setMediaWifiOnly(wifiOnly: Boolean)
     suspend fun setUploadCaptures(on: Boolean) {}
     suspend fun clearMediaCache()
+
+    /**
+     * Push tickles (G7): what the server said changed ("message", "draft", "nudges"). Screens that
+     * show drafts or nudges refresh on these; the feed pull happens on its own.
+     */
+    val tickles: kotlinx.coroutines.flow.Flow<Set<String>> get() = kotlinx.coroutines.flow.emptyFlow()
 }
 
 /** One message's media, as stored on the phone (encrypted) or fetched on demand. */

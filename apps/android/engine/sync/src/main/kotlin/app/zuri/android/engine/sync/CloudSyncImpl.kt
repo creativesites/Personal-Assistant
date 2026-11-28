@@ -13,6 +13,10 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.zuri.android.core.common.ZuriLog
 import app.zuri.android.data.local.db.ZuriDatabase
+import app.zuri.android.data.remote.CloudAccountStore
+import app.zuri.android.data.remote.CloudApi
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import app.zuri.android.domain.cloud.CloudSync
 import app.zuri.android.domain.cloud.CloudSyncStatus
 import dagger.hilt.EntryPoint
@@ -31,8 +35,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Sync scheduling (M9 messaging slice): a pull every 15 minutes in the background, every
- * [FOREGROUND_POLL_MILLIS] while the app is open, and on demand. The feed is the source of truth;
- * Socket.io and FCM tickles come later (G7).
+ * [FOREGROUND_POLL_MILLIS] while the app is open, on demand, and when an FCM tickle arrives (G7).
+ * The feed is the source of truth: a tickle only says "pull now" and never carries content.
  */
 class CloudSyncImpl(
     private val context: Context,
@@ -40,6 +44,8 @@ class CloudSyncImpl(
     private val prefs: SyncPrefs,
     private val media: CloudMediaStore,
     private val db: ZuriDatabase,
+    private val api: javax.inject.Provider<CloudApi>,
+    private val account: CloudAccountStore,
 ) : CloudSync {
     private val work get() = WorkManager.getInstance(context)
     private var foreground: Job? = null
@@ -62,7 +68,36 @@ class CloudSyncImpl(
 
     override suspend fun setEnabled(enabled: Boolean) {
         prefs.setEnabled(enabled)
-        if (enabled) { schedule(); syncNow() } else work.cancelUniqueWork(PERIODIC)
+        if (enabled) { schedule(); syncNow(); pushToken?.let { registerPush(it, pushAppVersion) } } else work.cancelUniqueWork(PERIODIC)
+    }
+
+    // ── Push tickles (G7) ───────────────────────────────────────────────────
+    @Volatile private var pushToken: String? = null
+    @Volatile private var pushAppVersion: String? = null
+    private val _tickles = MutableSharedFlow<Set<String>>(extraBufferCapacity = 8)
+    override val tickles: SharedFlow<Set<String>> = _tickles
+
+    /** This phone's FCM token, on every start and whenever Firebase rotates it. Idempotent on the server. */
+    suspend fun registerPush(token: String, appVersion: String?) {
+        pushToken = token
+        pushAppVersion = appVersion
+        if (!prefs.enabled()) return
+        runCatching { api.get().putPushToken(token, account.deviceId, appVersion) }
+            .onSuccess { ZuriLog.i("SYNC", "push_registered") }
+            .onFailure { ZuriLog.w("SYNC", "push_register_failed", "detail" to (it.message ?: "").take(120)) }
+    }
+
+    /** Before signing out, so the server stops tickling a phone it can no longer reach. */
+    suspend fun unregisterPush() {
+        val token = pushToken ?: return
+        runCatching { api.get().deletePushToken(token) }
+    }
+
+    /** A tickle: pull the feed now and let open screens refresh drafts or nudges. */
+    fun onTickle(reasons: Set<String>) {
+        ZuriLog.i("SYNC", "push_tickle", "reasons" to reasons.sorted().joinToString(","))
+        syncNow()
+        _tickles.tryEmit(reasons)
     }
 
     override fun syncNow() {

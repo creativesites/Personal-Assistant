@@ -24,6 +24,14 @@ android {
         // On-device evals run against the installed app and its downloaded model only when asked for.
         // arm64 only (DECISIONS.md D-15): on-device models need it, and it keeps the APK small.
         ndk { abiFilters += listOf("arm64-v8a") }
+        // G7 push: Firebase values come from app/google-services.json, which stays out of the public
+        // repo. Read here instead of through the google-services plugin; without the file (CI, forks)
+        // the values are empty and push stays off, while sync still polls.
+        val firebase = firebaseConfig(file("google-services.json"))
+        buildConfigField("String", "FIREBASE_APP_ID", "\"${firebase["appId"].orEmpty()}\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"${firebase["apiKey"].orEmpty()}\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${firebase["projectId"].orEmpty()}\"")
+        buildConfigField("String", "FIREBASE_SENDER_ID", "\"${firebase["senderId"].orEmpty()}\"")
     }
 
     buildTypes {
@@ -89,9 +97,31 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit4)
     testImplementation(libs.truth)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+}
+
+/** The four values Firebase needs, from google-services.json for this app id; empty when the file is absent. */
+fun firebaseConfig(f: File): Map<String, String> {
+    if (!f.exists()) return emptyMap()
+    @Suppress("UNCHECKED_CAST")
+    val root = groovy.json.JsonSlurper().parse(f) as Map<String, Any?>
+    val project = root["project_info"] as Map<String, Any?>
+    @Suppress("UNCHECKED_CAST")
+    val client = (root["client"] as List<Map<String, Any?>>).firstOrNull {
+        ((it["client_info"] as Map<String, Any?>)["android_client_info"] as Map<String, Any?>)["package_name"] == "app.zuri.android"
+    } ?: return emptyMap()
+    @Suppress("UNCHECKED_CAST")
+    val key = ((client["api_key"] as List<Map<String, Any?>>).firstOrNull()?.get("current_key") as String?).orEmpty()
+    return mapOf(
+        "appId" to ((client["client_info"] as Map<String, Any?>)["mobilesdk_app_id"] as String),
+        "apiKey" to key,
+        "projectId" to (project["project_id"] as String),
+        "senderId" to (project["project_number"] as String),
+    )
 }
