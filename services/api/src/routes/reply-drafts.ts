@@ -151,6 +151,15 @@ export async function replyDraftRoutes(fastify: FastifyInstance) {
       [id],
     )
     if (!rows.length) return reply.send({ draftId: null, options: [], question: null, model: null })
+    // The engine stores these JSONB values as encoded strings; accept both forms.
+    const json = <T>(v: unknown): T | null => {
+      if (typeof v !== 'string') return (v as T) ?? null
+      try { return JSON.parse(v) as T } catch { return null }
+    }
+    for (const r of rows) {
+      r.parts = json<{ text: string; quoteMessageId: string | null }[]>(r.parts)
+      r.owner_question = json(r.owner_question)
+    }
 
     const quoteIds = rows.flatMap((r) => (r.parts ?? []).map((p) => p.quoteMessageId).filter(Boolean)) as string[]
     const quoted = new Map<string, string>()
