@@ -1372,18 +1372,37 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
   fastify.patch('/api/conversations/:id', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string };
     const { id } = request.params as { id: string };
-    const body = request.body as { is_archived?: boolean };
+    const body = (request.body ?? {}) as { is_archived?: boolean; aiEnabled?: boolean };
 
-    if (typeof body?.is_archived !== 'boolean') {
-      return reply.code(400).send({ error: 'is_archived (boolean) required' });
+    const sets: string[] = [];
+    const values: unknown[] = [id, userId];
+    if (typeof body.is_archived === 'boolean') {
+      values.push(body.is_archived);
+      sets.push('is_archived = $' + values.length);
+    }
+    // Per-chat AI switch: off = no drafts and no auto-replies for this chat.
+    if (typeof body.aiEnabled === 'boolean') {
+      values.push(body.aiEnabled);
+      sets.push('ai_enabled = $' + values.length);
+    }
+    if (!sets.length) {
+      return reply.code(400).send({ error: 'is_archived or aiEnabled (boolean) required' });
     }
 
     const result = await db.query(
-      `UPDATE conversations SET is_archived = $1, updated_at = NOW()
-       WHERE id = $2 AND user_id = $3`,
-      [body.is_archived, id, userId],
+      `UPDATE conversations SET ${sets.join(', ')}, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2`,
+      values,
     );
     if (result.rowCount === 0) return reply.code(404).send({ error: 'Conversation not found' });
+    if (body.aiEnabled === false) {
+      // Drafts still waiting for this chat are no longer wanted.
+      await db.query(
+        `UPDATE suggested_replies sr SET status = 'dismissed', updated_at = NOW()
+         FROM messages m WHERE sr.message_id = m.id AND m.conversation_id = $1 AND sr.status = 'pending'`,
+        [id],
+      );
+    }
     return reply.send({ ok: true });
   });
 

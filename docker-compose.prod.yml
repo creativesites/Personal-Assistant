@@ -26,6 +26,7 @@ services:
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
       # Voice-note transcription (services/api/src/lib/transcription.ts) calls Gemini directly.
       GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-}
       FALLBACK_AI_MODEL: ${FALLBACK_AI_MODEL:-}
       CLERK_SYNC_ENFORCE: ${CLERK_SYNC_ENFORCE:-false}
@@ -97,6 +98,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEFAULT_AI_MODEL: ${DEFAULT_AI_MODEL:-anthropic/claude-haiku-5-5}
       FALLBACK_AI_MODEL: ${FALLBACK_AI_MODEL:-gemini/gemini-3.5-flash}
       CLAUDE_EFFORT: ${CLAUDE_EFFORT:-low}

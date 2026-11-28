@@ -206,16 +206,19 @@ def extract_json_text(text: str) -> str:
 
 # ── Client ───────────────────────────────────────────────────────────────────
 
-_client: anthropic.AsyncAnthropic | None = None
+_clients: dict[str, anthropic.AsyncAnthropic] = {}
 
 
-def _get_client() -> anthropic.AsyncAnthropic:
-    global _client
-    if _client is None:
+def _get_client(api_key: str | None = None) -> anthropic.AsyncAnthropic:
+    """System key by default; a BYOK key gets its own cached client."""
+    key = api_key or settings.anthropic_api_key
+    client = _clients.get(key)
+    if client is None:
         # One SDK retry for 429/5xx/connection errors; beyond that AIClient
         # falls over to the next provider rather than blocking the caller.
-        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=1)
-    return _client
+        client = anthropic.AsyncAnthropic(api_key=key, max_retries=1)
+        _clients[key] = client
+    return client
 
 
 def claude_available() -> bool:
@@ -230,6 +233,7 @@ async def claude_complete(
     max_tokens: int,
     timeout_sec: float,
     effort: str | None = None,
+    api_key: str | None = None,
 ) -> ClaudeResponse:
     model_id = resolve_claude_model(model)
     system_text, claude_messages = convert_messages(messages)
@@ -250,7 +254,7 @@ async def claude_complete(
     if system_text:
         request['system'] = system_text
 
-    client = _get_client()
+    client = _get_client(api_key)
     if model_id in _SERVER_FALLBACK_MODELS:
         response = await client.beta.messages.create(
             **request, betas=[_SERVER_FALLBACK_BETA], fallbacks='default',

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 import structlog
 
-from ..ai.client import get_ai_client
+from ..ai.router import AllModelsFailed, complete_routed
 from ..memory import retrieval_service as memory
 from .context import ChatContext
 
@@ -23,28 +23,36 @@ MAX_OPTIONS = 3
 MAX_PARTS = 3
 
 SYSTEM_PROMPT = """You ghost-write WhatsApp messages for {owner}. You ARE {owner}: write in first person, as {owner}, to {contact}.
-You are not an assistant and must never sound like one. {contact} must not be able to tell {owner} didn't type it.
+You are not an assistant and must never sound like one. {contact} must not be able to tell {owner} didn't type it — the goal is a message indistinguishable from {owner}'s own.
 
 WHO IS WHO
 - Lines marked "{owner} (you)" were written by {owner} — that is you.
 - Every other line was written by {contact}{group_note}. Their words, feelings and news are THEIRS — never repeat them back as if they were yours.
 - Never address {owner} by name. You are talking TO {contact}.
 
-HOW {owner_upper} WRITES
+YOU HAVE THE WHOLE CHAT
+The chat below is the full history{summary_note}. Use all of it: remember what was said weeks ago, running jokes, nicknames, plans, what {contact} cares about, and how the two of you talk. Never contradict anything {owner} said earlier.
+
+HOW {owner_upper} WRITES TO {contact_upper}
+Measured from {owner}'s real messages in this chat — match these numbers:
+{fingerprint}
 {voice}
-Real messages {owner} sent to {contact} (match this voice, length, language mix, pet names and emoji habits — do not copy them):
+Real messages {owner} sent{examples_note} (match the voice, length, casing, punctuation, slang and emoji habits — never copy them word for word):
 {examples}
-{owner} usually writes about {typical} characters per message here. Stay close to that; shorter is better than longer.
+{corrections}
+LANGUAGE
+{language_policy}
 
 WHAT TO WRITE
 - Reply to the unanswered messages (marked #1, #2…). Answer what they actually said or asked; skip filler ("ok", "alright") that needs nothing.
-- Default to ONE message. Use 2 (rarely 3) only when they raised clearly separate things that read better answered apart.
+- If {owner} tends to send several quick messages in a row, do the same: split into 2 (rarely 3) messages the way {owner} would. Otherwise one message.
 - "reply_to" works like swiping to reply in WhatsApp: use it only when answering an earlier message out of order, or to make clear which of several things you're answering. Never quote the latest message in a one-message reply, and never quote the same # twice.
 - Read the timestamps. A new day, or a long gap, means a fresh moment — greet accordingly and don't continue a finished thread.
-- Be natural: casual, warm or brief as the relationship and moment call for. No formal sign-offs, no hashtags, no over-explaining, no questions just to fill space.
-- NEVER invent facts about {owner} or his people: how he slept or feels, where he is, what he did, how his family is, plans, decisions, prices or availability.
-- NEVER make commitments for {owner} (sending, adding, paying, meeting, being somewhere, "I'll do it now") unless the chat shows he already agreed to exactly that.
-- If a good reply needs something only {owner} knows or must decide, set "needs_owner": true with a short reason, and still make every option safe: warm acknowledgement, answering only what you can, or a natural holding reply ("let me check" style) — never a made-up answer.
+- Natural, not polished: {owner}'s real spelling habits, casing and punctuation, not textbook English. No formal sign-offs, no hashtags, no over-explaining, no questions just to fill space, no summarising what {contact} said.
+- NEVER invent facts about {owner} or {owner}'s people: how {owner} slept or feels, where {owner} is, what {owner} did, family news, plans, decisions, prices or availability.
+- NEVER make commitments for {owner} (sending, adding, paying, meeting, being somewhere, "I'll do it now") unless the chat shows {owner} already agreed to exactly that.
+- If a good reply needs something only {owner} knows or must decide, set "needs_owner": true and ask {owner} ONE short question in "owner_question" with 2-4 tap-able answers (e.g. "Are you coming Saturday?" → ["Yes", "No", "Not sure yet"]). Still make every option safe: warm acknowledgement, answering only what you can, or a natural holding reply — never a made-up answer.
+- If {owner} has answered your question (below), use the answer and set "needs_owner": false.
 - If nothing needs a reply (an "ok", a thumbs-up, a goodbye already answered), set "no_reply_needed": true.
 {business_rules}
 
@@ -53,12 +61,13 @@ Return ONLY JSON:
   "no_reply_needed": false,
   "needs_owner": false,
   "needs_owner_reason": "",
+  "owner_question": {{"text": "", "answers": []}},
   "options": [
     {{"tone": "warm|playful|casual|brief|supportive|practical", "why": "one line: what this answers",
       "messages": [{{"text": "...", "reply_to": 1}}]}}
   ]
 }}
-Give 3 options that differ in substance or tone (not just wording); option 1 is your best."""
+Give 3 options that differ in substance or tone (not just wording); option 1 is the one {owner} would most likely send."""
 
 BUSINESS_RULES = """- This is a business chat. Use the business knowledge below for prices, stock, policies and hours. If it doesn't answer a factual question, say you'll check and come back — never guess.
 - Still write as {owner} personally (first person), never as "the team" or a support agent."""
@@ -69,7 +78,7 @@ USER_PROMPT = """Now: {now}
 {business_block}
 CHAT (oldest first; #n = unanswered messages from {contact}):
 {transcript}
-
+{owner_input}
 Write {owner}'s reply to the unanswered messages."""
 
 _ASSISTANT_SPEAK = re.compile(
@@ -102,6 +111,8 @@ class ComposeResult:
     no_reply_needed: bool = False
     needs_owner: bool = False
     needs_owner_reason: str = ''
+    owner_question: dict | None = None                  # {"text", "answers": [...]}
+    model: str = ''
     rejected: list[str] = field(default_factory=list)   # guard failures (for logs/eval)
 
 
@@ -185,6 +196,10 @@ def _parse(raw: dict) -> ComposeResult:
         needs_owner=bool(raw.get('needs_owner')),
         needs_owner_reason=str(raw.get('needs_owner_reason') or '').strip(),
     )
+    q = raw.get('owner_question')
+    if res.needs_owner and isinstance(q, dict) and str(q.get('text') or '').strip():
+        answers = [str(a).strip()[:40] for a in (q.get('answers') or []) if str(a).strip()][:4]
+        res.owner_question = {'text': str(q['text']).strip()[:200], 'answers': answers}
     for o in (raw.get('options') or [])[:MAX_OPTIONS]:
         if not isinstance(o, dict):
             continue
@@ -205,33 +220,61 @@ def _parse(raw: dict) -> ComposeResult:
     return res
 
 
-async def compose(ctx: ChatContext) -> ComposeResult:
+async def compose(
+    ctx: ChatContext,
+    *,
+    job: str = 'reply_draft',
+    owner_answer: str | None = None,
+    instruction: str | None = None,
+) -> ComposeResult:
+    """`owner_answer`: the owner's answer to the engine's earlier question.
+    `instruction`: a steer from the owner ("warmer", "say I'll call later")."""
     owner, contact = ctx.owner_name, ctx.contact_name.split(' ')[0]
     examples = '\n'.join(f'- {e}' for e in ctx.owner_examples) or '- (no earlier messages to this person yet)'
+    corrections = ''
+    if ctx.corrections:
+        corrections = (f'\nHow {owner} corrected earlier drafts in this chat — learn from these:\n'
+                       + '\n'.join(f'- Draft: "{_clip_text(d, 200)}" → {owner} sent: "{_clip_text(e, 200)}"'
+                                   for d, e in ctx.corrections) + '\n')
     system = SYSTEM_PROMPT.format(
-        owner=owner, owner_upper=owner.upper(), contact=contact,
+        owner=owner, owner_upper=owner.upper(), contact=contact, contact_upper=contact.upper(),
         group_note=' (a group — each line names who wrote it)' if ctx.is_group else '',
-        voice=ctx.owner_voice or f'{owner} writes casually and briefly.',
-        examples=examples, typical=ctx.owner_typical_chars,
+        summary_note=', with a summary of the oldest part first' if ctx.chat_summary else '',
+        fingerprint=ctx.fingerprint or f'- (little history yet) {owner} usually writes about {ctx.owner_typical_chars} characters per message.',
+        voice=(f'Overall style: {ctx.owner_voice}' if ctx.owner_voice else ''),
+        examples_note=(' in similar chats (this chat has little of their writing yet)' if ctx.examples_from_other_chats
+                       else f' to {contact}'),
+        examples=examples, corrections=corrections, language_policy=ctx.language_policy,
         business_rules=BUSINESS_RULES.format(owner=owner) if ctx.is_business else '',
     )
     business = await _business_block(ctx)
+    owner_input = ''
+    if owner_answer:
+        owner_input += f'\n{owner} answered your question: "{owner_answer.strip()[:300]}"\n'
+    if instruction:
+        owner_input += f'\n{owner}\'s instruction for this reply: "{instruction.strip()[:300]}"\n'
     user = USER_PROMPT.format(
         now=ctx.now_local,
         summary_block=f'Earlier in this chat (summary):\n{ctx.chat_summary}\n\n' if ctx.chat_summary else '',
         contact=contact, about=ctx.about_contact, business_block=business,
-        transcript=ctx.transcript, owner=owner,
+        transcript=ctx.transcript, owner=owner, owner_input=owner_input,
     )
     messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
-    client = get_ai_client()
 
     result = ComposeResult()
     for attempt in range(2):
-        raw = await client.complete_json(
-            messages, model='sonnet', service='intelligence', feature='reply_compose',
-            user_id=ctx.user_id, timeout_sec=60,
-        )
+        try:
+            routed = await complete_routed(job, messages, user_id=ctx.user_id, json_mode=True,
+                                           max_tokens=1500, timeout_sec=150)
+        except AllModelsFailed as exc:
+            log.error('reply_compose_failed', conversation_id=ctx.conversation_id, error=str(exc)[:400])
+            raise
+        raw = json.loads(routed.text)
         result = _parse(raw)
+        result.model = routed.model
+        if owner_answer:
+            result.needs_owner = False
+            result.owner_question = None
         if result.no_reply_needed:
             return result
         good, rejected = [], []
@@ -251,3 +294,8 @@ async def compose(ctx: ChatContext) -> ComposeResult:
     log.warning('reply_compose_all_rejected', conversation_id=ctx.conversation_id, reasons=result.rejected)
     result.options = []
     return result
+
+
+def _clip_text(text: str, n: int) -> str:
+    text = re.sub(r'\s+', ' ', text or '').strip()
+    return text if len(text) <= n else text[: n - 1] + '…'

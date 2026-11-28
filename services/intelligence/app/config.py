@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ''
     openai_api_key: str = ''
     google_ai_api_key: str = ''
+    deepseek_api_key: str = ''
     dashscope_api_key: str = ''  # legacy / standard DashScope endpoint
 
     # Alibaba private MaaS workspace — two endpoint formats available:

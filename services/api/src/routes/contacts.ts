@@ -504,6 +504,7 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
       leadScore:      'lead_score',
       sourceProductId:    'source_product_id',
       sourceSocialPostId: 'source_social_post_id',
+      isPartner:      'is_partner',
     };
 
     const sets: string[]    = [];
@@ -539,6 +540,8 @@ export async function contactsRoutes(fastify: FastifyInstance): Promise<void> {
         // Handle customName fallback to name
         if (jsKey === 'customName' || jsKey === 'name') {
           values.push(body.customName ?? body.name ?? null);
+        } else if (jsKey === 'isPartner') {
+          values.push(body.isPartner === true);
         } else if (jsKey === 'phoneNumber' && body.phoneNumber) {
           // Store clean digit string
           values.push(String(body.phoneNumber).replace(/\D/g, ''));

@@ -9,19 +9,20 @@ from __future__ import annotations
 
 import structlog
 
-from ..ai.client import get_ai_client
+from ..ai.router import AllModelsFailed, complete_routed
 from ..database import get_pool
 from .context import TRANSCRIPT_MESSAGES, describe
 
 log = structlog.get_logger()
 
 MIN_NEW_TO_FOLD = 25      # don't re-summarise for a handful of messages
-MAX_FOLD = 300            # cap per run (first run on a long chat)
+MAX_FOLD = 400            # messages per summarising call
+MAX_ROUNDS = 12           # calls per run (first run on a very long chat)
 
 SUMMARY_PROMPT = """You keep a running memory of one WhatsApp chat between {owner} (the account owner) and {contact}.
 Update the summary with the new older messages below. Keep what still matters, drop what no longer does.
 
-Write at most 180 words, plain sentences, covering:
+Write at most 400 words, plain sentences, covering:
 - what the relationship is like and how they talk to each other,
 - ongoing topics, plans, arrangements and anything either person promised,
 - important events in either person's life mentioned in the chat,
@@ -37,7 +38,31 @@ Older messages being added (oldest first):
 Return only the updated summary text."""
 
 
+_running: set[str] = set()
+
+
+def refresh_chat_summary_soon(user_id: str, conversation_id: str) -> None:
+    """Catch the summary up in the background: a draft never waits for it.
+    One run per conversation at a time (per process)."""
+    import asyncio
+    if conversation_id in _running:
+        return
+    _running.add(conversation_id)
+
+    async def _run():
+        try:
+            await ensure_chat_summary(user_id, conversation_id)
+        except Exception as exc:  # noqa: BLE001
+            log.warning('chat_summary_background_failed', conversation_id=conversation_id, error=str(exc)[:200])
+        finally:
+            _running.discard(conversation_id)
+
+    asyncio.get_running_loop().create_task(_run())
+
+
 async def ensure_chat_summary(user_id: str, conversation_id: str) -> None:
+    """Fold everything older than the verbatim window into the summary,
+    oldest first, until it is caught up (or MAX_ROUNDS calls)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         meta = await conn.fetchrow(
@@ -57,41 +82,47 @@ async def ensure_chat_summary(user_id: str, conversation_id: str) -> None:
                  ORDER BY whatsapp_timestamp DESC LIMIT $2) w""",
             conversation_id, TRANSCRIPT_MESSAGES,
         )
-        if not window_start:
-            return
-        rows = await conn.fetch(
-            """SELECT sender_type, message_type, body, transcription, is_deleted, whatsapp_timestamp
-               FROM messages
-               WHERE conversation_id = $1 AND whatsapp_timestamp < $2
-                 AND ($3::timestamptz IS NULL OR whatsapp_timestamp > $3::timestamptz)
-               ORDER BY whatsapp_timestamp DESC LIMIT $4""",
-            conversation_id, window_start, meta['chat_summary_through'], MAX_FOLD,
-        )
-    if len(rows) < MIN_NEW_TO_FOLD and meta['chat_summary']:
+    if not window_start:
         return
-    if not rows:
-        return
-    rows = list(reversed(rows))
     owner = meta['owner_name'].split(' ')[0]
     contact = meta['contact_name']
-    lines = [
-        f"[{r['whatsapp_timestamp']:%d %b}] {owner if r['sender_type'] == 'user' else contact}: {describe(r)}"
-        for r in rows if describe(r)
-    ]
-    try:
-        text = await get_ai_client().complete_text(
-            [{'role': 'user', 'content': SUMMARY_PROMPT.format(
-                owner=owner, contact=contact, current=meta['chat_summary'] or '(none yet)',
-                messages='\n'.join(lines)[-24000:],
-            )}],
-            service='intelligence', feature='chat_summary', user_id=user_id,
-        )
-    except Exception as exc:  # noqa: BLE001 — the composer works without a summary
-        log.warning('chat_summary_failed', conversation_id=conversation_id, error=str(exc)[:200])
-        return
-    async with pool.acquire() as conn:
-        await conn.execute(
-            'UPDATE conversations SET chat_summary = $2, chat_summary_through = $3 WHERE id = $1',
-            conversation_id, (text or '').strip()[:3000], rows[-1]['whatsapp_timestamp'],
-        )
-    log.info('chat_summary_updated', conversation_id=conversation_id, folded=len(rows))
+    current = meta['chat_summary']
+    through = meta['chat_summary_through']
+    for _ in range(MAX_ROUNDS):
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT sender_type, message_type, body, transcription, is_deleted, whatsapp_timestamp
+                   FROM messages
+                   WHERE conversation_id = $1 AND whatsapp_timestamp < $2
+                     AND ($3::timestamptz IS NULL OR whatsapp_timestamp > $3::timestamptz)
+                   ORDER BY whatsapp_timestamp ASC LIMIT $4""",
+                conversation_id, window_start, through, MAX_FOLD,
+            )
+        if not rows or (len(rows) < MIN_NEW_TO_FOLD and current):
+            return
+        lines = [
+            f"[{r['whatsapp_timestamp']:%d %b %Y}] {owner if r['sender_type'] == 'user' else contact}: {describe(r)}"
+            for r in rows if describe(r)
+        ]
+        try:
+            result = await complete_routed(
+                'chat_summary',
+                [{'role': 'user', 'content': SUMMARY_PROMPT.format(
+                    owner=owner, contact=contact, current=current or '(none yet)',
+                    messages='\n'.join(lines)[-40000:],
+                )}],
+                user_id=user_id, max_tokens=1200, timeout_sec=90,
+            )
+        except AllModelsFailed as exc:  # the composer works without a summary
+            log.warning('chat_summary_failed', conversation_id=conversation_id, error=str(exc)[:300])
+            return
+        current = (result.text or '').strip()[:4000]
+        through = rows[-1]['whatsapp_timestamp']
+        async with pool.acquire() as conn:
+            await conn.execute(
+                'UPDATE conversations SET chat_summary = $2, chat_summary_through = $3 WHERE id = $1',
+                conversation_id, current, through,
+            )
+        log.info('chat_summary_updated', conversation_id=conversation_id, folded=len(rows), model=result.model)
+        if len(rows) < MAX_FOLD:
+            return

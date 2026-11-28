@@ -13,7 +13,7 @@ async def _process(job, token: str):
         d['userId'], d['conversationId'], trigger_message_id=d.get('messageId'), mode='live',
     )
     log.info('reply_compose_done', conversation_id=d['conversationId'], message_id=d.get('messageId'),
-             skipped=result.get('skipped'), options=len(result.get('options') or []),
+             skipped=result.get('skipped'), error=result.get('error'), options=len(result.get('options') or []),
              needs_owner=result.get('needsOwner'), auto_send=result.get('autoSend'), rejected=result.get('rejected'))
     return {k: v for k, v in result.items() if k in ('skipped', 'autoSend', 'needsOwner')}
 

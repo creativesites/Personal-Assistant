@@ -7,6 +7,7 @@ contact steps aside, so a burst of messages gets ONE reply covering all of it.
 from __future__ import annotations
 
 import json
+import uuid
 
 import httpx
 import structlog
@@ -17,9 +18,10 @@ from ..database import get_pool
 from ..queue import publish_event, redis_conn_opts
 from ..services.auto_response import AutoResponseService
 from ..services.scoped_automation import get_scoped_automation
+from ..ai.router import AllModelsFailed
 from .composer import ComposeResult, compose
 from .context import ChatContext, build_chat_context
-from .summary import ensure_chat_summary
+from .summary import refresh_chat_summary_soon
 
 log = structlog.get_logger()
 
@@ -49,9 +51,11 @@ async def schedule_compose(user_id: str, conversation_id: str, message_id: str) 
 def _serialise(ctx: ChatContext, result: ComposeResult) -> dict:
     by_index = {i.index: i for i in ctx.unanswered}
     return {
+        'model': result.model,
         'noReplyNeeded': result.no_reply_needed,
         'needsOwner': result.needs_owner,
         'needsOwnerReason': result.needs_owner_reason,
+        'question': result.owner_question,
         'rejected': result.rejected,
         'unanswered': [{'index': i.index, 'text': i.text} for i in ctx.unanswered],
         'options': [
@@ -75,30 +79,50 @@ async def run_compose(
     trigger_message_id: str | None = None,
     mode: str = 'live',          # live | regenerate | dry_run
     as_of_message_id: str | None = None,   # dry_run only: rewind the chat to this message
+    owner_answer: str | None = None,       # the owner's answer to the engine's question
+    instruction: str | None = None,        # the owner's steer for this reply
 ) -> dict:
     if mode == 'live' and trigger_message_id and await _superseded(conversation_id, trigger_message_id):
         return {'skipped': 'newer_message_will_handle_it'}
 
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        gate = await conn.fetchrow(
+            """SELECT co.is_group, c.ai_enabled FROM conversations c JOIN contacts co ON co.id = c.contact_id
+               WHERE c.id = $1 AND c.user_id = $2""",
+            conversation_id, user_id,
+        )
+    if gate is None:
+        return {'skipped': 'conversation_not_found'}
+    if gate['is_group']:
+        # Owner decision (docs/ZURI_AI_PLAN.md): groups are never drafted for.
+        return {'skipped': 'group_chat'}
+    if not gate['ai_enabled']:
+        return {'skipped': 'ai_off'}
+
     until = None
     if mode == 'dry_run' and as_of_message_id:
-        pool = await get_pool()
         async with pool.acquire() as conn:
             until = await conn.fetchval('SELECT whatsapp_timestamp FROM messages WHERE id = $1 AND conversation_id = $2',
                                         as_of_message_id, conversation_id)
     if until is None:
-        await ensure_chat_summary(user_id, conversation_id)
+        refresh_chat_summary_soon(user_id, conversation_id)
         await _transcribe_unanswered_voice_notes(user_id, conversation_id)
     ctx = await build_chat_context(user_id, conversation_id, until=until)
     if ctx is None:
         return {'skipped': 'conversation_not_found'}
-    if ctx.is_group and mode == 'live':
-        return {'skipped': 'group_chat'}
     if not ctx.unanswered:
         return {'skipped': 'nothing_unanswered'}
     if mode == 'live' and all(i.requires_response is False for i in ctx.unanswered):
         return {'skipped': 'no_response_needed'}
 
-    result = await compose(ctx)
+    try:
+        result = await compose(
+            ctx, job='auto_reply' if mode == 'live' else 'reply_draft',
+            owner_answer=owner_answer, instruction=instruction,
+        )
+    except AllModelsFailed as exc:
+        return {'error': 'all_models_failed', 'attempts': [a.__dict__ for a in exc.attempts]}
     out = _serialise(ctx, result)
     if mode == 'dry_run':
         out['transcriptTail'] = ctx.transcript[-1500:]
@@ -106,8 +130,13 @@ async def run_compose(
     if result.no_reply_needed or not result.options:
         return out
 
-    suggestion_ids = await _save(ctx, result)
+    draft_id, suggestion_ids = await _save(ctx, result)
+    out['draftId'] = draft_id
     out['suggestionIds'] = suggestion_ids
+    for opt, sid in zip(out['options'], suggestion_ids):
+        opt['id'] = sid
+    if out.get('question'):
+        out['question'] = {'id': draft_id, **out['question']}
     anchor = ctx.unanswered[-1]
     await publish_event(f'suggestion:ready:{user_id}', json.dumps({
         'messageId': anchor.message_id, 'conversationId': conversation_id, 'count': len(suggestion_ids),
@@ -157,8 +186,10 @@ async def _superseded(conversation_id: str, message_id: str) -> bool:
         ))
 
 
-async def _save(ctx: ChatContext, result: ComposeResult) -> list[str]:
+async def _save(ctx: ChatContext, result: ComposeResult) -> tuple[str, list[str]]:
     anchor = ctx.unanswered[-1]
+    draft_id = str(uuid.uuid4())
+    question = json.dumps({'id': draft_id, **result.owner_question}) if result.owner_question else None
     by_index = {i.index: i for i in ctx.unanswered}
     ids: list[str] = []
     pool = await get_pool()
@@ -180,13 +211,15 @@ async def _save(ctx: ChatContext, result: ComposeResult) -> list[str]:
                     parts.append({'text': p.text, 'quoteMessageId': quote.message_id if quote else None})
                 sid = await conn.fetchval(
                     """INSERT INTO suggested_replies
-                         (message_id, suggestion_text, tone, reasoning, parts, needs_owner, needs_owner_reason)
-                       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7) RETURNING id""",
+                         (message_id, suggestion_text, tone, reasoning, parts, needs_owner, needs_owner_reason,
+                          draft_id, model, owner_question)
+                       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb) RETURNING id""",
                     anchor.message_id, opt.text, (opt.tone or 'casual')[:30], opt.why[:500],
                     json.dumps(parts), result.needs_owner, result.needs_owner_reason[:300] or None,
+                    draft_id, (result.model or '')[:80] or None, question,
                 )
                 ids.append(str(sid))
-    return ids
+    return draft_id, ids
 
 
 async def _maybe_auto_send(ctx: ChatContext, result: ComposeResult, suggestion_id: str) -> dict:

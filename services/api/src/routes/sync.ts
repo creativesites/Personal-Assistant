@@ -162,6 +162,8 @@ function conversationShape(r: Row) {
     muted: Boolean(r.is_muted),
     pinned: Boolean(r.is_pinned),
     pinnedAt: r.pinned_at ? new Date(r.pinned_at).getTime() : null,
+    // Per-chat AI switch (drafts, auto-replies). Defaults on.
+    aiEnabled: r.ai_enabled !== false,
   };
 }
 
@@ -179,6 +181,8 @@ function contactShape(r: Row) {
     // Changes whenever the picture does; matches the avatar endpoint's ETag.
     avatarTag: r.avatar_url ? avatarTag(r.avatar_url) : null,
     lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).getTime() : null,
+    // The owner's partner: the reply engine may use Shona there.
+    isPartner: Boolean(r.is_partner),
   };
 }
 

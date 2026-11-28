@@ -52,6 +52,7 @@ from .workers.world_knowledge_worker import create_world_knowledge_worker
 from .workers.agent_worker import create_agent_worker, create_kb_worker
 from .workers.compose_worker import create_compose_worker
 from .routes.replies import router as replies_router
+from .routes.ai_routing import router as ai_routing_router
 from .workers.consolidation_worker import create_consolidation_worker
 
 logger = structlog.get_logger()
@@ -188,6 +189,7 @@ app.include_router(knowledge_router)
 app.include_router(conversation_router)
 app.include_router(zuri_panel_router)
 app.include_router(replies_router)
+app.include_router(ai_routing_router)
 app.include_router(advisor_router)
 app.include_router(studio_router)
 app.include_router(content_router)
