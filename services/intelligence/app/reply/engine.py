@@ -212,8 +212,8 @@ async def _save(ctx: ChatContext, result: ComposeResult) -> tuple[str, list[str]
                 sid = await conn.fetchval(
                     """INSERT INTO suggested_replies
                          (message_id, suggestion_text, tone, reasoning, parts, needs_owner, needs_owner_reason,
-                          draft_id, model, owner_question)
-                       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb) RETURNING id""",
+                          draft_id, model, owner_question, created_at)
+                       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb, clock_timestamp()) RETURNING id""",
                     anchor.message_id, opt.text, (opt.tone or 'casual')[:30], opt.why[:500],
                     json.dumps(parts), result.needs_owner, result.needs_owner_reason[:300] or None,
                     draft_id, (result.model or '')[:80] or None, question,
