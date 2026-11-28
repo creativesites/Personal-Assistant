@@ -143,6 +143,17 @@ interface CloudSyncDao {
     @Query("SELECT EXISTS(SELECT 1 FROM media_file WHERE message_id = :messageId)")
     fun observeMediaStored(messageId: String): kotlinx.coroutines.flow.Flow<Boolean>
 
+    // ── profile pictures ────────────────────────────────────────────────────
+    @Query("SELECT cc.id AS contactId, cc.avatar_tag AS tag FROM conversation v JOIN cloud_contact cc ON cc.id = v.remote_contact_id WHERE v.id = :conversationId AND cc.avatar_tag IS NOT NULL")
+    suspend fun avatarFor(conversationId: String): AvatarRef?
+
+    /** Contacts with a picture, by the chat's latest message (prefetch order). */
+    @Query(
+        """SELECT cc.id AS contactId, cc.avatar_tag AS tag FROM conversation v JOIN cloud_contact cc ON cc.id = v.remote_contact_id
+           WHERE cc.avatar_tag IS NOT NULL AND v.deleted_at IS NULL GROUP BY cc.id ORDER BY MAX(v.last_message_at) DESC LIMIT :limit""",
+    )
+    suspend fun recentAvatars(limit: Int): List<AvatarRef>
+
     // ── media cache ─────────────────────────────────────────────────────────
     @Upsert suspend fun upsertMedia(m: MediaFileEntity)
 
@@ -164,3 +175,5 @@ interface CloudSyncDao {
     @Query("SELECT * FROM media_file")
     suspend fun allMedia(): List<MediaFileEntity>
 }
+
+data class AvatarRef(val contactId: String, val tag: String)

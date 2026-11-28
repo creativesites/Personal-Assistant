@@ -61,7 +61,7 @@ class FeedApplier(private val db: ZuriDatabase, private val clock: Clock) {
     private suspend fun contact(s: SyncContact, seq: Long) {
         val existing = dao.contact(s.id)
         if (existing != null && existing.seq > seq) return
-        val entity = CloudContactEntity(s.id, s.jid, s.phone, s.name, s.savedName, s.pushName, s.isGroup, s.isBusiness, seq)
+        val entity = CloudContactEntity(s.id, s.jid, s.phone, s.name, s.savedName, s.pushName, s.isGroup, s.isBusiness, seq, avatarTag = s.avatarTag)
         dao.upsertContact(entity)
         val title = titleFor(entity) ?: return
         // Chats that came from the cloud take the contact's name; captured chats keep the phone's.

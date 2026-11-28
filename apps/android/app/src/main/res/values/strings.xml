@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">Zuri</string>
     <string name="nav_today">Today</string>
-    <string name="nav_inbox">Inbox</string>
-    <string name="nav_people">People</string>
+    <string name="nav_inbox">Signals</string>
+    <string name="nav_people">Orbits</string>
     <string name="nav_ask">Ask</string>
     <string name="nav_more">More</string>
     <string name="nav_studio">Studio</string>

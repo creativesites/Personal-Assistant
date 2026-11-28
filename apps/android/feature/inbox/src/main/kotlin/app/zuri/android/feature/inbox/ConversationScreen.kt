@@ -1,5 +1,14 @@
 package app.zuri.android.feature.inbox
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+
+import app.zuri.android.core.ui.universe.WarpTunnel
+import app.zuri.android.core.ui.universe.glass
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,6 +84,7 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
     val insight by viewModel.insight.collectAsStateWithLifecycle()
     val allWorkspaces by viewModel.allWorkspaces.collectAsStateWithLifecycle()
     val media by viewModel.media.collectAsStateWithLifecycle()
+    val avatars by viewModel.avatars.collectAsStateWithLifecycle()
     val older by viewModel.older.collectAsStateWithLifecycle()
     val detail = state.detail
     LaunchedEffect(detail?.summary?.unreadCount) { if ((detail?.summary?.unreadCount ?: 0) > 0) viewModel.markRead() }
@@ -91,6 +101,8 @@ fun ConversationRoute(onBack: () -> Unit, viewModel: ConversationViewModel = hil
         onSummarize = viewModel::summarize,
         media = media,
         onOpenMedia = viewModel::openMedia,
+        photo = avatars[detail.summary.id.value],
+        onNeedPhoto = { viewModel.needAvatar(detail.summary.id.value) },
         older = older,
         onLoadOlder = viewModel::loadOlder,
         moveSheet = if (allWorkspaces.size > 1) { close ->
@@ -136,8 +148,11 @@ fun ConversationContent(
     onOpenMedia: (MessageId, Boolean) -> Unit = { _, _ -> },
     older: OlderState = OlderState(exhausted = true),
     onLoadOlder: () -> Unit = {},
+    photo: androidx.compose.ui.graphics.ImageBitmap? = null,
+    onNeedPhoto: () -> Unit = {},
     composer: @Composable () -> Unit = {},
 ) {
+    LaunchedEffect(detail.summary.id) { onNeedPhoto() }
     var viewing by remember { mutableStateOf<Pair<MediaUi.Ready, app.zuri.android.domain.inbox.MediaKind>?>(null) }
     var highlight by remember { mutableStateOf<MessageId?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -151,9 +166,12 @@ fun ConversationContent(
     var selected by remember { mutableStateOf(initiallySelected?.let { id -> detail.messages.firstOrNull { it.id == id } }) }
     var confirmMessage by remember { mutableStateOf<InboxMessage?>(null) }
 
-    Column(modifier.fillMaxSize()) {
-        DetailTopBar(
-            title = s.title,
+    Box(modifier.fillMaxSize()) {
+    // Signal Tunnel (spec §4.3): rings rush toward you behind the conversation.
+    WarpTunnel()
+    Column(Modifier.fillMaxSize()) {
+        TunnelHeader(
+            id = s.id.value, title = s.title, isGroup = s.isGroup, photo = photo,
             onBack = onBack,
             subtitle = pluralStringResource(R.plurals.conv_coverage, s.messageCount, sourceName, s.messageCount),
             actions = {
@@ -209,6 +227,7 @@ fun ConversationContent(
         }
         Box(Modifier.navigationBarsPadding().imePadding()) { composer() }
     }
+    }
 
     when (confirm) {
         "exclude" -> ConfirmDialog(
@@ -244,6 +263,26 @@ fun ConversationContent(
     }
 }
 
+/** The tunnel's glass header: back, the contact's planet, name and coverage. */
+@Composable
+private fun TunnelHeader(id: String, title: String, isGroup: Boolean, photo: androidx.compose.ui.graphics.ImageBitmap?, subtitle: String, onBack: () -> Unit, actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val u = Zuri.universe
+    Row(
+        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 6.dp)
+            .glass(RoundedCornerShape(24.dp)).padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.back), tint = u.ink) }
+        Avatar(id, title, isGroup, size = 38.dp, photo = photo)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, color = u.ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = u.inkMuted, maxLines = 1)
+        }
+        actions()
+    }
+}
+
 @Composable
 private fun ConfirmDialog(title: String, body: String, confirm: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
@@ -276,30 +315,34 @@ private fun Bubble(
 ) {
     val mine = m.direction == Direction.OUTGOING
     val c = Zuri.colors
-    val bg = when {
-        highlighted -> c.ctx.copy(alpha = 0.25f)
-        mine -> c.ctxWeak
-        else -> c.surface2
+    val u = Zuri.universe
+    val tail = if (grouped) 20.dp else 6.dp
+    val shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = if (mine) 20.dp else tail, bottomEnd = if (mine) tail else 20.dp)
+    // Theirs are glass; mine are the violet outgoing gradient (spec §4.3).
+    val surface = when {
+        highlighted -> Modifier.clip(shape).background(u.ion.copy(alpha = 0.3f))
+        mine -> Modifier.clip(shape).background(androidx.compose.ui.graphics.Brush.linearGradient(app.zuri.android.core.ui.theme.OutgoingGradient))
+        else -> Modifier.glass(shape)
     }
-    val tail = if (grouped) 18.dp else 6.dp
-    val shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = if (mine) 18.dp else tail, bottomEnd = if (mine) tail else 18.dp)
+    val ink = if (mine) androidx.compose.ui.graphics.Color.White else u.ink
     val cloud = m.cloud
     Column(Modifier.fillMaxWidth().padding(top = if (grouped) 1.dp else 4.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides ink) {
         Column(
-            Modifier.widthIn(max = 300.dp).clip(shape).background(bg)
+            Modifier.widthIn(max = 300.dp).then(surface)
                 .combinedClickable(onClick = onLongPress, onLongClick = onLongPress)
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             if (showSender && m.senderName != null) Text(m.senderName!!, style = MaterialTheme.typography.labelLarge, color = senderColor(m.senderName!!))
-            if (cloud?.forwarded == true) Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, color = c.muted, fontStyle = FontStyle.Italic)
+            if (cloud?.forwarded == true) Text(stringResource(R.string.forwarded), style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = 0.75f), fontStyle = FontStyle.Italic)
             cloud?.quoted?.let { QuoteBlock(it, mine, onJumpToQuote) }
             val ph = m.placeholder
             val richMedia = cloud?.media
             when {
-                ph == PlaceholderKind.REACTION -> Text(stringResource(R.string.reacted, m.placeholderDetail.orEmpty()), style = MaterialTheme.typography.bodyLarge, color = c.muted)
+                ph == PlaceholderKind.REACTION -> Text(stringResource(R.string.reacted, m.placeholderDetail.orEmpty()), style = MaterialTheme.typography.bodyLarge, color = ink.copy(alpha = 0.75f))
                 ph == PlaceholderKind.DELETED -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(ph.icon(), null, tint = c.muted, modifier = Modifier.size(16.dp)); Spacer(Modifier.size(6.dp))
-                    Text(stringResource(ph.label()), style = MaterialTheme.typography.bodyMedium, color = c.muted, fontStyle = FontStyle.Italic)
+                    Icon(ph.icon(), null, tint = ink.copy(alpha = 0.75f), modifier = Modifier.size(16.dp)); Spacer(Modifier.size(6.dp))
+                    Text(stringResource(ph.label()), style = MaterialTheme.typography.bodyMedium, color = ink.copy(alpha = 0.75f), fontStyle = FontStyle.Italic)
                 }
                 richMedia != null -> {
                     MediaBlock(richMedia, media, onOpenMedia, onViewMedia)
@@ -309,11 +352,11 @@ private fun Bubble(
                 cloud?.location != null -> LocationBlock(cloud.location!!)
                 ph != null -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(ph.icon(), null, tint = c.muted, modifier = Modifier.size(18.dp))
+                        Icon(ph.icon(), null, tint = ink.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
                         Spacer(Modifier.size(6.dp))
                         Text(
                             listOfNotNull(stringResource(ph.label()), m.placeholderDetail).joinToString(" · "),
-                            style = MaterialTheme.typography.bodyMedium, color = c.muted, fontStyle = FontStyle.Italic,
+                            style = MaterialTheme.typography.bodyMedium, color = ink.copy(alpha = 0.75f), fontStyle = FontStyle.Italic,
                         )
                     }
                     if (m.text != null) { Spacer(Modifier.height(4.dp)); Text(m.text!!, style = MaterialTheme.typography.bodyLarge) }
@@ -322,10 +365,11 @@ private fun Bubble(
             }
             Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 if (m.provenance.adapterVersion == SentFromZuri.AUTO_REPLY && cloud == null) Text(stringResource(R.string.auto_badge) + " · ", style = MaterialTheme.typography.labelSmall, color = c.ctx)
-                if (m.edited) Text(stringResource(R.string.edited) + " · ", style = MaterialTheme.typography.labelSmall, color = c.faint)
-                Text(time.time(m.sentAtMillis), style = MaterialTheme.typography.labelSmall, color = c.faint)
+                if (m.edited) Text(stringResource(R.string.edited) + " · ", style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = 0.7f))
+                Text(time.time(m.sentAtMillis), style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = 0.7f))
                 if (mine) Ticks(cloud?.status)
             }
+        }
         }
         if (!cloud?.reactions.isNullOrEmpty()) ReactionChips(cloud!!.reactions, mine)
     }
@@ -389,6 +433,7 @@ private fun ReplyComposer(
     onCopied: (String) -> Unit = {},
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+    val sendLabel = stringResource(R.string.reply_send)
     val context = androidx.compose.ui.platform.LocalContext.current
     val copied = stringResource(R.string.drafts_copied)
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
@@ -410,13 +455,27 @@ private fun ReplyComposer(
             onCopy = copy,
         )
         if (state.canReply) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.OutlinedTextField(
+            // Glass composer with the violet send orb (spec §4.3). Sending is always the owner's tap.
+            Row(Modifier.glass(RoundedCornerShape(26.dp)).padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.TextField(
                     value = text, onValueChange = { text = it }, modifier = Modifier.weight(1f),
-                    placeholder = { Text(stringResource(R.string.reply_hint)) }, maxLines = 5, shape = MaterialTheme.shapes.large,
+                    placeholder = { Text(stringResource(R.string.reply_hint), color = Zuri.universe.inkMuted) }, maxLines = 5,
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
                 )
-                IconButton(onClick = { onSend(text) { text = "" } }, enabled = text.isNotBlank() && !state.sending) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.reply_send))
+                val canSend = text.isNotBlank() && !state.sending
+                androidx.compose.foundation.layout.Box(
+                    Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .clickable(enabled = canSend, role = androidx.compose.ui.semantics.Role.Button) { onSend(text) { text = "" } }
+                        .semantics { contentDescription = sendLabel },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    app.zuri.android.core.ui.universe.Orb(44.dp, app.zuri.android.core.ui.theme.CoreSkin, glow = canSend) {
+                        Icon(Icons.AutoMirrored.Rounded.Send, null, tint = androidx.compose.ui.graphics.Color.White.copy(alpha = if (canSend) 1f else 0.5f), modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         } else {
@@ -451,26 +510,11 @@ fun DraftsPanel(drafts: DraftsState, onSuggest: () -> Unit, onDismiss: () -> Uni
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
         }
         is DraftsState.Ready -> Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    stringResource(if (drafts.byModel) R.string.drafts_by_model else R.string.drafts_quick),
-                    style = MaterialTheme.typography.labelMedium, color = c.muted, modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) }
-            }
-            drafts.drafts.forEach { d ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(c.ctxWeak),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        d, style = MaterialTheme.typography.bodyMedium, maxLines = 4,
-                        modifier = Modifier.weight(1f).clickable { onPick(d) }.padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
-                    )
-                    IconButton(onClick = { onCopy(d) }) { Icon(Icons.Rounded.ContentCopy, stringResource(R.string.drafts_copy), tint = c.muted, modifier = Modifier.size(20.dp)) }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
+            HoloDeck(
+                drafts.drafts, stringResource(if (drafts.byModel) R.string.drafts_by_model else R.string.drafts_quick),
+                onPick = onPick, onCopy = onCopy,
+            )
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text(stringResource(R.string.holo_not_now), color = Zuri.universe.inkMuted) }
         }
     }
 }

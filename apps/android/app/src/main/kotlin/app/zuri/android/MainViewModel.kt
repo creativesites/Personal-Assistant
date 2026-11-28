@@ -52,7 +52,9 @@ class MainViewModel @Inject constructor(
     private val activeContext: app.zuri.android.domain.context.ActiveContextProvider,
 ) : ViewModel() {
     val themeMode: StateFlow<ThemeMode> = preferences.preferences.map { it.themeMode }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.DARK)
+    val motion: StateFlow<app.zuri.android.domain.settings.MotionSpeed> = preferences.preferences.map { it.motion }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, app.zuri.android.domain.settings.MotionSpeed.COSMIC)
 
     private val _state = MutableStateFlow<AppState>(AppState.Loading)
     val state: StateFlow<AppState> = _state.asStateFlow()

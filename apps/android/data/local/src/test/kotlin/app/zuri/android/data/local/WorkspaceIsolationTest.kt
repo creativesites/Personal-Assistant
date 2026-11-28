@@ -128,9 +128,10 @@ class WorkspaceIsolationTest {
     }
 
     private class Prefs : AppPreferencesRepository {
-        val state = MutableStateFlow(AppPreferences(ThemeMode.SYSTEM, true))
+        val state = MutableStateFlow(AppPreferences(ThemeMode.SYSTEM, onboardingCompleted = true))
         override val preferences = state
         override suspend fun setThemeMode(mode: ThemeMode) = Unit
+        override suspend fun setMotion(speed: app.zuri.android.domain.settings.MotionSpeed) {}
         override suspend fun setOnboardingCompleted(completed: Boolean) = Unit
         override suspend fun setActiveWorkspace(id: WorkspaceId) = state.update { it.copy(activeWorkspaceId = id, hybridActive = false) }
         override suspend fun setHybrid(businesses: Set<WorkspaceId>) = state.update { it.copy(hybridActive = true, hybridWorkspaceIds = businesses) }

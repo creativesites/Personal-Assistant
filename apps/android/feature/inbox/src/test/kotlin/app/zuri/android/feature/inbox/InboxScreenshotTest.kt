@@ -33,7 +33,7 @@ class InboxScreenshotTest {
     @get:Rule val compose = createComposeRule()
 
     private fun shot(name: String, dark: Boolean, content: @Composable () -> Unit) {
-        compose.setContent { ZuriTheme(darkTheme = dark) { Surface(color = MaterialTheme.colorScheme.background) { content() } } }
+        compose.setContent { ZuriTheme(darkTheme = dark) { app.zuri.android.core.ui.universe.SpaceBackground { content() } } }
         compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
     }
 
@@ -82,6 +82,23 @@ class InboxScreenshotTest {
     @Test fun conversationLight() = shot("conversation_light", false) { ConversationContent(thread, time, {}, {}, {}, {}) }
     @Test fun conversationDark() = shot("conversation_dark", true) { ConversationContent(thread, time, {}, {}, {}, {}) }
     @Test fun provenanceLight() = shot("message_info_light", false) { MessageInfoContent(thread.messages[2], "WhatsApp", time, {}, {}) }
+
+    private fun cm(id: String, dir: Direction, text: String?, ago: Long, cloud: app.zuri.android.domain.inbox.CloudDetail, sender: String? = null) =
+        m(id, dir, text, ago, sender).copy(cloud = cloud)
+    private val repliesThread = thread.copy(
+        summary = conv("1", SourceKind.WHATSAPP, "Chanda Mwila", 60_000, "ok").copy(messageCount = 4),
+        messages = listOf(
+            cm("q1", Direction.INCOMING, "Can you send the quote before Friday?", 3_600_000, app.zuri.android.domain.inbox.CloudDetail()),
+            cm("q2", Direction.OUTGOING, "Yes, tonight", 3_000_000, app.zuri.android.domain.inbox.CloudDetail(
+                quoted = app.zuri.android.domain.inbox.QuotedMessage(MessageId("q1"), false, "Chanda Mwila", "Can you send the quote before Friday?", null, false),
+                status = app.zuri.android.domain.inbox.DeliveryStatus.READ)),
+            cm("q3", Direction.INCOMING, "Perfect, thank you", 600_000, app.zuri.android.domain.inbox.CloudDetail(
+                quoted = app.zuri.android.domain.inbox.QuotedMessage(MessageId("q2"), true, null, "Yes, tonight", null, false),
+                reactions = listOf(app.zuri.android.domain.inbox.Reaction("🙏", true)))),
+        ),
+    )
+    @Test fun repliesDark() = shot("replies_dark", true) { ConversationContent(repliesThread, time, {}, {}, {}, {}) }
+    @Test fun repliesLight() = shot("replies_light", false) { ConversationContent(repliesThread, time, {}, {}, {}, {}) }
 
     private val drafts = DraftsState.Ready(listOf("Yes, I'll bring the chairs", "Sure Mum, see you at 1 🙂", "Will do"), byModel = true)
     @Test fun draftsLight() = shot("drafts_light", false) { DraftsPanel(drafts, {}, {}, {}) }

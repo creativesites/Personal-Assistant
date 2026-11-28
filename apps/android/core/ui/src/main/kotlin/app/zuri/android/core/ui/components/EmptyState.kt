@@ -1,5 +1,9 @@
 package app.zuri.android.core.ui.components
 
+import androidx.compose.foundation.layout.size
+
+import androidx.compose.ui.graphics.Color
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,7 +29,10 @@ fun EmptyState(
     action: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        IconChip(icon, tone = Tone.Context, size = 56.dp)
+        // Zuri's core, calm in an empty sky (spec §2.6: honest empty states).
+        app.zuri.android.core.ui.universe.Orb(64.dp, app.zuri.android.core.ui.theme.CoreSkin, glow = true) {
+            androidx.compose.material3.Icon(icon, null, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
         Spacer(Modifier.height(16.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))

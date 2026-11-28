@@ -22,9 +22,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class SettingsState(
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK,
     val security: SecuritySettings = SecuritySettings(),
     val deviceCanLock: Boolean = true,
+    val motion: app.zuri.android.domain.settings.MotionSpeed = app.zuri.android.domain.settings.MotionSpeed.COSMIC,
 )
 
 @HiltViewModel
@@ -34,10 +35,11 @@ class SettingsViewModel @Inject constructor(
     private val access: DeviceAccessInspector,
 ) : ViewModel() {
     val state: StateFlow<SettingsState> = combine(preferences.preferences, security.settings) { p, s ->
-        SettingsState(p.themeMode, s, access.report().deviceLockConfigured)
+        SettingsState(p.themeMode, s, access.report().deviceLockConfigured, motion = p.motion)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
 
     fun setTheme(mode: ThemeMode) = viewModelScope.launch { preferences.setThemeMode(mode) }
+    fun setMotion(speed: app.zuri.android.domain.settings.MotionSpeed) = viewModelScope.launch { preferences.setMotion(speed) }
     fun setAppLock(enabled: Boolean) = viewModelScope.launch { security.setAppLockEnabled(enabled) }
     fun setTimeout(timeout: LockTimeout) = viewModelScope.launch { security.setLockTimeout(timeout) }
     fun setBlockScreenshots(block: Boolean) = viewModelScope.launch { security.setBlockScreenshots(block) }

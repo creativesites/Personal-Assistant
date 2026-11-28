@@ -1,5 +1,13 @@
 package app.zuri.android.shell
 
+import app.zuri.android.core.ui.universe.Dock
+import app.zuri.android.core.ui.universe.DockItem
+import app.zuri.android.core.ui.universe.dockClearance
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -94,7 +102,7 @@ private val businessTabs = listOf(
 private val tabs = listOf(
     Tab(TodayDest, TodayDest::class, Icons.Rounded.Today, R.string.nav_today),
     Tab(InboxDest, InboxDest::class, Icons.Rounded.Forum, R.string.nav_inbox),
-    Tab(PeopleDest, PeopleDest::class, Icons.Rounded.Group, R.string.nav_people),
+    Tab(PeopleDest, PeopleDest::class, Icons.Rounded.Hub, R.string.nav_people),
     Tab(AskDest, AskDest::class, Icons.Rounded.AutoAwesome, R.string.nav_ask),
     Tab(MoreDest, MoreDest::class, Icons.Rounded.Apps, R.string.nav_more),
 )
@@ -188,26 +196,10 @@ private fun RootFrame(nav: NavHostController, state: AppState.Ready, onOpenSwitc
     val entry by nav.currentBackStackEntryAsState()
     val capture: CaptureIndicatorViewModel = hiltViewModel()
     val captureState by capture.state.collectAsStateWithLifecycle()
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            val shown = if (!state.hybrid && state.active.kind == app.zuri.android.domain.workspace.WorkspaceKind.BUSINESS) businessTabs else tabs
-            shown.forEach { tab ->
-                val selected = entry?.destination?.hasRoute(tab.type) == true
-                item(
-                    selected = selected,
-                    onClick = {
-                        if (!selected) nav.navigate(tab.route) {
-                            popUpTo(TodayDest) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(tab.icon, contentDescription = null) },
-                    label = { Text(stringResource(tab.label)) },
-                )
-            }
-        },
-    ) {
+    val shown = if (!state.hybrid && state.active.kind == app.zuri.android.domain.workspace.WorkspaceKind.BUSINESS) businessTabs else tabs
+    val selected = shown.indexOfFirst { entry?.destination?.hasRoute(it.type) == true }
+    // Universe shell (MOBILE_UNIVERSE_DESIGN.md): the sky shows through; the floating dock replaces the bottom bar.
+    Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             RootTopBar(
                 contextLabel = state.label,
@@ -219,7 +211,19 @@ private fun RootFrame(nav: NavHostController, state: AppState.Ready, onOpenSwitc
                     IconButton(onClick = { nav.navigate(SettingsDest) }) { Icon(Icons.Rounded.Settings, stringResource(R.string.settings)) }
                 },
             )
-            Box(Modifier.weight(1f)) { content() }
+            Box(Modifier.weight(1f).padding(bottom = dockClearance() - 12.dp)) { content() }
         }
+        Dock(
+            items = shown.mapIndexed { i, t -> DockItem(stringResource(t.label), t.icon, core = i == 2) },
+            selected = selected,
+            onSelect = { i ->
+                nav.navigate(shown[i].route) {
+                    popUpTo(TodayDest) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }

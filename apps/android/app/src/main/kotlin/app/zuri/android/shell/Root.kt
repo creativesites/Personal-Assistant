@@ -41,7 +41,8 @@ fun ZuriRoot(
     onCreateBusiness: (String, WorkspaceAccent) -> Unit,
     onHybrid: (Set<WorkspaceId>) -> Unit = {},
 ) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // Every screen sits in the sky (spec §10.1); surfaces above it are glass.
+    app.zuri.android.core.ui.universe.SpaceBackground(Modifier.fillMaxSize()) {
         when (state) {
             AppState.Loading -> Unit // the splash screen stays up
             AppState.Onboarding -> OnboardingRoute()

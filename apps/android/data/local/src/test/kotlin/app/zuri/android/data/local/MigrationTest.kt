@@ -110,4 +110,13 @@ class MigrationTest {
             }
         }
     }
+
+    @Test fun v9ToV10AddsAvatarTagToCloudContacts() {
+        helper.createDatabase("migration-test-10", 9).use { db ->
+            db.execSQL("INSERT INTO cloud_contact (id, jid, phone, name, saved_name, push_name, is_group, is_business, seq) VALUES ('k1','1@s.whatsapp.net',NULL,'Chanda',NULL,NULL,0,0,5)")
+        }
+        helper.runMigrationsAndValidate("migration-test-10", 10, true).use { db ->
+            db.query("SELECT name, avatar_tag FROM cloud_contact WHERE id = 'k1'").use { c -> c.moveToFirst(); assertThat(c.getString(0)).isEqualTo("Chanda"); assertThat(c.isNull(1)).isTrue() }
+        }
+    }
 }

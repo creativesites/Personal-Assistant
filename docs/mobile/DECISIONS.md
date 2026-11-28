@@ -251,3 +251,13 @@ A version catalog pins everything. No version is chosen here beyond these famili
 - **Transparency:** every decision is logged per chat (sent, held for you, not needed, couldn't send, with the reason and the text). Auto-sent messages are marked "Auto-reply" in the chat and in the message's source sheet.
 - **Rollout:** the owner tests with their own second number and one or two contacts before using it more widely.
 
+
+## D-23 — The Android app uses the Zuri Universe design (amends D-18)
+
+**Status:** accepted by the owner, 2026-11-28.
+
+- **Design:** the native app adopts the design system in `docs/MOBILE_UNIVERSE_DESIGN.md` (built first for `apps/mobile`). The owner is the sun, contacts are planets with a fixed colour each, relationship health is orbital distance, unread chats pulse, and screens are glass over a moving starfield. Names: Signals (Inbox), Signal Tunnel (a chat), Orbits (People), Missions (proactive nudges, with M6).
+- **Two skies (owner's choice):** the spec's night sky is the default; a "daylight sky" (the same roles on a pale dawn gradient, deeper accents for contrast) is used when the owner picks Light. Every screen must work in both.
+- **Where it lives:** tokens in `core/ui/theme/Universe.kt`; the kit in `core/ui/universe/` (SpaceBackground, Orb, Glass, OrbitSystem, Dock, WarpTunnel, LaunchButton, rise, tiltClickable, LoadingOrb). The existing `Zuri.colors` and Material scheme are drawn from the Universe palette, so every screen moved over without rewrites.
+- **Motion:** Calm / Cosmic / Hyper in Settings scales every ambient loop. Android's "Remove animations" freezes loops and skips entrances.
+- **Type:** Space Grotesk for display, Inter for body (both OFL, bundled), replacing Manrope.

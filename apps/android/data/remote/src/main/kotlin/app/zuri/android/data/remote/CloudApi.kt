@@ -90,6 +90,27 @@ class CloudApi(
         }
     }
 
+    sealed interface Avatar {
+        class Bytes(val data: ByteArray) : Avatar
+        data object NotModified : Avatar
+        data object None : Avatar
+    }
+
+    /** A contact's WhatsApp profile picture (full size; the phone downscales it). */
+    suspend fun avatar(contactId: String, etag: String?): Avatar = withContext(Dispatchers.IO) {
+        authorized { token ->
+            Request.Builder().url(resolve("/api/sync/contacts/$contactId/avatar", emptyMap())).header("Authorization", "Bearer $token")
+                .apply { etag?.let { header("If-None-Match", "\"$it\"") } }.get().build()
+        }.use { r ->
+            when {
+                r.code == 304 -> Avatar.NotModified
+                r.code == 404 -> Avatar.None
+                !r.isSuccessful -> throw HttpError(r.code, r.body.string())
+                else -> Avatar.Bytes(r.body.bytes())
+            }
+        }
+    }
+
     // ── plumbing ────────────────────────────────────────────────────────────
 
     private suspend fun <T> getJson(path: String, query: Map<String, String>, de: kotlinx.serialization.DeserializationStrategy<T>): T =
@@ -163,4 +184,5 @@ class CloudApi(
     val id: String, val jid: String, val phone: String? = null, val name: String? = null, val savedName: String? = null,
     val pushName: String? = null, val isGroup: Boolean = false, val isBusiness: Boolean = false, val hasAvatar: Boolean = false,
     val lastSeenAt: Long? = null, @SerialName("mergedInto") val mergedInto: String? = null,
+    val avatarTag: String? = null,
 )

@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.asImageBitmap
 
 data class InboxState(
     val loading: Boolean = true,
@@ -56,8 +57,14 @@ class InboxViewModel @Inject constructor(
     context: app.zuri.android.domain.context.ActiveContextProvider,
     inbox: InboxRepository,
     private val capture: CaptureStatusProvider,
+    private val avatarSource: app.zuri.android.domain.cloud.CloudAvatars,
 ) : ViewModel() {
     private val filter = MutableStateFlow<SourceKind?>(null)
+
+    /** WhatsApp profile pictures by conversation id, loaded once per chat as rows appear. */
+    val avatars: StateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>> get() = avatarLoader.photos
+    private val avatarLoader = AvatarLoader(avatarSource, viewModelScope)
+    fun needAvatar(conversationId: String) = avatarLoader.need(conversationId)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val conversations = context.active.flatMapLatest { ctx ->
@@ -119,7 +126,11 @@ class ConversationViewModel @Inject constructor(
     private val workspaces: WorkspaceRepository,
     private val cloudSync: app.zuri.android.domain.cloud.CloudSync,
     private val cloudMedia: app.zuri.android.domain.cloud.CloudMedia,
+    avatarSource: app.zuri.android.domain.cloud.CloudAvatars,
 ) : ViewModel() {
+    private val avatarLoader = AvatarLoader(avatarSource, viewModelScope)
+    val avatars: StateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>> get() = avatarLoader.photos
+    fun needAvatar(conversationId: String) = avatarLoader.need(conversationId)
     // ── Cloud (D-21): older history on scroll, media on tap ─────────────────
     private val _olderState = MutableStateFlow(OlderState())
     val older: StateFlow<OlderState> = _olderState
@@ -253,3 +264,22 @@ sealed interface MediaUi {
     data object Unavailable : MediaUi
     data class Failed(val message: String) : MediaUi
 }
+
+/** Loads each chat's profile picture once and decodes it for Compose. */
+internal class AvatarLoader(private val source: app.zuri.android.domain.cloud.CloudAvatars, private val scope: kotlinx.coroutines.CoroutineScope) {
+    private val asked = mutableSetOf<String>()
+    private val _photos = MutableStateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>>(emptyMap())
+    val photos: StateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>> = _photos
+
+    fun need(conversationId: String) {
+        if (!asked.add(conversationId)) return
+        scope.launch {
+            val bytes = runCatching { source.forConversation(conversationId) }.getOrNull() ?: return@launch
+            val bmp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } ?: return@launch
+            _photos.value = _photos.value + (conversationId to bmp.asImageBitmap())
+        }
+    }
+}
+

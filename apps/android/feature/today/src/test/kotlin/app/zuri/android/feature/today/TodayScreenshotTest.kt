@@ -22,7 +22,7 @@ class TodayScreenshotTest {
     private val state = TodayState(DayPart.Morning, "Tuesday, 24 November", "Personal")
 
     private fun shot(name: String, dark: Boolean, s: TodayState = state) {
-        compose.setContent { ZuriTheme(darkTheme = dark) { Surface(color = MaterialTheme.colorScheme.background) { TodayContent(s, {}, {}) } } }
+        compose.setContent { ZuriTheme(darkTheme = dark) { app.zuri.android.core.ui.universe.SpaceBackground { TodayContent(s, {}, {}) } } }
         compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
     }
 

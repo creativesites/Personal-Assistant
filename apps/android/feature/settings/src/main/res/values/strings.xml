@@ -4,9 +4,9 @@
     <string name="settings_appearance">Appearance</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>
-    <string name="settings_theme_light">Light</string>
-    <string name="settings_theme_dark">Dark</string>
-    <string name="settings_theme_hint">Every screen works in light and dark. System follows your phone.</string>
+    <string name="settings_theme_light">Daylight</string>
+    <string name="settings_theme_dark">Night</string>
+    <string name="settings_theme_hint">Night is the starry sky; Daylight is the same universe at dawn. System follows your phone.</string>
     <string name="settings_privacy_security">Privacy &amp; security</string>
     <string name="settings_privacy_center">Privacy Center</string>
     <string name="settings_privacy_center_s">What’s stored, and what can leave this phone</string>
@@ -16,7 +16,7 @@
     <string name="settings_about">About</string>
     <string name="settings_version">Version</string>
     <string name="settings_licenses">Open-source licences</string>
-    <string name="settings_licenses_s">Manrope typeface, SIL Open Font License 1.1</string>
+    <string name="settings_licenses_s">Inter and Space Grotesk typefaces, SIL Open Font License 1.1</string>
 
     <string name="security_title">Security</string>
     <string name="security_lock">Lock Zuri</string>
@@ -115,4 +115,9 @@
     <string name="privacy_context_ledger_s">When you let Zuri look across workspaces</string>
     <string name="settings_workspaces">Workspaces</string>
     <string name="settings_workspaces_s">Names, brand profiles and which chats go where</string>
+    <string name="settings_motion">Motion</string>
+    <string name="settings_motion_calm">Calm</string>
+    <string name="settings_motion_cosmic">Cosmic</string>
+    <string name="settings_motion_hyper">Hyper</string>
+    <string name="settings_motion_hint">How fast the stars and orbits move. If Android\'s "Remove animations" is on, everything holds still.</string>
 </resources>

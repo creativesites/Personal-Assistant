@@ -148,6 +148,8 @@ data class CloudContactEntity(
     @ColumnInfo(name = "is_group") val isGroup: Boolean,
     @ColumnInfo(name = "is_business") val isBusiness: Boolean,
     val seq: Long,
+    /** Changes whenever the WhatsApp profile picture does; null when there is none (sync feed). */
+    @ColumnInfo(name = "avatar_tag") val avatarTag: String? = null,
 ) {
     /** The name to show: the owner's saved name, then the server's name, then WhatsApp's push name. */
     fun displayName(): String? = savedName?.takeIf { it.isNotBlank() } ?: name?.takeIf { it.isNotBlank() } ?: pushName?.takeIf { it.isNotBlank() }

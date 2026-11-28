@@ -13,6 +13,7 @@ import app.zuri.android.data.remote.CloudApi
 import app.zuri.android.domain.cloud.CloudAccount
 import app.zuri.android.domain.cloud.CloudMedia
 import app.zuri.android.domain.cloud.CloudSync
+import app.zuri.android.engine.sync.AvatarStore
 import app.zuri.android.engine.sync.CloudAccountImpl
 import app.zuri.android.engine.sync.CloudMediaStore
 import app.zuri.android.engine.sync.CloudSyncImpl
@@ -61,4 +62,8 @@ object SyncModule {
     @Provides fun cloudAccount(impl: CloudAccountImpl): CloudAccount = impl
     @Provides fun cloudSync(impl: CloudSyncImpl): CloudSync = impl
     @Provides fun cloudMedia(impl: CloudMediaStore): CloudMedia = impl
+
+    @Provides @Singleton
+    fun avatars(@ApplicationContext context: Context, db: ZuriDatabase, api: CloudApi, store: CloudAccountStore) = AvatarStore(context, db, api, store)
+    @Provides fun cloudAvatars(impl: AvatarStore): app.zuri.android.domain.cloud.CloudAvatars = impl
 }

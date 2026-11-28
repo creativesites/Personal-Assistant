@@ -34,7 +34,7 @@ enum class Tone { Context, Neutral, Ok, Warn, Bad }
 private fun toneColors(tone: Tone): Pair<Color, Color> {
     val c = Zuri.colors
     return when (tone) {
-        Tone.Context -> c.ctxWeak to c.ctxInk
+        Tone.Context -> Zuri.universe.let { u -> u.nebula.copy(alpha = if (u.night) 0.22f else 0.14f) to if (u.night) u.nebulaSoft else u.nebula }
         Tone.Neutral -> c.surface2 to MaterialTheme.colorScheme.onSurface
         Tone.Ok -> c.okWeak to c.ok
         Tone.Warn -> c.warnWeak to c.warn

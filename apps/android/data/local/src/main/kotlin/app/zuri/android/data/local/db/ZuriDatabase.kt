@@ -26,13 +26,13 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         WorkspaceRuleEntity::class, ContextLedgerEntity::class,
         CloudContactEntity::class, MediaFileEntity::class, CloudPendingMessageEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4, spec = Migration3To4::class),
         AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7),
-        AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
+        AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10),
     ],
 )
 abstract class ZuriDatabase : RoomDatabase() {

@@ -44,8 +44,8 @@ fun ContextChip(label: String, icon: ImageVector, onClick: () -> Unit, modifier:
         onClick = onClick,
         modifier = modifier.heightIn(min = 44.dp).widthIn(max = 240.dp).semantics { contentDescription = "Context: $label. Switch context" },
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerLowest.let { if (c.dark) MaterialTheme.colorScheme.surfaceContainer else it },
-        border = BorderStroke(1.dp, c.line),
+        color = Zuri.universe.glassTop,
+        border = BorderStroke(1.dp, Zuri.universe.glassBorder),
     ) {
         Row(Modifier.padding(start = 6.dp, end = 10.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(28.dp).clip(CircleShape).background(c.ctx), contentAlignment = Alignment.Center) {
@@ -76,7 +76,8 @@ fun RootTopBar(
     Row(
         modifier
             .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(c.ctxWeak, MaterialTheme.colorScheme.background)))
+            // A faint wash of the workspace colour over the sky, so the context reads on every root screen.
+            .background(Brush.verticalGradient(listOf(c.ctx.copy(alpha = if (c.dark) 0.22f else 0.14f), Color.Transparent)))
             .statusBarsPadding()
             .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

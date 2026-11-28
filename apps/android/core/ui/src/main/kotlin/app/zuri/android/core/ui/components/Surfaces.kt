@@ -1,5 +1,11 @@
 package app.zuri.android.core.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import app.zuri.android.core.ui.universe.Eyebrow
+import app.zuri.android.core.ui.universe.glass
+import app.zuri.android.core.ui.universe.tiltClickable
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -29,22 +35,17 @@ fun ZuriCard(
     contentPadding: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // Universe glass (spec §3.4): translucent over the sky. Tinted adds the context colour; Flat is fainter.
     val c = Zuri.colors
-    val color = when (style) {
-        CardStyle.Plain -> MaterialTheme.colorScheme.surfaceContainerLowest.let { if (c.dark) MaterialTheme.colorScheme.surfaceContainer else it }
-        CardStyle.Tinted -> c.ctxWeak
-        CardStyle.Flat -> c.surface2
+    val shape = MaterialTheme.shapes.large
+    val surface = when (style) {
+        CardStyle.Plain -> Modifier.glass(shape)
+        CardStyle.Tinted -> Modifier.glass(shape).background(c.ctx.copy(alpha = 0.14f))
+        CardStyle.Flat -> Modifier.clip(shape).background(c.surface2)
     }
-    val border = if (style == CardStyle.Plain) BorderStroke(1.dp, c.line) else null
-    val inner: @Composable () -> Unit = {
-        Column(Modifier.then(if (contentPadding) Modifier.padding(horizontal = 16.dp, vertical = 14.dp) else Modifier), content = content)
-    }
-    val m = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)
-    if (onClick != null) {
-        Surface(onClick = onClick, modifier = m, shape = MaterialTheme.shapes.large, color = color, border = border, content = inner)
-    } else {
-        Surface(modifier = m, shape = MaterialTheme.shapes.large, color = color, border = border, content = inner)
-    }
+    val m = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp).then(surface)
+        .then(if (onClick != null) Modifier.tiltClickable(onClick = onClick) else Modifier)
+    Column(m.then(if (contentPadding) Modifier.padding(horizontal = 16.dp, vertical = 14.dp) else Modifier), content = content)
 }
 
 /** A titled group of content with an optional trailing action ("All", "Edit"). */
@@ -54,7 +55,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, action: String? 
         modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).semantics { heading() })
+        Eyebrow(title, Modifier.weight(1f).semantics { heading() })
         if (action != null && onAction != null) {
             TextButton(onClick = onAction) { Text(action, color = Zuri.colors.ctxInk) }
         }

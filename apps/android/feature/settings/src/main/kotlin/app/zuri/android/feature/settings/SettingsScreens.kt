@@ -65,7 +65,7 @@ fun SettingsRoute(
     onOpenWorkspaces: () -> Unit = {}, onOpenCloud: () -> Unit = {}, viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsContent(state, versionName, onBack, viewModel::setTheme, onOpenSecurity, onOpenPrivacy, onOpenSources, onOpenWorkspaces, onOpenCloud)
+    SettingsContent(state, versionName, onBack, viewModel::setTheme, onOpenSecurity, onOpenPrivacy, onOpenSources, onOpenWorkspaces, onOpenCloud, { viewModel.setMotion(it) })
 }
 
 @Composable
@@ -73,6 +73,7 @@ fun SettingsContent(
     state: SettingsState, versionName: String, onBack: () -> Unit, onTheme: (ThemeMode) -> Unit,
     onOpenSecurity: () -> Unit, onOpenPrivacy: () -> Unit, onOpenSources: () -> Unit, onOpenWorkspaces: () -> Unit = {},
     onOpenCloud: () -> Unit = {},
+    onMotion: (app.zuri.android.domain.settings.MotionSpeed) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         DetailTopBar(stringResource(R.string.settings_title), onBack)
@@ -92,6 +93,22 @@ fun SettingsContent(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(stringResource(R.string.settings_theme_hint), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted)
+                Spacer(Modifier.height(16.dp))
+                // The universe's speed (spec §3.5 control deck): every ambient loop scales with it.
+                Text(stringResource(R.string.settings_motion), style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(10.dp))
+                val speeds = listOf(
+                    app.zuri.android.domain.settings.MotionSpeed.CALM to R.string.settings_motion_calm,
+                    app.zuri.android.domain.settings.MotionSpeed.COSMIC to R.string.settings_motion_cosmic,
+                    app.zuri.android.domain.settings.MotionSpeed.HYPER to R.string.settings_motion_hyper,
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    speeds.forEachIndexed { i, (speed, label) ->
+                        SegmentedButton(selected = state.motion == speed, onClick = { onMotion(speed) }, shape = SegmentedButtonDefaults.itemShape(i, speeds.size)) { Text(stringResource(label)) }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.settings_motion_hint), style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted)
             }
             ZuriListGroup(rows = listOf({
                 ZuriListRow(

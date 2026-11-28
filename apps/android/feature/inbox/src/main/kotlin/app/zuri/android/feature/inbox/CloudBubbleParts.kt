@@ -85,19 +85,30 @@ import kotlinx.coroutines.withContext
 
 // Rich parts of a cloud message bubble (D-21): quote, media, location, reactions, ticks.
 
+/**
+ * The quoted message inside a reply. Contrast is set for the bubble it sits in: on the owner's violet
+ * bubble it is white on a darker inset; on a glass bubble it is ion/ink on a deep inset (both skies).
+ */
 @Composable
 internal fun QuoteBlock(q: QuotedMessage, mine: Boolean, onJump: (() -> Unit)?) {
-    val c = Zuri.colors
+    val u = Zuri.universe
+    val inset = when {
+        mine -> Color.Black.copy(alpha = 0.24f)
+        u.night -> Color.Black.copy(alpha = 0.32f)
+        else -> u.nebula.copy(alpha = 0.08f)
+    }
+    val bar = if (mine) Color.White else u.ion
+    val nameColor = if (mine) Color.White else if (u.night) u.ion else u.nebula
+    val bodyColor = if (mine) Color.White.copy(alpha = 0.88f) else u.inkSoft
     Row(
-        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(10.dp))
-            .background(if (mine) c.surface3 else c.surface2.copy(alpha = 0.6f))
+        Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(12.dp)).background(inset)
             .then(if (onJump != null) Modifier.clickable(onClick = onJump) else Modifier),
     ) {
-        Box(Modifier.width(4.dp).heightIn(min = 40.dp).background(c.ctx))
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Box(Modifier.width(4.dp).heightIn(min = 40.dp).background(bar))
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 6.dp)) {
             Text(
                 if (q.fromMe == true) stringResource(R.string.you) else q.senderName ?: stringResource(R.string.quoted_someone),
-                style = MaterialTheme.typography.labelMedium, color = c.ctx, maxLines = 1,
+                style = MaterialTheme.typography.labelMedium, color = nameColor, maxLines = 1,
             )
             val body = when {
                 q.deleted -> stringResource(app.zuri.android.domain.inbox.PlaceholderKind.DELETED.label())
@@ -105,7 +116,7 @@ internal fun QuoteBlock(q: QuotedMessage, mine: Boolean, onJump: (() -> Unit)?) 
                 q.placeholder != null -> stringResource(q.placeholder!!.label())
                 else -> "…"
             }
-            Text(body, style = MaterialTheme.typography.bodySmall, color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            Text(body, style = MaterialTheme.typography.bodySmall, color = bodyColor, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 fontStyle = if (q.deleted) FontStyle.Italic else FontStyle.Normal)
         }
     }
@@ -215,7 +226,7 @@ private fun AudioMedia(media: MessageMedia, state: MediaUi?, onOpen: (Boolean) -
                     (state as? MediaUi.Failed)?.message,
                     media.seconds?.let { "%d:%02d".format(it.toInt() / 60, it.toInt() % 60) },
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall, color = Zuri.colors.muted,
+                style = MaterialTheme.typography.labelSmall, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
             )
         }
         Text(
@@ -235,7 +246,7 @@ private fun DocumentMedia(media: MessageMedia, state: MediaUi?, onOpen: (Boolean
     val ready = state as? MediaUi.Ready
     LaunchedEffect(ready?.path) { if (ready != null) openExternally(ctx, ready) }
     Row(
-        Modifier.padding(bottom = 4.dp).widthIn(min = 220.dp).clip(RoundedCornerShape(12.dp)).background(Zuri.colors.surface3)
+        Modifier.padding(bottom = 4.dp).widthIn(min = 220.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.22f))
             .clickable(enabled = media.available) { if (ready != null) openExternally(ctx, ready) else onOpen(true) }.padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -251,7 +262,7 @@ private fun DocumentMedia(media: MessageMedia, state: MediaUi?, onOpen: (Boolean
                     if (!media.available) stringResource(R.string.media_unavailable) else null,
                     (state as? MediaUi.Failed)?.message,
                 ).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall, color = Zuri.colors.muted,
+                style = MaterialTheme.typography.labelSmall, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
             )
         }
     }
@@ -261,7 +272,7 @@ private fun DocumentMedia(media: MessageMedia, state: MediaUi?, onOpen: (Boolean
 internal fun LocationBlock(p: GeoPoint) {
     val ctx = LocalContext.current
     Row(
-        Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(12.dp)).background(Zuri.colors.surface3)
+        Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.22f))
             .clickable {
                 val label = Uri.encode(p.name ?: "${p.lat},${p.lng}")
                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:${p.lat},${p.lng}?q=${p.lat},${p.lng}($label)"))) }
@@ -272,7 +283,7 @@ internal fun LocationBlock(p: GeoPoint) {
         Spacer(Modifier.width(8.dp))
         Column {
             Text(p.name ?: stringResource(app.zuri.android.domain.inbox.PlaceholderKind.LOCATION.label()), style = MaterialTheme.typography.bodyMedium)
-            p.address?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Zuri.colors.muted, maxLines = 2) }
+            p.address?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f), maxLines = 2) }
         }
     }
 }

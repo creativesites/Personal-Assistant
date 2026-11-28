@@ -68,6 +68,12 @@ sealed interface MediaResult {
     data class Failed(val message: String) : MediaResult
 }
 
+/** WhatsApp profile pictures from the cloud, small and stored encrypted on the phone. */
+interface CloudAvatars {
+    /** A small JPEG of this chat's contact or group picture, or null (no picture, not synced, offline). */
+    suspend fun forConversation(conversationId: String): ByteArray?
+}
+
 interface CloudMedia {
     /** Downloads if needed (respecting Wi-Fi-only unless [force]) and returns a viewable copy. */
     suspend fun open(messageId: String, force: Boolean = false): MediaResult

@@ -24,7 +24,7 @@ class SettingsScreenshotTest {
     @get:Rule val compose = createComposeRule()
 
     private fun shot(name: String, dark: Boolean, content: @Composable () -> Unit) {
-        compose.setContent { ZuriTheme(darkTheme = dark) { Surface(color = MaterialTheme.colorScheme.background) { content() } } }
+        compose.setContent { ZuriTheme(darkTheme = dark) { app.zuri.android.core.ui.universe.SpaceBackground { content() } } }
         compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
     }
 

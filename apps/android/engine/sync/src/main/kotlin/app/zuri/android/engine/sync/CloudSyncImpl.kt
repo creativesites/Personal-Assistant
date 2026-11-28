@@ -109,6 +109,7 @@ class CloudSyncImpl(
 
     suspend fun removeCloudData() {
         media.clear()
+        java.io.File(context.filesDir, "avatars").deleteRecursively()
         val dao = db.cloudSyncDao()
         db.withTransaction {
             dao.deleteCloudMessages()
@@ -129,12 +130,15 @@ class CloudSyncImpl(
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     @EntryPoint
     @InstallIn(SingletonComponent::class)
-    interface Deps { fun cloudSyncRunner(): SyncRunner }
+    interface Deps { fun cloudSyncRunner(): SyncRunner; fun cloudAvatarStore(): AvatarStore }
 
     override suspend fun doWork(): Result {
-        val runner = EntryPointAccessors.fromApplication(applicationContext, Deps::class.java).cloudSyncRunner()
+        val deps = EntryPointAccessors.fromApplication(applicationContext, Deps::class.java)
+        val runner = deps.cloudSyncRunner()
         // Under WorkManager's 10-minute limit; a first import continues on the next run.
         val r = runner.run(deadlineMillis = System.currentTimeMillis() + 8 * 60_000L)
+        // Profile pictures for the most recent chats (only new or changed ones are downloaded).
+        if (r.caughtUp) runCatching { deps.cloudAvatarStore().prefetch() }
         ZuriLog.i("SYNC", "worker", "pages" to r.pages, "changes" to r.changes, "caught_up" to r.caughtUp)
         if (!r.caughtUp && r.error == null) {
             WorkManager.getInstance(applicationContext).enqueueUniqueWork(

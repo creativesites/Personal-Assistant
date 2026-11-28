@@ -10,4 +10,14 @@
     <string name="load_older">Loading earlier messages…</string>
     <string name="forwarded">Forwarded</string>
     <string name="jump_latest">Latest</string>
+    <string name="back">Back</string>
+    <string name="signals_loading">Tuning in…</string>
+    <string name="signals_unread">%1$d unread</string>
+    <string name="signals_quiet">All quiet</string>
+    <string name="signals_constellation">Your most recent chats in orbit: %1$s</string>
+    <string name="you_short">YOU</string>
+    <string name="chip_group">Group</string>
+    <string name="holo_tap_to_edit">Tap to edit</string>
+    <string name="holo_not_now">Not now</string>
+    <string name="holo_title">Zuri drafts</string>
 </resources>

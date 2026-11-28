@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="inbox_title">Inbox</string>
+    <string name="inbox_title">Signals</string>
     <string name="filter_all">All</string>
     <string name="you">You</string>
     <string name="group">Group</string>
