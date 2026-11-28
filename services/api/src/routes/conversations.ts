@@ -4,6 +4,7 @@ import { db } from '../lib/db';
 import { authenticate } from '../plugins/authenticate';
 import { addToQueue } from '../lib/queue';
 import { QUEUE_NAMES } from '@zuri/types';
+import { claimSendKey, completeSendKey, releaseSendKey, requestHash } from '../lib/idempotency';
 import { formatConversationRow, getInboxConversation, publishInboxEvent } from '../lib/inbox-events';
 import { sendWhatsAppMessage } from '../lib/whatsapp-send';
 import { actionRequestApiShape } from '../lib/advisor-actions';
@@ -396,14 +397,31 @@ export async function conversationsRoutes(fastify: FastifyInstance): Promise<voi
     const { id } = request.params as { id: string };
     const { text, quotedMessageId, forwardedFromMessageId, isAiGenerated } = sendMessageBody.parse(request.body);
 
+    // Mobile G4: a retry with the same Idempotency-Key replays the first
+    // result instead of sending the message twice.
+    const rawKey = request.headers['idempotency-key'];
+    const idemKey = typeof rawKey === 'string' && rawKey.trim() ? rawKey.trim() : null;
+    if (idemKey) {
+      const claim = await claimSendKey(userId, idemKey, id,
+        requestHash({ text, quotedMessageId, forwardedFromMessageId, isAiGenerated }));
+      if (claim.kind === 'invalid') return reply.code(400).send({ error: 'invalid_idempotency_key' });
+      if (claim.kind === 'mismatch') return reply.code(422).send({ error: 'idempotency_key_reused' });
+      if (claim.kind === 'in_progress') return reply.code(409).send({ error: 'send_in_progress' });
+      if (claim.kind === 'replay') {
+        return reply.code(201).header('Idempotent-Replay', 'true').send(claim.response);
+      }
+    }
+
     try {
       const { message, conversation } = await sendWhatsAppMessage(userId, id, text, {
         quotedMessageId,
         forwardedFromMessageId,
         isAiGenerated,
       });
+      if (idemKey) await completeSendKey(userId, idemKey, message?.id ?? null, { message, conversation });
       return reply.code(201).send({ message, conversation });
     } catch (err) {
+      if (idemKey) await releaseSendKey(userId, idemKey);
       if (err instanceof Error && err.message === 'Conversation not found') {
         return reply.code(404).send({ error: 'Conversation not found' });
       }

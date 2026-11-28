@@ -6,6 +6,7 @@
  */
 import type { FastifyBaseLogger } from 'fastify'
 import { pendingDue, reconcile, retireDuplicates } from '../lib/device-captures'
+import { pruneSendKeys } from '../lib/idempotency'
 
 const TICK_MS = 60_000
 const RETIRE_EVERY = 5
@@ -29,6 +30,7 @@ export function startDeviceCaptureWorker(log: FastifyBaseLogger): { stop: () => 
       if (++ticks % RETIRE_EVERY === 0) {
         const retired = await retireDuplicates()
         if (retired) log.info({ retired }, 'device_captures_retired')
+        await pruneSendKeys()
       }
     } catch (err) {
       log.error({ err }, 'device_capture_worker_failed')
