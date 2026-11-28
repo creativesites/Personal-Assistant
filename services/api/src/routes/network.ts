@@ -35,7 +35,7 @@ export async function networkRoutes(fastify: FastifyInstance) {
     const { userId } = request.user as { userId: string }
     const ownerId = (await getEffectiveScope(userId)).ownerUserId
     const { rows } = await db.query<ContactRow & { tier: string; role: string | null; note: string | null; added_by: string }>(
-      `SELECT co.id, COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number) AS name,
+      `SELECT co.id, COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, 'This contact') AS name,
               co.avatar_url, co.company, co.job_title, nc.tier, nc.role, nc.note, nc.added_by
        FROM network_contacts nc JOIN contacts co ON co.id = nc.contact_id
        WHERE nc.user_id = $1 AND nc.tier IN ('key', 'important') AND co.merged_into_id IS NULL`,
@@ -104,7 +104,7 @@ export async function networkRoutes(fastify: FastifyInstance) {
     const ownerId = (await getEffectiveScope(userId)).ownerUserId
     const { rows } = await db.query<ContactRow & { relationship_type: string | null; is_business: boolean;
       customer_status: string | null; msgs: number; biz_msgs: number; last_at: Date }>(
-      `SELECT co.id, COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number) AS name,
+      `SELECT co.id, COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, 'This contact') AS name,
               co.avatar_url, co.company, co.job_title, co.is_business, co.customer_status, r.relationship_type,
               s.msgs, s.biz_msgs, s.last_at
        FROM contacts co
@@ -147,7 +147,7 @@ export async function networkRoutes(fastify: FastifyInstance) {
     const { rows } = await db.query(
       `SELECT n.id, n.contact_id, n.reason, n.warmth, n.messages, n.model, n.skipped_before, n.status,
               n.snooze_until, n.created_at,
-              COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number) AS name,
+              COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, 'This contact') AS name,
               co.avatar_url, nc.tier, nc.role,
               (SELECT cv.id FROM conversations cv WHERE cv.contact_id = co.id AND cv.user_id = n.user_id
                ORDER BY cv.last_message_at DESC NULLS LAST LIMIT 1) AS conversation_id
@@ -183,8 +183,8 @@ export async function networkRoutes(fastify: FastifyInstance) {
     const status = body.data.action === 'sent' ? 'sent' : body.data.action === 'snooze' ? 'snoozed' : 'dismissed'
     const { rowCount } = await db.query(
       `UPDATE network_nudges
-       SET status = $3, decided_at = NOW(),
-           snooze_until = CASE WHEN $3 = 'snoozed' THEN NOW() + make_interval(days => $4) ELSE NULL END,
+       SET status = $3::text, decided_at = NOW(),
+           snooze_until = CASE WHEN $3::text = 'snoozed' THEN NOW() + make_interval(days => $4::int) ELSE NULL END,
            messages = CASE WHEN $5::jsonb IS NOT NULL THEN $5::jsonb ELSE messages END
        WHERE id = $1 AND user_id = $2`,
       [id, ownerId, status, body.data.snoozeDays, body.data.sentMessages ? JSON.stringify(body.data.sentMessages) : null],

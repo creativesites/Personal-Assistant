@@ -53,7 +53,7 @@ export async function runNudgesFor(ownerId: string, opts: { max?: number } = {})
   )
   const { rows: members } = await db.query<Member>(
     `SELECT nc.contact_id, nc.tier, nc.role, nc.note,
-            COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number) AS name
+            COALESCE(NULLIF(co.custom_name, ''), NULLIF(co.display_name, ''), '+' || co.phone_number, 'This contact') AS name
      FROM network_contacts nc JOIN contacts co ON co.id = nc.contact_id
      WHERE nc.user_id = $1 AND nc.tier IN ('key', 'important') AND NOT co.is_group AND co.merged_into_id IS NULL`,
     [ownerId],
