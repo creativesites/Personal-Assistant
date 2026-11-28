@@ -127,6 +127,10 @@ class CloudApi(
     suspend fun replyDrafts(conversationId: String, body: DraftRequest): DraftResponse =
         sendJson("POST", "/api/conversations/$conversationId/reply-drafts", JSON.encodeToString(DraftRequest.serializer(), body)) { JSON.decodeFromString(DraftResponse.serializer(), it) }
 
+    /** The server's live draft for this chat, if it's still pending and answers the newest message (~50 ms). */
+    suspend fun latestReplyDraft(conversationId: String): DraftResponse =
+        getJson("/api/conversations/$conversationId/reply-drafts/latest", emptyMap(), DraftResponse.serializer())
+
     suspend fun draftOutcome(draftId: String, body: OutcomeRequest) {
         sendJson("POST", "/api/reply-drafts/$draftId/outcome", JSON.encodeToString(OutcomeRequest.serializer(), body)) { }
     }

@@ -67,6 +67,17 @@ class CloudAiImpl(private val db: ZuriDatabase, private val api: CloudApi, priva
         }
     }
 
+    override suspend fun latest(conversationId: String): CloudDraft.Ready? {
+        val remote = remoteOf(conversationId) ?: return null
+        val r = runCatching { api.latestReplyDraft(remote) }.getOrNull() ?: return null
+        val draftId = r.draftId ?: return null
+        if (r.options.isEmpty()) return null
+        return CloudDraft.Ready(
+            draftId, r.model, r.options.map { o -> ReplyOption(o.id, o.messages.ifEmpty { o.parts.map { it.text } }, o.tone, o.why) },
+            r.question?.let { ReplyQuestion(it.id, it.text, it.answers) }, r.answering,
+        )
+    }
+
     override suspend fun outcome(draftId: String, optionId: String?, outcome: DraftOutcome, sentMessages: List<String>?) {
         runCatching {
             api.draftOutcome(draftId, CloudApi.OutcomeRequest(optionId, outcome.name.lowercase(), sentMessages))

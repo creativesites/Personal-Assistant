@@ -197,7 +197,14 @@ class ConversationViewModel @Inject constructor(
         }
     }
 
-    init { cloudSync.syncNow() }
+    init {
+        cloudSync.syncNow()
+        // The server drafts every new incoming message on its own: show that draft at once, if there is one.
+        viewModelScope.launch {
+            val ready = cloudReplies.latest(id.value) ?: return@launch
+            if (draftState.value == DraftsState.Idle) draftState.value = DraftsState.Cloud(ready.draftId, ready.model, ready.options, ready.question)
+        }
+    }
 
     val allWorkspaces: StateFlow<List<Workspace>> = workspaces.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

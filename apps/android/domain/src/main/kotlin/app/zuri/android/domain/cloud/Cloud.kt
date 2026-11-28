@@ -112,6 +112,8 @@ data class ChatAi(val linked: Boolean, val aiEnabled: Boolean, val partner: Bool
 interface CloudReplies {
     fun state(conversationId: String): Flow<ChatAi>
     suspend fun draft(conversationId: String, answer: Pair<String, String>? = null, instruction: String? = null): CloudDraft
+    /** The draft the server already made for the newest message, instantly; null when there is none. */
+    suspend fun latest(conversationId: String): CloudDraft.Ready? = null
     suspend fun outcome(draftId: String, optionId: String?, outcome: DraftOutcome, sentMessages: List<String>? = null)
     suspend fun setAiEnabled(conversationId: String, enabled: Boolean): Boolean
     suspend fun setPartner(conversationId: String, partner: Boolean): Boolean
