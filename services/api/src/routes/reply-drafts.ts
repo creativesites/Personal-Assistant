@@ -147,7 +147,7 @@ export async function replyDraftRoutes(fastify: FastifyInstance) {
               sr.needs_owner_reason, sr.owner_question, sr.model, sr.created_at
        FROM suggested_replies sr JOIN d ON d.draft_id = sr.draft_id
        WHERE sr.status = 'pending'
-       ORDER BY sr.created_at, sr.ctid`,      -- options share one timestamp; ctid keeps insert order
+       ORDER BY sr.created_at, sr.ctid`, // options can share a timestamp; ctid keeps insert order
       [id],
     )
     if (!rows.length) return reply.send({ draftId: null, options: [], question: null, model: null })
