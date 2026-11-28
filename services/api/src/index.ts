@@ -10,6 +10,7 @@ import { startSocialPublishWorker } from './workers/social-publish-worker';
 import { startRecurringDocumentsWorker } from './workers/recurring-documents-worker';
 import { startSubscriptionLifecycleWorker } from './workers/subscription-lifecycle-worker';
 import { startDunningReminderWorker } from './workers/dunning-reminder-worker';
+import { startAvatarBackfillWorker } from './workers/avatar-backfill-worker';
 import { startDisconnectChecker, stopDisconnectChecker } from './lib/disconnect-checker';
 
 async function main() {
@@ -48,6 +49,9 @@ async function main() {
   const dunningReminderWorker = startDunningReminderWorker(app.log);
   app.log.info('Dunning reminder worker running');
 
+  const avatarBackfillWorker = startAvatarBackfillWorker(app.log);
+  app.log.info('Avatar backfill worker running');
+
   startDisconnectChecker();
   app.log.info('WhatsApp disconnect checker running');
 
@@ -58,6 +62,7 @@ async function main() {
     recurringDocumentsWorker.stop();
     subscriptionLifecycleWorker.stop();
     dunningReminderWorker.stop();
+    avatarBackfillWorker.stop();
     await app.close();
     redisSub.disconnect();
     await redis.quit();

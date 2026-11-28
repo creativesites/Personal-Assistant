@@ -184,9 +184,11 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
 
 Returns the contact's WhatsApp profile picture as `image/jpeg`. Send `If-None-Match: "<avatarTag>"` to get a 304 while it's unchanged; the response carries the `ETag`.
 
-- Returns 404 `no_avatar` when the contact has no picture, or when WhatsApp no longer has it.
-- The server caches the bytes. When WhatsApp's link has expired, the server fetches a fresh one. This updates the contact, so the feed re-sends it with a new `avatarTag`.
-- Refetch only when `avatarTag` changes.
+- Returns 404 `no_avatar` when the contact has no picture, or has hidden it from the owner. Show initials.
+- Works for groups (`@g.us`) too: it returns the group's picture.
+- **Coverage:** a background job fills the picture link for every chat with messages in the last 180 days, newest first. It runs every 6 hours, rechecks each contact after 3 days, and paces lookups at about one every 1.5 s. A contact it hasn't reached yet is looked up on its first request.
+- The server caches the bytes. When WhatsApp's link has expired, the server fetches a fresh one and updates the contact, so the feed re-sends it.
+- `avatarTag` is derived from the picture's path, not its expiring link parameters. It only changes when the picture itself changes. Refetch only when `avatarTag` changes.
 
 ## Media
 

@@ -15,12 +15,23 @@ import * as path from 'path'
 import { db } from '../lib/db'
 import { authenticate } from '../plugins/authenticate'
 import { getEffectiveScope } from '../lib/org-scope'
+import { lookupAvatarUrl, storeAvatarUrl } from '../workers/avatar-backfill-worker'
 
 const MEDIA_DIR = process.env.MEDIA_DIR ?? '/app/media'
 const MAX_BYTES = 2 * 1024 * 1024
 
+/**
+ * Tag from the URL's path only. WhatsApp re-signs the same picture with new
+ * query parameters (oh/oe expiry), so a refreshed link to an unchanged picture
+ * keeps its tag and devices don't download it again.
+ */
 export function avatarTag(url: string): string {
-  return crypto.createHash('sha1').update(url).digest('hex').slice(0, 16)
+  let key = url
+  try {
+    const u = new URL(url)
+    key = u.host + u.pathname
+  } catch { /* not a URL: hash as-is */ }
+  return crypto.createHash('sha1').update(key).digest('hex').slice(0, 16)
 }
 
 async function download(url: string): Promise<Buffer | null> {
@@ -34,19 +45,6 @@ async function download(url: string): Promise<Buffer | null> {
   }
 }
 
-async function freshUrl(ownerId: string, jid: string): Promise<string | null> {
-  try {
-    const res = await fetch(
-      `${process.env.WHATSAPP_SERVICE_URL || 'http://localhost:3001'}/session/${ownerId}/profile-picture/${encodeURIComponent(jid)}`,
-      { headers: { 'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '' }, signal: AbortSignal.timeout(15_000) },
-    )
-    if (!res.ok) return null
-    return ((await res.json()) as { avatarUrl?: string | null }).avatarUrl ?? null
-  } catch {
-    return null
-  }
-}
-
 export async function syncAvatarRoutes(fastify: FastifyInstance) {
   fastify.get('/api/sync/contacts/:id/avatar', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
@@ -54,11 +52,19 @@ export async function syncAvatarRoutes(fastify: FastifyInstance) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(400).send({ error: 'Invalid id' })
     const ownerId = (await getEffectiveScope(userId)).ownerUserId
 
-    const { rows: [c] } = await db.query<{ avatar_url: string | null; whatsapp_jid: string | null }>(
-      `SELECT avatar_url, whatsapp_jid FROM contacts WHERE id = $1 AND user_id = $2`,
+    const { rows: [c] } = await db.query<{ avatar_url: string | null; whatsapp_jid: string | null; checked: boolean }>(
+      `SELECT avatar_url, whatsapp_jid, avatar_last_fetched_at IS NOT NULL AS checked
+       FROM contacts WHERE id = $1 AND user_id = $2`,
       [id, ownerId],
     )
-    if (!c || !c.avatar_url) return reply.code(404).send({ error: 'no_avatar' })
+    if (!c) return reply.code(404).send({ error: 'no_avatar' })
+    if (!c.avatar_url && !c.checked && c.whatsapp_jid) {
+      // Never looked up yet (the backfill worker hasn't reached it): ask now.
+      const found = await lookupAvatarUrl(ownerId, c.whatsapp_jid)
+      if (found !== undefined) await storeAvatarUrl(id, ownerId, found)
+      if (found) c.avatar_url = found
+    }
+    if (!c.avatar_url) return reply.code(404).send({ error: 'no_avatar' })
 
     let url = c.avatar_url
     let tag = avatarTag(url)
@@ -72,16 +78,16 @@ export async function syncAvatarRoutes(fastify: FastifyInstance) {
       bytes = await download(url)
       if (!bytes && c.whatsapp_jid) {
         // The CDN link expired: ask WhatsApp for a new one.
-        const next = await freshUrl(ownerId, c.whatsapp_jid)
-        if (next && next !== url) {
+        const next = await lookupAvatarUrl(ownerId, c.whatsapp_jid)
+        if (next === null) {
+          // The picture was removed or hidden since: devices fall back to initials.
+          await storeAvatarUrl(id, ownerId, null)
+        } else if (next && next !== url) {
           bytes = await download(next)
           if (bytes) {
             url = next
             tag = avatarTag(url)
-            await db.query(
-              `UPDATE contacts SET avatar_url = $1, avatar_last_fetched_at = NOW() WHERE id = $2 AND user_id = $3`,
-              [url, id, ownerId],
-            )
+            await storeAvatarUrl(id, ownerId, url)
           }
         }
       }
