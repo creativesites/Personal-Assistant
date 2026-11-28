@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 enum class DayPart { Morning, Afternoon, Evening }
 
@@ -41,6 +42,9 @@ data class TodayState(
     val upcoming: List<MemoryItem> = emptyList(),
     /** One-to-one chats where they wrote last, newest first. */
     val waiting: List<WaitingChat> = emptyList(),
+    /** Open missions (M6), oldest first, and today's progress. */
+    val missions: List<app.zuri.android.domain.people.Mission> = emptyList(),
+    val tally: app.zuri.android.domain.people.MissionTally = app.zuri.android.domain.people.MissionTally(0, 0),
 )
 
 @HiltViewModel
@@ -50,7 +54,18 @@ class TodayViewModel @Inject constructor(
     memory: MemoryRepository,
     insights: ConversationInsights,
     private val clock: Clock,
+    private val missionStore: app.zuri.android.domain.people.Missions,
+    private val relationships: app.zuri.android.domain.people.Relationships,
 ) : ViewModel() {
+    fun refreshMissions() = viewModelScope.launch { runCatching { relationships.refresh() } }
+    fun done(m: app.zuri.android.domain.people.Mission) = viewModelScope.launch { missionStore.done(m.id) }
+    fun skip(m: app.zuri.android.domain.people.Mission) = viewModelScope.launch { missionStore.dismiss(m.id) }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val missionFlow = context.active.flatMapLatest { ws ->
+        if (ws == null) flowOf(emptyList<app.zuri.android.domain.people.Mission>() to app.zuri.android.domain.people.MissionTally(0, 0))
+        else combine(missionStore.observeOpen(ws.ids.toList()), missionStore.observeToday(ws.ids.toList())) { a, b -> a to b }
+    }
     private val active = context.active
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -62,7 +77,11 @@ class TodayViewModel @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private val waiting = active.flatMapLatest { ws -> if (ws == null) flowOf(emptyList()) else insights.observeWaiting(ws.ids) }
 
-    val state: StateFlow<TodayState> = combine(active, capture.status, items, waiting) { ws, status, list, waitingChats ->
+    val state: StateFlow<TodayState> = combine(combine(active, capture.status, items, waiting) { a, b, c, d -> listOf(a, b, c, d) }, missionFlow) { parts, mf ->
+        @Suppress("UNCHECKED_CAST") val ws = parts[0] as app.zuri.android.domain.context.ActiveContext?
+        val status = parts[1] as app.zuri.android.domain.capture.CaptureStatus
+        @Suppress("UNCHECKED_CAST") val list = parts[2] as List<MemoryItem>
+        @Suppress("UNCHECKED_CAST") val waitingChats = parts[3] as List<WaitingChat>
         val now = clock.nowMillis()
         val week = now + 7L * 24 * 60 * 60 * 1000
         snapshot(ws?.label.orEmpty()).copy(
@@ -71,6 +90,7 @@ class TodayViewModel @Inject constructor(
             // An event with no time is kept through the end of its day.
             waiting = waitingChats.take(5),
             upcoming = list.filter { it.kind == MemoryKind.EVENT && it.dueAtMillis != null && it.dueAtMillis!! in (now - 24L * 60 * 60 * 1000)..week }.take(5),
+            missions = mf.first, tally = mf.second,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), snapshot(""))
 

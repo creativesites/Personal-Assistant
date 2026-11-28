@@ -138,7 +138,7 @@ fun ZuriShell(
             }
         }
         composable<ConversationDest> { Detail { ConversationRoute(onBack = { nav.popBackStack() }) } }
-        composable<PeopleDest> { RootFrame(nav, state, { switcherOpen = true }) { PeopleTab() } }
+        composable<PeopleDest> { RootFrame(nav, state, { switcherOpen = true }) { app.zuri.android.feature.people.OrbitsRoute(onOpenConversation = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<AskDest> { RootFrame(nav, state, { switcherOpen = true }) { AskRoute(onOpenSource = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<MoreDest> {
             RootFrame(nav, state, { switcherOpen = true }) {

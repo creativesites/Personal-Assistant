@@ -27,4 +27,14 @@
     <string name="today_waiting_low">seems down</string>
     <string name="today_waiting_since">since %1$s</string>
     <string name="today_waiting_media">Photo, voice note or file</string>
+    <string name="missions_title">Missions</string>
+    <string name="missions_count">%1$d nudges in orbit</string>
+    <string name="missions_clear_t">Orbit clear</string>
+    <string name="missions_clear_b">Nothing needs you right now. Zuri checks again through the day.</string>
+    <string name="missions_clear_done">%1$d of %2$d done today. Nothing else needs you right now.</string>
+    <string name="mission_reconnect">Check in</string>
+    <string name="mission_promise">Promise</string>
+    <string name="mission_open">Open chat</string>
+    <string name="mission_done">Done</string>
+    <string name="mission_skip">Not now</string>
 </resources>

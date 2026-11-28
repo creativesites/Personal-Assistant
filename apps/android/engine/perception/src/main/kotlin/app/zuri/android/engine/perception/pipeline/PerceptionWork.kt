@@ -42,6 +42,7 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
         fun runner(): PerceptionRunner
         fun indexer(): app.zuri.android.engine.perception.embed.SemanticIndexer
         fun controls(): AndroidPerceptionControls
+        fun relate(): app.zuri.android.engine.perception.relate.RelateEngine
     }
 
     override suspend fun doWork(): Result {
@@ -57,6 +58,8 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
             val idx = deps.indexer().run(deadlineMillis = System.currentTimeMillis() + INDEX_BUDGET_MILLIS, pause = hot)
             ZuriLog.i("EMBED", "run", "embedded" to idx.embedded, "early" to idx.stoppedEarly)
         }
+        // Relationship health, rhythm and missions (M6): cheap, deterministic, every run.
+        runCatching { deps.relate().run() }.onFailure { ZuriLog.w("RELATE", "run_failed", "detail" to (it.message ?: "")) }
         deps.controls().recordRun()
         // A run the owner asked for keeps going until the backlog is read (or the engine fails).
         if (inputData.getBoolean(KEY_NOW, false) && stats.stoppedEarly && stats.failure == null && !hot()) deps.controls().runNow()
@@ -67,6 +70,28 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
         const val KEY_NOW = "now"
         const val RUN_BUDGET_MILLIS = 8 * 60_000L
         const val INDEX_BUDGET_MILLIS = 60_000L
+    }
+}
+
+/**
+ * The morning brief (M6 acceptance: built by 07:00 with no network). At 06:30 every day it
+ * recomputes relationships and missions so Today is ready when the owner wakes.
+ */
+class MorningBriefWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val deps = EntryPointAccessors.fromApplication(applicationContext, PerceptionWorker.Deps::class.java)
+        val stats = deps.relate().run()
+        ZuriLog.i("RELATE", "morning", "people" to stats.people, "missions" to stats.newMissions)
+        return Result.success()
+    }
+
+    companion object {
+        /** Milliseconds from [now] to the next 06:30 local time. */
+        fun delayTo0630(now: java.time.ZonedDateTime): Long {
+            var next = now.withHour(6).withMinute(30).withSecond(0).withNano(0)
+            if (!next.isAfter(now)) next = next.plusDays(1)
+            return java.time.Duration.between(now, next).toMillis()
+        }
     }
 }
 
@@ -103,12 +128,19 @@ class AndroidPerceptionControls(
         val charging = store.data.first()[chargingKey] ?: false
         val constraints = Constraints.Builder().setRequiresBatteryNotLow(true).setRequiresCharging(charging).build()
         work.enqueueUniquePeriodicWork(PERIODIC, policy, PeriodicWorkRequestBuilder<PerceptionWorker>(1, TimeUnit.HOURS).setConstraints(constraints).build())
+        // No constraints: the brief must be ready by 07:00 even on battery and offline.
+        work.enqueueUniquePeriodicWork(
+            MORNING, ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<MorningBriefWorker>(24, TimeUnit.HOURS)
+                .setInitialDelay(MorningBriefWorker.delayTo0630(java.time.ZonedDateTime.now()), TimeUnit.MILLISECONDS).build(),
+        )
     }
 
     internal suspend fun recordRun() = store.edit { it[lastRunKey] = clock.nowMillis() }
 
     private companion object {
         const val PERIODIC = "perception"
+        const val MORNING = "morning_brief"
         const val NOW = "perception_now"
     }
 }

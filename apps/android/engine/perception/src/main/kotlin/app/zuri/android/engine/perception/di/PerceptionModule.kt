@@ -46,6 +46,13 @@ object PerceptionModule {
         app.zuri.android.engine.perception.embed.SemanticIndexer(db, embedder, clock::nowMillis)
 
     @Provides @Singleton
+    fun relate(db: ZuriDatabase, clock: Clock) = app.zuri.android.engine.perception.relate.RelateEngine(db, clock)
+
+    @Provides fun relationships(impl: app.zuri.android.engine.perception.relate.RelateEngine): app.zuri.android.domain.people.Relationships = impl
+
+    @Provides fun missions(impl: app.zuri.android.engine.perception.relate.RelateEngine): app.zuri.android.domain.people.Missions = impl
+
+    @Provides @Singleton
     fun localInsights(db: ZuriDatabase, model: LocalLanguageModel, clock: Clock) = LocalConversationInsights(db, model, clock::nowMillis)
 
     @Provides @Singleton

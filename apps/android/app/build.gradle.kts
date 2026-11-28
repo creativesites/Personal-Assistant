@@ -62,6 +62,7 @@ dependencies {
     implementation(project(":feature:settings"))
     implementation(project(":feature:sources"))
     implementation(project(":feature:inbox"))
+    implementation(project(":feature:people"))
     implementation(project(":engine:ingest"))
     implementation(project(":feature:models"))
     androidTestImplementation(libs.androidx.test.runner)

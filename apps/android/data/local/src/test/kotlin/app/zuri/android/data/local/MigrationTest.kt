@@ -119,4 +119,13 @@ class MigrationTest {
             db.query("SELECT name, avatar_tag FROM cloud_contact WHERE id = 'k1'").use { c -> c.moveToFirst(); assertThat(c.getString(0)).isEqualTo("Chanda"); assertThat(c.isNull(1)).isTrue() }
         }
     }
+
+    @Test fun v10ToV11AddsEmptyRelationshipAndMissionTables() {
+        helper.createDatabase("migration-test-11", 10).close()
+        helper.runMigrationsAndValidate("migration-test-11", 11, true).use { db ->
+            listOf("relationship", "mission").forEach { t ->
+                db.query("SELECT COUNT(*) FROM $t").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+            }
+        }
+    }
 }

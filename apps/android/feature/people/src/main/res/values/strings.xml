@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="orbits_eyebrow">Your people</string>
+    <string name="orbits_title">Orbits</string>
+    <string name="orbits_thriving">%1$d thriving</string>
+    <string name="orbits_empty_t">Your orbits fill as you chat</string>
+    <string name="orbits_empty_b">Everyone you talk to one-to-one appears here, closer the healthier your connection. Zuri works it out on this phone from your chats.</string>
+    <string name="orbits_all">All orbits</string>
+    <string name="orbits_attention">Needs attention</string>
+    <string name="orbits_dormant">Dormant</string>
+    <string name="orbits_map_description">Your people in orbit, closer is healthier: %1$s</string>
+    <string name="orbits_warming">Warming ↑</string>
+    <string name="orbits_cooling">Cooling ↓</string>
+    <string name="orbits_health">Warmth %1$d</string>
+    <string name="orbits_why">Why</string>
+    <string name="orbits_rhythm">You usually talk every ~%1$d days</string>
+    <string name="orbits_rhythm_daily">You talk most days</string>
+    <string name="orbits_last">last talked %1$s</string>
+    <string name="orbits_next">check-in due %1$s</string>
+    <string name="orbits_circle">Circle</string>
+    <string name="orbits_circle_hint">Closer circles get gentler, earlier check-in nudges.</string>
+    <string name="orbits_open_chat">Open chat</string>
+    <string name="tier_1">Inner circle</string>
+    <string name="tier_2">Close</string>
+    <string name="tier_3">Regular</string>
+    <string name="tier_4">Occasional</string>
+    <string name="tier_5">Wider</string>
+    <string name="tier_1_s">Inner</string>
+    <string name="tier_2_s">Close</string>
+    <string name="tier_3_s">Regular</string>
+    <string name="tier_4_s">Occas.</string>
+    <string name="tier_5_s">Wider</string>
+</resources>

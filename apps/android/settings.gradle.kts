@@ -41,6 +41,7 @@ include(
     ":feature:settings",
     ":feature:sources",
     ":feature:inbox",
+    ":feature:people",
     ":feature:models",
     ":feature:memory",
     ":feature:ask",

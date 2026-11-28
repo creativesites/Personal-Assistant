@@ -47,7 +47,12 @@ fun TodayRoute(
     viewModel: TodayViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    TodayContent(state, onOpenPrivacy, onOpenSources, onOpenMemory = onOpenMemory, onOpenConversation = onOpenConversation)
+    // Re-check relationships and resolve missions the owner has already acted on.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { viewModel.refreshMissions(); onPauseOrDispose { } }
+    TodayContent(
+        state, onOpenPrivacy, onOpenSources, onOpenMemory = onOpenMemory, onOpenConversation = onOpenConversation,
+        onMissionDone = viewModel::done, onMissionSkip = viewModel::skip,
+    )
 }
 
 /** P01 in its first-day state: honest about having nothing yet, and about why. */
@@ -59,16 +64,21 @@ fun TodayContent(
     modifier: Modifier = Modifier,
     onOpenMemory: () -> Unit = {},
     onOpenConversation: (ConversationId) -> Unit = {},
+    onMissionDone: (app.zuri.android.domain.people.Mission) -> Unit = {},
+    onMissionSkip: (app.zuri.android.domain.people.Mission) -> Unit = {},
 ) {
     val greeting = stringResource(
         when (state.dayPart) { DayPart.Morning -> R.string.today_morning; DayPart.Afternoon -> R.string.today_afternoon; DayPart.Evening -> R.string.today_evening },
     )
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-            Text(state.dateLabel, style = MaterialTheme.typography.bodyMedium, color = Zuri.colors.muted)
-            Text(greeting, style = MaterialTheme.typography.headlineLarge)
+            app.zuri.android.core.ui.universe.Eyebrow(state.dateLabel)
+            app.zuri.android.core.ui.universe.ScreenTitle(greeting)
         }
-        if (state.promises.isEmpty() && state.upcoming.isEmpty() && state.waiting.isEmpty()) {
+        if (state.missions.isNotEmpty() || state.tally.total > 0) {
+            MissionsDeck(state.missions, state.tally, onOpen = { onOpenConversation(it.conversationId) }, onDone = onMissionDone, onSkip = onMissionSkip)
+        }
+        if (state.promises.isEmpty() && state.upcoming.isEmpty() && state.waiting.isEmpty() && state.missions.isEmpty()) {
             EmptyState(
                 icon = Icons.Rounded.WbSunny,
                 title = stringResource(R.string.today_empty_title),
