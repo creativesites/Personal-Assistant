@@ -117,6 +117,69 @@ export async function replyDraftRoutes(fastify: FastifyInstance) {
     })
   })
 
+  // The newest draft the server already made (live drafting after each
+  // incoming message), so a client can show it the moment the chat opens.
+  // Only returned while it still answers the chat's newest message.
+  fastify.get('/api/conversations/:id/reply-drafts/latest', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const { id } = request.params as { id: string }
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return reply.code(400).send({ error: 'invalid_id' })
+    const ownerId = (await getEffectiveScope(userId)).ownerUserId
+    const { rows: [conv] } = await db.query(`SELECT ai_enabled FROM conversations WHERE id = $1 AND user_id = $2`, [id, ownerId])
+    if (!conv) return reply.code(404).send({ error: 'not_found' })
+    if (!conv.ai_enabled) return reply.code(409).send({ error: 'ai_off' })
+
+    const { rows } = await db.query<{
+      id: string; draft_id: string; suggestion_text: string; tone: string | null; reasoning: string | null
+      parts: { text: string; quoteMessageId: string | null }[] | null; needs_owner: boolean
+      needs_owner_reason: string | null; owner_question: unknown; model: string | null; created_at: Date
+    }>(
+      `WITH newest AS (
+         SELECT id, sender_type FROM messages WHERE conversation_id = $1
+         ORDER BY whatsapp_timestamp DESC, ingest_seq DESC LIMIT 1
+       ), d AS (
+         SELECT sr.draft_id FROM suggested_replies sr, newest
+         WHERE sr.message_id = newest.id AND newest.sender_type = 'contact'
+           AND sr.status = 'pending' AND sr.draft_id IS NOT NULL
+         ORDER BY sr.created_at DESC LIMIT 1
+       )
+       SELECT sr.id, sr.draft_id, sr.suggestion_text, sr.tone, sr.reasoning, sr.parts, sr.needs_owner,
+              sr.needs_owner_reason, sr.owner_question, sr.model, sr.created_at
+       FROM suggested_replies sr JOIN d ON d.draft_id = sr.draft_id
+       WHERE sr.status = 'pending'
+       ORDER BY sr.created_at, sr.id`,
+      [id],
+    )
+    if (!rows.length) return reply.send({ draftId: null, options: [], question: null, model: null })
+
+    const quoteIds = rows.flatMap((r) => (r.parts ?? []).map((p) => p.quoteMessageId).filter(Boolean)) as string[]
+    const quoted = new Map<string, string>()
+    if (quoteIds.length) {
+      const { rows: q } = await db.query<{ id: string; body: string | null; message_type: string }>(
+        `SELECT id, body, message_type::text AS message_type FROM messages WHERE id = ANY($1::uuid[])`, [quoteIds])
+      for (const m of q) quoted.set(m.id, m.body ?? `[${m.message_type}]`)
+    }
+    const first = rows[0]
+    return reply.send({
+      draftId: first.draft_id,
+      model: first.model,
+      noReplyNeeded: false,
+      needsOwnerReason: first.needs_owner ? first.needs_owner_reason : null,
+      question: first.needs_owner ? first.owner_question ?? null : null,
+      createdAt: new Date(first.created_at).getTime(),
+      options: rows.map((r) => {
+        const parts = r.parts?.length ? r.parts : [{ text: r.suggestion_text, quoteMessageId: null }]
+        return {
+          id: r.id,
+          messages: parts.map((p) => p.text),
+          parts: parts.map((p) => ({ text: p.text, quoting: p.quoteMessageId ? quoted.get(p.quoteMessageId) ?? null : null })),
+          tone: r.tone ?? '',
+          why: r.reasoning ?? '',
+        }
+      }),
+    })
+  })
+
   fastify.post('/api/reply-drafts/:draftId/outcome', { preHandler: authenticate }, async (request, reply) => {
     const { userId } = request.user as { userId: string }
     const { draftId } = request.params as { draftId: string }

@@ -57,6 +57,14 @@ A typical call takes 8–15 s.
 | 422 `group_chat` | Groups are never drafted for |
 | 502 `engine_unavailable` / `all_models_failed` | Every model in the chain failed; `attempts` says why |
 
+### `GET /api/conversations/:id/reply-drafts/latest`
+
+The newest draft the server already made for this chat: either live after an incoming message, or a previous POST. Show it instantly when the chat opens.
+
+- The response has the same shape as the POST, plus `createdAt`.
+- It is returned only while it still answers the chat's newest message, and only while it's pending. Otherwise you get `{ "draftId": null, "options": [] }`, and can POST for a fresh one.
+- 409 `ai_off` when AI is off for the chat.
+
 ### `POST /api/reply-drafts/:draftId/outcome`
 
 Report what the owner did. The engine learns from edits.
