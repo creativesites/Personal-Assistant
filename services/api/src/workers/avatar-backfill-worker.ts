@@ -11,7 +11,8 @@
  *
  * WhatsApp answers "no picture" (none set, or hidden from the owner) with a
  * null URL: avatar_url is cleared and the device shows initials. Any error
- * (session down) stops that account's run without touching its rows.
+ * leaves that contact for the next run; three in a row (session down) stop
+ * that account's run. Placeholder JIDs (status@broadcast, 0@…) are skipped.
  */
 import type { FastifyBaseLogger } from 'fastify'
 import { db } from '../lib/db'
@@ -22,6 +23,7 @@ const GAP_MS = 1500
 const MAX_PER_RUN = 400
 const RECHECK_DAYS = 3
 const RECENT_DAYS = 180
+const MAX_FAILS = 3
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -55,7 +57,7 @@ async function runOnce(log: FastifyBaseLogger, isStopped: () => boolean): Promis
      JOIN LATERAL (
        SELECT MAX(cv.last_message_at) AS last_at FROM conversations cv WHERE cv.contact_id = c.id
      ) cv ON TRUE
-     WHERE c.whatsapp_jid IS NOT NULL
+     WHERE c.whatsapp_jid ~ '^[0-9]{6,}(-[0-9]+)?@(s[.]whatsapp[.]net|lid|g[.]us)$'
        AND c.merged_into_id IS NULL
        AND cv.last_at > NOW() - make_interval(days => $1)
        AND (c.avatar_last_fetched_at IS NULL OR c.avatar_last_fetched_at < NOW() - make_interval(days => $2))
@@ -63,6 +65,9 @@ async function runOnce(log: FastifyBaseLogger, isStopped: () => boolean): Promis
      LIMIT $3`,
     [RECENT_DAYS, RECHECK_DAYS, MAX_PER_RUN],
   )
+  // An account is skipped after MAX_FAILS lookups fail in a row (its session
+  // is down); one odd contact must not stop the whole account.
+  const fails = new Map<string, number>()
   const failed = new Set<string>()
   let found = 0
   let none = 0
@@ -71,9 +76,13 @@ async function runOnce(log: FastifyBaseLogger, isStopped: () => boolean): Promis
     if (failed.has(c.user_id)) continue
     const url = await lookupAvatarUrl(c.user_id, c.whatsapp_jid)
     if (url === undefined) {
-      failed.add(c.user_id)
+      const n = (fails.get(c.user_id) ?? 0) + 1
+      fails.set(c.user_id, n)
+      if (n >= MAX_FAILS) failed.add(c.user_id)
+      await sleep(GAP_MS)
       continue
     }
+    fails.set(c.user_id, 0)
     await storeAvatarUrl(c.id, c.user_id, url)
     if (url) found++
     else none++
