@@ -12,6 +12,7 @@ import { startSubscriptionLifecycleWorker } from './workers/subscription-lifecyc
 import { startDunningReminderWorker } from './workers/dunning-reminder-worker';
 import { startAvatarBackfillWorker } from './workers/avatar-backfill-worker';
 import { startDeviceCaptureWorker } from './workers/device-capture-worker';
+import { startNetworkNudgeWorker } from './workers/network-nudge-worker';
 import { startDisconnectChecker, stopDisconnectChecker } from './lib/disconnect-checker';
 
 async function main() {
@@ -56,6 +57,9 @@ async function main() {
   const deviceCaptureWorker = startDeviceCaptureWorker(app.log);
   app.log.info('Device capture worker running');
 
+  const networkNudgeWorker = startNetworkNudgeWorker(app.log);
+  app.log.info('Network nudge worker running');
+
   startDisconnectChecker();
   app.log.info('WhatsApp disconnect checker running');
 
@@ -68,6 +72,7 @@ async function main() {
     dunningReminderWorker.stop();
     avatarBackfillWorker.stop();
     deviceCaptureWorker.stop();
+    networkNudgeWorker.stop();
     await app.close();
     redisSub.disconnect();
     await redis.quit();

@@ -88,7 +88,7 @@ USER_PROMPT = """Now: {now}
 CHAT (oldest first; #n = unanswered messages from {contact}):
 {transcript}
 {owner_input}
-Write {owner}'s reply to the unanswered messages."""
+{task}"""
 
 _ASSISTANT_SPEAK = re.compile(
     r"\b(as an ai|i'?m an ai|assistant|how (can|may) i (help|assist)|i'?m here to help|happy to help|"
@@ -239,6 +239,7 @@ async def compose(
     owner_answer: str | None = None,
     instruction: str | None = None,
     chain: list[str] | None = None,
+    initiate: bool = False,
 ) -> ComposeResult:
     """`chain` overrides the job's model chain (blind test).
     `owner_answer`: the owner's answer to the engine's earlier question.
@@ -272,6 +273,11 @@ async def compose(
         summary_block=f'Earlier in this chat (summary):\n{ctx.chat_summary}\n\n' if ctx.chat_summary else '',
         contact=contact, about=ctx.about_contact, business_block=business,
         transcript=ctx.transcript, owner=owner, owner_input=owner_input,
+        task=(f"Nothing is waiting for a reply. Write a NEW message from {owner} to {contact} that naturally gets "
+              f"you talking again, the way {owner} would open a conversation with {contact} after a while "
+              f"(no \"long time\" clichés unless {owner} uses them). Use the reason above only as inspiration; "
+              f"never mention Zuri, reminders or that it's been a while on purpose. 'reply_to' must be null."
+              if initiate and not ctx.unanswered else f"Write {owner}'s reply to the unanswered messages."),
     )
     messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
 

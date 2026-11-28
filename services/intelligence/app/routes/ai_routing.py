@@ -29,3 +29,16 @@ async def route_test(body: RouteTestRequest):
     """Check each model with a tiny call."""
     results = await asyncio.gather(*(test_model(body.user_id, m) for m in body.models[:10]))
     return {'results': [r.__dict__ for r in results]}
+
+
+class OpenerRequest(BaseModel):
+    user_id: str
+    contact_id: str
+    reason: str
+
+
+@router.post('/network/opener')
+async def network_opener(body: OpenerRequest):
+    """A keep-warm opener in the owner's voice (Networking nudges)."""
+    from ..reply.opener import draft_opener
+    return await draft_opener(body.user_id, body.contact_id, body.reason[:400])
