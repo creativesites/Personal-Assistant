@@ -179,7 +179,9 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
   isGroup: boolean; isBusiness: boolean; hasAvatar: boolean;
   avatarTag: string | null;   // changes when the picture changes; equals the avatar ETag
   lastSeenAt: number | null;
-  isPartner: boolean }          // the owner's partner (reply engine language rules)
+  isPartner: boolean;           // the owner's partner (reply engine language rules)
+  lid: string | null;           // the contact's @lid JID, when known (phone notifications key 1:1 chats by it)
+  pnJid: string | null }        // the contact's phone JID (…@s.whatsapp.net), when known
 ```
 
 ### `GET /api/sync/contacts/:id/avatar`
@@ -191,6 +193,41 @@ Returns the contact's WhatsApp profile picture as `image/jpeg`. Send `If-None-Ma
 - **Coverage:** a background job fills the picture link for every chat with messages in the last 180 days, newest first. It runs every 6 hours, rechecks each contact after 3 days, and paces lookups at about one every 1.5 s. A contact it hasn't reached yet is looked up on its first request.
 - The server caches the bytes. When WhatsApp's link has expired, the server fetches a fresh one and updates the contact, so the feed re-sends it.
 - `avatarTag` is derived from the picture's path, not its expiring link parameters. It only changes when the picture itself changes. Refetch only when `avatarTag` changes.
+
+## Phone-captured messages (G5)
+
+### `POST /api/device/messages:batch`
+
+Upload messages captured from notifications. Each is reconciled with what the WhatsApp link stored, so nothing shows twice.
+
+```json
+{ "deviceId": "…", "items": [ { "clientId": "stable-per-capture", "source": "whatsapp",
+    "chatKey": "1234@lid", "chatKeyKind": "jid", "isGroup": false,
+    "senderKey": null, "senderName": null, "fromMe": false,
+    "text": "message text", "placeholderKind": null, "sentAt": 1764000000000, "fingerprint": "…" } ] }
+→ { "results": [ { "clientId": "…", "status": "matched|pending|created|skipped|ambiguous",
+                   "messageId": "…", "conversationId": "…", "reason": "…" } ] }
+```
+
+- **Limits:** up to 200 items per call. Retrying is safe, because the result is idempotent per `clientId`.
+- **`chatKey`:**
+  - A JID: `@lid`, `@s.whatsapp.net` or `@g.us`. Either form of a 1:1 JID works, through the lid map.
+  - Or, with `chatKeyKind: "title"`, the chat's name. A title is used only when exactly one chat has that name.
+- **`placeholderKind`** for media: `photo`, `video`, `voice`, `sticker`, `document`, `location` or `contact`. The `text` is the caption.
+- **Matching:**
+  - same chat and direction, and the same sender in groups;
+  - the text is equal, a truncation of it, or at least 95% similar, or the media kind is the same;
+  - the times are within ±120 s.
+
+Statuses:
+
+| Status | Meaning |
+|---|---|
+| `matched` | The WhatsApp link already has it. `messageId` is that row; it reaches you through the feed. Drop or link your capture. |
+| `pending` | Not found yet. The server waits 3 minutes for the WhatsApp link, then matches again or creates the message. Either way, the result reaches you through the feed. |
+| `created` | No match after the wait, so the server made a message from the capture. Captures uploaded more than 10 minutes late are settled at once. If the WhatsApp link delivers the same message later, the server deletes its copy, and the feed sends a delete. |
+| `skipped` | `reason: "unknown_chat"` or `"empty"`. |
+| `ambiguous` | Several messages fit equally well. Nothing is merged; keep the capture for the review queue. |
 
 ## Media
 
@@ -209,7 +246,6 @@ Returns the contact's WhatsApp profile picture as `image/jpeg`. Send `If-None-Ma
 ## Not yet (later phases)
 
 - **G4:** idempotent sends from the phone.
-- **G5:** reconciling notification-captured messages with these rows.
 - **G7:** FCM tickles.
 - **Statuses and calls** are not synced.
 
