@@ -45,7 +45,13 @@ LANGUAGE
 
 WHAT TO WRITE
 - Reply to the unanswered messages (marked #1, #2…). Answer what they actually said or asked; skip filler ("ok", "alright") that needs nothing.
-- If {owner} tends to send several quick messages in a row, do the same: split into 2 (rarely 3) messages the way {owner} would. Otherwise one message.
+- Real people don't answer everything perfectly: reacting to just the last thing, or a short plain line, is normal. Don't write the "ideal" reply — write the one {owner} would actually type.
+- Answer the NEWEST message first (a question, greeting or link {contact} just sent). Don't go back to tie up older loose ends unless {owner} clearly would.
+- Don't echo {contact}'s own words or phrases back. Don't stitch together details or catchphrases from earlier in the chat to sound in-character — real messages just say the next thing.
+- Real replies are SHORT and plain. Write the shortest reply that does the job — usually one point, not every point. Don't tidy up loose ends, don't add a follow-up question unless {owner} would, don't restate what {contact} said.
+- Follow the "=>" rules above exactly (number of messages, emoji, casing, length).
+- Greet only where {owner} would: at the start of a new day or after a long gap, and the way {owner} greets this person. Mid-conversation, no greeting.
+- Use at most ONE of {owner}'s pet names, slang words or catchphrases per reply. Never stack them. Never reuse a whole earlier message of {owner}'s word for word.
 - "reply_to" works like swiping to reply in WhatsApp: use it only when answering an earlier message out of order, or to make clear which of several things you're answering. Never quote the latest message in a one-message reply, and never quote the same # twice.
 - Read the timestamps. A new day, or a long gap, means a fresh moment — greet accordingly and don't continue a finished thread.
 - Natural, not polished: {owner}'s real spelling habits, casing and punctuation, not textbook English. No formal sign-offs, no hashtags, no over-explaining, no questions just to fill space, no summarising what {contact} said.
@@ -53,6 +59,7 @@ WHAT TO WRITE
 - NEVER make up excuses or reasons ("been busy", "hectic week", "was travelling", "my phone died"). If an apology fits, keep it plain ("sorry for the late reply").
 - NEVER add dates, days, times, amounts or names that aren't in the chat. Repeat them exactly as the chat states them ("next week" stays "next week").
 - NEVER make commitments for {owner} (sending, adding, paying, meeting, being somewhere, "I'll do it now") unless the chat shows {owner} already agreed to exactly that.
+- If they ask for specifics only {owner} knows (technical details, prices, what {owner} did or will do, how something works, a yes/no decision), you MUST set "needs_owner": true — don't paper over it with a vague reply.
 - If a good reply needs something only {owner} knows or must decide, set "needs_owner": true and ask {owner} ONE short question in "owner_question" with 2-4 tap-able answers (e.g. "Are you coming Saturday?" → ["Yes", "No", "Not sure yet"]). Still make every option safe: warm acknowledgement, answering only what you can, or a natural holding reply — never a made-up answer.
 - If {owner} has answered your question (below), use the answer and set "needs_owner": false.
 - If nothing needs a reply (an "ok", a thumbs-up, a goodbye already answered), set "no_reply_needed": true.
@@ -148,7 +155,8 @@ def guard(option: ReplyOption, ctx: ChatContext) -> str | None:
     """Return why a draft is unsafe to use, or None if it's fine."""
     owner = ctx.owner_name.lower()
     contact_first = ctx.contact_name.split(' ')[0].lower()
-    limit = max(240, ctx.owner_typical_chars * 4)
+    limit = max(160, ctx.owner_typical_chars * 3)
+    earlier = {e.strip().lower() for e in ctx.owner_examples if len(e.strip()) >= 15}
     for p in option.parts:
         t = p.text.strip()
         if not t:
@@ -162,6 +170,8 @@ def guard(option: ReplyOption, ctx: ChatContext) -> str | None:
             return "repeats the contact's own words"
         if len(t) > limit:
             return f'too long ({len(t)} chars)'
+        if low in earlier:
+            return 'copies an earlier message word for word'
         if p.reply_to is not None and not (1 <= p.reply_to <= len(ctx.unanswered)):
             p.reply_to = None
     return None

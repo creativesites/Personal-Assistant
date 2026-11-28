@@ -122,6 +122,10 @@ async def _one(user_id: str, moment: dict, chain: list[str] | None) -> dict:
         return {'skipped': 'compose_failed', 'error': str(exc)[:200]}
     if result.no_reply_needed or not result.options:
         return {'skipped': 'no_draft', 'noReplyNeeded': result.no_reply_needed}
+    if result.needs_owner:
+        # The engine correctly asked the owner instead of guessing: in the app
+        # the draft is written after the owner answers, so it isn't judged here.
+        return {'skipped': 'asked_owner', 'question': (result.owner_question or {}).get('text')}
     draft = [p.text for p in result.options[0].parts]
     real_first = random.random() < 0.5
     a, b = (real, draft) if real_first else (draft, real)

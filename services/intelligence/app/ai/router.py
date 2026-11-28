@@ -141,7 +141,10 @@ async def _call(model: str, provider: str, key: str, messages: list[dict], *, js
             timeout_sec=timeout_sec, effort=effort, api_key=key,
         )
         return resp.choices[0].message.content or '', resp.usage.prompt_tokens, resp.usage.completion_tokens
-    kwargs: dict = dict(model=model, messages=messages, max_tokens=max_tokens, api_key=key, timeout=timeout_sec)
+    # Thinking models (Gemini 4, GPT-5, ...) count reasoning toward max_tokens:
+    # leave headroom above the visible-output budget, as the Claude path does.
+    budget = min(max(max_tokens * 4, 8192), 32000)
+    kwargs: dict = dict(model=model, messages=messages, max_tokens=budget, api_key=key, timeout=timeout_sec)
     if json_mode:
         kwargs['response_format'] = {'type': 'json_object'}
     resp = await litellm.acompletion(**kwargs)

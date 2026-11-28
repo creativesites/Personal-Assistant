@@ -57,6 +57,10 @@ LEXICON: dict[str, set[str]] = {
 _SLANG = {'u', 'ur', 'nd', 'wat', 'cz', 'coz', 'cos', 'plz', 'pls', 'thx', 'gud', 'gd', 'bt', 'n', 'k', 'kk',
           'ok', 'okay', 'oky', 'yh', 'ya', 'yeah', 'yep', 'nah', 'idk', 'imma', 'gonna', 'wanna', 'bro', 'sis',
           'mate', 'lol', 'lmao', 'haha', 'hahaha', 'hehe', 'mmm', 'hmm', 'aah', 'eish', 'sha', 'sure', 'nyc'}
+_ADDRESS = {'bro', 'brother', 'bruv', 'wangu', 'dear', 'babe', 'baby', 'sis', 'sister', 'mate', 'boss', 'tate', 'ba',
+            'mukwai', 'shar', 'fazh', 'doc', 'dr', 'chief', 'mudiwa', 'love', 'sweetheart', 'honey', 'gorgeous',
+            'bae', 'madam', 'sir', 'mum', 'mom', 'dad', 'baba', 'mama', 'uncle', 'auntie', 'aunty', 'cuz', 'buddy',
+            'man', 'guy', 'mfana', 'mzala', 'blaz', 'mukwasha', 'amai', 'mhamha', 'princess', 'queen'}
 _LAUGH = re.compile(r'\b(ha(ha)+|he(he)+|lo+l|lmao|lmfao)\b|😂|🤣|😅|😆', re.I)
 _EMOJI = re.compile('[\U0001F300-\U0001FAFF☀-➿❤️]')
 
@@ -173,54 +177,95 @@ def owner_fingerprint(rows: list) -> str:
     top_emoji = Counter(e for t in with_emoji for e in _EMOJI.findall(t) if e != '️').most_common(6)
     laughs = Counter(m.group(0).lower() for t in texts for m in _LAUGH.finditer(t)).most_common(3)
     slang = Counter(w for t in texts for w in _tokens(t) if w in _SLANG).most_common(8)
-    openers = Counter(_tokens(t[0]['body'] or '')[0] for t in turns
-                      if t[0]['body'] and _tokens(t[0]['body'] or '')).most_common(5)
+    ellipsis = sum(1 for t in texts if re.search(r'\.{3,}', t)) / n
+    i_words = [w for t in texts for w in re.findall(r"\b[iI]\b(?!')", t)]
+    lower_i = (sum(1 for w in i_words if w == 'i') / len(i_words)) if len(i_words) >= 4 else None
+    apologises = sum(1 for t in texts if re.search(r'\b(sorry|apologi[sz]e)\b', t, re.I))
     all_caps = sum(1 for t in texts if len(t) > 3 and t.isupper()) / n
 
+    median = int(statistics.median(lengths))
+    p90 = sorted(lengths)[int(0.9 * (n - 1))]
+    multi_ratio = multi / max(1, len(turns))
+    emoji_rate = len(with_emoji) / n
     lines = [
-        f'- Length: median {int(statistics.median(lengths))} characters, '
-        f'90% of messages under {sorted(lengths)[int(0.9 * (n - 1))]}.',
-        f'- Sends {multi} of {len(turns)} turns as several quick messages in a row'
-        + (' — splitting a thought across messages is normal here.' if multi / max(1, len(turns)) >= 0.25 else '.'),
+        f'- Length: median {median} characters, 90% of messages under {p90}.',
+        f'- Sends {multi} of {len(turns)} turns as several quick messages in a row.',
         f'- Starts with a lowercase letter {round(lower_start * 100)}% of the time; '
         f'ends with a full stop {round(ends_period * 100)}%, with no punctuation at all {round(ends_none * 100)}%.',
-        f'- Emoji in {round(len(with_emoji) / n * 100)}% of messages'
+        f'- Emoji in {round(emoji_rate * 100)}% of messages'
         + (': ' + ' '.join(f'{e} ({c})' for e, c in top_emoji) if top_emoji else '') + '.',
     ]
     if laughs:
         lines.append('- Laughs as: ' + ', '.join(f'"{w}"' for w, _ in laughs) + '.')
     if slang:
         lines.append('- Short forms and fillers used: ' + ', '.join(f'"{w}"' for w, _ in slang) + '.')
-    if openers:
-        lines.append('- Usually opens with: ' + ', '.join(f'"{w}"' for w, _ in openers) + '.')
     if all_caps >= 0.05:
         lines.append(f'- Writes in ALL CAPS {round(all_caps * 100)}% of the time.')
+    address = Counter(w for t in texts for w in _tokens(t) if w in _ADDRESS).most_common(4)
+    # Plain directives the model can't misread.
+    lines.append(f'=> Aim for about {median} characters in total; never more than {max(40, int(p90 * 1.3))}.')
+    lines.append('=> Send ONE message.' if multi_ratio < 0.3
+                 else '=> Two short messages in a row is natural here; one is fine too.')
+    if address:
+        lines.append('=> Address this person only as ' + ' / '.join(f'"{w}"' for w, _ in address)
+                     + ' (or no name at all) — no other pet names or "bro"-type words.')
+    else:
+        lines.append('=> No pet names or "bro"-type words: none are used in this chat.')
+    if emoji_rate < 0.08:
+        lines.append('=> No emoji.')
+    elif emoji_rate < 0.3:
+        lines.append('=> At most one emoji, and only if it really fits'
+                     + (f' — only ones used here: {" ".join(e for e, _ in top_emoji)}.' if top_emoji else '.'))
+    elif top_emoji:
+        lines.append(f'=> Emoji only from the ones used here: {" ".join(e for e, _ in top_emoji)}.')
+    if ellipsis >= 0.08:
+        lines.append(f'=> Uses "..." / "...." between thoughts ({round(ellipsis * 100)}% of messages) — do the same now and then.')
+    if lower_i is not None and lower_i >= 0.5:
+        lines.append('=> Writes "i" in lowercase.')
+    if apologises <= 1:
+        lines.append('=> Never apologise for replying late — not done in this chat.')
+    if lower_start >= 0.6:
+        lines.append('=> Start with a lowercase letter.')
+    elif lower_start <= 0.2:
+        lines.append('=> Start with a capital letter.')
+    if ends_none >= 0.6:
+        lines.append('=> No full stop at the end.')
+    elif ends_period >= 0.5:
+        lines.append('=> End sentences with a full stop.')
     return '\n'.join(lines)
 
 
 def language_policy(owner: str, contact: str, own: dict[str, int], theirs: dict[str, int],
-                    is_partner: bool, zambian: bool | None, is_business: bool) -> str:
-    used = {k for k, v in {**own}.items() if v} | {k for k, v in theirs.items() if v}
-    lines = ['- Write mainly in English (or whatever language this chat mostly uses).']
-    local_here = used & {'Bemba', 'Nyanja'}
-    if local_here:
-        lines.append(f'- This chat already uses {" and ".join(sorted(local_here))}. Now and then (about one reply in '
-                     'three) work in a word or short phrase of it — prefer words that already appear in this chat.')
-    elif zambian and not is_business:
-        lines.append(f'- {owner} is learning Bemba and Nyanja and likes using them for fun. Very occasionally '
-                     '(about one reply in six) add ONE common Bemba or Nyanja word or greeting where it feels '
-                     'playful and natural.')
-    elif zambian and is_business:
-        lines.append('- At most a single friendly Bemba or Nyanja greeting, rarely, and only when the mood is relaxed.')
+                    is_partner: bool, zambian: bool | None, is_business: bool, own_total: int = 0) -> str:
+    used = {k for k, v in own.items() if v} | {k for k, v in theirs.items() if v}
+    lines: list[str] = []
+    main = max(own.items(), key=lambda kv: kv[1], default=(None, 0))
+    share = (main[1] / own_total) if own_total else 0
+    if main[0] and share >= 0.3:
+        lines.append(f'- {owner} writes to {contact} mostly in {main[0]} mixed with English ({round(share * 100)}% of '
+                     f'messages use {main[0]}). Write the same way: {main[0]} where {owner} would use it, '
+                     'in the same spelling and slang.')
     else:
-        lines.append(f'- Don\'t use Bemba or Nyanja unless {contact} does.')
-    if 'Shona' in used or is_partner:
-        lines.append(f'- Shona is fine here now and then (a word or phrase)' +
-                     (f' — {contact} is {owner}\'s partner.' if is_partner else ', since this chat already uses it.'))
-    else:
-        lines.append('- Never use Shona in this chat.')
-    lines.append('- Only use local-language words you are certain are correct and natural. Never in serious, sad '
-                 'or formal moments. Never invent phrases.')
+        lines.append('- Write mainly in English (or whatever language this chat mostly uses).')
+        local_here = used & {'Bemba', 'Nyanja'}
+        if local_here:
+            lines.append(f'- This chat already uses {" and ".join(sorted(local_here))}. Now and then (about one reply '
+                         'in three) work in a word or short phrase of it — prefer words that already appear here.')
+        elif zambian and not is_business:
+            lines.append(f'- {owner} is learning Bemba and Nyanja and likes using them for fun. Very occasionally '
+                         '(about one reply in six) add ONE common Bemba or Nyanja word or greeting where it feels '
+                         'playful and natural.')
+        elif zambian and is_business:
+            lines.append('- At most a single friendly Bemba or Nyanja greeting, rarely, and only when the mood is relaxed.')
+        else:
+            lines.append(f"- Don't use Bemba or Nyanja unless {contact} does.")
+    if main[0] != 'Shona':
+        if 'Shona' in used or is_partner:
+            lines.append('- Shona is fine here now and then (a word or phrase)'
+                         + (f" — {contact} is {owner}'s partner." if is_partner else ', since this chat already uses it.'))
+        else:
+            lines.append('- Never use Shona in this chat.')
+    lines.append('- Only use local-language words you are certain are correct and natural. Never invent phrases.')
     return '\n'.join(lines)
 
 
@@ -427,7 +472,7 @@ async def build_chat_context(user_id: str, conversation_id: str, until: datetime
         is_partner=bool(conv['is_partner']),
         fingerprint=owner_fingerprint(rows),
         language_policy=language_policy(owner, first_contact, own_langs, their_langs,
-                                        bool(conv['is_partner']), zambian, is_business),
+                                        bool(conv['is_partner']), zambian, is_business, len(owner_texts)),
         examples_from_other_chats=from_other_chats,
         corrections=[(c['suggestion_text'], c['edited_text']) for c in corrections],
         message_count=int(message_count or 0),
