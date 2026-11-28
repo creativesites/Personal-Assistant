@@ -22,7 +22,7 @@ type Member = { contact_id: string; tier: string; role: string | null; note: str
 function reasonFor(m: Member, w: Warmth, skipped: number): string {
   const who = m.role ? `${m.name} (${m.role})` : m.name
   const parts = [w.waitingOnYou ? `${who} is waiting on your reply.` : `${who} is ${w.status === 'cold' ? 'going cold' : 'cooling off'}.`]
-  parts.push(...w.reasons.filter((r) => !r.startsWith("They're waiting")))
+  parts.push(...w.reasons.filter((r) => !r.startsWith("They're waiting")).map((r) => `${r}.`))
   if (m.note) parts.push(`Why they matter: ${m.note}`)
   if (skipped >= 2) parts.unshift(skipped >= 3 ? `Reminder ${skipped + 1}:` : 'Third reminder:')
   return parts.join(' ')

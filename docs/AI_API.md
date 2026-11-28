@@ -104,6 +104,49 @@ Model ids carry a provider prefix: `anthropic/`, `gemini/`, `openai/` or `deepse
 - **`POST /api/ai/routing/test`** takes `{ "models": [...] }` and makes one tiny call per model. It returns `{ results: [{ model, ok, error, ms, byok }] }`. Use it for a "Test" button per chain link. `error: "no key"` means no key is set for that provider.
 - **Spend:** see `GET /api/ai/analytics` and `GET /api/diagnostics/token-usage`. Each routed call is logged under its job name as the `feature`.
 
+## Networking (warm list and keep-warm nudges)
+
+Implementation: `services/api/src/routes/network.ts`, `lib/network-warmth.ts`, `lib/network-nudges.ts`, `services/intelligence/app/reply/opener.py`. Schema: migration 0142.
+
+### Warmth
+
+**Warmth** is 0–100. It's computed from each chat's own rhythm, with no AI call.
+
+- **The usual gap:** a new conversation starts after a 6-hour gap. The usual gap is the median time between conversation starts over the last year, kept between 2 and 90 days. A chat with little history defaults to 30 days.
+- **Recency:** days since the last message, compared with the usual gap. Up to the usual gap scores 100–85. Twice the gap scores about 49, and three times about 28.
+- **Waiting on you:** −15 when their message is the last one and it's over a day old.
+- **Who reaches out:** +5 when they usually start conversations.
+
+`status` is `warm` (≥70), `cooling` (40–69), `cold` (<40), or `new` (no messages yet). `reasons` are plain sentences for the UI.
+
+### Endpoints
+
+- **`GET /api/network/warm-list`** returns `{ contacts: [...], counts: { warm, cooling, cold, new } }`.
+  - Each contact: `{ contactId, name, avatarTag, company, jobTitle, tier: key|important, role, note, addedBy, warmth, status, daysSince, typicalGapDays, lastFrom: you|them, waitingOnYou, youStartedShare, messageCount, reasons: [string], hasPendingNudge }`.
+  - Sorted with anyone waiting on a reply first, then key contacts, coldest first.
+- **`PUT /api/network/contacts/:contactId`** takes `{ tier: key|important|dismissed, role?, note? }` and returns 204.
+  - `role` is one of client, prospect, partner, investor, mentor, supplier, peer, community or other.
+  - `dismissed` means "don't suggest again".
+- **`DELETE /api/network/contacts/:contactId`** takes the contact off the list. Returns 204, or 404.
+- **`GET /api/network/suggestions`** returns `{ suggestions: [{ contactId, name, avatarTag, company, jobTitle, why: [string], messageCount, warmth, status }] }`.
+  - These are business-looking contacts that aren't on the list, with at least 15 messages and activity in the last year.
+  - Signals: relationship type, business account, company or job title, customer status, and how many messages are about work.
+- **`GET /api/network/nudges?status=pending|sent|snoozed|dismissed|expired|all`** returns `{ nudges: [...] }`.
+  - Each nudge: `{ id, contactId, conversationId, name, avatarTag, tier, role, reason, warmth, messages: [string], model, skippedBefore, status, snoozeUntil, createdAt }`.
+  - `messages` is a ready opener in the owner's voice, 1–3 messages. When the contact is waiting on a reply, it's that reply instead. Send it with the normal send endpoint, using one Idempotency-Key per message.
+- **`POST /api/network/nudges/:id`** takes `{ action: sent|snooze|dismiss, snoozeDays? (default 3), sentMessages? }` and returns 204.
+- **`POST /api/network/nudges/run`** makes today's nudges now. Returns `{ made }`.
+
+### Daily run
+
+The run happens at 06:00 Lusaka time.
+
+- **Who gets a nudge:** cooling, cold or waiting contacts on the warm list, at most 5 a day. Key contacts come first.
+- **How often:** key contacts can be nudged again every 3 days, important ones every 7 days.
+- **Skipped nudges:** they escalate ("Third reminder: …"), and `skippedBefore` counts them.
+- **Expiry:** pending nudges expire after 3 days.
+- **Notifying the owner:** each run writes a notification (`relationship_alert`) and publishes `network:nudges` over Socket.io.
+
 ## Blind test (quality bar)
 
 `POST /api/ai/blind-test` takes `{ "samples": 20, "chain"?: [...], "includeTexts"?: false }`.
