@@ -1,5 +1,9 @@
 package app.zuri.android.feature.inbox
 
+import androidx.compose.material.icons.rounded.Close
+
+import androidx.compose.material.icons.rounded.Search
+
 import androidx.compose.foundation.border
 
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -86,7 +90,10 @@ fun InboxRoute(onOpenConversation: (ConversationId) -> Unit, onOpenSources: () -
         onPauseOrDispose { }
     }
     val avatars by viewModel.avatars.collectAsStateWithLifecycle()
-    InboxContent(state, TimeContext.system(), viewModel::setFilter, onOpenConversation, onOpenSources, avatars = avatars, onNeedAvatar = viewModel::needAvatar)
+    InboxContent(
+        state, TimeContext.system(), viewModel::setFilter, onOpenConversation, onOpenSources, avatars = avatars, onNeedAvatar = viewModel::needAvatar,
+        onView = viewModel::setView, onQuery = viewModel::setQuery,
+    )
 }
 
 @Composable
@@ -99,6 +106,8 @@ fun InboxContent(
     modifier: Modifier = Modifier,
     avatars: Map<String, androidx.compose.ui.graphics.ImageBitmap> = emptyMap(),
     onNeedAvatar: (String) -> Unit = {},
+    onView: (InboxView) -> Unit = {},
+    onQuery: (String) -> Unit = {},
 ) {
     Column(modifier.fillMaxSize()) {
         SignalsHeader(state)
@@ -108,14 +117,41 @@ fun InboxContent(
             return@Column
         }
         CaptureBanner(state, onOpenSources)
+        if (state.conversations.isNotEmpty()) {
+            // Search and quick views (web inbox parity): All / Unread / Waiting on you / Groups.
+            androidx.compose.material3.TextField(
+                value = state.query, onValueChange = onQuery, singleLine = true,
+                placeholder = { Text(stringResource(R.string.inbox_search), color = Zuri.universe.inkMuted) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = Zuri.universe.inkMuted) },
+                trailingIcon = { if (state.query.isNotEmpty()) androidx.compose.material3.IconButton(onClick = { onQuery("") }) { Icon(Icons.Rounded.Close, stringResource(R.string.close), tint = Zuri.universe.inkMuted) } },
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).glass(RoundedCornerShape(22.dp)),
+            )
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val waiting = state.conversations.count { !it.isGroup && !it.lastFromMe }
+                val unread = state.conversations.count { it.unreadCount > 0 }
+                listOf(
+                    InboxView.ALL to stringResource(R.string.view_all),
+                    InboxView.UNREAD to stringResource(R.string.view_unread, unread),
+                    InboxView.WAITING to stringResource(R.string.view_waiting, waiting),
+                    InboxView.GROUPS to stringResource(R.string.view_groups),
+                ).forEach { (v, label) -> FilterChip(selected = state.view == v, onClick = { onView(v) }, label = { Text(label) }) }
+            }
+        }
         if (state.sources.size > 1) {
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(selected = state.filter == null, onClick = { onFilter(null) }, label = { Text(stringResource(R.string.filter_all)) })
+                // Apps: tap to show only that app, tap again to show all (the views row already has "All").
                 state.sources.forEach { k ->
-                    FilterChip(selected = state.filter == k, onClick = { onFilter(k) }, label = { Text(stringResource(k.label())) })
+                    FilterChip(selected = state.filter == k, onClick = { onFilter(if (state.filter == k) null else k) }, label = { Text(stringResource(k.label())) })
                 }
             }
         }
@@ -134,6 +170,9 @@ fun InboxContent(
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp)) {
             item(key = "constellation") { Constellation(state.visible, avatars, onOpenConversation) }
+            if (state.visible.isEmpty()) item(key = "nomatch") {
+                Text(stringResource(R.string.inbox_no_match), style = MaterialTheme.typography.bodyMedium, color = Zuri.universe.inkMuted, modifier = Modifier.padding(24.dp))
+            }
             itemsIndexed(state.visible, key = { _, c -> c.id.value }) { i, c ->
                 androidx.compose.runtime.LaunchedEffect(c.id) { onNeedAvatar(c.id.value) }
                 ConversationRowView(c, time, showSource = state.sources.size > 1, workspace = state.workspaceNames[c.workspaceId], index = i, photo = avatars[c.id.value]) { onOpenConversation(c.id) }

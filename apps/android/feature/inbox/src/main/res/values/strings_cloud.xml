@@ -29,4 +29,10 @@
     <string name="menu_partner_mark">Mark as my partner</string>
     <string name="menu_partner_unmark">Unmark partner</string>
     <string name="ai_off_banner">Zuri AI is off for this chat: no drafts or auto-replies.</string>
+    <string name="inbox_search">Search chats</string>
+    <string name="view_all">All</string>
+    <string name="view_unread">Unread · %1$d</string>
+    <string name="view_waiting">Waiting on you · %1$d</string>
+    <string name="view_groups">Groups</string>
+    <string name="inbox_no_match">Nothing matches</string>
 </resources>

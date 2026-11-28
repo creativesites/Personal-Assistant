@@ -210,6 +210,17 @@ interface CloudSyncDao {
     @Query("SELECT * FROM conversation WHERE chat_key = :chatKey AND package_name IN (:packages) AND remote_id IS NULL")
     suspend fun unlinkedAllByChatKey(chatKey: String, packages: List<String>): List<ConversationEntity>
 
+    // ── G5 upload of phone captures (only with the owner's consent) ─────────
+    @Query(
+        """SELECT m.*, c.chat_key AS c_chat_key, c.is_group AS c_is_group, c.package_name AS c_package FROM message m JOIN conversation c ON c.id = m.conversation_id
+           WHERE m.remote_id IS NULL AND m.sync_state = 'LOCAL_ONLY' AND m.source_package IN (:packages) AND m.sent_at > :since
+           ORDER BY m.sent_at LIMIT :limit""",
+    )
+    suspend fun capturesToUpload(packages: List<String>, since: Long, limit: Int): List<CaptureUpload>
+
+    @Query("UPDATE message SET sync_state = :state WHERE id = :id AND remote_id IS NULL")
+    suspend fun setSyncState(id: String, state: String)
+
     // ── media cache ─────────────────────────────────────────────────────────
     @Upsert suspend fun upsertMedia(m: MediaFileEntity)
 
@@ -233,3 +244,10 @@ interface CloudSyncDao {
 }
 
 data class AvatarRef(val contactId: String, val tag: String)
+
+data class CaptureUpload(
+    @androidx.room.Embedded val message: MessageEntity,
+    @androidx.room.ColumnInfo(name = "c_chat_key") val chatKey: String,
+    @androidx.room.ColumnInfo(name = "c_is_group") val isGroup: Boolean,
+    @androidx.room.ColumnInfo(name = "c_package") val packageName: String,
+)

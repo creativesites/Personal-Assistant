@@ -47,10 +47,24 @@ data class InboxState(
     val status: CaptureStatus = CaptureStatus.Off,
     /** In Hybrid view, each chat's workspace name; empty otherwise. */
     val workspaceNames: Map<app.zuri.android.domain.workspace.WorkspaceId, String> = emptyMap(),
+    val view: InboxView = InboxView.ALL,
+    val query: String = "",
 ) {
     val sources: List<SourceKind> get() = conversations.map { it.source }.distinct().sortedBy { it.ordinal }
-    val visible: List<ConversationSummary> get() = conversations.filter { filter == null || it.source == filter }
+    val visible: List<ConversationSummary> get() = conversations.filter { c ->
+        (filter == null || c.source == filter) &&
+            when (view) {
+                InboxView.ALL -> true
+                InboxView.UNREAD -> c.unreadCount > 0
+                // One-to-one chats where they wrote last: the ball is in the owner's court.
+                InboxView.WAITING -> !c.isGroup && !c.lastFromMe
+                InboxView.GROUPS -> c.isGroup
+            } &&
+            (query.isBlank() || c.title.contains(query.trim(), ignoreCase = true) || c.lastText?.contains(query.trim(), ignoreCase = true) == true)
+    }
 }
+
+enum class InboxView { ALL, UNREAD, WAITING, GROUPS }
 
 @HiltViewModel
 class InboxViewModel @Inject constructor(
@@ -60,6 +74,10 @@ class InboxViewModel @Inject constructor(
     private val avatarSource: app.zuri.android.domain.cloud.CloudAvatars,
 ) : ViewModel() {
     private val filter = MutableStateFlow<SourceKind?>(null)
+    private val view = MutableStateFlow(InboxView.ALL)
+    private val query = MutableStateFlow("")
+    fun setView(v: InboxView) { view.value = v }
+    fun setQuery(q: String) { query.value = q }
 
     /** WhatsApp profile pictures by conversation id, loaded once per chat as rows appear. */
     val avatars: StateFlow<Map<String, androidx.compose.ui.graphics.ImageBitmap>> get() = avatarLoader.photos
@@ -71,7 +89,7 @@ class InboxViewModel @Inject constructor(
         if (ctx == null) flowOf(null to emptyList()) else inbox.observeConversations(ctx.ids).map { ctx to it }
     }
 
-    val state: StateFlow<InboxState> = combine(conversations, filter, capture.status) { (ctx, list), f, status ->
+    val state: StateFlow<InboxState> = combine(conversations, filter, capture.status, view, query) { (ctx, list), f, status, v, q ->
         InboxState(
             loading = false,
             workspaceKind = if (ctx?.hybrid == true) WorkspaceKind.PERSONAL else ctx?.primary?.kind ?: WorkspaceKind.PERSONAL,
@@ -79,6 +97,7 @@ class InboxViewModel @Inject constructor(
             conversations = list,
             filter = f?.takeIf { k -> list.any { it.source == k } },
             status = status,
+            view = v, query = q,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 

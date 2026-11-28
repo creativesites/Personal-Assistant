@@ -65,4 +65,7 @@
     <string name="ai_zuri_key">Zuri\'s key</string>
     <string name="ai_up">Move up</string>
     <string name="ai_down">Move down</string>
+    <string name="cloud_upload_h">From this phone</string>
+    <string name="cloud_upload">Send captured messages to my account</string>
+    <string name="cloud_upload_s">WhatsApp messages this phone sees in notifications go to your Zuri account, so nothing the cloud missed is lost. Off unless you turn it on.</string>
 </resources>

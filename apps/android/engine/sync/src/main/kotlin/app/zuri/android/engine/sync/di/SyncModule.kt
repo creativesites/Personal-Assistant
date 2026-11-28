@@ -69,6 +69,9 @@ object SyncModule {
     @Provides fun aiSettings(impl: app.zuri.android.engine.sync.CloudAiImpl): app.zuri.android.domain.cloud.AiSettings = impl
 
     @Provides @Singleton
+    fun uploader(db: ZuriDatabase, api: CloudApi, prefs: SyncPrefs, store: CloudAccountStore) = app.zuri.android.engine.sync.CaptureUploader(db, api, prefs, store)
+
+    @Provides @Singleton
     fun networking(db: ZuriDatabase, api: CloudApi, store: CloudAccountStore, clock: Clock): app.zuri.android.domain.cloud.Networking =
         app.zuri.android.engine.sync.NetworkingImpl(db, api, store, clock)
 

@@ -93,6 +93,7 @@ class CloudViewModel @Inject constructor(private val account: CloudAccount, priv
     fun setSync(on: Boolean) = viewModelScope.launch { sync.setEnabled(on) }
     fun syncNow() = sync.syncNow()
     fun setWifiOnly(on: Boolean) = viewModelScope.launch { sync.setMediaWifiOnly(on) }
+    fun setUpload(on: Boolean) = viewModelScope.launch { sync.setUploadCaptures(on) }
     fun clearMedia() = viewModelScope.launch { sync.clearMediaCache() }
     fun disconnect(remove: Boolean) = viewModelScope.launch { account.disconnect(remove) }
 }
@@ -106,6 +107,7 @@ fun CloudRoute(onBack: () -> Unit, viewModel: CloudViewModel = hiltViewModel()) 
     CloudContent(
         state, status, form, onBack, viewModel::google, viewModel::sendCode, viewModel::verify,
         { viewModel.setSync(it) }, viewModel::syncNow, { viewModel.setWifiOnly(it) }, { viewModel.clearMedia() }, { viewModel.disconnect(it) },
+        onUpload = { viewModel.setUpload(it) },
     )
 }
 
@@ -114,12 +116,13 @@ fun CloudContent(
     state: CloudAccountState, status: CloudSyncStatus?, form: CloudViewModel.Form, onBack: () -> Unit,
     onGoogle: () -> Unit, onSendCode: (String) -> Unit, onVerify: (String) -> Unit,
     onSync: (Boolean) -> Unit, onSyncNow: () -> Unit, onWifiOnly: (Boolean) -> Unit, onClearMedia: () -> Unit, onDisconnect: (Boolean) -> Unit,
+    onUpload: (Boolean) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         DetailTopBar(stringResource(R.string.cloud_title), onBack, subtitle = stringResource(R.string.cloud_subtitle))
         Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             when (state) {
-                is CloudAccountState.Connected -> Connected(state, status, onSync, onSyncNow, onWifiOnly, onClearMedia, onDisconnect)
+                is CloudAccountState.Connected -> Connected(state, status, onSync, onSyncNow, onWifiOnly, onClearMedia, onDisconnect, onUpload)
                 CloudAccountState.Connecting -> ZuriCard { Text(stringResource(R.string.cloud_connecting)); Spacer(Modifier.height(10.dp)); LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 is CloudAccountState.NeedsSignIn -> {
                     ZuriCard { StatusTag(stringResource(R.string.cloud_needs_sign_in), tone = Tone.Warn); Spacer(Modifier.height(6.dp)); Text(state.reason, style = MaterialTheme.typography.bodySmall, color = Zuri.colors.muted) }
@@ -169,6 +172,7 @@ private fun SignIn(form: CloudViewModel.Form, onGoogle: () -> Unit, onSendCode: 
 private fun Connected(
     state: CloudAccountState.Connected, status: CloudSyncStatus?, onSync: (Boolean) -> Unit, onSyncNow: () -> Unit,
     onWifiOnly: (Boolean) -> Unit, onClearMedia: () -> Unit, onDisconnect: (Boolean) -> Unit,
+    onUpload: (Boolean) -> Unit = {},
 ) {
     val ctx = LocalContext.current
     var confirm by remember { mutableStateOf(false) }
@@ -208,6 +212,14 @@ private fun Connected(
             OutlinedButton(onClick = onSyncNow, enabled = status.enabled && !status.running, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.cloud_sync_now)) }
         }
     }
+    SectionHeader(stringResource(R.string.cloud_upload_h))
+    ZuriListGroup(rows = listOf({
+        ZuriListRow(
+            stringResource(R.string.cloud_upload), supporting = stringResource(R.string.cloud_upload_s),
+            leading = { IconChip(Icons.Rounded.CloudSync, tone = Tone.Neutral) },
+            trailing = { Switch(checked = status?.uploadCaptures ?: false, onCheckedChange = onUpload) },
+        )
+    }))
     SectionHeader(stringResource(R.string.cloud_media))
     ZuriListGroup(rows = listOf(
         {

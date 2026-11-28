@@ -43,6 +43,8 @@ data class CloudSyncStatus(
     val cloudMessages: Int = 0,
     val mediaWifiOnly: Boolean = true,
     val mediaCacheBytes: Long = 0,
+    /** P4: messages captured on this phone are sent to the owner's account (off by default). */
+    val uploadCaptures: Boolean = false,
 ) {
     data class Progress(val applied: Long, val total: Long?)
 }
@@ -55,6 +57,7 @@ interface CloudSync {
     /** Older history for one chat from the server, one page. False when there is no more (or no link). */
     suspend fun loadOlder(conversationId: String): Boolean
     suspend fun setMediaWifiOnly(wifiOnly: Boolean)
+    suspend fun setUploadCaptures(on: Boolean) {}
     suspend fun clearMediaCache()
 }
 

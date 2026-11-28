@@ -16,6 +16,8 @@ class SyncPrefs(private val store: DataStore<Preferences>) {
     private val lastSuccessKey = longPreferencesKey("last_success_at")
     private val lastErrorKey = stringPreferencesKey("last_error")
     private val wifiOnlyKey = booleanPreferencesKey("media_wifi_only")
+    private val uploadKey = booleanPreferencesKey("upload_captures")
+    private val uploadSinceKey = longPreferencesKey("upload_since")
 
     val data: Flow<Preferences> get() = store.data
 
@@ -27,6 +29,11 @@ class SyncPrefs(private val store: DataStore<Preferences>) {
     suspend fun recordError(msg: String) = store.edit { it[lastErrorKey] = msg }
     suspend fun wifiOnly() = store.data.first()[wifiOnlyKey] ?: true
     suspend fun setWifiOnly(on: Boolean) = store.edit { it[wifiOnlyKey] = on }
+    /** P4 "Upload local data" for captured messages: off until the owner turns it on. */
+    suspend fun upload() = store.data.first()[uploadKey] ?: false
+    suspend fun uploadSince() = store.data.first()[uploadSinceKey] ?: 0L
+    suspend fun setUpload(on: Boolean, now: Long) = store.edit { it[uploadKey] = on; if (on && it[uploadSinceKey] == null) it[uploadSinceKey] = now - 3 * 86_400_000L }
+    fun uploadOf(p: Preferences) = p[uploadKey] ?: false
     suspend fun clear() = store.edit { it.clear() }
 
     fun enabledOf(p: Preferences) = p[enabledKey] ?: false

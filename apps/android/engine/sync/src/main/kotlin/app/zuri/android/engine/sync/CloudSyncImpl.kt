@@ -49,7 +49,7 @@ class CloudSyncImpl(
             enabled = prefs.enabledOf(p), running = running != null,
             progress = running?.let { CloudSyncStatus.Progress(it.applied, it.total) },
             lastSuccessAt = prefs.lastSuccessOf(p), lastError = prefs.lastErrorOf(p),
-            cloudMessages = counts.first, mediaWifiOnly = prefs.wifiOnlyOf(p), mediaCacheBytes = counts.second,
+            cloudMessages = counts.first, mediaWifiOnly = prefs.wifiOnlyOf(p), mediaCacheBytes = counts.second, uploadCaptures = prefs.uploadOf(p),
         )
     }
 
@@ -76,6 +76,7 @@ class CloudSyncImpl(
         runCatching { runner.loadOlder(conversationId) }.onFailure { ZuriLog.w("SYNC", "history_failed", "detail" to (it.message ?: "")) }.getOrDefault(false)
 
     override suspend fun setMediaWifiOnly(wifiOnly: Boolean) { prefs.setWifiOnly(wifiOnly) }
+    override suspend fun setUploadCaptures(on: Boolean) { prefs.setUpload(on, System.currentTimeMillis()); if (on) syncNow() }
     override suspend fun clearMediaCache() { media.clear() }
 
     suspend fun schedule() {
@@ -130,7 +131,7 @@ class CloudSyncImpl(
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     @EntryPoint
     @InstallIn(SingletonComponent::class)
-    interface Deps { fun cloudSyncRunner(): SyncRunner; fun cloudAvatarStore(): AvatarStore }
+    interface Deps { fun cloudSyncRunner(): SyncRunner; fun cloudAvatarStore(): AvatarStore; fun captureUploader(): CaptureUploader }
 
     override suspend fun doWork(): Result {
         val deps = EntryPointAccessors.fromApplication(applicationContext, Deps::class.java)
@@ -139,6 +140,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val r = runner.run(deadlineMillis = System.currentTimeMillis() + 8 * 60_000L)
         // Profile pictures for the most recent chats (only new or changed ones are downloaded).
         if (r.caughtUp) runCatching { deps.cloudAvatarStore().prefetch() }
+        // G5: phone captures to the cloud, only if the owner turned it on.
+        runCatching { deps.captureUploader().run() }
         ZuriLog.i("SYNC", "worker", "pages" to r.pages, "changes" to r.changes, "caught_up" to r.caughtUp)
         if (!r.caughtUp && r.error == null) {
             WorkManager.getInstance(applicationContext).enqueueUniqueWork(

@@ -179,6 +179,19 @@ class CloudApi(
     suspend fun testByokKey(provider: String): ByokTest = sendJson("POST", "/api/byok/test", """{"provider":${q(provider)}}""") { JSON.decodeFromString(ByokTest.serializer(), it) }
     suspend fun spend(timeframe: String = "30d"): Spend = getJson("/api/ai/analytics", mapOf("timeframe" to timeframe), Spend.serializer())
 
+    // ── G5: phone-captured messages ─────────────────────────────────────────
+    @Serializable data class DeviceItem(
+        val clientId: String, val source: String, val chatKey: String, val chatKeyKind: String, val isGroup: Boolean,
+        val senderKey: String? = null, val senderName: String? = null, val fromMe: Boolean, val text: String? = null,
+        val placeholderKind: String? = null, val sentAt: Long, val fingerprint: String? = null,
+    )
+    @Serializable data class DeviceBatch(val deviceId: String, val items: List<DeviceItem>)
+    @Serializable data class DeviceResult(val clientId: String, val status: String, val messageId: String? = null, val conversationId: String? = null, val reason: String? = null)
+    @Serializable data class DeviceResults(val results: List<DeviceResult> = emptyList())
+
+    suspend fun uploadCaptures(batch: DeviceBatch): List<DeviceResult> =
+        sendJson("POST", "/api/device/messages:batch", JSON.encodeToString(DeviceBatch.serializer(), batch)) { JSON.decodeFromString(DeviceResults.serializer(), it).results }
+
     // ── Networking (warm list and keep-warm nudges) ─────────────────────────
     @Serializable data class WarmContact(
         val contactId: String, val name: String? = null, val avatarTag: String? = null, val company: String? = null, val jobTitle: String? = null,
