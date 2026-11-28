@@ -1,5 +1,10 @@
 package app.zuri.android.shell
 
+import androidx.compose.material.icons.rounded.AutoStories
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.StickyNote2
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -39,10 +44,20 @@ fun EmptyTab(icon: ImageVector, title: Int, body: Int) {
 @Composable fun PeopleTab() = EmptyTab(Icons.Rounded.Group, R.string.people_empty_t, R.string.people_empty_b)
 
 @Composable
-fun MoreTab(onSettings: () -> Unit, onPrivacy: () -> Unit, onSecurity: () -> Unit, onModels: () -> Unit, onMemory: () -> Unit) {
+fun MoreTab(
+    onSettings: () -> Unit, onPrivacy: () -> Unit, onSecurity: () -> Unit, onModels: () -> Unit, onMemory: () -> Unit,
+    onCalendar: () -> Unit = {}, onGoals: () -> Unit = {}, onTimeline: () -> Unit = {}, onNotes: () -> Unit = {},
+) {
     @Composable fun chevron() = Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = Zuri.colors.muted)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(stringResource(R.string.more_title), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        // Your life, kept on this phone (M6).
+        ZuriListGroup(rows = listOf(
+            { ZuriListRow(stringResource(R.string.more_calendar), supporting = stringResource(R.string.more_calendar_s), leading = { IconChip(Icons.Rounded.CalendarMonth) }, trailing = { chevron() }, onClick = onCalendar) },
+            { ZuriListRow(stringResource(R.string.more_goals), supporting = stringResource(R.string.more_goals_s), leading = { IconChip(Icons.Rounded.Flag) }, trailing = { chevron() }, onClick = onGoals) },
+            { ZuriListRow(stringResource(R.string.more_timeline), supporting = stringResource(R.string.more_timeline_s), leading = { IconChip(Icons.Rounded.AutoStories) }, trailing = { chevron() }, onClick = onTimeline) },
+            { ZuriListRow(stringResource(R.string.more_notes), supporting = stringResource(R.string.more_notes_s), leading = { IconChip(Icons.Rounded.StickyNote2) }, trailing = { chevron() }, onClick = onNotes) },
+        ))
         ZuriListGroup(rows = listOf(
             { ZuriListRow(stringResource(R.string.more_memory), leading = { IconChip(Icons.Rounded.Bookmarks) }, trailing = { chevron() }, onClick = onMemory) },
             { ZuriListRow(stringResource(R.string.settings), leading = { IconChip(Icons.Rounded.Settings) }, trailing = { chevron() }, onClick = onSettings) },

@@ -30,6 +30,7 @@ class ManifestPolicyTest {
             Manifest.permission.FOREGROUND_SERVICE, Manifest.permission.FOREGROUND_SERVICE_DATA_SYNC, // download progress
             Manifest.permission.POST_NOTIFICATIONS,
             Manifest.permission.USE_BIOMETRIC, Manifest.permission.USE_FINGERPRINT, // app lock
+            Manifest.permission.READ_CALENDAR, // M6 Trajectory: read-only, asked for with an explanation, optional
             context.packageName + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
         )
         assertThat(allowed).containsAtLeastElementsIn(info.requestedPermissions.orEmpty().toList())

@@ -45,4 +45,12 @@
 
     <string name="fatal_title">Zuri can’t open its data</string>
     <string name="fatal_body">The key that protects Zuri’s encrypted data on this phone is no longer available. This can happen after restoring the phone. Your data hasn’t been sent anywhere.</string>
+    <string name="more_calendar">Trajectory</string>
+    <string name="more_calendar_s">Your next 14 days: plans, promises, check-ins</string>
+    <string name="more_goals">Goals</string>
+    <string name="more_goals_s">What you\'re working toward</string>
+    <string name="more_timeline">Life Timeline</string>
+    <string name="more_timeline_s">What actually happened, week by week</string>
+    <string name="more_notes">Notes</string>
+    <string name="more_notes_s">Your own notes, on this phone</string>
 </resources>

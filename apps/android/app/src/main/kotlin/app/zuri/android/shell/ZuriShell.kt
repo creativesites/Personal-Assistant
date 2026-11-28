@@ -87,6 +87,10 @@ import kotlinx.serialization.Serializable
 @Serializable data class WorkspaceDest(val id: String)
 @Serializable data object ContextLedgerDest
 @Serializable data object CloudDest
+@Serializable data object TrajectoryDest
+@Serializable data object GoalsDest
+@Serializable data object TimelineDest
+@Serializable data object NotesDest
 
 private data class Tab(val route: Any, val type: KClass<*>, val icon: ImageVector, val label: Int)
 
@@ -142,7 +146,8 @@ fun ZuriShell(
         composable<AskDest> { RootFrame(nav, state, { switcherOpen = true }) { AskRoute(onOpenSource = { nav.navigate(ConversationDest(it.value)) }) } }
         composable<MoreDest> {
             RootFrame(nav, state, { switcherOpen = true }) {
-                MoreTab(onSettings = { nav.navigate(SettingsDest) }, onPrivacy = { nav.navigate(PrivacyDest) }, onSecurity = { nav.navigate(SecurityDest) }, onModels = { nav.navigate(ModelsDest) }, onMemory = { nav.navigate(MemoryDest) })
+                MoreTab(onSettings = { nav.navigate(SettingsDest) }, onPrivacy = { nav.navigate(PrivacyDest) }, onSecurity = { nav.navigate(SecurityDest) }, onModels = { nav.navigate(ModelsDest) }, onMemory = { nav.navigate(MemoryDest) },
+                    onCalendar = { nav.navigate(TrajectoryDest) }, onGoals = { nav.navigate(GoalsDest) }, onTimeline = { nav.navigate(TimelineDest) }, onNotes = { nav.navigate(NotesDest) })
             }
         }
         composable<SettingsDest> {
@@ -167,6 +172,10 @@ fun ZuriShell(
         composable<DocumentsDest> { RootFrame(nav, state, { switcherOpen = true }) { DocumentsRoute(onOpenWorkspace = { nav.navigate(WorkspaceDest(it.value)) }) } }
         composable<WorkspacesDest> { Detail { WorkspacesRoute(onBack = { nav.popBackStack() }, onOpen = { nav.navigate(WorkspaceDest(it.value)) }) } }
         composable<WorkspaceDest> { entry -> Detail { WorkspaceSettingsRoute(id = entry.toRoute<WorkspaceDest>().id, onBack = { nav.popBackStack() }) } }
+        composable<TrajectoryDest> { Detail { app.zuri.android.feature.life.TrajectoryRoute(onBack = { nav.popBackStack() }, onOpenConversation = { nav.navigate(ConversationDest(it.value)) }) } }
+        composable<GoalsDest> { Detail { app.zuri.android.feature.life.GoalsRoute(onBack = { nav.popBackStack() }) } }
+        composable<TimelineDest> { Detail { app.zuri.android.feature.life.TimelineRoute(onBack = { nav.popBackStack() }) } }
+        composable<NotesDest> { Detail { app.zuri.android.feature.life.NotesRoute(onBack = { nav.popBackStack() }) } }
         composable<CloudDest> { Detail { CloudRoute(onBack = { nav.popBackStack() }) } }
         composable<ContextLedgerDest> { Detail { ContextLedgerRoute(onBack = { nav.popBackStack() }) } }
         composable<SecurityDest> { Detail { SecurityRoute(onBack = { nav.popBackStack() }) } }

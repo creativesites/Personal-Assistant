@@ -128,4 +128,13 @@ class MigrationTest {
             }
         }
     }
+
+    @Test fun v11ToV12AddsGoalsNotesAndHealthHistory() {
+        helper.createDatabase("migration-test-12", 11).close()
+        helper.runMigrationsAndValidate("migration-test-12", 12, true).use { db ->
+            listOf("goal", "goal_person", "goal_event", "note", "health_log").forEach { t ->
+                db.query("SELECT COUNT(*) FROM $t").use { c -> c.moveToFirst(); assertThat(c.getInt(0)).isEqualTo(0) }
+            }
+        }
+    }
 }

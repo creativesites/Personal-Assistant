@@ -85,4 +85,17 @@ object DataModule {
 
     @Provides @Singleton
     fun memory(db: ZuriDatabase, clock: Clock): MemoryRepository = RoomMemoryRepository(db, clock)
+
+    @Provides @Singleton
+    fun goals(db: ZuriDatabase, clock: Clock): app.zuri.android.domain.people.Goals = app.zuri.android.data.local.life.RoomGoals(db, clock)
+
+    @Provides @Singleton
+    fun notes(db: ZuriDatabase, clock: Clock): app.zuri.android.domain.people.Notes = app.zuri.android.data.local.life.RoomNotes(db, clock)
+
+    @Provides @Singleton
+    fun timeline(db: ZuriDatabase): app.zuri.android.domain.people.LifeTimeline = app.zuri.android.data.local.life.RoomTimeline(db)
+
+    @Provides @Singleton
+    fun trajectory(db: ZuriDatabase, device: app.zuri.android.domain.people.DeviceCalendar): app.zuri.android.domain.people.Trajectory =
+        app.zuri.android.data.local.life.RoomTrajectory(db, device)
 }

@@ -42,6 +42,7 @@ include(
     ":feature:sources",
     ":feature:inbox",
     ":feature:people",
+    ":feature:life",
     ":feature:models",
     ":feature:memory",
     ":feature:ask",

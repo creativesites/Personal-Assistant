@@ -43,6 +43,7 @@ class PerceptionWorker(context: Context, params: WorkerParameters) : CoroutineWo
         fun indexer(): app.zuri.android.engine.perception.embed.SemanticIndexer
         fun controls(): AndroidPerceptionControls
         fun relate(): app.zuri.android.engine.perception.relate.RelateEngine
+        fun db(): ZuriDatabase
     }
 
     override suspend fun doWork(): Result {
@@ -82,13 +83,48 @@ class MorningBriefWorker(context: Context, params: WorkerParameters) : Coroutine
         val deps = EntryPointAccessors.fromApplication(applicationContext, PerceptionWorker.Deps::class.java)
         val stats = deps.relate().run()
         ZuriLog.i("RELATE", "morning", "people" to stats.people, "missions" to stats.newMissions)
+        runCatching { postBrief(deps.db()) }.onFailure { ZuriLog.w("RELATE", "brief_failed", "detail" to (it.message ?: "")) }
         return Result.success()
     }
 
+    /** "Your day": what's waiting, only when there is something real (no empty "good morning" pings). */
+    private suspend fun postBrief(db: ZuriDatabase) {
+        val ctx = applicationContext
+        if (ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        val zone = java.time.ZoneId.systemDefault()
+        val start = java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val life = db.lifeDao()
+        val missions = life.openMissions()
+        val due = life.dueBetween(start, start + 86_400_000L)
+        if (missions == 0 && due == 0) return
+        val parts = buildList {
+            if (missions > 0) add(if (missions == 1) "1 person to check in with" else "$missions missions")
+            if (due > 0) add(if (due == 1) "1 plan or promise today" else "$due plans and promises today")
+        }
+        val nm = ctx.getSystemService(android.app.NotificationManager::class.java) ?: return
+        nm.createNotificationChannel(android.app.NotificationChannel(CHANNEL, "Morning brief", android.app.NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "Once a morning, only when something needs you"
+        })
+        val open = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.let {
+            android.app.PendingIntent.getActivity(ctx, 0, it, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+        }
+        val n = android.app.Notification.Builder(ctx, CHANNEL)
+            .setSmallIcon(ctx.applicationInfo.icon)
+            .setContentTitle("Your day")
+            .setContentText(parts.joinToString(" · "))
+            .setContentIntent(open).setAutoCancel(true)
+            // Lock screen shows only that there is a brief, never names (privacy).
+            .setVisibility(android.app.Notification.VISIBILITY_PRIVATE)
+            .build()
+        nm.notify(NOTIFICATION_ID, n)
+    }
+
     companion object {
-        /** Milliseconds from [now] to the next 06:30 local time. */
-        fun delayTo0630(now: java.time.ZonedDateTime): Long {
-            var next = now.withHour(6).withMinute(30).withSecond(0).withNano(0)
+        const val CHANNEL = "morning_brief"
+        const val NOTIFICATION_ID = 7001
+        /** Milliseconds from [now] to the next 06:45 local time (recompute, then brief, before 07:00). */
+        fun delayTo0700(now: java.time.ZonedDateTime): Long {
+            var next = now.withHour(6).withMinute(45).withSecond(0).withNano(0)
             if (!next.isAfter(now)) next = next.plusDays(1)
             return java.time.Duration.between(now, next).toMillis()
         }
@@ -132,7 +168,7 @@ class AndroidPerceptionControls(
         work.enqueueUniquePeriodicWork(
             MORNING, ExistingPeriodicWorkPolicy.UPDATE,
             PeriodicWorkRequestBuilder<MorningBriefWorker>(24, TimeUnit.HOURS)
-                .setInitialDelay(MorningBriefWorker.delayTo0630(java.time.ZonedDateTime.now()), TimeUnit.MILLISECONDS).build(),
+                .setInitialDelay(MorningBriefWorker.delayTo0700(java.time.ZonedDateTime.now()), TimeUnit.MILLISECONDS).build(),
         )
     }
 

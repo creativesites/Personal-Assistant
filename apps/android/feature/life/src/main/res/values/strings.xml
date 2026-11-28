@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="life_back">Back</string>
+    <string name="life_today">Today</string>
+    <string name="life_tomorrow">Tomorrow</string>
+    <string name="life_yesterday">Yesterday</string>
+    <string name="life_cancel">Cancel</string>
+    <string name="life_done">Done</string>
+    <string name="life_delete">Delete</string>
+
+    <string name="traj_eyebrow">Your next 14 days</string>
+    <string name="traj_title">Trajectory</string>
+    <string name="traj_connect_t">Add your phone\'s calendar</string>
+    <string name="traj_connect_b">Zuri can show your calendar events alongside what it found in your chats. It only reads them, on this phone; nothing is copied or uploaded.</string>
+    <string name="traj_connect_cta">Allow calendar access</string>
+    <string name="traj_empty_t">A clear trajectory</string>
+    <string name="traj_empty_b">Plans, promises and check-ins from your chats appear here as Zuri finds them.</string>
+    <string name="traj_promise">You promised</string>
+    <string name="traj_checkin">Check in with %1$s</string>
+    <string name="traj_checkin_b">Around when you usually talk</string>
+    <string name="traj_all_day">All day</string>
+
+    <string name="goals_eyebrow">What you\'re working toward</string>
+    <string name="goals_title">Goals</string>
+    <string name="goals_new">New goal</string>
+    <string name="goals_empty_t">No goals yet</string>
+    <string name="goals_empty_b">Set something you\'re working toward, and the people it involves. Zuri keeps the history.</string>
+    <string name="goal_active">Active</string>
+    <string name="goal_achieved">Achieved</string>
+    <string name="goal_paused">Paused</string>
+    <string name="goal_title_hint">What do you want to achieve?</string>
+    <string name="goal_why_hint">Why it matters (optional)</string>
+    <string name="goal_create">Create</string>
+    <string name="goal_progress">Progress · %1$d%%</string>
+    <string name="goal_people">People involved</string>
+    <string name="goal_history">History</string>
+    <string name="goal_ev_created">Started</string>
+    <string name="goal_ev_progress">Progress</string>
+    <string name="goal_ev_achieved">Achieved</string>
+    <string name="goal_ev_paused">Paused</string>
+    <string name="goal_ev_resumed">Resumed</string>
+    <string name="goal_ev_note">Note</string>
+
+    <string name="tl_eyebrow">What actually happened</string>
+    <string name="tl_title">Life Timeline</string>
+    <string name="tl_this_week">This week</string>
+    <string name="tl_last_week">Last week</string>
+    <string name="tl_empty_t">Your story starts here</string>
+    <string name="tl_empty_b">Goals, promises kept, check-ins and relationships warming up appear here as they happen. Zuri never fills a quiet week with made-up highlights.</string>
+    <string name="tl_goal_created">Goal set</string>
+    <string name="tl_goal_progress">Goal progress</string>
+    <string name="tl_goal_achieved">Goal achieved</string>
+    <string name="tl_goal_other">Goal</string>
+    <string name="tl_mission">Mission done</string>
+    <string name="tl_promise">Promise kept</string>
+    <string name="tl_warmer">Getting closer</string>
+    <string name="tl_cooler">Drifting</string>
+
+    <string name="notes_eyebrow">Your knowledge</string>
+    <string name="notes_title">Notes</string>
+    <string name="notes_new">New note</string>
+    <string name="notes_empty_t">No notes yet</string>
+    <string name="notes_empty_b">Jot down anything you want to keep. Notes stay on this phone.</string>
+    <string name="note_title">Title</string>
+    <string name="note_body">Note</string>
+    <string name="note_pin">Pin</string>
+    <string name="note_save">Save</string>
+</resources>

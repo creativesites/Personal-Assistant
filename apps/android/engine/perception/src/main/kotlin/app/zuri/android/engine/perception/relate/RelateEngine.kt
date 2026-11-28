@@ -53,6 +53,8 @@ class RelateEngine(private val db: ZuriDatabase, private val clock: Clock, priva
         for (p in people) {
             val r = relationship(p.id, p.workspaceId, now) ?: continue
             dao.upsert(r)
+            // History for the life timeline: one row whenever the score moves.
+            if (r.previousScore == null || r.previousScore != r.score) db.lifeDao().log(app.zuri.android.data.local.db.HealthLogEntity(conversationId = r.conversationId, score = r.score, previousScore = r.previousScore, at = now))
             val next = r.nextCheckAt
             if (next != null && now >= next && r.messageCount >= MIN_MESSAGES && r.lastInteractionAt != null && !dao.hasOpen(p.id)) due += r to p.title
         }

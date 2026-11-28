@@ -19,5 +19,9 @@ abstract class AppModule {
     companion object {
         @Provides @Singleton
         fun clock(): Clock = Clock.System
+
+        @Provides @Singleton
+        fun deviceCalendar(@dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context): app.zuri.android.domain.people.DeviceCalendar =
+            app.zuri.android.platform.AndroidDeviceCalendar(context)
     }
 }
