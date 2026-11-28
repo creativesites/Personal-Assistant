@@ -7,3 +7,6 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Firebase config (G7 push): kept out of the public repo; CI gets it from a secret.
+google-services.json
