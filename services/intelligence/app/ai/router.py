@@ -34,13 +34,13 @@ log = structlog.get_logger()
 
 # Quality first: the strongest model leads every chain the owner sees or sends.
 DEFAULT_CHAINS: dict[str, list[str]] = {
-    'reply_draft': ['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'gemini/gemini-3.5-pro',
+    'reply_draft': ['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'gemini/gemini-4-hydrogen', 'gemini/gemini-pro-latest',
                     'openai/gpt-5', 'deepseek/deepseek-chat'],
-    'auto_reply': ['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'gemini/gemini-3.5-pro',
+    'auto_reply': ['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'gemini/gemini-4-hydrogen', 'gemini/gemini-pro-latest',
                    'openai/gpt-5', 'deepseek/deepseek-chat'],
-    'chat_summary': ['anthropic/claude-sonnet-5-5', 'gemini/gemini-3.5-pro', 'openai/gpt-5'],
-    'analysis': ['anthropic/claude-haiku-5-5', 'gemini/gemini-3.5-flash', 'deepseek/deepseek-chat'],
-    'networking_coach': ['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'gemini/gemini-3.5-pro'],
+    'chat_summary': ['anthropic/claude-sonnet-5-5', 'gemini/gemini-4-hydrogen', 'gemini/gemini-pro-latest', 'openai/gpt-5'],
+    'analysis': ['anthropic/claude-haiku-5-5', 'gemini/gemini-3.6-flash', 'deepseek/deepseek-chat'],
+    'networking_coach': ['anthropic/claude-opus-5-5', 'anthropic/claude-sonnet-5-5', 'gemini/gemini-4-hydrogen', 'gemini/gemini-pro-latest'],
 }
 JOBS = tuple(DEFAULT_CHAINS)
 

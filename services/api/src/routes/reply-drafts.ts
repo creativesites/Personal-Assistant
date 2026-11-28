@@ -216,4 +216,32 @@ export async function replyDraftRoutes(fastify: FastifyInstance) {
       return reply.code(502).send({ error: 'engine_unavailable' })
     }
   })
+
+  // Blind test: how often a judge model can tell the owner's real replies
+  // from the engine's drafts (50% = indistinguishable; target <= 60%).
+  fastify.post('/api/ai/blind-test', { preHandler: authenticate }, async (request, reply) => {
+    const { userId } = request.user as { userId: string }
+    const body = z.object({
+      samples: z.number().int().min(1).max(40).default(20),
+      chain: z.array(z.string().regex(MODEL_RE)).min(1).max(8).optional(),
+      includeTexts: z.boolean().default(false),
+    }).safeParse(request.body ?? {})
+    if (!body.success) return reply.code(400).send({ error: 'invalid_body' })
+    const ownerId = (await getEffectiveScope(userId)).ownerUserId
+    try {
+      const res = await fetch(`${INTELLIGENCE()}/internal/replies/blind-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: ownerId, samples: body.data.samples, chain: body.data.chain ?? null,
+          include_texts: body.data.includeTexts,
+        }),
+        signal: AbortSignal.timeout(600_000),
+      })
+      if (!res.ok) return reply.code(502).send({ error: 'engine_unavailable' })
+      return reply.send(await res.json())
+    } catch {
+      return reply.code(502).send({ error: 'engine_unavailable' })
+    }
+  })
 }

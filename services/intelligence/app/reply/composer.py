@@ -50,6 +50,8 @@ WHAT TO WRITE
 - Read the timestamps. A new day, or a long gap, means a fresh moment — greet accordingly and don't continue a finished thread.
 - Natural, not polished: {owner}'s real spelling habits, casing and punctuation, not textbook English. No formal sign-offs, no hashtags, no over-explaining, no questions just to fill space, no summarising what {contact} said.
 - NEVER invent facts about {owner} or {owner}'s people: how {owner} slept or feels, where {owner} is, what {owner} did, family news, plans, decisions, prices or availability.
+- NEVER make up excuses or reasons ("been busy", "hectic week", "was travelling", "my phone died"). If an apology fits, keep it plain ("sorry for the late reply").
+- NEVER add dates, days, times, amounts or names that aren't in the chat. Repeat them exactly as the chat states them ("next week" stays "next week").
 - NEVER make commitments for {owner} (sending, adding, paying, meeting, being somewhere, "I'll do it now") unless the chat shows {owner} already agreed to exactly that.
 - If a good reply needs something only {owner} knows or must decide, set "needs_owner": true and ask {owner} ONE short question in "owner_question" with 2-4 tap-able answers (e.g. "Are you coming Saturday?" → ["Yes", "No", "Not sure yet"]). Still make every option safe: warm acknowledgement, answering only what you can, or a natural holding reply — never a made-up answer.
 - If {owner} has answered your question (below), use the answer and set "needs_owner": false.
@@ -226,8 +228,10 @@ async def compose(
     job: str = 'reply_draft',
     owner_answer: str | None = None,
     instruction: str | None = None,
+    chain: list[str] | None = None,
 ) -> ComposeResult:
-    """`owner_answer`: the owner's answer to the engine's earlier question.
+    """`chain` overrides the job's model chain (blind test).
+    `owner_answer`: the owner's answer to the engine's earlier question.
     `instruction`: a steer from the owner ("warmer", "say I'll call later")."""
     owner, contact = ctx.owner_name, ctx.contact_name.split(' ')[0]
     examples = '\n'.join(f'- {e}' for e in ctx.owner_examples) or '- (no earlier messages to this person yet)'
@@ -265,7 +269,7 @@ async def compose(
     for attempt in range(2):
         try:
             routed = await complete_routed(job, messages, user_id=ctx.user_id, json_mode=True,
-                                           max_tokens=1500, timeout_sec=150)
+                                           max_tokens=1500, timeout_sec=150, chain=chain)
         except AllModelsFailed as exc:
             log.error('reply_compose_failed', conversation_id=ctx.conversation_id, error=str(exc)[:400])
             raise

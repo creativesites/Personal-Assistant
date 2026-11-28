@@ -21,3 +21,18 @@ async def compose_now(conversation_id: str, body: ComposeRequest):
                              as_of_message_id=body.as_of_message_id,
                              owner_answer=body.owner_answer, instruction=body.instruction)
 
+
+
+class BlindTestRequest(BaseModel):
+    user_id: str
+    samples: int = 20
+    chain: list[str] | None = None
+    include_texts: bool = False
+
+
+@router.post('/blind-test')
+async def blind_test(body: BlindTestRequest):
+    """Can a judge tell the owner's real replies from the engine's drafts?"""
+    from ..reply.blind_test import run_blind_test
+    return await run_blind_test(body.user_id, samples=max(1, min(body.samples, 40)),
+                                chain=body.chain, include_texts=body.include_texts)
