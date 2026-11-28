@@ -169,7 +169,8 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
 ### Conversation
 ```ts
 { id; contactId; chatJid; lastMessageAt: number | null; preview: string | null;
-  unreadCount: number; archived: boolean; muted: boolean; pinned: boolean; pinnedAt: number | null }
+  unreadCount: number; archived: boolean; muted: boolean; pinned: boolean; pinnedAt: number | null;
+  aiEnabled: boolean }          // per-chat AI switch, see docs/AI_API.md
 ```
 
 ### Contact
@@ -177,7 +178,8 @@ ORDER BY timestamp ASC, order ASC      -- order compared as a 64-bit integer
 { id; jid; phone: string | null; name: string | null; savedName: string | null; pushName: string | null;
   isGroup: boolean; isBusiness: boolean; hasAvatar: boolean;
   avatarTag: string | null;   // changes when the picture changes; equals the avatar ETag
-  lastSeenAt: number | null }
+  lastSeenAt: number | null;
+  isPartner: boolean }          // the owner's partner (reply engine language rules)
 ```
 
 ### `GET /api/sync/contacts/:id/avatar`

@@ -1,6 +1,6 @@
 # Zuri AI plan — replies that sound like the owner, and Networking
 
-Status: agreed with the owner on 2026-11-28. Nothing in this plan is built yet.
+Status: agreed with the owner on 2026-11-28. Parts A (routing) and B (reply engine v3 and blind test) are built and live; the API is in `docs/AI_API.md`. Parts C (Networking) and the app surfaces in Part D are not built yet.
 
 Zuri is now the owner's own personal system, not a product for other users. Decisions below favour one person's quality over multi-tenant concerns.
 
