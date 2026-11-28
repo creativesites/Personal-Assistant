@@ -183,6 +183,10 @@ function contactShape(r: Row) {
     lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).getTime() : null,
     // The owner's partner: the reply engine may use Shona there.
     isPartner: Boolean(r.is_partner),
+    // Both forms of a 1:1 contact's WhatsApp id, when known: phone
+    // notifications key 1:1 chats by @lid (G5).
+    lid: r.lid_jid ?? null,
+    pnJid: r.pn_jid ?? null,
   };
 }
 
@@ -236,7 +240,14 @@ export async function syncRoutes(fastify: FastifyInstance) {
     // `limit` are exactly the next `limit` changes overall.
     const [contacts, conversations, messages, tombstones] = await Promise.all([
       db.query(
-        `SELECT * FROM contacts WHERE user_id = $1 AND change_seq > $2 ORDER BY change_seq LIMIT $3`,
+        `SELECT c.*,
+                CASE WHEN c.whatsapp_jid LIKE '%@lid' THEN c.whatsapp_jid
+                     ELSE (SELECT l.lid_jid FROM whatsapp_lid_map l
+                           WHERE l.user_id = c.user_id AND l.pn_jid = c.whatsapp_jid LIMIT 1) END AS lid_jid,
+                CASE WHEN c.whatsapp_jid LIKE '%@s.whatsapp.net' THEN c.whatsapp_jid
+                     ELSE (SELECT l.pn_jid FROM whatsapp_lid_map l
+                           WHERE l.user_id = c.user_id AND l.lid_jid = c.whatsapp_jid LIMIT 1) END AS pn_jid
+         FROM contacts c WHERE c.user_id = $1 AND c.change_seq > $2 ORDER BY c.change_seq LIMIT $3`,
         [uid, after, limit],
       ),
       db.query(
